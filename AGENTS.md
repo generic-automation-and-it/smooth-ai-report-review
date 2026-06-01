@@ -1,0 +1,39 @@
+# smooth-ai-report-review
+
+## TL;DR
+
+Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub Actions gate (`.github/workflows/pipline-code-review-report.yml`) that reviews PRs in chunks via opencode/Gemini, driven by the `ai-review-report` skill — plus the `ai-review` skill that applies a posted review's fix/skip decisions.
+
+## Non-Negotiables
+
+- **Workflow ↔ script paths are coupled.** The gate invokes skill scripts by hardcoded path (`.agents/skills/ai-review-report/scripts/…`). Moving or renaming a script, or the skill folder, silently breaks the gate. Change the workflow YAML and the scripts in the same commit.
+- **The gate requires a `self-hosted` runner.** opencode reaches the Gemini models through a private-network LiteLLM gateway; `ubuntu-latest` cannot reach it. Do not switch the runner.
+- **Credentials are env-injected, never committed.** `assets/opencode.json` holds `{env:OPENCODE_LITELLM_*}` placeholders only. The gateway URL/key are GitHub **Secrets**; the `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store the URL/key as Variables or hardcode them.
+
+## System Context
+
+This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to Gemini models through an internal LiteLLM gateway and posts structured reviews back to GitHub. Pipeline internals (chunking, the two-tier model chain, orchestrator model, false-positive rules, LADR-001…025) live in `.agents/skills/ai-review-report/SKILL.md` — that file is the source of truth; do not restate it here.
+
+```mermaid
+C4Context
+    title smooth-ai-report-review — System Context
+    System(gate, "PR Code Review Gate", "Chunked PR review: GitHub Actions + ai-review-report skill")
+    System_Ext(github, "GitHub Actions + API", "CI runtime, PR reviews, GraphQL")
+    System_Ext(gateway, "LiteLLM Gateway", "Private-network proxy to Gemini models")
+    Rel(gate, github, "Reads diffs, posts/minimizes reviews")
+    Rel(gate, gateway, "Sends chunked prompts", "HTTPS, VPN-gated")
+```
+
+## Key Behaviors
+
+- **Two skills, opposite directions.** `ai-review-report` *generates* the review (CI gate, or locally via `scripts/local-review.sh`). `ai-review` (invoked `/ai-review`) *consumes* a posted review and applies fix/skip decisions back to the PR. Don't conflate them or merge their scripts.
+- **Everything lives under `.agents/`, never `.ai/`.** This repo standardizes on `.agents/` for skills, rules, and context (the skill's origin used `.ai/`; all internal references, the workflow, and `MANDATORY_CONTEXT_FILES` were rewritten). Any new path reference — including ones aimed at a consuming repo — must use the `.agents/` prefix.
+- **Most `MANDATORY_CONTEXT_FILES` resolve against the repo being reviewed, not this one.** The workflow lists context paths (`.agents/rules-scoped/…`, `.agents/skills/code-review-standards/…`, `.docs/nfr/…`) that exist in a consuming product repo, not here. They warn-and-skip when absent; do not "fix" them by deleting or repointing — they are intentional for cross-repo reuse.
+- **The root `AGENTS.md` is loaded only via `MANDATORY_CONTEXT_FILES`.** `find-context-files.sh`'s per-chunk walk stops one level *above* nothing — its loop terminates before reaching `.`, so it never discovers a repo-root file. This root doc is loaded only because it is listed in the workflow's `MANDATORY_CONTEXT_FILES`. Keep that entry if this repo's own PRs should be reviewed with this context.
+- **`assets/` is runtime config, `references/` is edit-time docs.** `assets/` holds `opencode.json` and `review-config.json` (the latter loaded by `filter-excluded-files.sh`). `references/` holds `CHANGELOG.md` and the AGENTS.md quality standards — read only when editing the skill, not during a review.
+
+## Changelog
+
+| Date | Change | Ref |
+|:-----|:-------|:----|
+| 2026-06-01 | Seeded repo with the `ai-review-report` + `ai-review` skills and the `pipline-code-review-report` gate; replaced the SKILL.md symlink with a real root AGENTS.md authored to the quality standards. | — |
