@@ -3,7 +3,7 @@ set -e
 
 # Script: validate-agents-md.sh
 # Purpose: Validate that FULL reviews include at least one documentation file with proper naming
-# Usage: Called from gemini-cli-code-review.yml workflow for FULL reviews only
+# Usage: Called from pipline-code-review-report.yml workflow for FULL reviews only
 # Arguments: $1=REVIEW_TYPE
 #
 # Validation Rules:
@@ -274,7 +274,7 @@ check_structural_quality() {
   done <<< "$content"
 
   # 4. Anti-pattern: Empty sections with N/A content
-  if echo "$content" | grep -A1 "^## " | grep -qE "^(N/A\.?|None\.?|Not applicable\.?|-|—)$"; then
+  if echo "$content" | grep -A1 "^## " | grep -qE "^[[:space:]]*(N/A\.?|None\.?|Not applicable\.?|-|—)[[:space:]]*$"; then
     QUALITY_ISSUES_LIST+=("Contains section(s) with 'N/A' or 'None' (anti-pattern: omit empty sections)")
   fi
 

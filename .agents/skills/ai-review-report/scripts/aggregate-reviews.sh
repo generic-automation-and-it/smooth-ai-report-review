@@ -10,7 +10,7 @@ fi
 
 # Script: aggregate-reviews.sh
 # Purpose: Aggregate chunked reviews and generate PR summary
-# Usage: Called from gemini-cli-code-review.yml workflow
+# Usage: Called from pipline-code-review-report.yml workflow
 # Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS
 
 TOTAL_CHUNKS="$1"
@@ -713,7 +713,7 @@ else
     if [ -n "$CRITICAL_ISSUES" ] || [ -n "$HIGH_ISSUES" ]; then
       echo "review_action=request_changes" >> "$GITHUB_OUTPUT"
       echo "📋 Recommendation: REQUEST CHANGES (critical/high issues found via content parsing)"
-    elif grep -qi "APPROVE" ci_temp/pr_summary.md; then
+    elif grep -qiE "(decision|recommendation|machine_readable_action).*approve" ci_temp/pr_summary.md; then
       echo "review_action=approve" >> "$GITHUB_OUTPUT"
       echo "📋 Recommendation: APPROVE (from text parsing)"
     else

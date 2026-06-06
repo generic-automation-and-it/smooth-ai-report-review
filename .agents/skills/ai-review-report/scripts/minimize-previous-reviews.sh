@@ -3,7 +3,7 @@ set -e
 
 # Script: minimize-previous-reviews.sh
 # Purpose: Minimize (hide) previous Gemini reviews when a new full review is posted
-# Usage: Called from gemini-cli-code-review.yml workflow after posting a full review
+# Usage: Called from pipline-code-review-report.yml workflow after posting a full review
 # Arguments: $1=PR_NUMBER $2=REVIEW_TYPE $3=GITHUB_REPOSITORY $4=CURRENT_REVIEW_ID (optional)
 
 PR_NUMBER="$1"
@@ -33,7 +33,7 @@ echo ""
 REPO_OWNER=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f1)
 REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
 
-# Get all reviews for the PR via GraphQL, finding reviews by github-actions bot
+# Get all reviews for the PR via GraphQL (filtered below by review-body marker, not author)
 REVIEWS_JSON=$(gh api graphql -f query='
   query($owner: String!, $repo: String!, $pr_number: Int!) {
     repository(owner: $owner, name: $repo) {
@@ -43,9 +43,6 @@ REVIEWS_JSON=$(gh api graphql -f query='
             id
             databaseId
             body
-            author {
-              login
-            }
           }
         }
       }
@@ -54,9 +51,9 @@ REVIEWS_JSON=$(gh api graphql -f query='
   -f owner="${REPO_OWNER}" \
   -f repo="${REPO_NAME}" \
   -F pr_number="$PR_NUMBER" 2>&1) || {
-    echo "❌ Failed to fetch PR reviews via GraphQL"
+    echo "⚠️ Failed to fetch PR reviews via GraphQL — skipping minimization (non-fatal)."
     echo "$REVIEWS_JSON"
-    exit 1
+    exit 0
 }
 
 # Extract review Node IDs for Gemini reviews, excluding the current one
