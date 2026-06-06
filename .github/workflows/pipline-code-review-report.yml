@@ -63,12 +63,15 @@ jobs:
       # OPENCODE_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
       # secret stays empty and trips the presence check rather than silently
       # falling back to another provider's creds).
+      # API keys stay Secrets; gateway URLs are non-sensitive and come from
+      # repo/org Variables (the user-confirmed config) so they can be retuned
+      # without secret access.
       OPENCODE_GEMININ_API_KEY: ${{ secrets.OPENCODE_GEMININ_API_KEY }}
       OPENCODE_GEMININ_URL: ${{ secrets.OPENCODE_GEMININ_URL }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
-      OPENCODE_COPILOT_URL: ${{ secrets.OPENCODE_COPILOT_URL }}
+      OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
-      OPENCODE_OPENAI_URL: ${{ secrets.OPENCODE_OPENAI_URL }}
+      OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
@@ -137,8 +140,8 @@ jobs:
           [ -z "${OPENCODE_GATEWAY_API_KEY}" ] && missing="${missing} ${K}"
           [ -z "${OPENCODE_GATEWAY_URL}" ] && missing="${missing} ${U}"
           if [ -n "$missing" ]; then
-            echo "❌ Required secret(s) empty/unset for OPENCODE_PROVIDER=${OPENCODE_PROVIDER:-GEMINI}:${missing}"
-            echo "   Set them in repo Settings → Secrets and variables → Actions → Secrets."
+            echo "❌ Required gateway setting(s) empty/unset for OPENCODE_PROVIDER=${OPENCODE_PROVIDER:-GEMINI}:${missing}"
+            echo "   Set them in repo Settings → Secrets and variables → Actions (API keys = Secrets, URLs = Variables)."
             exit 1
           fi
           echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U}, ${K})"

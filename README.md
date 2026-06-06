@@ -40,27 +40,27 @@ The active provider is chosen by the **`OPENCODE_PROVIDER`** Variable (`GEMINI` 
 
 Set these under repo (or org) **Settings → Secrets and variables → Actions**. The workflow exports each value into the job env so OpenCode's `{env:...}` substitution resolves at runtime.
 
-**Secrets** (one URL + API key pair per provider you enable):
+**Secrets** (API keys only — sensitive):
 
 | Secret | For | Required? |
 |---|---|---|
 | `OPENCODE_GEMININ_URL` | Gemini gateway base URL | Required (default provider) |
 | `OPENCODE_GEMININ_API_KEY` | Gemini gateway API key | Required (default provider) |
-| `OPENCODE_COPILOT_URL` | GitHub Copilot gateway base URL | Only if using Copilot models |
 | `OPENCODE_COPILOT_API_KEY` | GitHub Copilot gateway API key | Only if using Copilot models |
-| `OPENCODE_OPENAI_URL` | OpenAI gateway base URL | Only if using OpenAI models |
 | `OPENCODE_OPENAI_API_KEY` | OpenAI gateway API key | Only if using OpenAI models |
 
-**Variables** (optional — switch provider / retune the model chain without editing the workflow; each falls back to a literal default if unset):
+**Variables** (non-sensitive — gateway URLs, provider selector, model chain; switch provider / retune without editing the workflow; each falls back to a literal default if unset):
 
 | Variable | Default | Role |
 |---|---|---|
 | `OPENCODE_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI` |
+| `OPENCODE_COPILOT_URL` | — | GitHub Copilot gateway base URL (only if using Copilot models) |
+| `OPENCODE_OPENAI_URL` | — | OpenAI gateway base URL (only if using OpenAI models) |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
 
-> **Switching provider:** set `OPENCODE_PROVIDER` to `COPILOT` or `OPENAI`, supply that provider's `OPENCODE_<P>_URL` / `OPENCODE_<P>_API_KEY` secrets, **and** set the three `OPENCODE_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`). The model-chain defaults are Gemini IDs, which don't resolve on the Copilot/OpenAI gateways — the run **fails fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)) if a `gemini*` model is left in place for a non-`GEMINI` provider. All three credential pairs are wired into the workflow's `env:` block, so no workflow edit is needed to enable a provider — only its secrets + model Variables.
+> **Switching provider:** set `OPENCODE_PROVIDER` to `COPILOT` or `OPENAI`, supply that provider's `OPENCODE_<P>_URL` (Variable) + `OPENCODE_<P>_API_KEY` (Secret), **and** set the three `OPENCODE_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`). The model-chain defaults are Gemini IDs, which don't resolve on the Copilot/OpenAI gateways — the run **fails fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)) if a `gemini*` model is left in place for a non-`GEMINI` provider. All three credential pairs are wired into the workflow's `env:` block, so no workflow edit is needed to enable a provider — only its URL + key + model Variables.
 
 ## Environment variables
 
@@ -70,8 +70,8 @@ Complete reference for every environment variable the pipeline reads. **Selector
 |---|---|---|
 | `OPENCODE_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `GEMINI`) | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI`. |
 | `OPENCODE_GEMININ_URL` / `OPENCODE_GEMININ_API_KEY` | GitHub **Secret** / shell export | Gemini gateway base URL + API key (`litellm-gemini` provider). |
-| `OPENCODE_COPILOT_URL` / `OPENCODE_COPILOT_API_KEY` | GitHub **Secret** / shell export | GitHub Copilot gateway base URL + API key (`github-copilot` provider). |
-| `OPENCODE_OPENAI_URL` / `OPENCODE_OPENAI_API_KEY` | GitHub **Secret** / shell export | OpenAI gateway base URL + API key (`openai` provider). |
+| `OPENCODE_COPILOT_URL` (**Variable**) / `OPENCODE_COPILOT_API_KEY` (**Secret**) | GitHub / shell export | GitHub Copilot gateway base URL + API key (`github-copilot` provider). |
+| `OPENCODE_OPENAI_URL` (**Variable**) / `OPENCODE_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenAI gateway base URL + API key (`openai` provider). |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
