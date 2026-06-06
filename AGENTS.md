@@ -1,113 +1,39 @@
-# AGENTS.md
+# smooth-ai-report-review
 
-This file provides guidance for AI coding agents working in the Project repository.
+## TL;DR
 
-> **⚠️ TEMPLATE NOTICE — read before working.**
-> This repository is currently a **template**. `Project` is a placeholder name used throughout the `.agents` tree, root `AGENTS.md`, rule files, skill docs, and the solution/project layout (`Project.slnx`, `src/Project.*`, `tests/Project.*`).
->
-> **As soon as the project is given a real name, you MUST:**
-> 1. Replace every occurrence of `Project` / `project` (PascalCase namespaces/paths and lowercase prose) across all `.agents` files, root `AGENTS.md`, rule files, skill docs, `Project.slnx`, and the GitHub URL/slug with the chosen name.
-> 2. Update the glossary and the Project Overview description below to describe the real project.
-> 3. **Remove this entire TEMPLATE NOTICE block** — including this instruction — once the rename is complete.
+Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub Actions gate (`.github/workflows/pipline-code-review-report.yml`) that reviews PRs in chunks via opencode/Gemini, driven by the `ai-review-report` skill — plus the `ai-review` skill that applies a posted review's fix/skip decisions.
 
-## Project Overview
+## Non-Negotiables
 
-Project is an AI-spec-driven, AI-agnostic development project. It documents reusable patterns, blueprints, and component specifications that guide automated and AI-assisted software delivery. _(Placeholder description — update once the project is named; see Template Notice above.)_
+- **Workflow ↔ script paths are coupled.** The gate invokes skill scripts by hardcoded path (`.agents/skills/ai-review-report/scripts/…`). Moving or renaming a script, or the skill folder, silently breaks the gate. Change the workflow YAML and the scripts in the same commit.
+- **The gate runs on `ubuntu-latest`.** opencode is provider-agnostic transport — it reaches the models over HTTPS at whatever endpoint the selected provider is configured with (`OPENCODE_<PROVIDER>_URL`): a LiteLLM proxy, or the provider's native API (Google Gemini, OpenAI, Copilot). That endpoint **must be reachable from GitHub-hosted runners** — i.e. publicly routable, not VPN-only. If a private-network endpoint is ever used, switch the runner back to `self-hosted`.
+- **Credentials are env-injected, never committed.** `.agents/skills/ai-review-report/assets/opencode.json` holds `{env:OPENCODE_<PROVIDER>_*}` placeholders only. Each provider's **API key** is a GitHub **Secret**; each gateway **URL**, the `OPENCODE_PROVIDER` selector, and the `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store an API key as a Variable or hardcode any URL/key.
 
-**Tech stack:** .NET 10 · ASP.NET Core · Clean Architecture (Domain / Application / Infrastructure / Host) · EF Core + PostgreSQL · Mediator (source-gen CQRS) · xunit.v3
+## System Context
 
-## AI Context Files
+This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to the selected provider's models (GEMINI / COPILOT / OPENAI, via `OPENCODE_PROVIDER`) through a gateway and posts structured reviews back to GitHub. Pipeline internals (provider selection, chunking, the two-tier model chain, orchestrator model, false-positive rules, LADR-001…026) live in `.agents/skills/ai-review-report/SKILL.md` — that file is the source of truth; do not restate it here.
 
-Keep `*_AGENTS.md` files synchronised with code and documentation changes. Functional `*_AGENTS.md` files in feature folders are auto-loaded by the `load-agents-context` PostToolUse hook on the first Read/Edit in their directory tree — no manual registration required.
-
-### Required Maintenance
-
-- Every PR should create or update at least one `*_AGENTS.md` file.
-- Update the closest context file to the code you change. Prefer local context over adding more content to this root file.
-- When domain model or structural shape changes, also update the relevant implementation or architecture context.
-
-### Placement Rules
-
-- Functional feature context belongs close to the feature code.
-- Cross-cutting concerns belong under `.docs/hlds/02-nfrs/` or the nearest `*_AGENTS.md`.
-- Avoid creating duplicate context files that restate the same plan at multiple levels without adding new information.
-
-## Implementation Docs
-
-All planned work is tracked as worktasks under `.context/work-tasks/` (gitignored — local only). Use `/create worktask` to scaffold a new one from the template.
-
-## Repository Layout (Navigation)
-
-| Layer | Path | Purpose |
-|---|---|---|
-| Domain | `src/Project.Domain/` | Core entities, value objects — no external deps |
-| Application | `src/Project.Application/` | Vertical-slice use cases via Mediator — `Features/<Name>/`, shared code in `Common/` |
-| Infrastructure | `src/Project.Infrastructure/` | EF Core + PostgreSQL (`Persistence/`), HTTP clients (`Clients/`) |
-| Host | `src/Project.Host/` | ASP.NET Core Web API, Serilog, Scalar OpenAPI |
-| ChatHost | `src/Project.ChatHost/` | Standalone LLM microservice — owns Anthropic SDK; talks to Host via HTTP only |
-
-Detailed backend coding rules are maintained in `.agents/rules/backend/` and scoped per-file via frontmatter (see Rules section).
-
-## Rules
-
-All rules live under `.agents/rules/` as `*.instructions.md` files and are auto-loaded every session by Claude Code, Cursor, Copilot, and Codex via the symlinks/path-references documented in `.agents/AI_DEVELOPMENT_AGENTS.md`. Applicability is scoped **per-file** via frontmatter (`paths` for Claude, `globs`+`alwaysApply` for Cursor, `applyTo` for Copilot) — e.g. backend rules carry `**/*.cs` so they attach when a C# file is opened. Rules are organized into category subfolders for navigation; the folder is organizational only and does not change loading. One exception to "auto-loaded every session": prompt-scoped rules may be **deferred for Claude** and re-injected on demand by a `UserPromptSubmit` hook (e.g. `code-review-standards` loads only on review prompts via `.agents/hooks/code-review-standards-context.sh`; Cursor/Copilot still load it always). See `.agents/rules/meta/rules.instructions.md` ("Hook-deferred rules") for the file convention and `.agents/skills/manage-rule-system/SKILL.md` for the directory contract.
-
-### Rule Categories
-
-| Category | Folder | Contents |
-|----------|--------|----------|
-| _(cross-cutting)_ | `.agents/rules/` (flat) | `ai-workflow-rules`, `code-review-standards` (Claude: hook-deferred to review prompts), `project-overview` |
-| git | `.agents/rules/git/` | `git-policy`, `pr-standards` |
-| meta | `.agents/rules/meta/` | `rules` (file convention), `knowledge-conventional-contexts-quality` (AGENTS.md quality) |
-| backend (`**/*.cs`) | `.agents/rules/backend/` | `api-mediator-validation` (Minimal API + Mediator + FluentValidation fail-fast); `architecture-slices` (clean-architecture boundaries, vertical-slice Features); `backend-logging-conventions` (Information vs Debug levels); `external-api-clients` (Refit list vs singular client split, HybridCache adapter); `migrations` (`[ExcludeFromCodeCoverage]` requirement); `wiremock-stubbing` (TestFramework.Aspire single-source stub helper) |
-
-## Build / Test Commands
-
-```bash
-dotnet build Project.slnx                     # build
-dotnet test  Project.slnx                     # run all tests
-dotnet run --project src/Project.AppHost      # dev Aspire AppHost
-dotnet run --project src/Project.ChatHost     # ChatHost standalone (separate process from the API Host)
+```mermaid
+C4Context
+    title smooth-ai-report-review — System Context
+    System(gate, "PR Code Review Gate", "Chunked PR review: GitHub Actions + ai-review-report skill")
+    System_Ext(github, "GitHub Actions + API", "CI runtime, PR reviews, GraphQL")
+    System_Ext(gateway, "Model Endpoint", "Selected provider's API — LiteLLM proxy or native (Gemini/OpenAI/Copilot), publicly reachable")
+    Rel(gate, github, "Reads diffs, posts/minimizes reviews")
+    Rel(gate, gateway, "Sends chunked prompts", "HTTPS")
 ```
 
-Target a single test project directly when needed (e.g. `dotnet test tests/Project.Domain.UnitTest`); `ls tests/` lists them — no Trait annotations required. **Gotcha:** the dev Aspire dashboard runs at `http://localhost:15278`; when started from a terminal, use the printed `/login?t=...` URL on first browser visit.
+## Key Behaviors
 
-## Test Framework
+- **Two skills, opposite directions.** `ai-review-report` *generates* the review (CI gate, or locally via `scripts/local-review.sh`). `ai-review` (invoked `/ai-review`) *consumes* a posted review and applies fix/skip decisions back to the PR. Don't conflate them or merge their scripts.
+- **Everything lives under `.agents/`, never `.ai/`.** This repo standardizes on `.agents/` for skills, rules, and context (the skill's origin used `.ai/`; all internal references, the workflow, and `MANDATORY_CONTEXT_FILES` were rewritten). Any new path reference — including ones aimed at a consuming repo — must use the `.agents/` prefix.
+- **Most `MANDATORY_CONTEXT_FILES` resolve against the repo being reviewed, not this one.** The workflow lists context paths (`.agents/rules-scoped/…`, `.agents/skills/code-review-standards/…`, `.docs/nfr/…`) that exist in a consuming product repo, not here. They warn-and-skip when absent; do not "fix" them by deleting or repointing — they are intentional for cross-repo reuse.
+- **The root `AGENTS.md` is loaded only via `MANDATORY_CONTEXT_FILES`.** `find-context-files.sh`'s per-chunk walk stops one level *above* nothing — its loop terminates before reaching `.`, so it never discovers a repo-root file. This root doc is loaded only because it is listed in the workflow's `MANDATORY_CONTEXT_FILES`. Keep that entry if this repo's own PRs should be reviewed with this context.
+- **`.agents/skills/ai-review-report/assets/` is runtime config, `.agents/skills/ai-review-report/references/` is edit-time docs.** `assets/` holds `opencode.json` and `review-config.json` (the latter loaded by `filter-excluded-files.sh`). `references/` holds `CHANGELOG.md` and the AGENTS.md quality standards — read only when editing the skill, not during a review. (Both live under the skill folder, not the repo root.)
 
-xunit.v3 · Shouldly · Bogus · Respawn. Three tiers (the distinction is non-obvious and drives where a test belongs):
+## Changelog
 
-- **L0** `*.UnitTest` — no I/O, all in-process.
-- **L1** component — `Application.ComponentTest` uses in-memory EF Core; `Infrastructure.ComponentTest` uses a real isolated DB + Respawn.
-- **L2** `*.IntegrationTest` — full stack, real PostgreSQL.
-
-Shared fixtures live in `tests/Project.TestFramework/`; the Aspire dependency host (PostgreSQL + WireMock containers) in `tests/Project.TestFramework.Aspire/`. See `.docs/wiki/testing.md`.
-
-## Style and Dependencies
-
-Authoritative stack and coding conventions for AI coders are in `.agents/rules/project-overview.instructions.md` and backend-specific rules under `.agents/rules/backend/` (scoped per-file via `**/*.cs` frontmatter).
-
-## Architecture Decisions (NFRs)
-
-Human-facing reviewer documentation lives in `.docs/wiki/`. Detailed high-level designs, non-functional requirements, and lightweight architecture decision records live under `.docs/hlds/`.
-
-## CI/CD
-
-PR gate — `.github/workflows/pr-gate.yml` (triggers: `pull_request` → `main`, `push` → `main`, `workflow_dispatch`): restore → build (Release) → Aspire-backed test with coverage via the local action `.github/actions/aspire-test-with-coverage`, then publish + upload the coverage report. Full step list, service ports, timing, and local .NET tools: `.docs/wiki/ci.md`.
-
-## Git Constraints
-
-This repository is hosted on **GitHub** at `https://github.com/generic-automation-and-it/project`.
-
-- **CLI tool:** Use `gh` (GitHub CLI) for PR and repository operations.
-- **PR template:** `.github/pull_request_template.md`
-- **Code owners:** `.github/CODEOWNERS` — all files owned by `@generic-automation-and-it/project`
-
-## Glossary
-
-<!-- TODO: Add domain-specific terms and abbreviations as the project evolves. -->
-
-| Term | Description |
-|---|---|
-| Blueprint | A reusable, parameterised specification for a component or service |
-| Catalogue | The collection of all blueprints and templates in this repository |
-| Spec-driven | Development approach where machine-readable specifications are the source of truth |
+| Date | Change | Ref |
+|:-----|:-------|:----|
+| 2026-06-01 | Seeded repo with the `ai-review-report` + `ai-review` skills and the `pipline-code-review-report` gate; replaced the SKILL.md symlink with a real root AGENTS.md authored to the quality standards. | — |

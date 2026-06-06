@@ -427,3 +427,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Conductor workspace-local settings (not part of the repo)
+.conductor/

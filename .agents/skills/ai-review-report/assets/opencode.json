@@ -1,0 +1,45 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gemini": {
+      "npm": "@ai-sdk/google",
+      "name": "Gemini",
+      "options": {
+        "apiKey": "{env:OPENCODE_GEMINI_API_KEY}"
+      },
+      "models": {
+        "gemini-3.1-pro-preview":  { "name": "Gemini 3.1 Pro (preview)" },
+        "gemini-2.5-pro":          { "name": "Gemini 2.5 Pro" },
+        "gemini-3-flash-preview":  { "name": "Gemini 3 Flash (preview)" },
+        "gemini-2.5-flash":        { "name": "Gemini 2.5 Flash" }
+      }
+    },
+    "github-copilot": {
+      "npm": "@ai-sdk/github-copilot",
+      "name": "GitHub Copilot",
+      "options": {
+        "apiKey": "{env:OPENCODE_COPILOT_API_KEY}"
+      },
+      "models": {
+        "gpt-5.5": { "name": "GPT-5.5" },
+        "gpt-5.4": { "name": "GPT-5.4" },
+        "gpt-5.4-mini": { "name": "GPT-5.4 mini" }
+      }
+    },
+    "openai": {
+      "npm": "@ai-sdk/openai",
+      "name": "OpenAI",
+      "options": {
+        "apiKey": "{env:OPENCODE_OPENAI_API_KEY}"
+      },
+      "models": {
+        "gpt-5.5": { "name": "GPT-5.5" },
+        "gpt-5.4": { "name": "GPT-5.4" },
+        "gpt-5.4-mini": { "name": "GPT-5.4 mini" }
+      }
+    }
+  },
+  "permission": {
+    "external_directory": "allow"
+  }
+}

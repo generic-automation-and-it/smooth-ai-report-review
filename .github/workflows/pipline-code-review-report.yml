@@ -1,0 +1,1222 @@
+name: PR Code Review Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      model:
+        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT).'
+        required: false
+        type: string
+        default: ''
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+concurrency:
+  # Selective concurrency: Only apply shared group to pull_request events
+  # - pull_request events: Use shared group (ai-review-{pr_number}) so multiple
+  #   synchronize events cancel each other (only latest commit matters)
+  # - issue_comment, workflow_dispatch: Use unique group per run
+  #   so manual /ai-review commands don't cancel in-progress automated reviews
+  # This ensures reviews always complete and aren't cancelled unexpectedly
+  group: ${{ github.event_name == 'pull_request' && format('ai-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  open-code-review-report:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
+      (github.event_name == 'workflow_dispatch')
+    
+    env:
+      # Provider selector (GEMINI | COPILOT | OPENAI), default GEMINI. Set the
+      # repo/org Variable OPENCODE_PROVIDER to switch which opencode.json provider
+      # the review routes to. lib/resolve-provider.sh maps this to the gateway
+      # credentials + provider-id and fails fast on a mismatched model chain.
+      OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
+      # Provider-id = the provider KEY in opencode.json that the model is prefixed
+      # with (gemini / github-copilot / openai). Computed here (string
+      # literals, no empty-secret hazard) so every step — including the
+      # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
+      # value for local runs.
+      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || 'gemini' }}
+      # All three provider credential pairs are exported at job scope so opencode's
+      # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
+      # resolves for whichever provider is selected. Unused pairs resolve empty and
+      # are simply never routed to. Without the active pair the provider sends an
+      # empty Bearer token and the gateway returns 401 (cf. empty-review run
+      # 26584156846). The "Install Dependencies" step copies the SELECTED pair into
+      # OPENCODE_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
+      # secret stays empty and trips the presence check rather than silently
+      # falling back to another provider's creds).
+      # API keys stay Secrets; gateway URLs are non-sensitive and come from
+      # repo/org Variables (the user-confirmed config) so they can be retuned
+      # without secret access.
+      OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+      OPENCODE_GEMINI_URL: ${{ vars.OPENCODE_GEMINI_URL }}
+      OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
+      OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
+      OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
+      OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
+      # Optional health-probe path override. The probe picks a default from the
+      # gateway URL's API surface (Google host → /v1beta/models; any other host →
+      # /v1/models, except Copilot → /models) — so a LiteLLM/OpenAI-compatible
+      # proxy fronting ANY provider resolves correctly. Set this Variable to force
+      # a path — notably "/health" to use a LiteLLM proxy's healthy/unhealthy model
+      # summary. Empty/unset = the URL-derived default.
+      OPENCODE_API_HEALTH_OVERRIDE: ${{ vars.OPENCODE_API_HEALTH_OVERRIDE }}
+      # Models sourced from repo/org GitHub Variables so they can be retuned
+      # without editing this workflow; each falls back to a literal default if the
+      # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
+      # which would otherwise blank the model). The dispatch input still wins for
+      # the primary review model. NOTE: the literal defaults are Gemini model IDs —
+      # correct for the default provider. When OPENCODE_PROVIDER is COPILOT/OPENAI
+      # you MUST set these Variables to that provider's models (e.g. gpt-5.5);
+      # lib/resolve-provider.sh fails the run fast if a gemini* model leaks through.
+      #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
+      #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
+      #     (LADR-022); at runtime it falls back to the resolved review model.
+      OPENCODE_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
+      OPENCODE_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
+      OPENCODE_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      # Mandatory context files loaded for every review (space-separated)
+      # These contain project coding standards, language version info, and review guidelines.
+      # The repo-root AGENTS.md must be listed here explicitly: find-context-files.sh's
+      # per-chunk directory walk terminates before reaching the repo root, so a root-level
+      # AGENTS.md/CLAUDE.md is NOT auto-discovered and is loaded only via this list.
+      MANDATORY_CONTEXT_FILES: >-
+        AGENTS.md
+        .docs/nfr/PROJECT_SETUP_AGENTS.md
+        .agents/skills/code-review-standards/SKILL.md
+        .docs/nfr/TOOL_SETUP_AGENTS.md
+        .agents/rules-scoped/backend/testing-standards.instructions.md
+        .agents/rules-scoped/backend/dotnet-standards.instructions.md
+      # Paths exempt from AGENTS.md validation requirement (pipe-separated)
+      # Files in these paths do not require an accompanying *_AGENTS.md file
+      # These are typically documentation-only paths that don't need AI context files
+      AGENTS_MD_EXEMPT_PATHS: >-
+        .docs/release-notes
+    
+    steps:
+      - name: Install Dependencies
+        run: |
+          set -e
+          # Resolve the SELECTED provider's gateway credentials (OPENCODE_PROVIDER
+          # is set at job scope). Done in bash via indirection — NOT a YAML
+          # expression — so an empty selected secret resolves to empty (and trips
+          # the presence check below) rather than silently short-circuiting to
+          # another provider's creds. The same provider→creds mapping is the
+          # canonical one in lib/resolve-provider.sh (used by local-review.sh);
+          # this is the pre-checkout bootstrap copy because that repo script
+          # isn't available until after actions/checkout.
+          case "${OPENCODE_PROVIDER:-GEMINI}" in
+            COPILOT) U=OPENCODE_COPILOT_URL; K=OPENCODE_COPILOT_API_KEY ;;
+            OPENAI)  U=OPENCODE_OPENAI_URL;  K=OPENCODE_OPENAI_API_KEY ;;
+            GEMINI)  U=OPENCODE_GEMINI_URL; K=OPENCODE_GEMINI_API_KEY ;;
+            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, or OPENAI)."; exit 1 ;;
+          esac
+          OPENCODE_GATEWAY_URL="${!U}"
+          OPENCODE_GATEWAY_API_KEY="${!K}"
+          # Export to later steps so the probe + scripts read the resolved creds.
+          {
+            echo "OPENCODE_GATEWAY_URL=${OPENCODE_GATEWAY_URL}"
+            echo "OPENCODE_GATEWAY_API_KEY=${OPENCODE_GATEWAY_API_KEY}"
+          } >> "$GITHUB_ENV"
+
+          # Fail fast (and clearly) if the selected provider's gateway credentials
+          # are missing/empty — e.g. the repo Secrets were never created under
+          # these names, or were cleared. Without this the job would limp on to a
+          # confusing all-models-failed review. NOTE: this only catches
+          # empty/unset; a present-but-wrong value (typo / trailing newline) still
+          # passes here and is caught by the /health 401 check below.
+          missing=""
+          [ -z "${OPENCODE_GATEWAY_API_KEY}" ] && missing="${missing} ${K}"
+          [ -z "${OPENCODE_GATEWAY_URL}" ] && missing="${missing} ${U}"
+          if [ -n "$missing" ]; then
+            echo "❌ Required gateway setting(s) empty/unset for OPENCODE_PROVIDER=${OPENCODE_PROVIDER:-GEMINI}:${missing}"
+            echo "   Set them in repo Settings → Secrets and variables → Actions (API keys = Secrets, URLs = Variables)."
+            exit 1
+          fi
+          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U}, ${K})"
+          # opencode is installed AFTER actions/checkout (see "Install opencode +
+          # config + warm DB" step) because its provider config source lives in
+          # the repo at .agents/skills/ai-review-report/assets/opencode.json and
+          # must be in place before any `opencode` command touches the DB.
+          # Here we only install repo-independent binaries (ripgrep) and run
+          # the gateway health probe (path resolved per provider below).
+
+          # ripgrep is still useful — opencode and grep tooling both prefer it on PATH.
+          # Install it only if absent (guarded below) by dropping a prebuilt static
+          # binary into ~/.local/bin — avoids an apt dependency on whatever the runner
+          # image ships.
+          if ! command -v rg >/dev/null 2>&1; then
+            echo "Installing ripgrep (prebuilt static binary)..."
+            RG_VERSION="14.1.1"
+            mkdir -p "$HOME/.local/bin"
+            curl -sSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+              | tar -xz -C /tmp
+            mv "/tmp/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl/rg" "$HOME/.local/bin/rg"
+            chmod +x "$HOME/.local/bin/rg"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
+            echo "✓ ripgrep installed: $(rg --version | head -1)"
+          else
+            echo "✓ ripgrep already installed ($(rg --version | head -1))"
+          fi
+
+          # Gateway health probe (non-blocking diagnostic, transport-independent).
+          # The path AND auth depend on the API SURFACE at the URL, not the logical
+          # provider:
+          #   * Google OpenAI-compat surface (…/v1beta/openai) — what opencode calls —
+          #     lists models at <baseURL>/models with Bearer. Probe THAT so a healthy
+          #     result predicts real opencode calls (not a sibling native surface).
+          #   * Google NATIVE surface (…/v1beta, no /openai) → host-root /v1beta/models,
+          #     x-goog-api-key.
+          #   * any other host → OpenAI-compatible (/v1/models, except Copilot /models),
+          #     Bearer.
+          # OPENCODE_API_HEALTH_OVERRIDE wins (host-root-relative) — set it to "/health"
+          # for a LiteLLM proxy's model summary. Mirrors lib/resolve-provider.sh.
+          HOST_ROOT=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1|')
+          if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
+            HEALTH_URL="${HOST_ROOT}/${OPENCODE_API_HEALTH_OVERRIDE#/}"
+          else
+            case "$OPENCODE_GATEWAY_URL" in
+              *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/)
+                HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;      # Google OpenAI-compat surface
+              *generativelanguage.googleapis.com*)
+                HEALTH_URL="${HOST_ROOT}/v1beta/models" ;;           # Gemini-native surface
+              *)
+                case "${OPENCODE_PROVIDER:-GEMINI}" in
+                  COPILOT) HEALTH_URL="${HOST_ROOT}/models" ;;
+                  *)       HEALTH_URL="${HOST_ROOT}/v1/models" ;;    # OpenAI-compatible (incl. LiteLLM)
+                esac
+                ;;
+            esac
+          fi
+          # Auth header: the native Google Gemini surface (…/v1beta) takes the key
+          # in x-goog-api-key; Google's OpenAI-compat surface (…/v1beta/openai) and
+          # every other gateway (LiteLLM / OpenAI / Copilot) use Authorization: Bearer.
+          case "$OPENCODE_GATEWAY_URL" in
+            *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/) AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
+            *generativelanguage.googleapis.com*)                                                    AUTH_HEADER="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}" ;;
+            *)                                                                                       AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
+          esac
+          echo "Probing ${OPENCODE_PROVIDER:-GEMINI} gateway health: ${HEALTH_URL}"
+          http_code=$(curl -sS -o /tmp/health.out -w "%{http_code}" --max-time 60 \
+            -H "$AUTH_HEADER" \
+            "$HEALTH_URL" 2>/dev/null || echo "curl-error")
+          if [ "$http_code" = "200" ]; then
+            # LiteLLM /health returns a healthy/unhealthy summary; model-list
+            # endpoints (/models, /v1/models) only confirm reachability. Detect
+            # the LiteLLM shape so the detailed per-model report is shown when
+            # available and we don't falsely warn "NOT in healthy_endpoints" for
+            # a plain model list.
+            if jq -e 'has("healthy_count") or has("healthy_endpoints")' /tmp/health.out >/dev/null 2>&1; then
+              healthy_count=$(jq -r '.healthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
+              unhealthy_count=$(jq -r '.unhealthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
+              primary_healthy=$(jq -r --arg m "${OPENCODE_MODEL_PRIMARY_REVIEW}" \
+                '[.healthy_endpoints[]? | select(.model | endswith($m))] | length > 0' \
+                /tmp/health.out 2>/dev/null || echo "false")
+              unhealthy_models=$(jq -r '[.unhealthy_endpoints[]?.model] | join(", ")' \
+                /tmp/health.out 2>/dev/null || echo "")
+              echo "✓ Gateway /health OK — healthy: ${healthy_count}, unhealthy: ${unhealthy_count}"
+              if [ -n "$unhealthy_models" ]; then
+                echo "  Unhealthy models: ${unhealthy_models}"
+              fi
+              if [ "$primary_healthy" = "true" ]; then
+                echo "  ✓ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' is healthy"
+              else
+                echo "  ⚠️ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' NOT in healthy_endpoints — fallback will trigger"
+              fi
+            else
+              echo "✓ Gateway reachable (HTTP 200) at ${HEALTH_URL}"
+            fi
+          elif [ "$http_code" = "401" ]; then
+            echo "❌ Gateway health returned 401 — the ${K} secret is invalid for provider ${OPENCODE_PROVIDER:-GEMINI}"
+          else
+            echo "⚠️ Gateway health returned: ${http_code} — opencode calls likely to fail (probed ${HEALTH_URL})"
+            echo "   If this gateway's health endpoint differs, set the OPENCODE_API_HEALTH_OVERRIDE Variable to the right path."
+            head -c 500 /tmp/health.out 2>/dev/null || true
+            echo ""
+          fi
+
+          # RTK is no longer installed for this workflow — the Gemini hook was
+          # @google/gemini-cli specific and opencode handles its own tool I/O.
+          # LADR-014 superseded by LADR-023.
+
+      - name: Get PR Details for Comment or Manual Trigger
+        if: github.event_name == 'issue_comment' || github.event_name == 'workflow_dispatch'
+        id: pr_details
+        run: |
+          set -eo pipefail
+          
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_NUMBER="${{ github.event.inputs.pr_number }}"
+            echo "Manual trigger for PR #${PR_NUMBER}..."
+          else
+            PR_NUMBER="${{ github.event.issue.number }}"
+            echo "Comment trigger for PR #${PR_NUMBER}..."
+          fi
+          
+          echo "Fetching PR details for PR #${PR_NUMBER}..."
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER})
+          
+          # Validate that we got valid JSON
+          if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
+            echo "Error: Failed to fetch PR details"
+            exit 1
+          fi
+          
+          # Extract all required fields
+          HEAD_REF=$(echo "$PR_JSON" | jq -r .head.ref)
+          BASE_REF=$(echo "$PR_JSON" | jq -r .base.ref)
+          BASE_SHA=$(echo "$PR_JSON" | jq -r .base.sha)
+          HEAD_SHA=$(echo "$PR_JSON" | jq -r .head.sha)
+          # Head/base repos — needed for fork PRs on comment/dispatch triggers, where
+          # there is no github.event.pull_request.* context. Without head_repo, checkout
+          # falls back to github.repository and breaks manual re-runs of fork PRs.
+          HEAD_REPO=$(echo "$PR_JSON" | jq -r .head.repo.full_name)
+          BASE_REPO=$(echo "$PR_JSON" | jq -r .base.repo.full_name)
+
+          # Validate extracted data
+          if [ -z "$HEAD_REF" ] || [ "$HEAD_REF" = "null" ]; then
+            echo "Error: Invalid head.ref in PR data"
+            exit 1
+          fi
+
+          {
+            echo "head_ref=${HEAD_REF}"
+            echo "base_ref=${BASE_REF}"
+            echo "base_sha=${BASE_SHA}"
+            echo "head_sha=${HEAD_SHA}"
+            echo "head_repo=${HEAD_REPO}"
+            echo "base_repo=${BASE_REPO}"
+            echo "pr_number=${PR_NUMBER}"
+          } >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || steps.pr_details.outputs.head_ref }}
+          # For fork PRs, the head lives in the fork repo. On comment/dispatch there is
+          # no pull_request context, so fall back to the head_repo captured above (NOT
+          # github.repository, which would check out the wrong repo for fork re-runs).
+          repository: ${{ github.event.pull_request.head.repo.full_name || steps.pr_details.outputs.head_repo || github.repository }}
+
+      - name: Prepare Base Remote
+        run: |
+          set -e
+          # origin is the checked-out HEAD repo — for a fork PR that is the fork, not
+          # the upstream/base repo. The base branch (for merge-base/diff) must come from
+          # the BASE repo, so add an `upstream` remote pointing at it. For same-repo PRs
+          # this equals origin (harmless). All base-branch fetches below use `upstream`.
+          # The actions/checkout token auth is configured per-host, so fetches from this
+          # github.com remote authenticate without extra setup.
+          BASE_REPO="${{ github.event.pull_request.base.repo.full_name || steps.pr_details.outputs.base_repo || github.repository }}"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "${{ github.server_url }}/${BASE_REPO}.git"
+          echo "✓ upstream → ${{ github.server_url }}/${BASE_REPO}.git"
+
+      - name: Install opencode + config + warm DB
+        run: |
+          set -e
+          # Single cohesive opencode setup, post-checkout so opencode.json is
+          # available from the repo.
+          #
+          # Order is deliberate:
+          #   1. Install opencode binary (LADR-023).
+          #   2. Install provider config from the skill source-of-truth
+          #      (.agents/skills/ai-review-report/assets/opencode.json) into
+          #      opencode's global config dir (~/.config/opencode/opencode.json,
+          #      precedence 2 per opencode docs). The provider reads
+          #      OPENCODE_GEMINI_URL and OPENCODE_GEMINI_API_KEY directly via
+          #      {env:VAR} substitution; no URL derivation needed.
+          #   3. Warm the SQLite store. opencode's first DB-touching command
+          #      prints "Performing one time database migration..." to stdout.
+          #      If that first command is `opencode run`, the migration text
+          #      mixes into the model response (observed on run 26581846525).
+          #      `opencode stats` is the lightest command that triggers it —
+          #      no network call. Config is already in place at this point so
+          #      opencode never operates without its provider config.
+
+          echo "Installing opencode..."
+          curl -fsSL https://opencode.ai/install | bash
+          export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          opencode --version
+
+          echo "Installing opencode provider config..."
+          bash .agents/skills/ai-review-report/scripts/lib/setup-opencode-config.sh
+
+          echo "Warming opencode SQLite store..."
+          opencode stats >/dev/null || true
+          echo "✓ opencode DB initialised"
+
+      - name: Resolve & validate provider / model selection
+        # Post-checkout (repo script now available). Canonical provider resolver:
+        # re-confirms OPENCODE_PROVIDER_ID + gateway creds and FAILS FAST when a
+        # non-GEMINI provider is paired with an unset or gemini* model chain —
+        # before the expensive chunked review runs.
+        run: bash .agents/skills/ai-review-report/scripts/lib/resolve-provider.sh
+
+      - name: Assert Review Model Selection Works
+        id: gemini_model_test
+        run: |
+          echo "Testing the two-tier review chain via opencode (LADR-002)..."
+          echo ""
+          echo "Primary review:   ${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}"
+          echo "Secondary review: ${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}"
+          echo "Orchestrator:     ${{ env.OPENCODE_MODEL_ORCHESTRATOR }} (not probed — falls back to the resolved review model at runtime)"
+
+          # Error pattern — covers the upstream LiteLLM/Gemini error surface
+          # that any client (opencode, gemini-cli, curl) will see. Removed the
+          # gemini-cli-specific "Invalid auth method" string (LADR-023). Added
+          # opencode-side phrasings observed during rollout step 1 — provider/
+          # model resolution failures and auth rejections.
+          # `sqlite-migration` is matched here so a probe that produces ONLY
+          # opencode's first-run SQLite migration output (no actual model call
+          # completed) is correctly flagged as failure, not silently accepted.
+          ERROR_PATTERN="NOT_FOUND\|not found\|404\|quota\|exhausted\|rate.limit\|RESOURCE_EXHAUSTED\|INVALID_ARGUMENT\|API_KEY_INVALID\|API key not valid\|400\|401\|authentication failed\|provider error\|model not found\|sqlite-migration"
+
+          run_probe() {
+            # Mirrors lib/opencode-with-fallback.sh: no --agent, WARN-level
+            # logging (short probe so verbose INFO/--print-logs adds noise
+            # without helping). ERROR_PATTERN below catches the failure modes.
+            # Provider-id is resolved from OPENCODE_PROVIDER (default gemini).
+            opencode run \
+              --model "${OPENCODE_PROVIDER_ID:-gemini}/$1" \
+              --format default \
+              --log-level WARN \
+              "Say 'OK'" 2>&1 || true
+          }
+
+          # Only the deep review chain is probed (PRIMARY_REVIEW → SECONDARY_REVIEW).
+          # The orchestrator is intentionally NOT probed: if it is down at call time
+          # it falls back to the resolved review model (already proven healthy here),
+          # so a separate probe would gate nothing. If BOTH review models fail we
+          # soft-fail (LADR-021): post a request-changes review and exit green.
+
+          # Test 1: primary review model
+          echo ""
+          echo "=== Test 1: primary review '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' ==="
+          output=$(run_probe "${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}")
+
+          if echo "$output" | grep -iq "$ERROR_PATTERN"; then
+            echo "⚠️ Primary review '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' not available, quota exceeded, or API key error"
+            echo "  Error: $(echo "$output" | grep -i "error\|quota\|not.found\|invalid\|API.key" | head -2 || true)"
+
+            # Test 2: secondary review model
+            echo ""
+            echo "=== Test 2: secondary review '${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}' ==="
+            output=$(run_probe "${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}")
+
+            if echo "$output" | grep -iq "$ERROR_PATTERN"; then
+              echo "⚠️ Both review models failed — will post request-changes review and exit cleanly"
+              echo "  Primary '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
+              echo "  Secondary '${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
+              echo "--- opencode output ---"
+              echo "$output"
+              echo "-----------------------"
+              echo "all_models_failed=true" >> $GITHUB_OUTPUT
+              echo "selected_model=none" >> $GITHUB_OUTPUT
+            else
+              echo "✓ Secondary review '${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}' works correctly"
+              echo "  Response: $(echo "$output" | head -20)"
+              echo "selected_model=${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}" >> $GITHUB_OUTPUT
+              echo ""
+              echo "📌 Using secondary review model: ${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}"
+            fi
+          else
+            echo "✓ Primary review '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' works correctly"
+            echo "  Response: $(echo "$output" | head -20)"
+            echo "selected_model=${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}" >> $GITHUB_OUTPUT
+            echo ""
+            echo "📌 Using primary review model: ${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}"
+          fi
+
+      - name: Get PR Information
+        id: pr_info
+        run: |
+          set -eo pipefail
+
+          if [ "${{ github.event_name }}" = "issue_comment" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Use data from previous step for comment or manual triggers
+            {
+              echo "pr_number=${{ steps.pr_details.outputs.pr_number }}"
+              echo "base_ref=${{ steps.pr_details.outputs.base_ref }}"
+              echo "base_sha=${{ steps.pr_details.outputs.base_sha }}"
+              echo "head_sha=${{ steps.pr_details.outputs.head_sha }}"
+              echo "force_full_review=true"
+            } >> $GITHUB_OUTPUT
+          else
+            # Use PR event data directly (normal pull_request events)
+            {
+              echo "pr_number=${{ github.event.pull_request.number }}"
+              echo "base_ref=${{ github.event.pull_request.base.ref }}"
+              echo "base_sha=${{ github.event.pull_request.base.sha }}"
+              echo "head_sha=${{ github.event.pull_request.head.sha }}"
+              echo "force_full_review=false"
+            } >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post Request Changes - All Models Failed
+        if: steps.gemini_model_test.outputs.all_models_failed == 'true'
+        run: |
+          set -e
+          mkdir -p ci_temp
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          CURRENT_SHA="${{ steps.pr_info.outputs.head_sha }}"
+          LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # Name the active provider in the message instead of hardcoding "Gemini" —
+          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI) is set at job scope.
+          PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
+
+          {
+            echo "## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`"
+            echo ""
+            echo "**Status:** ⚠️ Unable to run review — all ${PROVIDER} models unavailable"
+            echo ""
+            echo "Both review models failed to respond, typically caused by token quota exhaustion, rate limits, or API key issues:"
+            echo ""
+            echo "- Primary review: \`${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}\`"
+            echo "- Secondary review: \`${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}\`"
+            echo ""
+            echo "**Next Steps:**"
+            echo "- Check the [workflow logs](${LOGS_URL}) for the specific error"
+            echo "- Verify ${PROVIDER} API quota / billing status"
+            echo "- Re-run the review via \`/ai-review\` once resolved"
+            echo ""
+            echo "---"
+            echo "*Automated check by OpenCode CLI Code Review*"
+          } > ci_temp/all_models_failed_review.md
+
+          gh pr review ${PR_NUMBER} \
+            --request-changes \
+            --body-file ci_temp/all_models_failed_review.md || {
+            echo "Failed to post all-models-failed review"
+            exit 1
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for Review Trigger in Commit Messages
+        id: check_commit_trigger
+        run: |
+          set -eo pipefail
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+
+          echo "Checking commit messages for review trigger (/ai-review)..."
+
+          # Query all commits in the PR
+          COMMITS=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits --jq '.[].commit.message')
+
+          if echo "$COMMITS" | grep -qiE "/ai-review"; then
+            echo "✓ Found review trigger in commit message"
+            echo "force_full_review_from_commit=true" >> $GITHUB_OUTPUT
+          else
+            echo "✓ No review trigger found in commit messages"
+            echo "force_full_review_from_commit=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine Review Type and Range
+        id: determine_review
+        run: |
+          set -e
+          echo "Looking for previous Gemini reviews..."
+
+          # Force full review if triggered by comment, manual dispatch, review re-request, or review trigger in commit
+          FORCE_FULL_FROM_FLAG="${{ steps.pr_info.outputs.force_full_review }}"
+          FORCE_FULL_FROM_COMMIT="${{ steps.check_commit_trigger.outputs.force_full_review_from_commit }}"
+
+          if [ "$FORCE_FULL_FROM_FLAG" = "true" ] || [ "$FORCE_FULL_FROM_COMMIT" = "true" ]; then
+            if [ "$FORCE_FULL_FROM_COMMIT" = "true" ]; then
+              echo "✓ Review trigger (/ai-review) found in commit message. Forcing full PR review."
+            else
+              echo "Manual trigger detected (/ai-review comment, review re-request, or workflow dispatch). Forcing full PR review."
+            fi
+            # Use merge base for full reviews to avoid including main branch changes
+            MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
+            git fetch upstream ${MAIN_BRANCH}
+            MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
+            echo "from_sha=${MERGE_BASE}" >> $GITHUB_OUTPUT
+            echo "review_type=full" >> $GITHUB_OUTPUT
+            echo "current_sha=${{ steps.pr_info.outputs.head_sha }}" >> $GITHUB_OUTPUT
+          else
+            # Get all PR reviews sorted by submission date (newest first)
+            REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${{ steps.pr_info.outputs.pr_number }}/reviews?per_page=500" || echo "[]")
+
+            # Debug: Show how many reviews we found
+            REVIEW_COUNT=$(echo "$REVIEWS" | jq 'length')
+            echo "Found $REVIEW_COUNT total reviews"
+
+            # Find the last FULL review status (APPROVED or CHANGES_REQUESTED, not COMMENTED)
+            # This tells us the current approval state of the PR from full reviews
+            LAST_FULL_REVIEW_STATUS=$(echo "$REVIEWS" | jq -r '
+              sort_by(.submitted_at) | reverse |
+              [.[] | select(
+                (.user.login == "github-actions[bot]") and
+                (.body | test("🤖 (Gemini CLI|OpenCode CLI) Code Review")) and
+                (.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+              )] | first | .state // "none"')
+            echo "Last full review status: $LAST_FULL_REVIEW_STATUS"
+            echo "last_full_review_status=$LAST_FULL_REVIEW_STATUS" >> $GITHUB_OUTPUT
+
+            # Extract commit SHA from the MOST RECENT Gemini review (sorted by submitted_at desc)
+            # Look for both short (7 char) and full SHA formats in the title
+            # Handle both backticked (`abc1234`) and non-backticked formats
+            LAST_REVIEWED_SHA=$(echo "$REVIEWS" | jq -r 'sort_by(.submitted_at) | reverse | [.[] |
+              select(.body | test("🤖 (Gemini CLI|OpenCode CLI) Code Review - Commit:"))] |
+              first | .body' | sed -n 's/.*Commit: `\?\([a-f0-9]\{7,40\}\)`\?.*/\1/p' | head -1 || echo "")
+          
+            # Also check the full commit SHA in the footer
+            if [ -z "$LAST_REVIEWED_SHA" ]; then
+              echo "Checking for SHA in review footer..."
+              LAST_REVIEWED_SHA=$(echo "$REVIEWS" | jq -r 'sort_by(.submitted_at) | reverse | [.[] |
+                select(.body | test("🤖 (Gemini CLI|OpenCode CLI) Code Review"))] |
+                first | .body' | sed -n 's/.*| Commit: `\?\([a-f0-9]\{7,40\}\)`\?.*/\1/p' | head -1 || echo "")
+            fi
+          
+            if [ -z "$LAST_REVIEWED_SHA" ]; then
+              echo "No previous review found. Will review entire PR."
+              # Use merge base for full reviews to avoid including main branch changes
+              MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
+              git fetch upstream ${MAIN_BRANCH}
+              MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
+              {
+                echo "from_sha=${MERGE_BASE}"
+                echo "review_type=full"
+              } >> $GITHUB_OUTPUT
+            else
+              echo "Found previous review SHA: $LAST_REVIEWED_SHA"
+          
+              # If it's a short SHA, try to expand it
+              if [ ${#LAST_REVIEWED_SHA} -lt 40 ]; then
+                FULL_SHA=$(git rev-parse "$LAST_REVIEWED_SHA" 2>/dev/null || echo "")
+                if [ -n "$FULL_SHA" ]; then
+                  echo "Expanded short SHA to: $FULL_SHA"
+                  LAST_REVIEWED_SHA="$FULL_SHA"
+                fi
+              fi
+          
+              # Check if this commit still exists in the history
+              if git rev-parse --verify "$LAST_REVIEWED_SHA^{commit}" >/dev/null 2>&1; then
+                # Check if we're trying to compare the same commit with itself
+                if [ "$LAST_REVIEWED_SHA" = "${{ steps.pr_info.outputs.head_sha }}" ]; then
+                  echo "Last reviewed SHA is the same as current SHA. No new changes to review."
+                  {
+                    echo "from_sha=$LAST_REVIEWED_SHA"
+                    echo "review_type=no_changes"
+                  } >> $GITHUB_OUTPUT
+                else
+                  echo "Commit exists in history. Setting up incremental review."
+                  {
+                    echo "from_sha=$LAST_REVIEWED_SHA"
+                    echo "review_type=incremental"
+                  } >> $GITHUB_OUTPUT
+                fi
+              else
+                echo "Previous commit $LAST_REVIEWED_SHA not found in history. Will review entire PR."
+                # Use merge base for full reviews to avoid including main branch changes
+                MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
+                git fetch upstream ${MAIN_BRANCH}
+                MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
+                {
+                  echo "from_sha=${MERGE_BASE}"
+                  echo "review_type=full"
+                } >> $GITHUB_OUTPUT
+              fi
+            fi
+          fi
+          
+          echo "current_sha=${{ steps.pr_info.outputs.head_sha }}" >> $GITHUB_OUTPUT
+          
+          # Debug output
+          echo "=== Review Configuration ==="
+          echo "Review type: $(grep review_type $GITHUB_OUTPUT | cut -d= -f2)"
+          echo "From SHA: $(grep from_sha $GITHUB_OUTPUT | cut -d= -f2)"
+          echo "Current SHA: ${{ steps.pr_info.outputs.head_sha }}"
+          echo "==========================="
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Temporary Directory
+        run: |
+          set -e
+          mkdir -p ci_temp
+
+      - name: Generate PR Diff
+        id: pr_diff
+        run: |
+          set -e
+          FROM_SHA="${{ steps.determine_review.outputs.from_sha }}"
+          TO_SHA="${{ steps.determine_review.outputs.current_sha }}"
+          REVIEW_TYPE="${{ steps.determine_review.outputs.review_type }}"
+          
+          echo "Generating diff from $FROM_SHA to $TO_SHA (Review type: $REVIEW_TYPE)"
+          
+          # Always get the merge base with the current main branch to exclude main's changes.
+          # Fetch from `upstream` (the base repo) so fork PRs compute the correct merge base.
+          MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref }}"
+          git fetch upstream ${MAIN_BRANCH}
+          MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${TO_SHA})
+          
+          echo "Main branch: ${MAIN_BRANCH}"
+          echo "Merge base with main: ${MERGE_BASE}"
+          
+          # Get only files changed in the feature branch (not from main)
+          git diff --name-only -z ${MERGE_BASE}..${TO_SHA} > ci_temp/feature_branch_files.txt
+          
+          if [ "$REVIEW_TYPE" = "no_changes" ]; then
+            echo "No changes detected - creating empty file list"
+            touch ci_temp/changed_files.txt
+          elif [ "$REVIEW_TYPE" = "incremental" ]; then
+            echo "Generating incremental diff excluding main branch changes..."
+            # For incremental: only files changed since last review AND in feature branch
+            git diff --name-only -z ${FROM_SHA}..${TO_SHA} > ci_temp/files_since_last_review.txt
+            # Find the intersection of files:
+            # - Changed since the last review (files_since_last_review.txt)
+            # - Changed in this feature branch (feature_branch_files.txt)
+            # This gives us only the files relevant to this incremental review.
+            comm -z -12 <(sort -z ci_temp/files_since_last_review.txt) \
+                        <(sort -z ci_temp/feature_branch_files.txt) > ci_temp/changed_files.txt
+          else
+            echo "Performing full review of feature branch changes only (excluding main)"
+            # For full review: all files changed in feature branch (excluding main's changes)
+            cp ci_temp/feature_branch_files.txt ci_temp/changed_files.txt
+          fi
+
+          # Filter excluded files (lock files, auto-generated, etc.)
+          if [ -s ci_temp/changed_files.txt ]; then
+            bash .agents/skills/ai-review-report/scripts/filter-excluded-files.sh || true
+          fi
+
+          # Generate diff only for the filtered files
+          > ci_temp/pr_diff.txt
+          if [ -s ci_temp/changed_files.txt ]; then
+            # Use xargs with -0 to handle filenames with special characters (quotes, spaces, etc.)
+            if [ "$REVIEW_TYPE" = "incremental" ]; then
+              # For incremental, show changes since last review
+              xargs -0 -a ci_temp/changed_files.txt git diff ${FROM_SHA}..${TO_SHA} -- > ci_temp/pr_diff.txt
+            else
+              # For full review, show all changes in feature branch
+              xargs -0 -a ci_temp/changed_files.txt git diff ${MERGE_BASE}..${TO_SHA} -- > ci_temp/pr_diff.txt
+            fi
+          fi
+          
+          # Create a summary of changes
+          # Count null-terminated entries properly
+          if [ -s ci_temp/changed_files.txt ]; then
+            FILES_CHANGED=$(tr '\0' '\n' < ci_temp/changed_files.txt | grep -c . || echo 0)
+          else
+            FILES_CHANGED=0
+          fi
+          echo "Files changed: $FILES_CHANGED"
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          
+          if [ "$FILES_CHANGED" -eq 0 ]; then
+            echo "No changes to review since last review."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            # Count lines in the diff file for statistics
+            if [ -s ci_temp/pr_diff.txt ]; then
+              LINES_ADDED=$(grep -c "^+" ci_temp/pr_diff.txt || echo 0)
+              LINES_REMOVED=$(grep -c "^-" ci_temp/pr_diff.txt || echo 0)
+              echo "Lines changed: +${LINES_ADDED} -${LINES_REMOVED}"
+            else
+              echo "Lines changed: Unable to determine"
+            fi
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip if No Changes
+        if: steps.pr_diff.outputs.has_changes == 'false'
+        run: |
+          set -e
+          REVIEW_TYPE="${{ steps.determine_review.outputs.review_type }}"
+          HEAD_SHA="${{ steps.pr_info.outputs.head_sha }}"
+          FROM_SHA="${{ steps.determine_review.outputs.from_sha }}"
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          
+          if [ "$REVIEW_TYPE" = "no_changes" ]; then
+            echo "Same commit already reviewed. Skipping review."
+            {
+              echo "## 🤖 OpenCode CLI Code Review - Commit: ${HEAD_SHA:0:7}"
+              echo ""
+              echo "✅ This commit has already been reviewed. No new changes detected."
+              echo ""
+              echo "---"
+              echo "*Automated review check by OpenCode CLI Code Review*"
+            } > ci_temp/skip_comment.md
+          else
+            echo "No changes detected since last review. Skipping review."
+            {
+              echo "## 🤖 OpenCode CLI Code Review - Commit: ${HEAD_SHA:0:7}"
+              echo ""
+              echo "✅ No changes detected since last review at commit \`${FROM_SHA:0:7}\`."
+              echo ""
+              echo "---"
+              echo "*Automated incremental review by OpenCode CLI Code Review*"
+            } > ci_temp/skip_comment.md
+          fi
+          
+          # Post as a comment review (not approval) when no changes detected
+          gh pr review ${PR_NUMBER} \
+            --comment \
+            --body-file ci_temp/skip_comment.md || { 
+            echo "Failed to post skip review"
+            exit 1
+          }
+          exit 0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get PR Metadata
+        id: pr_metadata
+        run: |
+          set -eo pipefail
+
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          echo "Fetching PR metadata for PR #${PR_NUMBER}..."
+
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER})
+
+          PR_TITLE=$(echo "$PR_JSON" | jq -r .title)
+          PR_AUTHOR=$(echo "$PR_JSON" | jq -r .user.login)
+          HEAD_REF=$(echo "$PR_JSON" | jq -r .head.ref)
+          BASE_REF=$(echo "$PR_JSON" | jq -r .base.ref)
+          PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+
+          echo "PR Title: $PR_TITLE"
+          echo "PR Author: @$PR_AUTHOR"
+          echo "Branches: $HEAD_REF -> $BASE_REF"
+          echo "PR Body length: ${#PR_BODY} chars"
+
+          {
+            echo "pr_title=$PR_TITLE"
+            echo "pr_author=$PR_AUTHOR"
+            echo "head_ref=$HEAD_REF"
+            echo "base_ref=$BASE_REF"
+          } >> $GITHUB_OUTPUT
+
+          # Write PR body to file (multi-line content can't go in GITHUB_OUTPUT easily)
+          echo "$PR_BODY" > ci_temp/pr_description.txt
+          echo "✅ PR description saved to ci_temp/pr_description.txt"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect File Types and Build Expertise
+        id: file_types
+        run: |
+          set -e
+
+          declare -A EXPERTISE_MAP
+          EXPERTISE_MAP[CS]="an expert .NET and C# code reviewer"
+          EXPERTISE_MAP[TS]="an expert Angular and TypeScript code reviewer"
+          EXPERTISE_MAP[JS]="an expert JavaScript and React code reviewer"
+          EXPERTISE_MAP[GO]="an expert Go code reviewer"
+          EXPERTISE_MAP[YML]="an expert DevOps and CI/CD reviewer"
+          EXPERTISE_MAP[PY]="an expert Python code reviewer"
+          EXPERTISE_MAP[JAVA]="an expert Java code reviewer"
+          EXPERTISE_MAP[SQL]="an expert database and SQL reviewer"
+          EXPERTISE_MAP[DOCKER]="an expert Docker and containerization reviewer"
+
+          declare -A DETECTED_EXPERTISE
+
+          if [ -f ci_temp/changed_files.txt ]; then
+            # Read null-terminated file names
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                *.cs|*.csproj|*.cshtml) DETECTED_EXPERTISE[CS]=1 ;;
+                *.ts|*.tsx) DETECTED_EXPERTISE[TS]=1 ;;
+                *.js|*.jsx) DETECTED_EXPERTISE[JS]=1 ;;
+                *.go|go.mod|go.sum) DETECTED_EXPERTISE[GO]=1 ;;
+                *.yml|*.yaml) DETECTED_EXPERTISE[YML]=1 ;;
+                *.py|*.pyw|*.pyx|*.pyi|requirements.txt|requirements*.txt|setup.py|setup.cfg|pyproject.toml|Pipfile|poetry.lock|tox.ini|pytest.ini) DETECTED_EXPERTISE[PY]=1 ;;
+                *.java|pom.xml|build.gradle) DETECTED_EXPERTISE[JAVA]=1 ;;
+                *.sql) DETECTED_EXPERTISE[SQL]=1 ;;
+                Dockerfile*|docker-compose.yml|docker-compose.*.yml|*.dockerfile) DETECTED_EXPERTISE[DOCKER]=1 ;;
+              esac
+            done < ci_temp/changed_files.txt
+          fi
+
+          EXPERTISE_LIST=()
+          for key in "${!DETECTED_EXPERTISE[@]}"; do
+            EXPERTISE_LIST+=("${EXPERTISE_MAP[$key]}")
+          done
+
+          if [ ${#EXPERTISE_LIST[@]} -gt 0 ]; then
+            JOINED_LIST=$(printf ", %s" "${EXPERTISE_LIST[@]}")
+            JOINED_LIST=${JOINED_LIST:2}
+
+            if [[ "$JOINED_LIST" == *", "* ]]; then
+              JOINED_LIST=$(echo "$JOINED_LIST" | sed 's/\(.*\), /\1 and /')
+            fi
+            EXPERTISE_AREAS="${JOINED_LIST}"
+          else
+            EXPERTISE_AREAS="an expert code reviewer"
+          fi
+
+          # Build full expertise statement with PR metadata
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          PR_TITLE="${{ steps.pr_metadata.outputs.pr_title }}"
+          PR_AUTHOR="${{ steps.pr_metadata.outputs.pr_author }}"
+          BASE_REF="${{ steps.pr_metadata.outputs.base_ref }}"
+          HEAD_REF="${{ steps.pr_metadata.outputs.head_ref }}"
+
+          FULL_EXPERTISE="You are ${EXPERTISE_AREAS} reviewing GitHub PR #${PR_NUMBER} (${PR_TITLE}) by @${PR_AUTHOR} targeting ${BASE_REF} from ${HEAD_REF}."
+
+          echo "Full expertise statement: $FULL_EXPERTISE"
+          echo "expertise_statement<<EOF" >> $GITHUB_OUTPUT
+          echo "$FULL_EXPERTISE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Detect release branch sync PRs (case-insensitive)
+          REVIEW_MODE="standard"
+          if echo "$HEAD_REF" | grep -iq '^chore/bnk[uir]-001-sync-'; then
+            REVIEW_MODE="sync"
+            echo "🔄 Release branch sync detected — using sync review mode"
+          fi
+          echo "review_mode=$REVIEW_MODE" >> $GITHUB_OUTPUT
+
+      - name: Find Relevant Context Files
+        id: find_context
+        run: bash .agents/skills/ai-review-report/scripts/find-context-files.sh
+
+      - name: Validate AGENTS.md Requirements
+        id: validate_agents
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        env:
+          BASE_REF: ${{ steps.pr_info.outputs.base_ref || 'main' }}
+        run: |
+          bash .agents/skills/ai-review-report/scripts/validate-agents-md.sh "${{ steps.determine_review.outputs.review_type }}"
+
+      - name: Block PR if AGENTS.md Validation Failed
+        if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        run: |
+          set -e
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          CURRENT_SHA="${{ steps.determine_review.outputs.current_sha }}"
+
+          echo "AGENTS.md validation failed - posting REQUEST_CHANGES review"
+
+          # Build review comment with validation message
+          {
+            echo "## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`"
+            echo ""
+            echo "**Review Type:** FULL"
+            echo "**Status:** ❌ BLOCKED - Missing or Invalid AGENTS.md"
+            echo ""
+            cat ci_temp/agents_validation_message.md
+            echo ""
+            echo "---"
+            echo "*Automated validation by OpenCode CLI Code Review*"
+          } > ci_temp/validation_review.md
+
+          # Post as REQUEST_CHANGES to block PR
+          gh pr review ${PR_NUMBER} \
+            --request-changes \
+            --body-file ci_temp/validation_review.md || {
+            echo "Failed to post validation review"
+            exit 1
+          }
+
+          echo "PR blocked due to AGENTS.md validation failure"
+          exit 0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for Blocking Reviews from github-actions[bot]
+        id: check_blocking_review
+        run: |
+          set -e
+
+          # Use the last_full_review_status from determine_review step
+          # This correctly identifies the MOST RECENT full review state (APPROVED vs CHANGES_REQUESTED)
+          LAST_STATUS="${{ steps.determine_review.outputs.last_full_review_status }}"
+          echo "Last full review status: $LAST_STATUS"
+
+          # Only consider it blocking if the MOST RECENT full review is CHANGES_REQUESTED
+          # If it's APPROVED or none, there's no blocking review
+          if [ "$LAST_STATUS" = "CHANGES_REQUESTED" ]; then
+            echo "has_blocking_review=true" >> $GITHUB_OUTPUT
+            echo "✓ Most recent full review is CHANGES_REQUESTED - PR is blocked"
+          else
+            echo "has_blocking_review=false" >> $GITHUB_OUTPUT
+            echo "✓ No blocking review (last status: $LAST_STATUS)"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip Review Due to Blocking Review
+        # Only skip INCREMENTAL reviews when blocked - FULL reviews should run to potentially clear the block
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.check_blocking_review.outputs.has_blocking_review == 'true' && steps.determine_review.outputs.review_type != 'full' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        run: |
+          set -e
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          CURRENT_SHA="${{ steps.determine_review.outputs.current_sha }}"
+          REVIEW_TYPE="${{ steps.determine_review.outputs.review_type }}"
+
+          {
+            echo "## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`"
+            echo ""
+            echo "⏭️ **Skipping ${REVIEW_TYPE} review** - Existing blocking review from @github-actions[bot] requires full review for clearance."
+            echo ""
+            echo "**Why?** An incremental review cannot clear a \`CHANGES_REQUESTED\` blocking state. Only a full review can approve the PR once all issues are resolved."
+            echo ""
+            echo "**Next Steps:**"
+            echo "- Push commits to address the blocking review issues"
+            echo "- A full review will run when you manually request it via \`/ai-review\` or merge to main"
+            echo ""
+            echo "---"
+            echo "*Automated check by OpenCode CLI Code Review*"
+          } > ci_temp/skip_blocking_review_comment.md
+
+          gh pr comment ${PR_NUMBER} \
+            --body-file ci_temp/skip_blocking_review_comment.md || {
+            echo "Failed to post skip review comment"
+            exit 1
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Review PR in Chunks
+        id: chunked_review
+        if: |
+          (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
+          (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
+          steps.gemini_model_test.outputs.all_models_failed != 'true'
+        continue-on-error: true
+        run: |
+          bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+            "${{ steps.determine_review.outputs.from_sha }}" \
+            "${{ steps.determine_review.outputs.current_sha }}" \
+            "${{ steps.gemini_model_test.outputs.selected_model }}" \
+            "${{ steps.file_types.outputs.expertise_statement }}"
+        env:
+          REVIEW_MODE: ${{ steps.file_types.outputs.review_mode }}
+
+      - name: Aggregate Reviews and Generate Summary
+        id: aggregate_review
+        if: |
+          (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
+          (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
+          steps.gemini_model_test.outputs.all_models_failed != 'true'
+        continue-on-error: true
+        run: |
+          bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh \
+            "${{ steps.chunked_review.outputs.total_chunks }}" \
+            "${{ steps.gemini_model_test.outputs.selected_model }}" \
+            "${{ steps.determine_review.outputs.review_type }}" \
+            "${{ steps.determine_review.outputs.from_sha }}" \
+            "${{ steps.pr_diff.outputs.files_changed }}" \
+            "${{ steps.determine_review.outputs.current_sha }}" \
+            "${{ steps.file_types.outputs.expertise_statement }}" \
+            "${{ steps.determine_review.outputs.last_full_review_status }}"
+        env:
+          REVIEW_MODE: ${{ steps.file_types.outputs.review_mode }}
+
+      - name: Minimize Previous Gemini Reviews
+        # Only minimize when: has changes, full review, AND validation passed (to avoid minimizing the validation failure review)
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        run: |
+          # Minimize BEFORE posting new review to avoid race condition where new review gets minimized
+          bash .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh \
+            "${{ steps.pr_info.outputs.pr_number }}" \
+            "${{ steps.determine_review.outputs.review_type }}" \
+            "${{ github.repository }}" \
+            ""
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post Review Comment
+        id: post_review
+        if: |
+          steps.pr_diff.outputs.has_changes == 'true' &&
+          (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
+          (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
+          steps.gemini_model_test.outputs.all_models_failed != 'true'
+        run: |
+          set -e
+          set -o pipefail
+          REVIEW_TYPE="${{ steps.determine_review.outputs.review_type }}"
+          CURRENT_SHA="${{ steps.determine_review.outputs.current_sha }}"
+          FROM_SHA="${{ steps.determine_review.outputs.from_sha }}"
+          FILES_CHANGED="${{ steps.pr_diff.outputs.files_changed }}"
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          TOTAL_CHUNKS="${{ steps.chunked_review.outputs.total_chunks }}"
+
+          # Use aggregated review if it exists. A missing file means chunked
+          # review or aggregation did not produce output — FAIL CLOSED rather than
+          # fabricating a body that would later fall through to --approve. The
+          # failure() Post Error Comment step still posts operator guidance.
+          if [ -f ci_temp/final_review.md ]; then
+            echo "Using aggregated review from chunks"
+            cp ci_temp/final_review.md ci_temp/review_comment.md
+          else
+            echo "ERROR: No aggregated review found (ci_temp/final_review.md missing)."
+            echo "Chunked review/aggregation produced no output — failing closed (not approving)."
+            exit 1
+          fi
+
+          # Truncate review body if it exceeds GitHub's 65,536 character limit
+          # Smart strategy: drop detailed chunk reviews, keep holistic overview + summary
+          MAX_BODY_SIZE=65000
+          BODY_SIZE=$(wc -c < ci_temp/review_comment.md | tr -d ' ')
+          LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Review body size: $BODY_SIZE characters (limit: $MAX_BODY_SIZE)"
+
+          if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
+            echo "⚠️ Review body exceeds limit — building compact version (dropping chunk reviews)"
+
+            # Keep everything before "## 📂 Detailed Chunk Reviews" (header + summary + holistic analysis)
+            sed '/^## 📂 Detailed Chunk Reviews/,$d' ci_temp/review_comment.md > ci_temp/review_before_chunks.md
+
+            # Keep from "## 📚 AI Review Context Documents" to end (context files + footer)
+            AFTER_CHUNKS=""
+            if grep -q "^## 📚 AI Review Context Documents" ci_temp/review_comment.md; then
+              sed -n '/^## 📚 AI Review Context Documents/,$p' ci_temp/review_comment.md > ci_temp/review_after_chunks.md
+              AFTER_CHUNKS="yes"
+            fi
+
+            {
+              cat ci_temp/review_before_chunks.md
+              echo ""
+              echo "> **ℹ️ Detailed chunk reviews omitted** — review body exceeded ${MAX_BODY_SIZE} character limit (${BODY_SIZE} chars). The holistic overview above contains all aggregated findings. See [workflow logs](${LOGS_URL}) for full per-file reviews."
+              echo ""
+              if [ "$AFTER_CHUNKS" = "yes" ]; then
+                cat ci_temp/review_after_chunks.md
+              fi
+            } > ci_temp/review_comment_compact.md
+
+            COMPACT_SIZE=$(wc -c < ci_temp/review_comment_compact.md | tr -d ' ')
+            echo "Compact review body: $COMPACT_SIZE characters"
+
+            if [ "$COMPACT_SIZE" -le "$MAX_BODY_SIZE" ]; then
+              mv ci_temp/review_comment_compact.md ci_temp/review_comment.md
+              echo "✅ Compact version fits within limit"
+            else
+              echo "⚠️ Compact version still exceeds limit — falling back to slice truncation"
+              TRUNC_HALF=30000
+              {
+                head -c "$TRUNC_HALF" ci_temp/review_comment_compact.md
+                echo ""
+                echo "---"
+                echo "> **⚠️ Review truncated** — compact version still too large ($COMPACT_SIZE chars, limit $MAX_BODY_SIZE). See [workflow logs](${LOGS_URL}) for full review."
+                echo "---"
+                tail -c "$TRUNC_HALF" ci_temp/review_comment_compact.md
+              } > ci_temp/review_comment.md
+              NEW_SIZE=$(wc -c < ci_temp/review_comment.md | tr -d ' ')
+              echo "Truncated review body: $NEW_SIZE characters"
+            fi
+
+            rm -f ci_temp/review_before_chunks.md ci_temp/review_after_chunks.md ci_temp/review_comment_compact.md
+          fi
+
+          # Determine review action from aggregation script output. On success
+          # aggregate-reviews.sh always emits one of request_changes|approve|comment,
+          # so an EMPTY value means aggregation did not complete — FAIL CLOSED here
+          # rather than defaulting to --approve. A present action (one or more
+          # findings, or an explicit clean approve) proceeds normally.
+          REVIEW_ACTION="${{ steps.aggregate_review.outputs.review_action }}"
+
+          if [ -z "$REVIEW_ACTION" ]; then
+            echo "ERROR: aggregation produced no review_action — failing closed (not approving)."
+            exit 1
+          elif [ "$REVIEW_ACTION" = "comment" ]; then
+            if [ "$REVIEW_TYPE" = "incremental" ]; then
+              REVIEW_ACTION="--comment"
+              REVIEW_STATUS="approved"
+              echo "Incremental review - posting as comment"
+            else
+              REVIEW_ACTION="--approve"
+              REVIEW_STATUS="approved"
+              echo "Full review with no blocking issues - approving"
+            fi
+          elif [ "$REVIEW_ACTION" = "request_changes" ]; then
+            REVIEW_ACTION="--request-changes"
+            REVIEW_STATUS="blocked"
+            echo "Critical/high priority issues found - requesting changes"
+          elif [ "$REVIEW_ACTION" = "approve" ]; then
+            # Only approve on full reviews, never on incremental
+            if [ "$REVIEW_TYPE" = "incremental" ]; then
+              REVIEW_ACTION="--comment"
+              REVIEW_STATUS="approved"
+              echo "Incremental review with no issues - posting as comment (not approval)"
+            else
+              REVIEW_ACTION="--approve"
+              REVIEW_STATUS="approved"
+              echo "Full review with no issues - approving"
+            fi
+          else
+            REVIEW_ACTION="--comment"
+            REVIEW_STATUS="approved"
+            echo "Unknown review action - defaulting to comment"
+          fi
+
+          # Post as a PR review (creates resolvable conversation threads)
+          echo "Posting review with action: $REVIEW_ACTION"
+          REVIEW_OUTPUT=$(gh pr review ${{ steps.pr_info.outputs.pr_number }} \
+            $REVIEW_ACTION \
+            --body-file ci_temp/review_comment.md 2>&1) || {
+            echo "Failed to post review"
+            echo "$REVIEW_OUTPUT"
+            exit 1
+          }
+
+          echo "Review posted successfully"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post Error Comment
+        if: failure() && steps.pr_info.outputs.pr_number != '' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        run: |
+          set -e
+          # This is the failure path — ci_temp may not exist yet if the job failed
+          # before "Setup Temporary Directory", so create it before writing.
+          mkdir -p ci_temp
+          cat > ci_temp/error_comment.md << 'EOF'
+          ## ❌ OpenCode CLI Code Review Workflow Failed
+
+          The automated code review workflow encountered a critical failure and could not complete.
+
+          **Next Steps:**
+          - Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed error information
+          - You can manually trigger a review by commenting `/ai-review` on this PR
+          - Consider reviewing the changes manually if the issue persists
+
+          ---
+          *This PR is blocked until the review issue is resolved or manual review is completed.*
+          EOF
+
+          gh pr comment ${{ steps.pr_info.outputs.pr_number }} --body-file ci_temp/error_comment.md || {
+            echo "Failed to post error comment"
+            exit 1
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up temporary files
+        if: always()
+        run: |
+          set -e
+          rm -rf ci_temp
