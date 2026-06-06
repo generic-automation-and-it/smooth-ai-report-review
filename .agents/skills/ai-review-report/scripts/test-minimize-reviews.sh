@@ -43,6 +43,34 @@ else
 fi
 echo ""
 
+# Test 4: Review-marker regex matches real review bodies but not quoted copies.
+# Guards against an unanchored regex (false-positive minimization of quoted headers)
+# AND against over-anchoring (e.g. "^🤖", which breaks because real bodies start with "## 🤖").
+# The pattern is extracted from the script itself so this test fails if the regex regresses.
+echo "Test 4: Review-marker regex (anchored, single-source-of-truth)"
+PATTERN=$(grep -oE 'test\("[^"]*Code Review[^"]*"\)' \
+  .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh \
+  | head -1 | sed -E 's/^test\("//; s/"\)$//')
+
+if [ -z "$PATTERN" ]; then
+  echo "❌ Test 4 failed: could not extract review-marker regex from minimize-previous-reviews.sh"
+  exit 1
+fi
+
+REAL='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`'
+QUOTED='> ## 🤖 OpenCode CLI Code Review (quoted by a human in a follow-up comment)'
+REAL_MATCH=$(printf '%s' "$REAL"   | jq -Rs --arg re "$PATTERN" 'test($re)')
+QUOTE_MATCH=$(printf '%s' "$QUOTED" | jq -Rs --arg re "$PATTERN" 'test($re)')
+
+if [ "$REAL_MATCH" = "true" ] && [ "$QUOTE_MATCH" = "false" ]; then
+  echo "✅ Test 4 passed: matches a real review header, ignores a quoted copy (pattern: $PATTERN)"
+else
+  echo "❌ Test 4 failed: real-header match=$REAL_MATCH (want true), quoted-copy match=$QUOTE_MATCH (want false)"
+  echo "   pattern: $PATTERN"
+  exit 1
+fi
+echo ""
+
 echo "=========================================="
 echo "All basic tests passed!"
 echo "=========================================="

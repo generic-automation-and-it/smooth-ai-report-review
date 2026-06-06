@@ -12,7 +12,7 @@ alwaysApply: true
 ---
 # Code Review Standards & Design Decisions
 
-Intentional patterns for AI reviewers to prevent false positives. Updated: 2026-03-07
+Intentional patterns for AI reviewers to prevent false positives. Updated: 2026-06-06
 
 ## ADRs
 
@@ -67,6 +67,14 @@ DbContext is NOT thread-safe. `Task.WhenAll` on same DbContext = crash/corruptio
 
 Modern .NET SDK auto-enables the latest C# version. `<LangVersion>` in csproj is redundant. Do not flag as missing.
 
+### DR-009: opencode.json Gemini Provider — `@ai-sdk/google` + OpenAI-Compatible URL
+
+The `gemini` provider in `.agents/skills/ai-review-report/assets/opencode.json` intentionally declares `npm: "@ai-sdk/google"` while `OPENCODE_GEMINI_URL` may point at an OpenAI-compatible gateway surface (`…/v1beta/openai`). opencode is **provider-agnostic transport** — it reaches the endpoint over HTTPS regardless of the SDK label — and this exact pairing is proven working in the prototype repo on every run. **DO NOT flag** it as a "provider/SDK mismatch" or critical integration failure, and **DO NOT suggest** switching to `@ai-sdk/openai-compatible`. Any change to the provider transport is a deliberate engineering decision, not a review fix. (Recurring false positive: flagged Critical across multiple reviews, skipped each time.)
+
+### DR-010: Workflow Filename `pipline-code-review-report.yml` (Typo Is Load-Bearing)
+
+The gate's workflow file is named `pipline-code-review-report.yml` — the misspelling ("pipline") is **intentional and load-bearing**. The filename is referenced by hardcoded path from the skill scripts, the workflow YAML, `SKILL.md`, and `AGENTS.md`; the workflow↔script path coupling is a documented **Non-Negotiable**. Renaming it would silently break the review gate. **DO NOT flag** the typo as an issue or suggest renaming the file.
+
 ## Code Comments Policy
 
 **DO NOT add comments to code** unless explicitly requested by the user.
@@ -85,3 +93,4 @@ Modern .NET SDK auto-enables the latest C# version. `<LangVersion>` in csproj is
 | Date | Change |
 |:-----|:-------|
 | 2026-05-30 | Initial version. |
+| 2026-06-06 | Add DR-009 (opencode.json `@ai-sdk/google` + OpenAI-compat URL pairing) and DR-010 (`pipline` filename typo is load-bearing) — recurring AI-review false positives on this repo's own PRs. |
