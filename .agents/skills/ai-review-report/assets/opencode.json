@@ -5,7 +5,6 @@
       "npm": "@ai-sdk/google",
       "name": "Gemini via ",
       "options": {
-        "baseURL": "{env:OPENCODE_GEMINI_URL}",
         "apiKey": "{env:OPENCODE_GEMINI_API_KEY}"
       },
       "models": {
