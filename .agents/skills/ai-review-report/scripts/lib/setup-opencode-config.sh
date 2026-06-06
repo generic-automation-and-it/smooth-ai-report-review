@@ -10,10 +10,10 @@
 #
 # Install policy differs by environment to avoid clobbering a developer's
 # personal opencode config (the dest is a shared, non-repo location):
-#   - CI: always refresh. Self-hosted runners are persistent, not ephemeral —
-#     a stale config from a prior run must be overwritten so the runner picks
-#     up the current provider definition. No human's personal config lives
-#     there, so overwriting is safe.
+#   - CI: always refresh. On an ephemeral GitHub-hosted runner the dest won't
+#     exist yet; on a reused/self-hosted runner a stale config from a prior run
+#     must be overwritten so the runner picks up the current provider definition.
+#     Either way no human's personal config lives there, so overwriting is safe.
 #   - Local, dest missing: install it (first run).
 #   - Local, dest is OUR config (has a litellm-gemini block) but references the
 #     OLD env-var names: self-heal — refresh it to the committed version so the
@@ -57,13 +57,15 @@ elif [ ! -f "$DEST" ]; then
   echo "✓ opencode.json installed: $SRC → $DEST"
 elif grep -q '"litellm-gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
-  # solely the litellm-gemini provider plus our own optional `permission` block,
-  # and no other top-level keys. A developer may have hand-merged the provider
-  # into a personal config (per the else-branch guidance); NEVER clobber that.
+  # solely the providers we ship plus our own optional `permission` block, and no
+  # other top-level keys. A developer may have hand-merged a provider into a
+  # personal config (per the else-branch guidance); NEVER clobber that.
+  # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
+  # (github-copilot, litellm-gemini, openai) compares in that order.
   is_ours="false"
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
-    jq -e '((keys - ["$schema","provider","permission"]) == []) and ((.provider // {} | keys) == ["litellm-gemini"])' \
+    jq -e '((keys - ["$schema","provider","permission"]) == []) and ((.provider // {} | keys) == ["github-copilot","litellm-gemini","openai"])' \
       "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
     jq_available="false"

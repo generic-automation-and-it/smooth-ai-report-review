@@ -12,14 +12,10 @@ on:
         required: true
         type: string
       model:
-        description: 'Gemini model to use (default: gemini-3.1-pro-preview)'
+        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT).'
         required: false
-        type: choice
-        default: 'gemini-3.1-pro-preview'
-        options:
-          - 'gemini-3.1-pro-preview'
-          - 'gemini-2.5-pro'
-          - 'gemini-3-flash-preview'
+        type: string
+        default: ''
 permissions:
   pull-requests: write
   contents: read
@@ -40,25 +36,47 @@ env:
 
 jobs:
   open-code-review-report:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && (contains(github.event.comment.body, '/gemini-review') || contains(github.event.comment.body, '/ai-review'))) ||
       (github.event_name == 'workflow_dispatch')
     
     env:
-      # OPENCODE_GEMININ_API_KEY and OPENCODE_GEMININ_URL declared at job scope so every
-      # step inherits them. Required by opencode's {env:OPENCODE_GEMININ_API_KEY}
-      # substitution in ~/.config/opencode/opencode.json — without this, the
-      # litellm-gemini provider sends an empty Bearer token and LiteLLM returns
-      # 401 (root cause of empty-review run 26584156846).
+      # Provider selector (GEMINI | COPILOT | OPENAI), default GEMINI. Set the
+      # repo/org Variable OPENCODE_PROVIDER to switch which opencode.json provider
+      # the review routes to. lib/resolve-provider.sh maps this to the gateway
+      # credentials + provider-id and fails fast on a mismatched model chain.
+      OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
+      # Provider-id = the provider KEY in opencode.json that the model is prefixed
+      # with (litellm-gemini / github-copilot / openai). Computed here (string
+      # literals, no empty-secret hazard) so every step — including the
+      # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
+      # value for local runs.
+      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || 'litellm-gemini' }}
+      # All three provider credential pairs are exported at job scope so opencode's
+      # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
+      # resolves for whichever provider is selected. Unused pairs resolve empty and
+      # are simply never routed to. Without the active pair the provider sends an
+      # empty Bearer token and the gateway returns 401 (cf. empty-review run
+      # 26584156846). The "Install Dependencies" step copies the SELECTED pair into
+      # OPENCODE_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
+      # secret stays empty and trips the presence check rather than silently
+      # falling back to another provider's creds).
       OPENCODE_GEMININ_API_KEY: ${{ secrets.OPENCODE_GEMININ_API_KEY }}
       OPENCODE_GEMININ_URL: ${{ secrets.OPENCODE_GEMININ_URL }}
+      OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
+      OPENCODE_COPILOT_URL: ${{ secrets.OPENCODE_COPILOT_URL }}
+      OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
+      OPENCODE_OPENAI_URL: ${{ secrets.OPENCODE_OPENAI_URL }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
       # which would otherwise blank the model). The dispatch input still wins for
-      # the primary review model.
+      # the primary review model. NOTE: the literal defaults are Gemini model IDs —
+      # correct for the default provider. When OPENCODE_PROVIDER is COPILOT/OPENAI
+      # you MUST set these Variables to that provider's models (e.g. gpt-5.5);
+      # lib/resolve-provider.sh fails the run fast if a gemini* model leaks through.
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
@@ -87,21 +105,43 @@ jobs:
       - name: Install Dependencies
         run: |
           set -e
-          # Fail fast (and clearly) if the gateway credentials are missing/empty —
-          # e.g. the repo Secrets were never created under these names, or were
-          # cleared. Without this the job would limp on to a confusing
-          # all-models-failed review. NOTE: this only catches empty/unset; a
-          # present-but-wrong value (typo / trailing newline) still passes here
-          # and is caught by the /health 401 check below.
+          # Resolve the SELECTED provider's gateway credentials (OPENCODE_PROVIDER
+          # is set at job scope). Done in bash via indirection — NOT a YAML
+          # expression — so an empty selected secret resolves to empty (and trips
+          # the presence check below) rather than silently short-circuiting to
+          # another provider's creds. The same provider→creds mapping is the
+          # canonical one in lib/resolve-provider.sh (used by local-review.sh);
+          # this is the pre-checkout bootstrap copy because that repo script
+          # isn't available until after actions/checkout.
+          case "${OPENCODE_PROVIDER:-GEMINI}" in
+            COPILOT) U=OPENCODE_COPILOT_URL; K=OPENCODE_COPILOT_API_KEY ;;
+            OPENAI)  U=OPENCODE_OPENAI_URL;  K=OPENCODE_OPENAI_API_KEY ;;
+            GEMINI)  U=OPENCODE_GEMININ_URL; K=OPENCODE_GEMININ_API_KEY ;;
+            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, or OPENAI)."; exit 1 ;;
+          esac
+          OPENCODE_GATEWAY_URL="${!U}"
+          OPENCODE_GATEWAY_API_KEY="${!K}"
+          # Export to later steps so the probe + scripts read the resolved creds.
+          {
+            echo "OPENCODE_GATEWAY_URL=${OPENCODE_GATEWAY_URL}"
+            echo "OPENCODE_GATEWAY_API_KEY=${OPENCODE_GATEWAY_API_KEY}"
+          } >> "$GITHUB_ENV"
+
+          # Fail fast (and clearly) if the selected provider's gateway credentials
+          # are missing/empty — e.g. the repo Secrets were never created under
+          # these names, or were cleared. Without this the job would limp on to a
+          # confusing all-models-failed review. NOTE: this only catches
+          # empty/unset; a present-but-wrong value (typo / trailing newline) still
+          # passes here and is caught by the /health 401 check below.
           missing=""
-          [ -z "${OPENCODE_GEMININ_API_KEY}" ] && missing="${missing} OPENCODE_GEMININ_API_KEY"
-          [ -z "${OPENCODE_GEMININ_URL}" ] && missing="${missing} OPENCODE_GEMININ_URL"
+          [ -z "${OPENCODE_GATEWAY_API_KEY}" ] && missing="${missing} ${K}"
+          [ -z "${OPENCODE_GATEWAY_URL}" ] && missing="${missing} ${U}"
           if [ -n "$missing" ]; then
-            echo "❌ Required secret(s) empty/unset:${missing}"
+            echo "❌ Required secret(s) empty/unset for OPENCODE_PROVIDER=${OPENCODE_PROVIDER:-GEMINI}:${missing}"
             echo "   Set them in repo Settings → Secrets and variables → Actions → Secrets."
             exit 1
           fi
-          echo "✓ OPENCODE_GEMININ_API_KEY and OPENCODE_GEMININ_URL are present"
+          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U}, ${K})"
           # opencode is installed AFTER actions/checkout (see "Install opencode +
           # config + warm DB" step) because its provider config source lives in
           # the repo at .agents/skills/ai-review-report/assets/opencode.json and
@@ -110,8 +150,9 @@ jobs:
           # the LiteLLM /health probe.
 
           # ripgrep is still useful — opencode and grep tooling both prefer it on PATH.
-          # Self-hosted runner image doesn't ship rg and apt's universe repo isn't
-          # enabled there, so drop a prebuilt static binary into ~/.local/bin.
+          # Install it only if absent (guarded below) by dropping a prebuilt static
+          # binary into ~/.local/bin — avoids an apt dependency on whatever the runner
+          # image ships.
           if ! command -v rg >/dev/null 2>&1; then
             echo "Installing ripgrep (prebuilt static binary)..."
             RG_VERSION="14.1.1"
@@ -127,14 +168,15 @@ jobs:
             echo "✓ ripgrep already installed ($(rg --version | head -1))"
           fi
 
-          # LiteLLM /health probe (non-blocking diagnostic, transport-independent).
-          # /health returns 200 even when individual models are broken — body lists
+          # Gateway /health probe (non-blocking diagnostic, transport-independent).
+          # Uses the SELECTED provider's gateway creds resolved above. /health
+          # returns 200 even when individual models are broken — body lists
           # healthy_endpoints + unhealthy_endpoints. Parse with jq, log only summary
           # counts + whether our primary model is healthy.
-          HEALTH_URL=$(echo "$OPENCODE_GEMININ_URL" | sed -E 's|(https?://[^/]+).*|\1/health|')
-          echo "Probing LiteLLM /health with API key..."
+          HEALTH_URL=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1/health|')
+          echo "Probing ${OPENCODE_PROVIDER:-GEMINI} gateway /health with API key..."
           http_code=$(curl -sS -o /tmp/health.out -w "%{http_code}" --max-time 60 \
-            -H "Authorization: Bearer ${OPENCODE_GEMININ_API_KEY}" \
+            -H "Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" \
             "$HEALTH_URL" 2>/dev/null || echo "curl-error")
           if [ "$http_code" = "200" ]; then
             healthy_count=$(jq -r '.healthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
@@ -144,7 +186,7 @@ jobs:
               /tmp/health.out 2>/dev/null || echo "false")
             unhealthy_models=$(jq -r '[.unhealthy_endpoints[]?.model] | join(", ")' \
               /tmp/health.out 2>/dev/null || echo "")
-            echo "✓ LiteLLM /health OK — healthy: ${healthy_count}, unhealthy: ${unhealthy_count}"
+            echo "✓ Gateway /health OK — healthy: ${healthy_count}, unhealthy: ${unhealthy_count}"
             if [ -n "$unhealthy_models" ]; then
               echo "  Unhealthy models: ${unhealthy_models}"
             fi
@@ -154,9 +196,9 @@ jobs:
               echo "  ⚠️ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' NOT in healthy_endpoints — fallback will trigger"
             fi
           elif [ "$http_code" = "401" ]; then
-            echo "❌ LiteLLM /health returned 401 — OPENCODE_GEMININ_API_KEY secret is invalid"
+            echo "❌ Gateway /health returned 401 — the ${K} secret is invalid for provider ${OPENCODE_PROVIDER:-GEMINI}"
           else
-            echo "⚠️ LiteLLM /health returned: ${http_code} — opencode calls likely to fail"
+            echo "⚠️ Gateway /health returned: ${http_code} — opencode calls likely to fail"
             head -c 500 /tmp/health.out 2>/dev/null || true
             echo ""
           fi
@@ -253,7 +295,14 @@ jobs:
           opencode stats >/dev/null || true
           echo "✓ opencode DB initialised"
 
-      - name: Assert Gemini Model Selection Works
+      - name: Resolve & validate provider / model selection
+        # Post-checkout (repo script now available). Canonical provider resolver:
+        # re-confirms OPENCODE_PROVIDER_ID + gateway creds and FAILS FAST when a
+        # non-GEMINI provider is paired with an unset or gemini* model chain —
+        # before the expensive chunked review runs.
+        run: bash .agents/skills/ai-review-report/scripts/lib/resolve-provider.sh
+
+      - name: Assert Review Model Selection Works
         id: gemini_model_test
         run: |
           echo "Testing the two-tier review chain via opencode (LADR-002)..."
@@ -276,9 +325,9 @@ jobs:
             # Mirrors lib/opencode-with-fallback.sh: no --agent, WARN-level
             # logging (short probe so verbose INFO/--print-logs adds noise
             # without helping). ERROR_PATTERN below catches the failure modes.
-            # CI always uses the litellm-gemini provider.
+            # Provider-id is resolved from OPENCODE_PROVIDER (default litellm-gemini).
             opencode run \
-              --model "litellm-gemini/$1" \
+              --model "${OPENCODE_PROVIDER_ID:-litellm-gemini}/$1" \
               --format default \
               --log-level WARN \
               "Say 'OK'" 2>&1 || true

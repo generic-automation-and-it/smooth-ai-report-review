@@ -8,8 +8,12 @@
 #   - orchestrator:  ORCHESTRATOR     <resolved review model>   ""
 # An empty model slot is skipped, so a two-tier chain just leaves fb2 empty.
 #
-# Both CI and local runs use the litellm-gemini provider (the internal LiteLLM
-# gateway), authenticated via OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY.
+# The provider is selected by OPENCODE_PROVIDER (GEMINI|COPILOT|OPENAI) and
+# resolved to its opencode provider-id by lib/resolve-provider.sh, which exports
+# OPENCODE_PROVIDER_ID (litellm-gemini / github-copilot / openai). This script
+# reads that id below; it defaults to litellm-gemini when unset so a bare
+# invocation keeps the historical Gemini behavior. Credentials are read by
+# opencode itself via the {env:OPENCODE_<P>_*} placeholders in opencode.json.
 #
 # Stdout: opencode review output. Stderr: passthrough.
 
@@ -24,7 +28,7 @@ if [ -z "$prompt_file" ] || [ ! -f "$prompt_file" ]; then
   exit 64
 fi
 
-PROVIDER="litellm-gemini"
+PROVIDER="${OPENCODE_PROVIDER_ID:-litellm-gemini}"
 
 run_opencode() {
   # No --agent flag: we let opencode use its DEFAULT `build` agent but override

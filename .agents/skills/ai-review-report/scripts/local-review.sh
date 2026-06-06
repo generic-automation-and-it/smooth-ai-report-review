@@ -22,15 +22,21 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
-# Credentials come from the shell environment. Export OPENCODE_GEMININ_API_KEY
-# and OPENCODE_GEMININ_URL before running (e.g. in your shell profile or via
-# direnv); opencode reads them through the {env:...} placeholders in
-# opencode.json. See the "Required environment variables" section of SKILL.md.
+# Credentials come from the shell environment. Export the selected provider's
+# OPENCODE_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
+# profile or via direnv); opencode reads them through the {env:...} placeholders
+# in opencode.json. The provider is chosen with --provider / OPENCODE_PROVIDER
+# (default GEMINI). See the "Required environment variables" section of SKILL.md.
 
 # Defaults
 PR_NUMBER=""
 BASE_BRANCH="main"
 OPENCODE_MODEL="gemini-2.5-pro"
+# Provider selector (GEMINI | COPILOT | OPENAI). Default GEMINI; override with
+# --provider or the OPENCODE_PROVIDER env var. For non-GEMINI providers you must
+# also pass a matching --model (and export OPENCODE_MODEL_SECONDARY_REVIEW /
+# OPENCODE_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
+OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
 POST_REVIEW=false
 OPEN_AFTER=false
 REVIEW_TYPE="full"
@@ -50,6 +56,10 @@ while [[ $# -gt 0 ]]; do
       OPENCODE_MODEL="$2"
       shift 2
       ;;
+    --provider)
+      OPENCODE_PROVIDER="$2"
+      shift 2
+      ;;
     --post)
       POST_REVIEW=true
       shift
@@ -64,17 +74,24 @@ while [[ $# -gt 0 ]]; do
       echo "Run Gemini code review locally using the same scripts as CI."
       echo ""
       echo "Options:"
-      echo "  --pr NUMBER      Review a specific PR (fetches metadata via gh CLI)"
-      echo "  --base BRANCH    Base branch to diff against (default: main)"
-      echo "  --model MODEL    Gemini model ID (default: gemini-2.5-pro)"
-      echo "  --post           Post review to PR (requires --pr)"
-      echo "  --open           Open final review in \$EDITOR after completion"
-      echo "  --help, -h       Show this help"
+      echo "  --pr NUMBER          Review a specific PR (fetches metadata via gh CLI)"
+      echo "  --base BRANCH        Base branch to diff against (default: main)"
+      echo "  --model MODEL        Primary review model ID (default: gemini-2.5-pro). Must"
+      echo "                       be a model of the selected provider (e.g. gpt-5.5 for OPENAI)."
+      echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI (default: GEMINI; or set OPENCODE_PROVIDER)"
+      echo "  --post               Post review to PR (requires --pr)"
+      echo "  --open               Open final review in \$EDITOR after completion"
+      echo "  --help, -h           Show this help"
       echo ""
       echo "Prerequisites:"
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
-      echo "  - OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY exported (LiteLLM gateway;"
-      echo "    requires VPN / corporate-network access to the gateway host)"
+      echo "  - The selected provider's gateway creds exported (requires VPN /"
+      echo "    corporate-network access to the gateway host):"
+      echo "      GEMINI  → OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY"
+      echo "      COPILOT → OPENCODE_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
+      echo "      OPENAI  → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
+      echo "  - For COPILOT/OPENAI also export OPENCODE_MODEL_SECONDARY_REVIEW and"
+      echo "    OPENCODE_MODEL_ORCHESTRATOR (non-gemini model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
       exit 0
@@ -118,7 +135,11 @@ harvest_var() {
   done
   return 1
 }
-for v in OPENCODE_GEMININ_URL OPENCODE_GEMININ_API_KEY; do
+# Harvest every provider's credential pair; lib/resolve-provider.sh picks the
+# pair for the selected OPENCODE_PROVIDER and validates it below.
+for v in OPENCODE_GEMININ_URL OPENCODE_GEMININ_API_KEY \
+         OPENCODE_COPILOT_URL OPENCODE_COPILOT_API_KEY \
+         OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY; do
   harvest_var "$v" || true
 done
 
@@ -128,28 +149,31 @@ if ! command -v opencode &>/dev/null; then
   exit 1
 fi
 
-# This review runs exclusively against the LiteLLM gateway (provider
-# litellm-gemini), authenticated with OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY.
-if [ -z "$OPENCODE_GEMININ_API_KEY" ] || [ -z "$OPENCODE_GEMININ_URL" ]; then
-  echo "❌ OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY must be set (export them in your shell)."
-  echo "   e.g. OPENCODE_GEMININ_URL=https://litellm.private.prod.zeronorth.app/v1/gemini"
-  exit 1
-fi
-echo "🔑 OPENCODE_GEMININ_API_KEY: set   🌐 OPENCODE_GEMININ_URL: set"
+# Resolve the selected provider → provider-id + gateway creds, and fail fast on
+# missing creds / a model chain that doesn't match the provider. Export the model
+# chain FIRST so the resolver can validate it (primary = --model arg). These are
+# also what review-in-chunks.sh / aggregate-reviews.sh consume.
+export OPENCODE_PROVIDER
+export OPENCODE_MODEL_PRIMARY_REVIEW="$OPENCODE_MODEL"
+export OPENCODE_MODEL_SECONDARY_REVIEW="${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
+export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+# shellcheck source=lib/resolve-provider.sh
+source "$SCRIPT_DIR/lib/resolve-provider.sh"
+
 # Preflight: the gateway lives on a private network. If it's unreachable (e.g.
 # you're not on the VPN), every opencode model call would hang for minutes.
 # Probe it with a short timeout and fail fast with an actionable message.
-GW_HOST=$(printf '%s' "$OPENCODE_GEMININ_URL" | sed -E 's#(https?://[^/]+).*#\1#')
+GW_HOST=$(printf '%s' "$OPENCODE_GATEWAY_URL" | sed -E 's#(https?://[^/]+).*#\1#')
 if ! curl -sS -o /dev/null --max-time 8 \
-      -H "Authorization: Bearer ${OPENCODE_GEMININ_API_KEY}" \
+      -H "Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" \
       "$GW_HOST/health" 2>/dev/null; then
-  echo "❌ LiteLLM gateway unreachable: $GW_HOST"
+  echo "❌ ${OPENCODE_PROVIDER} gateway unreachable: $GW_HOST"
   echo "   Every model call would hang — connect to the VPN / corporate network"
   echo "   that can reach $GW_HOST, then re-run."
   exit 1
 fi
 echo "🌐 gateway reachable: $GW_HOST"
-# Install opencode.json so the litellm-gemini provider resolves.
+# Install opencode.json so the selected provider resolves.
 bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
 
 if ! command -v jq &>/dev/null; then
@@ -272,12 +296,9 @@ touch "$GITHUB_OUTPUT"
 # Set mandatory context files (same as workflow env)
 export MANDATORY_CONTEXT_FILES=".docs/nfr/PROJECT_SETUP_AGENTS.md .agents/skills/code-review-standards/SKILL.md .docs/nfr/TOOL_SETUP_AGENTS.md .agents/rules-scoped/backend/testing-standards.instructions.md .agents/rules-scoped/backend/dotnet-standards.instructions.md"
 
-# Model chain — export so review-in-chunks.sh / aggregate-reviews.sh pick them up.
-# The primary review model is the --model arg ($OPENCODE_MODEL); the secondary
-# review + orchestrator come from here. Anything already exported wins. Defaults
-# mirror the workflow's literal defaults.
-export OPENCODE_MODEL_SECONDARY_REVIEW="${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
-export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+# Model chain (OPENCODE_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
+# already exported and validated above, before sourcing lib/resolve-provider.sh,
+# so review-in-chunks.sh / aggregate-reviews.sh inherit them here.
 
 # --- Step 1: Determine SHAs and get changed files ---
 

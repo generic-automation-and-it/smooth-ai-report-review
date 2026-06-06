@@ -7,21 +7,21 @@ Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub A
 ## Non-Negotiables
 
 - **Workflow ↔ script paths are coupled.** The gate invokes skill scripts by hardcoded path (`.agents/skills/ai-review-report/scripts/…`). Moving or renaming a script, or the skill folder, silently breaks the gate. Change the workflow YAML and the scripts in the same commit.
-- **The gate requires a `self-hosted` runner.** opencode reaches the Gemini models through a private-network LiteLLM gateway; `ubuntu-latest` cannot reach it. Do not switch the runner.
-- **Credentials are env-injected, never committed.** `assets/opencode.json` holds `{env:OPENCODE_GEMININ_*}` placeholders only. The gateway URL/key are GitHub **Secrets**; the `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store the URL/key as Variables or hardcode them.
+- **The gate runs on `ubuntu-latest`.** opencode reaches the models through the LiteLLM gateway over HTTPS, so the gateway endpoint (`OPENCODE_GEMININ_URL`) **must be reachable from GitHub-hosted runners** — i.e. publicly routable, not VPN-only. If the gateway is ever moved back behind a private network, switch the runner back to `self-hosted`.
+- **Credentials are env-injected, never committed.** `assets/opencode.json` holds `{env:OPENCODE_<PROVIDER>_*}` placeholders only. Each provider's gateway URL/key are GitHub **Secrets**; the `OPENCODE_PROVIDER` selector + `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store a URL/key as a Variable or hardcode it.
 
 ## System Context
 
-This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to Gemini models through an internal LiteLLM gateway and posts structured reviews back to GitHub. Pipeline internals (chunking, the two-tier model chain, orchestrator model, false-positive rules, LADR-001…025) live in `.agents/skills/ai-review-report/SKILL.md` — that file is the source of truth; do not restate it here.
+This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to the selected provider's models (GEMINI / COPILOT / OPENAI, via `OPENCODE_PROVIDER`) through a gateway and posts structured reviews back to GitHub. Pipeline internals (provider selection, chunking, the two-tier model chain, orchestrator model, false-positive rules, LADR-001…026) live in `.agents/skills/ai-review-report/SKILL.md` — that file is the source of truth; do not restate it here.
 
 ```mermaid
 C4Context
     title smooth-ai-report-review — System Context
     System(gate, "PR Code Review Gate", "Chunked PR review: GitHub Actions + ai-review-report skill")
     System_Ext(github, "GitHub Actions + API", "CI runtime, PR reviews, GraphQL")
-    System_Ext(gateway, "LiteLLM Gateway", "Private-network proxy to Gemini models")
+    System_Ext(gateway, "LiteLLM Gateway", "Proxy to Gemini models (publicly reachable)")
     Rel(gate, github, "Reads diffs, posts/minimizes reviews")
-    Rel(gate, gateway, "Sends chunked prompts", "HTTPS, VPN-gated")
+    Rel(gate, gateway, "Sends chunked prompts", "HTTPS")
 ```
 
 ## Key Behaviors
