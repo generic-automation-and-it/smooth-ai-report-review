@@ -58,26 +58,28 @@ elif [ ! -f "$DEST" ]; then
 elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
   # solely the providers we ship plus our own optional `permission` block, no
-  # other top-level keys, AND every provider's apiKey (and baseURL, if present)
-  # is still our {env:OPENCODE_*} placeholder. That last clause is what
-  # distinguishes our config (which never holds real values) from a personal
+  # other top-level keys, AND every provider's apiKey is still our
+  # {env:OPENCODE_*} placeholder. That apiKey clause is the real discriminator:
+  # it distinguishes our config (which never holds a real key) from a personal
   # config that merely reuses the same provider keys but customizes options to
-  # real URLs/keys — without it, a key match alone could clobber that personal
-  # config. A stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names)
-  # still uses the OPENCODE_ placeholder form, so self-heal/refresh is preserved.
-  # baseURL is optional (the providers currently ship with no baseURL — native
-  # API base), so an absent baseURL passes; a present one must be a placeholder.
+  # real keys — without it, a key match alone could clobber that personal config.
+  # A stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names) still uses
+  # the OPENCODE_ placeholder form, so self-heal/refresh is preserved.
+  # baseURL is optional: most providers ship with no baseURL (native SDK base) so
+  # an absent baseURL passes; the two OpenCode Go providers ship a hardcoded
+  # https://opencode.ai/zen/go/v1 base (fixed public Zen endpoint, not env-driven),
+  # so a present baseURL must be either our {env:OPENCODE_*} form OR that Zen base.
   # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
-  # (gemini, github-copilot, openai) compares in that order.
+  # compares as: gemini, github-copilot, go-anthropic, go-openai, openai.
   is_ours="false"
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
     jq -e '
       ((keys - ["$schema","provider","permission"]) == [])
-      and ((.provider // {} | keys) == ["gemini","github-copilot","openai"])
+      and ((.provider // {} | keys) == ["gemini","github-copilot","go-anthropic","go-openai","openai"])
       and (all((.provider // {})[]?;
             ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
-            and ((.options.baseURL // "{env:OPENCODE_}") | test("^\\{env:OPENCODE_"))))
+            and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https://opencode\\.ai/zen/go/)"))))
     ' "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
     jq_available="false"
@@ -100,14 +102,17 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
     echo "⚠️  $DEST has a 'gemini' provider but also other settings —"
     echo "    NOT overwriting your personal config. Sync the provider blocks you use"
     echo "    (gemini → {env:OPENCODE_GEMINI_*}, github-copilot →"
-    echo "    {env:OPENCODE_COPILOT_*}, openai → {env:OPENCODE_OPENAI_*}) and the"
+    echo "    {env:OPENCODE_COPILOT_*}, openai → {env:OPENCODE_OPENAI_*},"
+    echo "    go-openai → {env:OPENCODE_GO_OPENAI_API_KEY}, go-anthropic →"
+    echo "    {env:OPENCODE_GO_ANTHROPIC_API_KEY} — both with the hardcoded"
+    echo "    https://opencode.ai/zen/go/v1 baseURL) and the"
     echo "    top-level \"permission\": { \"external_directory\": \"allow\" } block from: $SRC"
   fi
 else
   echo "⚠️  $DEST exists but has no 'gemini' provider — leaving your personal config untouched."
   echo "    If the review fails with a provider/model-not-found error, merge the"
   echo "    provider block for the provider you use (gemini / github-copilot"
-  echo "    / openai) from:"
+  echo "    / openai / go-openai / go-anthropic) from:"
   echo "      $SRC"
   echo "    into your config at:"
   echo "      $DEST"

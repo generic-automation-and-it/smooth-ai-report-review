@@ -2,16 +2,28 @@
 # resolve-provider.sh — central provider selector for the OpenCode review pipeline.
 #
 # Single source of truth that maps the user-facing OPENCODE_PROVIDER selector
-# (GEMINI | COPILOT | OPENAI, default GEMINI) onto:
+# (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC,
+# default GEMINI) onto:
 #   - OPENCODE_PROVIDER_ID         the provider KEY in assets/opencode.json that
 #                                  opencode-with-fallback.sh prefixes onto the
 #                                  model (`opencode run --model <id>/<model>`):
-#                                    GEMINI  → gemini
-#                                    COPILOT → github-copilot
-#                                    OPENAI  → openai
+#                                    GEMINI                → gemini
+#                                    COPILOT               → github-copilot
+#                                    OPENAI                → openai
+#                                    OPENCODE-GO-OPENAI    → go-openai
+#                                    OPENCODE-GO-ANTHROPIC → go-anthropic
+#                                  OpenCode Go is split into two providers because
+#                                  it serves two SDK surfaces under one Zen gateway:
+#                                  OpenAI-compatible (deepseek/kimi) and
+#                                  Anthropic-compatible (qwen/minimax). A single
+#                                  opencode.json provider block can pin only one npm.
 #   - OPENCODE_GATEWAY_URL /       the selected provider's gateway credentials,
 #     OPENCODE_GATEWAY_API_KEY     copied out of the provider-specific
-#                                  OPENCODE_<P>_URL / OPENCODE_<P>_API_KEY pair.
+#                                  OPENCODE_<P>_URL / OPENCODE_<P>_API_KEY pair
+#                                  (EXCEPT the two OpenCode Go providers, whose
+#                                  URL is the fixed literal https://opencode.ai/
+#                                  zen/go/v1 — hardcoded in opencode.json too — so
+#                                  only their API key comes from an env var).
 #                                  These generic names are what the bash-side
 #                                  /health probe + presence checks read, so those
 #                                  checks are no longer Gemini-specific. The
@@ -38,19 +50,31 @@ _rp_die() { echo "❌ $*" >&2; exit 1; }
 OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
 OPENCODE_PROVIDER="$(printf '%s' "$OPENCODE_PROVIDER" | tr '[:lower:]' '[:upper:]')"
 
+# OpenCode Go's gateway is a fixed public endpoint (the OpenCode Zen base
+# https://opencode.ai/zen/go/v1, hardcoded in opencode.json too), so its
+# providers carry no URL env var — _rp_url_fixed supplies the value the health
+# probe needs. The other providers read their gateway URL from an env var.
+_rp_url_fixed=""
 case "$OPENCODE_PROVIDER" in
-  GEMINI)  _rp_id="gemini";         _rp_url_var="OPENCODE_GEMINI_URL"; _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
-  COPILOT) _rp_id="github-copilot"; _rp_url_var="OPENCODE_COPILOT_URL"; _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
-  OPENAI)  _rp_id="openai";         _rp_url_var="OPENCODE_OPENAI_URL";  _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
-  *) _rp_die "Unknown OPENCODE_PROVIDER='$OPENCODE_PROVIDER' (expected GEMINI, COPILOT, or OPENAI)." ;;
+  GEMINI)                _rp_id="gemini";         _rp_url_var="OPENCODE_GEMINI_URL";        _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
+  COPILOT)               _rp_id="github-copilot"; _rp_url_var="OPENCODE_COPILOT_URL";        _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
+  OPENAI)                _rp_id="openai";         _rp_url_var="OPENCODE_OPENAI_URL";         _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
+  OPENCODE-GO-OPENAI)    _rp_id="go-openai";      _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
+  OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;
+  *) _rp_die "Unknown OPENCODE_PROVIDER='$OPENCODE_PROVIDER' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)." ;;
 esac
 
 OPENCODE_PROVIDER_ID="$_rp_id"
-OPENCODE_GATEWAY_URL="${!_rp_url_var}"
+if [ -n "$_rp_url_var" ]; then
+  OPENCODE_GATEWAY_URL="${!_rp_url_var}"
+else
+  OPENCODE_GATEWAY_URL="$_rp_url_fixed"
+fi
 OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 
-# Selected provider's credentials must be present.
-[ -n "$OPENCODE_GATEWAY_URL" ]     || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_url_var is empty/unset. Set it (GitHub Variable / shell export)."
+# Selected provider's credentials must be present. (For OpenCode Go the URL is
+# the fixed Zen base above, so this only ever trips for an env-driven provider.)
+[ -n "$OPENCODE_GATEWAY_URL" ]     || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but ${_rp_url_var:-its gateway URL} is empty/unset. Set it (GitHub Variable / shell export)."
 [ -n "$OPENCODE_GATEWAY_API_KEY" ] || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_key_var is empty/unset. Set it (GitHub Secret / shell export)."
 
 # Every provider requires an explicit model chain. We don't enumerate every valid
@@ -101,8 +125,9 @@ else
       OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1beta/models" ;;            # Gemini-native surface
     *)
       case "$OPENCODE_PROVIDER" in
-        COPILOT) OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/models" ;;
-        *)       OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1/models" ;;     # OpenAI-compatible (incl. LiteLLM)
+        COPILOT)                                  OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/models" ;;
+        OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC) OPENCODE_GATEWAY_HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;  # OpenCode Zen lists at <baseURL>/models (base .../zen/go/v1), not host-root
+        *)                                        OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1/models" ;;        # OpenAI-compatible (incl. LiteLLM)
       esac
       ;;
   esac
@@ -136,4 +161,4 @@ fi
 
 echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID, health: $OPENCODE_GATEWAY_HEALTH_URL, auth: $OPENCODE_GATEWAY_AUTH_STYLE)"
 
-unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val _rp_lc _rp_host_root
+unset _rp_id _rp_url_var _rp_url_fixed _rp_key_var _rp_mv _rp_val _rp_lc _rp_host_root

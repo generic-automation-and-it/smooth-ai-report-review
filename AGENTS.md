@@ -12,14 +12,14 @@ Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub A
 
 ## System Context
 
-This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to the selected provider's models (GEMINI / COPILOT / OPENAI, via `OPENCODE_PROVIDER`) through a gateway and posts structured reviews back to GitHub. Pipeline internals (provider selection, chunking, the two-tier model chain, orchestrator model, false-positive rules, LADR-001…026) live in `.agents/skills/ai-review-report/SKILL.md` — that file is the source of truth; do not restate it here.
+This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to the selected provider's models (GEMINI / COPILOT / OPENAI / OPENCODE-GO-OPENAI / OPENCODE-GO-ANTHROPIC, via `OPENCODE_PROVIDER`) through a gateway and posts structured reviews back to GitHub. Pipeline internals (provider selection, chunking, the two-tier model chain, orchestrator model, false-positive rules, LADR-001…026) live in `.agents/skills/ai-review-report/SKILL.md` — that file is the source of truth; do not restate it here.
 
 ```mermaid
 C4Context
     title smooth-ai-report-review — System Context
     System(gate, "PR Code Review Gate", "Chunked PR review: GitHub Actions + ai-review-report skill")
     System_Ext(github, "GitHub Actions + API", "CI runtime, PR reviews, GraphQL")
-    System_Ext(gateway, "Model Endpoint", "Selected provider's API — LiteLLM proxy or native (Gemini/OpenAI/Copilot), publicly reachable")
+    System_Ext(gateway, "Model Endpoint", "Selected provider's API — LiteLLM proxy or native (Gemini/OpenAI/Copilot/OpenCode Go), publicly reachable")
     Rel(gate, github, "Reads diffs, posts/minimizes reviews")
     Rel(gate, gateway, "Sends chunked prompts", "HTTPS")
 ```
@@ -37,3 +37,4 @@ C4Context
 | Date | Change | Ref |
 |:-----|:-------|:----|
 | 2026-06-01 | Seeded repo with the `ai-review-report` + `ai-review` skills and the `pipline-code-review-report` gate; replaced the SKILL.md symlink with a real root AGENTS.md authored to the quality standards. | — |
+| 2026-06-06 | Added OpenCode Go (OpenCode Zen) as **two** selectable providers split by SDK surface: `go-openai` (`@ai-sdk/openai-compatible`, selector `OPENCODE-GO-OPENAI`; deepseek-v4-flash, deepseek-v4-pro, glm-5.1) and `go-anthropic` (`@ai-sdk/anthropic`, selector `OPENCODE-GO-ANTHROPIC`; minimax-m2.7, qwen3.7-plus). Shared base `https://opencode.ai/zen/go/v1`; per-surface `OPENCODE_GO_OPENAI_*` / `OPENCODE_GO_ANTHROPIC_*` creds. Wired through `opencode.json`, `resolve-provider.sh`, the gate's env/provider-id/health probe, `setup-opencode-config.sh`, `local-review.sh`, README + SKILL.md (LADR-027). | — |

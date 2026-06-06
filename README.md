@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Automated, AI-driven pull-request code review. A GitHub Actions gate diffs each PR, splits the changes into context-aware chunks, and runs them through the [OpenCode](https://opencode.ai/) CLI — the provider-agnostic model transport — which calls the configured LLM at whatever endpoint the selected provider points to: a LiteLLM proxy, or a provider's native API (Google Gemini, OpenAI, GitHub Copilot). The gate then posts one consolidated review back to the PR — an executive summary plus collapsible per-chunk detail, with findings categorized by priority (Critical / High / Medium / Low). Runs automatically on PRs and on demand via `/ai-review`.
+Automated, AI-driven pull-request code review. A GitHub Actions gate diffs each PR, splits the changes into context-aware chunks, and runs them through the [OpenCode](https://opencode.ai/) CLI — the provider-agnostic model transport — which calls the configured LLM at whatever endpoint the selected provider points to: a LiteLLM proxy, a provider's native API (Google Gemini, OpenAI, GitHub Copilot), or OpenCode's own gateway (OpenCode Go). The gate then posts one consolidated review back to the PR — an executive summary plus collapsible per-chunk detail, with findings categorized by priority (Critical / High / Medium / Low). Runs automatically on PRs and on demand via `/ai-review`.
 
 Two skills back it:
 - **`ai-review-report`** — generates the review (the CI gate; also runnable locally).
@@ -34,8 +34,12 @@ OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-revi
 | **Gemini** (`gemini`, `@ai-sdk/google`) | Default — the model chain points here | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
 | **GitHub Copilot** (`github-copilot`, `@ai-sdk/github-copilot`) | Optional | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_COPILOT_URL`, `OPENCODE_COPILOT_API_KEY` |
 | **OpenAI** (`openai`, `@ai-sdk/openai`) | Optional | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_OPENAI_URL`, `OPENCODE_OPENAI_API_KEY` |
+| **OpenCode Go — OpenAI** (`go-openai`, `@ai-sdk/openai-compatible`) | Optional — [OpenCode's own gateway](https://opencode.ai/docs/go/) (OpenCode Zen), OpenAI-compatible surface | `deepseek-v4-flash`, `deepseek-v4-pro`, `glm-5.1` | `OPENCODE_GO_OPENAI_URL`, `OPENCODE_GO_OPENAI_API_KEY` |
+| **OpenCode Go — Anthropic** (`go-anthropic`, `@ai-sdk/anthropic`) | Optional — same gateway, Anthropic-compatible surface | `minimax-m2.7`, `qwen3.7-plus` | `OPENCODE_GO_ANTHROPIC_URL`, `OPENCODE_GO_ANTHROPIC_API_KEY` |
 
-The active provider is chosen by the **`OPENCODE_PROVIDER`** Variable (`GEMINI` | `COPILOT` | `OPENAI`, default `GEMINI`). The pipeline resolves it to the matching opencode provider-id and gateway credentials, then prefixes every model with that id (`<provider-id>/<model>`) when invoking OpenCode. Optional providers can be left unconfigured: you only need credentials for the provider `OPENCODE_PROVIDER` actually selects.
+> **OpenCode Go is two providers.** Its Zen gateway exposes two SDK surfaces under one base (`https://opencode.ai/zen/go/v1`): an OpenAI-compatible one (`/chat/completions`, serving DeepSeek/GLM) and an Anthropic-compatible one (`/messages`, serving MiniMax/Qwen). A single opencode.json provider block can pin only one `npm`, so the surfaces are split into `go-openai` and `go-anthropic`, selected by `OPENCODE-GO-OPENAI` / `OPENCODE-GO-ANTHROPIC`. The same Zen API key works for both — set whichever surface's Secret you need.
+
+The active provider is chosen by the **`OPENCODE_PROVIDER`** Variable (`GEMINI` | `COPILOT` | `OPENAI` | `OPENCODE-GO-OPENAI` | `OPENCODE-GO-ANTHROPIC`, default `GEMINI`). The pipeline resolves it to the matching opencode provider-id and gateway credentials, then prefixes every model with that id (`<provider-id>/<model>`) when invoking OpenCode. Optional providers can be left unconfigured: you only need credentials for the provider `OPENCODE_PROVIDER` actually selects.
 
 ### GitHub configuration
 
@@ -48,21 +52,25 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_GEMINI_API_KEY` | Gemini gateway API key | Required (default provider) |
 | `OPENCODE_COPILOT_API_KEY` | GitHub Copilot gateway API key | Only if using Copilot models |
 | `OPENCODE_OPENAI_API_KEY` | OpenAI gateway API key | Only if using OpenAI models |
+| `OPENCODE_GO_OPENAI_API_KEY` | OpenCode Go (OpenAI surface) API key | Only if using `OPENCODE-GO-OPENAI` |
+| `OPENCODE_GO_ANTHROPIC_API_KEY` | OpenCode Go (Anthropic surface) API key | Only if using `OPENCODE-GO-ANTHROPIC` |
 
 **Variables** (non-sensitive — gateway URLs, provider selector, model chain; switch provider / retune without editing the workflow; each falls back to a literal default if unset):
 
 | Variable | Default | Role |
 |---|---|---|
-| `OPENCODE_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI` |
+| `OPENCODE_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `OPENCODE-GO-OPENAI`, or `OPENCODE-GO-ANTHROPIC` |
 | `OPENCODE_GEMINI_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini gateway base URL (default provider, OpenAI-compatible). Unset → `@ai-sdk/google`'s native Gemini API base. Point at a LiteLLM proxy to relay instead. |
 | `OPENCODE_COPILOT_URL` | `https://api.githubcopilot.com` | GitHub Copilot gateway base URL (only if using Copilot models). Unset → `@ai-sdk/github-copilot`'s native API base. |
 | `OPENCODE_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI gateway base URL (only if using OpenAI models). Unset → `@ai-sdk/openai`'s native API base. |
+| `OPENCODE_GO_OPENAI_URL` | `https://opencode.ai/zen/go/v1` | OpenCode Go OpenAI-compatible base URL (only if using `OPENCODE-GO-OPENAI`). `@ai-sdk/openai-compatible` appends `/chat/completions`; the health probe lists at `<baseURL>/models`. |
+| `OPENCODE_GO_ANTHROPIC_URL` | `https://opencode.ai/zen/go/v1` | OpenCode Go Anthropic-compatible base URL (only if using `OPENCODE-GO-ANTHROPIC`). `@ai-sdk/anthropic` appends `/messages`; the health probe lists at `<baseURL>/models`. |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
 | `OPENCODE_API_HEALTH_OVERRIDE` | _(URL-derived)_ | Gateway health-probe path. Unset → derived from the URL's API surface: Google's OpenAI-compat endpoint (`…/v1beta/openai`) → `<baseURL>/models` + Bearer (the surface opencode actually calls); a Google-native host (`…/v1beta`) → `/v1beta/models` + `x-goog-api-key`; any other host → `/v1/models` (OpenAI-compatible, incl. a **LiteLLM proxy**), except Copilot → `/models`. Set (e.g. `/health` for a LiteLLM proxy's model summary) to force a path. Always host-root-relative. |
 
-> **Switching provider:** set `OPENCODE_PROVIDER` to `COPILOT` or `OPENAI`, supply that provider's `OPENCODE_<P>_URL` (Variable) + `OPENCODE_<P>_API_KEY` (Secret), **and** set the three `OPENCODE_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`). The model-chain defaults are Gemini IDs, which don't resolve on the Copilot/OpenAI gateways — the run **fails fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)) if a `gemini*` model is left in place for a non-`GEMINI` provider. All three credential pairs are wired into the workflow's `env:` block, so no workflow edit is needed to enable a provider — only its URL + key + model Variables.
+> **Switching provider:** set `OPENCODE_PROVIDER` to `COPILOT`, `OPENAI`, `OPENCODE-GO-OPENAI`, or `OPENCODE-GO-ANTHROPIC`, supply that provider's `OPENCODE_<P>_URL` (Variable) + `OPENCODE_<P>_API_KEY` (Secret), **and** set the three `OPENCODE_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` for OpenAI/Copilot, `deepseek-v4-pro` / `deepseek-v4-flash` / `glm-5.1` for `OPENCODE-GO-OPENAI`, or `qwen3.7-plus` / `minimax-m2.7` for `OPENCODE-GO-ANTHROPIC`). The model-chain defaults are Gemini IDs, which don't resolve on the other gateways — the run **fails fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)) if a `gemini*` model is left in place for a non-`GEMINI` provider. All five credential pairs are wired into the workflow's `env:` block, so no workflow edit is needed to enable a provider — only its URL + key + model Variables.
 
 ## Environment variables
 
@@ -70,10 +78,12 @@ Complete reference for every environment variable the pipeline reads. **Selector
 
 | Variable | Set by | Purpose |
 |---|---|---|
-| `OPENCODE_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `GEMINI`) | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI`. |
+| `OPENCODE_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `GEMINI`) | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `OPENCODE-GO-OPENAI`, or `OPENCODE-GO-ANTHROPIC`. |
 | `OPENCODE_GEMINI_URL` (**Variable**) / `OPENCODE_GEMINI_API_KEY` (**Secret**) | GitHub / shell export | Gemini gateway base URL + API key (`gemini` provider). |
 | `OPENCODE_COPILOT_URL` (**Variable**) / `OPENCODE_COPILOT_API_KEY` (**Secret**) | GitHub / shell export | GitHub Copilot gateway base URL + API key (`github-copilot` provider). |
 | `OPENCODE_OPENAI_URL` (**Variable**) / `OPENCODE_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenAI gateway base URL + API key (`openai` provider). |
+| `OPENCODE_GO_OPENAI_URL` (**Variable**) / `OPENCODE_GO_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenCode Go OpenAI-compatible base URL + API key (`go-openai` provider). |
+| `OPENCODE_GO_ANTHROPIC_URL` (**Variable**) / `OPENCODE_GO_ANTHROPIC_API_KEY` (**Secret**) | GitHub / shell export | OpenCode Go Anthropic-compatible base URL + API key (`go-anthropic` provider). |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
@@ -81,6 +91,6 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `MANDATORY_CONTEXT_FILES` | Workflow `env:` (space-separated) | Context files loaded into every review (coding standards, language/tool setup, review guidelines). |
 | `AGENTS_MD_EXEMPT_PATHS` | Workflow `env:` (pipe-separated) | Paths exempt from the `*_AGENTS.md` validation requirement. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
-| `OPENCODE_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `gemini` / `github-copilot` / `openai`. |
+| `OPENCODE_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `gemini` / `github-copilot` / `openai` / `go-openai` / `go-anthropic`. |
 | `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the gateway-reachability checks. |
 | `OPENCODE_GATEWAY_HEALTH_URL` | **Derived** | The gateway health URL the probe hits: host root of `OPENCODE_GATEWAY_URL` + the resolved health path (per-provider default or `OPENCODE_API_HEALTH_OVERRIDE`). |

@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT).'
+        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
         required: false
         type: string
         default: ''
@@ -43,17 +43,21 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     
     env:
-      # Provider selector (GEMINI | COPILOT | OPENAI), default GEMINI. Set the
-      # repo/org Variable OPENCODE_PROVIDER to switch which opencode.json provider
-      # the review routes to. lib/resolve-provider.sh maps this to the gateway
-      # credentials + provider-id and fails fast on a mismatched model chain.
+      # Provider selector, default GEMINI. Allowed:
+      #   GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
+      # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
+      # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
+      # one opencode.json provider block can pin only one npm. Set the repo/org
+      # Variable OPENCODE_PROVIDER to switch which provider the review routes to.
+      # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
+      # and fails fast on a mismatched model chain.
       OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
-      # with (gemini / github-copilot / openai). Computed here (string
-      # literals, no empty-secret hazard) so every step — including the
+      # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
+      # here (string literals, no empty-secret hazard) so every step — including the
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
       # value for local runs.
-      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || 'gemini' }}
+      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
       # All three provider credential pairs are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
@@ -72,6 +76,11 @@ jobs:
       OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
       OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
+      # OpenCode Go: only the API key is configurable — the gateway base URL is the
+      # fixed public Zen endpoint (https://opencode.ai/zen/go/v1), hardcoded in
+      # opencode.json and in the resolver/health-probe (no OPENCODE_GO_*_URL var).
+      OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
+      OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
       # Optional health-probe path override. The probe picks a default from the
       # gateway URL's API surface (Google host → /v1beta/models; any other host →
       # /v1/models, except Copilot → /models) — so a LiteLLM/OpenAI-compatible
@@ -84,9 +93,11 @@ jobs:
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
       # which would otherwise blank the model). The dispatch input still wins for
       # the primary review model. NOTE: the literal defaults are Gemini model IDs —
-      # correct for the default provider. When OPENCODE_PROVIDER is COPILOT/OPENAI
-      # you MUST set these Variables to that provider's models (e.g. gpt-5.5);
-      # lib/resolve-provider.sh fails the run fast if a gemini* model leaks through.
+      # correct for the default provider. For any non-GEMINI provider you MUST set
+      # these Variables to that provider's models: gpt-5.5 (COPILOT/OPENAI),
+      # deepseek-v4-pro/glm-5.1 (OPENCODE-GO-OPENAI), or qwen3.7-plus/minimax-m2.7
+      # (OPENCODE-GO-ANTHROPIC). lib/resolve-provider.sh fails the run fast if a
+      # gemini* model leaks through to a non-GEMINI provider.
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
@@ -123,13 +134,20 @@ jobs:
           # canonical one in lib/resolve-provider.sh (used by local-review.sh);
           # this is the pre-checkout bootstrap copy because that repo script
           # isn't available until after actions/checkout.
+          # U = name of the provider's URL env var (read via indirection). GW_URL =
+          # a fixed literal URL for providers whose endpoint is not env-configurable
+          # (the two OpenCode Go surfaces share the public Zen base). When GW_URL is
+          # set it wins; otherwise the URL comes from ${!U}.
+          U=""; GW_URL=""
           case "${OPENCODE_PROVIDER:-GEMINI}" in
-            COPILOT) U=OPENCODE_COPILOT_URL; K=OPENCODE_COPILOT_API_KEY ;;
-            OPENAI)  U=OPENCODE_OPENAI_URL;  K=OPENCODE_OPENAI_API_KEY ;;
-            GEMINI)  U=OPENCODE_GEMINI_URL; K=OPENCODE_GEMINI_API_KEY ;;
-            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, or OPENAI)."; exit 1 ;;
+            COPILOT)               U=OPENCODE_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
+            OPENAI)                U=OPENCODE_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
+            OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
+            OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
+            GEMINI)                U=OPENCODE_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
+            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)."; exit 1 ;;
           esac
-          OPENCODE_GATEWAY_URL="${!U}"
+          OPENCODE_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
           OPENCODE_GATEWAY_API_KEY="${!K}"
           # Export to later steps so the probe + scripts read the resolved creds.
           {
@@ -201,8 +219,9 @@ jobs:
                 HEALTH_URL="${HOST_ROOT}/v1beta/models" ;;           # Gemini-native surface
               *)
                 case "${OPENCODE_PROVIDER:-GEMINI}" in
-                  COPILOT) HEALTH_URL="${HOST_ROOT}/models" ;;
-                  *)       HEALTH_URL="${HOST_ROOT}/v1/models" ;;    # OpenAI-compatible (incl. LiteLLM)
+                  COPILOT)                                  HEALTH_URL="${HOST_ROOT}/models" ;;
+                  OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC) HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;  # OpenCode Zen lists at <baseURL>/models
+                  *)                                        HEALTH_URL="${HOST_ROOT}/v1/models" ;;    # OpenAI-compatible (incl. LiteLLM)
                 esac
                 ;;
             esac
