@@ -66,8 +66,8 @@ jobs:
       # API keys stay Secrets; gateway URLs are non-sensitive and come from
       # repo/org Variables (the user-confirmed config) so they can be retuned
       # without secret access.
-      OPENCODE_GEMININ_API_KEY: ${{ secrets.OPENCODE_GEMININ_API_KEY }}
-      OPENCODE_GEMININ_URL: ${{ vars.OPENCODE_GEMININ_URL }}
+      OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+      OPENCODE_GEMINI_URL: ${{ vars.OPENCODE_GEMINI_URL }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
       OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
@@ -126,7 +126,7 @@ jobs:
           case "${OPENCODE_PROVIDER:-GEMINI}" in
             COPILOT) U=OPENCODE_COPILOT_URL; K=OPENCODE_COPILOT_API_KEY ;;
             OPENAI)  U=OPENCODE_OPENAI_URL;  K=OPENCODE_OPENAI_API_KEY ;;
-            GEMINI)  U=OPENCODE_GEMININ_URL; K=OPENCODE_GEMININ_API_KEY ;;
+            GEMINI)  U=OPENCODE_GEMINI_URL; K=OPENCODE_GEMINI_API_KEY ;;
             *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, or OPENAI)."; exit 1 ;;
           esac
           OPENCODE_GATEWAY_URL="${!U}"
@@ -340,7 +340,7 @@ jobs:
           #      (.agents/skills/ai-review-report/assets/opencode.json) into
           #      opencode's global config dir (~/.config/opencode/opencode.json,
           #      precedence 2 per opencode docs). The provider reads
-          #      OPENCODE_GEMININ_URL and OPENCODE_GEMININ_API_KEY directly via
+          #      OPENCODE_GEMINI_URL and OPENCODE_GEMINI_API_KEY directly via
           #      {env:VAR} substitution; no URL derivation needed.
           #   3. Warm the SQLite store. opencode's first DB-touching command
           #      prints "Performing one time database migration..." to stdout.

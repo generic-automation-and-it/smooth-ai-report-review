@@ -39,7 +39,7 @@ OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
 OPENCODE_PROVIDER="$(printf '%s' "$OPENCODE_PROVIDER" | tr '[:lower:]' '[:upper:]')"
 
 case "$OPENCODE_PROVIDER" in
-  GEMINI)  _rp_id="litellm-gemini"; _rp_url_var="OPENCODE_GEMININ_URL"; _rp_key_var="OPENCODE_GEMININ_API_KEY" ;;
+  GEMINI)  _rp_id="litellm-gemini"; _rp_url_var="OPENCODE_GEMINI_URL"; _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
   COPILOT) _rp_id="github-copilot"; _rp_url_var="OPENCODE_COPILOT_URL"; _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
   OPENAI)  _rp_id="openai";         _rp_url_var="OPENCODE_OPENAI_URL";  _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
   *) _rp_die "Unknown OPENCODE_PROVIDER='$OPENCODE_PROVIDER' (expected GEMINI, COPILOT, or OPENAI)." ;;

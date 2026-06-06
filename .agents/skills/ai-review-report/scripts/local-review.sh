@@ -87,7 +87,7 @@ while [[ $# -gt 0 ]]; do
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's gateway creds exported (requires VPN /"
       echo "    corporate-network access to the gateway host):"
-      echo "      GEMINI  → OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY"
+      echo "      GEMINI  → OPENCODE_GEMINI_URL + OPENCODE_GEMINI_API_KEY"
       echo "      COPILOT → OPENCODE_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
       echo "      OPENAI  → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
       echo "  - For COPILOT/OPENAI also export OPENCODE_MODEL_SECONDARY_REVIEW and"
@@ -137,7 +137,7 @@ harvest_var() {
 }
 # Harvest every provider's credential pair; lib/resolve-provider.sh picks the
 # pair for the selected OPENCODE_PROVIDER and validates it below.
-for v in OPENCODE_GEMININ_URL OPENCODE_GEMININ_API_KEY \
+for v in OPENCODE_GEMINI_URL OPENCODE_GEMINI_API_KEY \
          OPENCODE_COPILOT_URL OPENCODE_COPILOT_API_KEY \
          OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY; do
   harvest_var "$v" || true

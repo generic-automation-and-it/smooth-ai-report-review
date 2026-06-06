@@ -5,8 +5,8 @@
       "npm": "@ai-sdk/google",
       "name": "Gemini via ",
       "options": {
-        "baseURL": "{env:OPENCODE_GEMININ_URL}",
-        "apiKey": "{env:OPENCODE_GEMININ_API_KEY}"
+        "baseURL": "{env:OPENCODE_GEMINI_URL}",
+        "apiKey": "{env:OPENCODE_GEMINI_API_KEY}"
       },
       "models": {
         "gemini-3.1-pro-preview":  { "name": "Gemini 3.1 Pro (preview)" },
