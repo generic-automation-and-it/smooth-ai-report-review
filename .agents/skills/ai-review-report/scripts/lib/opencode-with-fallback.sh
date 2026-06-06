@@ -10,8 +10,8 @@
 #
 # The provider is selected by OPENCODE_PROVIDER (GEMINI|COPILOT|OPENAI) and
 # resolved to its opencode provider-id by lib/resolve-provider.sh, which exports
-# OPENCODE_PROVIDER_ID (litellm-gemini / github-copilot / openai). This script
-# reads that id below; it defaults to litellm-gemini when unset so a bare
+# OPENCODE_PROVIDER_ID (gemini / github-copilot / openai). This script
+# reads that id below; it defaults to gemini when unset so a bare
 # invocation keeps the historical Gemini behavior. Credentials are read by
 # opencode itself via the {env:OPENCODE_<P>_*} placeholders in opencode.json.
 #
@@ -28,7 +28,7 @@ if [ -z "$prompt_file" ] || [ ! -f "$prompt_file" ]; then
   exit 64
 fi
 
-PROVIDER="${OPENCODE_PROVIDER_ID:-litellm-gemini}"
+PROVIDER="${OPENCODE_PROVIDER_ID:-gemini}"
 
 run_opencode() {
   # No --agent flag: we let opencode use its DEFAULT `build` agent but override

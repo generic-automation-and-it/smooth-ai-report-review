@@ -154,7 +154,7 @@ if [ "$TOTAL_CHUNKS" -eq 1 ] && [ -f ci_temp/reviews/chunk_0.md ]; then
     cat ci_temp/reviews/chunk_0.md
   } > ci_temp/sc_summary_prompt.txt
 
-  # LADR-023: opencode transport via litellm-gemini provider.
+  # LADR-023: opencode transport via the selected provider (default `gemini`).
   if bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/sc_summary_prompt.txt > ci_temp/sc_summary_raw.txt 2>/dev/null; then
     RAW_SUMMARY=$(grep -v "^$" ci_temp/sc_summary_raw.txt | head -c 600 || true)
     [ -n "$RAW_SUMMARY" ] && SC_OVERALL_SUMMARY="$RAW_SUMMARY"

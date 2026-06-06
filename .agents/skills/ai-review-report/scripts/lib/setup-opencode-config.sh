@@ -4,7 +4,7 @@
 # config location (~/.config/opencode/opencode.json).
 #
 # Global scope (precedence 2 per opencode docs) is chosen over project scope
-# so opencode finds the litellm-gemini provider regardless of which directory
+# so opencode finds the gemini provider regardless of which directory
 # the review scripts are invoked from. The repo source remains the single
 # committed source of truth.
 #
@@ -15,17 +15,17 @@
 #     must be overwritten so the runner picks up the current provider definition.
 #     Either way no human's personal config lives there, so overwriting is safe.
 #   - Local, dest missing: install it (first run).
-#   - Local, dest is OUR config (has a litellm-gemini block) but references the
+#   - Local, dest is OUR config (has a gemini block) but references the
 #     OLD env-var names: self-heal — refresh it to the committed version so the
 #     provider resolves OPENCODE_GEMINI_*. Already-current configs are left as-is.
-#   - Local, dest is a hand-rolled personal config (no litellm-gemini block):
+#   - Local, dest is a hand-rolled personal config (no gemini block):
 #     do NOT overwrite. Print actionable guidance so a later "provider/model
 #     not found" failure is self-explanatory and the dev can merge it in.
 #
-# Provider config consumes the existing OPENCODE_GEMINI_URL / OPENCODE_GEMINI_API_KEY
-# env vars directly (see opencode.json). The provider type is @ai-sdk/google
-# pointed at LiteLLM's Gemini-native baseURL — confirmed working for relayed
-# Gemini setups in upstream issue anomalyco/opencode#5777.
+# The `gemini` provider is `@ai-sdk/google` using its native Gemini API base
+# (no baseURL in opencode.json) and reads OPENCODE_GEMINI_API_KEY via {env:…}.
+# A relaying gateway provider (e.g. a LiteLLM proxy with its own baseURL) may be
+# added as a separate provider block later.
 #
 # Must run AFTER actions/checkout — see LADR-023.
 
@@ -55,27 +55,29 @@ if [ "${CI:-}" = "true" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
 elif [ ! -f "$DEST" ]; then
   cp "$SRC" "$DEST"
   echo "✓ opencode.json installed: $SRC → $DEST"
-elif grep -q '"litellm-gemini"' "$DEST" 2>/dev/null; then
+elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
   # solely the providers we ship plus our own optional `permission` block, no
-  # other top-level keys, AND every provider's URL/key are still our
-  # {env:OPENCODE_*} placeholders. That last clause is what distinguishes our
-  # config (which never holds real values) from a personal config that merely
-  # reuses the same provider keys but customizes options to real URLs/keys —
-  # without it, a key match alone could clobber that personal config. A
-  # stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names) still uses
-  # the OPENCODE_ placeholder form, so self-heal/refresh below is preserved.
+  # other top-level keys, AND every provider's apiKey (and baseURL, if present)
+  # is still our {env:OPENCODE_*} placeholder. That last clause is what
+  # distinguishes our config (which never holds real values) from a personal
+  # config that merely reuses the same provider keys but customizes options to
+  # real URLs/keys — without it, a key match alone could clobber that personal
+  # config. A stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names)
+  # still uses the OPENCODE_ placeholder form, so self-heal/refresh is preserved.
+  # baseURL is optional (the providers currently ship with no baseURL — native
+  # API base), so an absent baseURL passes; a present one must be a placeholder.
   # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
-  # (github-copilot, litellm-gemini, openai) compares in that order.
+  # (gemini, github-copilot, openai) compares in that order.
   is_ours="false"
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
     jq -e '
       ((keys - ["$schema","provider","permission"]) == [])
-      and ((.provider // {} | keys) == ["github-copilot","litellm-gemini","openai"])
+      and ((.provider // {} | keys) == ["gemini","github-copilot","openai"])
       and (all((.provider // {})[]?;
-            ((.options.baseURL // "") | test("^\\{env:OPENCODE_"))
-            and ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))))
+            ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
+            and ((.options.baseURL // "{env:OPENCODE_}") | test("^\\{env:OPENCODE_"))))
     ' "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
     jq_available="false"
@@ -95,16 +97,16 @@ elif grep -q '"litellm-gemini"' "$DEST" 2>/dev/null; then
     echo "ℹ️  jq not found — can't verify $DEST is the managed config, so it's left untouched."
     echo "    Install jq (brew install jq / apt-get install jq) to enable auto-refresh of this config."
   else
-    echo "⚠️  $DEST has a 'litellm-gemini' provider but also other settings —"
+    echo "⚠️  $DEST has a 'gemini' provider but also other settings —"
     echo "    NOT overwriting your personal config. Sync the provider blocks you use"
-    echo "    (litellm-gemini → {env:OPENCODE_GEMINI_*}, github-copilot →"
+    echo "    (gemini → {env:OPENCODE_GEMINI_*}, github-copilot →"
     echo "    {env:OPENCODE_COPILOT_*}, openai → {env:OPENCODE_OPENAI_*}) and the"
     echo "    top-level \"permission\": { \"external_directory\": \"allow\" } block from: $SRC"
   fi
 else
-  echo "⚠️  $DEST exists but has no 'litellm-gemini' provider — leaving your personal config untouched."
+  echo "⚠️  $DEST exists but has no 'gemini' provider — leaving your personal config untouched."
   echo "    If the review fails with a provider/model-not-found error, merge the"
-  echo "    provider block for the provider you use (litellm-gemini / github-copilot"
+  echo "    provider block for the provider you use (gemini / github-copilot"
   echo "    / openai) from:"
   echo "      $SRC"
   echo "    into your config at:"

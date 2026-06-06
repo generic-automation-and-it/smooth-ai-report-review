@@ -30,7 +30,7 @@ OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-revi
 
 | Provider | Status | Models | Env vars (gateway URL + key) |
 |---|---|---|---|
-| **Gemini** (`litellm-gemini`, `@ai-sdk/google`) | Default — the model chain points here | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
+| **Gemini** (`gemini`, `@ai-sdk/google`) | Default — the model chain points here | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
 | **GitHub Copilot** (`github-copilot`, `@ai-sdk/github-copilot`) | Optional | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_COPILOT_URL`, `OPENCODE_COPILOT_API_KEY` |
 | **OpenAI** (`openai`, `@ai-sdk/openai`) | Optional | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_OPENAI_URL`, `OPENCODE_OPENAI_API_KEY` |
 
@@ -70,7 +70,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | Variable | Set by | Purpose |
 |---|---|---|
 | `OPENCODE_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `GEMINI`) | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI`. |
-| `OPENCODE_GEMINI_URL` (**Variable**) / `OPENCODE_GEMINI_API_KEY` (**Secret**) | GitHub / shell export | Gemini gateway base URL + API key (`litellm-gemini` provider). |
+| `OPENCODE_GEMINI_URL` (**Variable**) / `OPENCODE_GEMINI_API_KEY` (**Secret**) | GitHub / shell export | Gemini gateway base URL + API key (`gemini` provider). |
 | `OPENCODE_COPILOT_URL` (**Variable**) / `OPENCODE_COPILOT_API_KEY` (**Secret**) | GitHub / shell export | GitHub Copilot gateway base URL + API key (`github-copilot` provider). |
 | `OPENCODE_OPENAI_URL` (**Variable**) / `OPENCODE_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenAI gateway base URL + API key (`openai` provider). |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
@@ -80,6 +80,6 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `MANDATORY_CONTEXT_FILES` | Workflow `env:` (space-separated) | Context files loaded into every review (coding standards, language/tool setup, review guidelines). |
 | `AGENTS_MD_EXEMPT_PATHS` | Workflow `env:` (pipe-separated) | Paths exempt from the `*_AGENTS.md` validation requirement. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
-| `OPENCODE_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `litellm-gemini` / `github-copilot` / `openai`. |
+| `OPENCODE_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `gemini` / `github-copilot` / `openai`. |
 | `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the gateway-reachability checks. |
 | `OPENCODE_GATEWAY_HEALTH_URL` | **Derived** | The gateway health URL the probe hits: host root of `OPENCODE_GATEWAY_URL` + the resolved health path (per-provider default or `OPENCODE_API_HEALTH_OVERRIDE`). |

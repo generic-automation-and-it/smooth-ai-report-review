@@ -49,11 +49,11 @@ jobs:
       # credentials + provider-id and fails fast on a mismatched model chain.
       OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
-      # with (litellm-gemini / github-copilot / openai). Computed here (string
+      # with (gemini / github-copilot / openai). Computed here (string
       # literals, no empty-secret hazard) so every step — including the
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
       # value for local runs.
-      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || 'litellm-gemini' }}
+      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || 'gemini' }}
       # All three provider credential pairs are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
@@ -400,9 +400,9 @@ jobs:
             # Mirrors lib/opencode-with-fallback.sh: no --agent, WARN-level
             # logging (short probe so verbose INFO/--print-logs adds noise
             # without helping). ERROR_PATTERN below catches the failure modes.
-            # Provider-id is resolved from OPENCODE_PROVIDER (default litellm-gemini).
+            # Provider-id is resolved from OPENCODE_PROVIDER (default gemini).
             opencode run \
-              --model "${OPENCODE_PROVIDER_ID:-litellm-gemini}/$1" \
+              --model "${OPENCODE_PROVIDER_ID:-gemini}/$1" \
               --format default \
               --log-level WARN \
               "Say 'OK'" 2>&1 || true
