@@ -64,26 +64,31 @@ if [ "$OPENCODE_PROVIDER" != "GEMINI" ]; then
   done
 fi
 
-# Gateway health-check URL (host root + a per-provider path). There is no
-# universal health endpoint — each provider's native API exposes a different
-# liveness/availability check, and none of them is a generic "/health" (that
-# is LiteLLM-specific). The default is therefore keyed to each provider's
-# OWN API, so this is agnostic to whether a LiteLLM proxy sits in front:
-#   GEMINI  → /v1beta/models   (Google Generative Language API list-models;
-#                               native Gemini has no /health)
-#   OPENAI  → /v1/models       (OpenAI list-models)
-#   COPILOT → /models          (Copilot list-models)
-# OPENCODE_API_HEALTH_OVERRIDE wins for any gateway whose health path differs —
-# notably set it to "/health" when a LiteLLM proxy fronts the models (LiteLLM
-# exposes /health with a healthy/unhealthy model summary), or to a sub-path.
-# The path is always taken relative to the host root.
+# Gateway health-check URL (host root + a list-models path). There is no
+# universal health endpoint, and the path that actually answers depends on the
+# API SURFACE at the URL — NOT on the logical provider. LiteLLM (or any
+# OpenAI-compatible proxy) can front ANY provider, in which case the surface is
+# OpenAI-compatible (`/v1/models`) regardless of which models sit behind it.
+# So the default is keyed off the URL first, provider second:
+#   * Google host (generativelanguage.googleapis.com) → /v1beta/models — the
+#     ONLY surface that is genuinely Gemini-native (no /health, no /v1/models).
+#   * any other host → an OpenAI-compatible proxy/API (LiteLLM, OpenAI, Azure,
+#     a proxied Gemini, …) → /v1/models, except Copilot whose native surface
+#     lists at /models (LiteLLM also serves /models, so this holds when proxied).
+# OPENCODE_API_HEALTH_OVERRIDE always wins — e.g. set it to "/health" to use a
+# LiteLLM proxy's healthy/unhealthy model summary, or to a sub-path. The path is
+# always taken relative to the host root.
 if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
   _rp_health_path="${OPENCODE_API_HEALTH_OVERRIDE}"
 else
-  case "$OPENCODE_PROVIDER" in
-    COPILOT) _rp_health_path="/models" ;;
-    OPENAI)  _rp_health_path="/v1/models" ;;
-    *)       _rp_health_path="/v1beta/models" ;;   # GEMINI → Google native list-models
+  case "$OPENCODE_GATEWAY_URL" in
+    *generativelanguage.googleapis.com*) _rp_health_path="/v1beta/models" ;;   # Gemini-native surface
+    *)
+      case "$OPENCODE_PROVIDER" in
+        COPILOT) _rp_health_path="/models" ;;
+        *)       _rp_health_path="/v1/models" ;;   # OpenAI-compatible (incl. LiteLLM-fronted Gemini)
+      esac
+      ;;
   esac
 fi
 _rp_health_path="/${_rp_health_path#/}"   # normalize to exactly one leading slash

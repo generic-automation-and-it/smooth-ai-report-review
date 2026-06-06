@@ -72,13 +72,12 @@ jobs:
       OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
       OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
-      # Optional health-probe path override. The probe defaults to each
-      # provider's OWN native list-models endpoint (GEMINI → /v1beta/models;
-      # OPENAI → /v1/models; COPILOT → /models) — agnostic to whether a proxy
-      # fronts the models. Set this Variable to a non-empty path to force a
-      # specific endpoint — notably "/health" when a LiteLLM proxy fronts the
-      # gateway (LiteLLM exposes /health; the native APIs do not). Empty/unset =
-      # per-provider default.
+      # Optional health-probe path override. The probe picks a default from the
+      # gateway URL's API surface (Google host → /v1beta/models; any other host →
+      # /v1/models, except Copilot → /models) — so a LiteLLM/OpenAI-compatible
+      # proxy fronting ANY provider resolves correctly. Set this Variable to force
+      # a path — notably "/health" to use a LiteLLM proxy's healthy/unhealthy model
+      # summary. Empty/unset = the URL-derived default.
       OPENCODE_API_HEALTH_OVERRIDE: ${{ vars.OPENCODE_API_HEALTH_OVERRIDE }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
@@ -180,20 +179,25 @@ jobs:
           fi
 
           # Gateway health probe (non-blocking diagnostic, transport-independent).
-          # Uses the SELECTED provider's gateway creds resolved above. There is no
-          # universal health endpoint, so the path defaults to each provider's OWN
-          # native list-models endpoint (agnostic to whether a proxy fronts it):
-          # GEMINI → /v1beta/models (Google has no /health), OPENAI → /v1/models,
-          # COPILOT → /models. OPENCODE_API_HEALTH_OVERRIDE wins — set it to
-          # "/health" when a LiteLLM proxy fronts the gateway. Mirrors
-          # lib/resolve-provider.sh (this is the pre-checkout copy).
+          # The path that answers depends on the API SURFACE at the URL, not the
+          # logical provider: LiteLLM (or any OpenAI-compatible proxy) can front
+          # ANY provider, exposing /v1/models regardless of the models behind it.
+          # So key off the URL first, provider second: a Google host is the only
+          # genuinely Gemini-native surface (/v1beta/models); any other host is
+          # OpenAI-compatible (/v1/models, except Copilot's native /models).
+          # OPENCODE_API_HEALTH_OVERRIDE wins — set it to "/health" for a LiteLLM
+          # proxy's model summary. Mirrors lib/resolve-provider.sh (pre-checkout copy).
           if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
             HEALTH_PATH="${OPENCODE_API_HEALTH_OVERRIDE}"
           else
-            case "${OPENCODE_PROVIDER:-GEMINI}" in
-              COPILOT) HEALTH_PATH="/models" ;;
-              OPENAI)  HEALTH_PATH="/v1/models" ;;
-              *)       HEALTH_PATH="/v1beta/models" ;;   # GEMINI → Google native list-models
+            case "$OPENCODE_GATEWAY_URL" in
+              *generativelanguage.googleapis.com*) HEALTH_PATH="/v1beta/models" ;;   # Gemini-native surface
+              *)
+                case "${OPENCODE_PROVIDER:-GEMINI}" in
+                  COPILOT) HEALTH_PATH="/models" ;;
+                  *)       HEALTH_PATH="/v1/models" ;;   # OpenAI-compatible (incl. LiteLLM-fronted Gemini)
+                esac
+                ;;
             esac
           fi
           HEALTH_PATH="/${HEALTH_PATH#/}"   # normalize to exactly one leading slash
