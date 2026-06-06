@@ -53,16 +53,24 @@ OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 [ -n "$OPENCODE_GATEWAY_URL" ]     || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_url_var is empty/unset. Set it (GitHub Variable / shell export)."
 [ -n "$OPENCODE_GATEWAY_API_KEY" ] || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_key_var is empty/unset. Set it (GitHub Secret / shell export)."
 
-# Non-GEMINI providers require an explicit, non-gemini model chain.
-if [ "$OPENCODE_PROVIDER" != "GEMINI" ]; then
-  for _rp_mv in OPENCODE_MODEL_PRIMARY_REVIEW OPENCODE_MODEL_SECONDARY_REVIEW OPENCODE_MODEL_ORCHESTRATOR; do
-    _rp_val="${!_rp_mv}"
-    [ -n "$_rp_val" ] || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_mv is unset. Set the OPENCODE_MODEL_* Variables to this provider's models (e.g. gpt-5.5 / gpt-5.4 / gpt-5.4-mini)."
-    case "$(printf '%s' "$_rp_val" | tr '[:upper:]' '[:lower:]')" in
-      gemini*) _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_mv='$_rp_val' names a Gemini model, which won't resolve on the $OPENCODE_PROVIDER gateway. Set OPENCODE_MODEL_* to $OPENCODE_PROVIDER models (e.g. gpt-5.5 / gpt-5.4 / gpt-5.4-mini)." ;;
-    esac
-  done
+# Every provider requires an explicit model chain whose ids match that provider's
+# model family — fail fast HERE rather than letting a stale id fall through to
+# `opencode run`. GEMINI expects gemini-* ids; COPILOT/OPENAI expect gpt-* ids
+# (the only models declared per provider in assets/opencode.json). This validates
+# the default GEMINI path too, so a leftover gpt-* (or vice-versa) is caught.
+if [ "$OPENCODE_PROVIDER" = "GEMINI" ]; then
+  _rp_expected_prefix="gemini"
+else
+  _rp_expected_prefix="gpt-"
 fi
+for _rp_mv in OPENCODE_MODEL_PRIMARY_REVIEW OPENCODE_MODEL_SECONDARY_REVIEW OPENCODE_MODEL_ORCHESTRATOR; do
+  _rp_val="${!_rp_mv}"
+  [ -n "$_rp_val" ] || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_mv is unset. Set the OPENCODE_MODEL_* Variables to this provider's models."
+  case "$(printf '%s' "$_rp_val" | tr '[:upper:]' '[:lower:]')" in
+    ${_rp_expected_prefix}*) ;;
+    *) _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_mv='$_rp_val' is not a valid $OPENCODE_PROVIDER model (expected an id starting with '${_rp_expected_prefix}'). It won't resolve on the $OPENCODE_PROVIDER gateway." ;;
+  esac
+done
 
 # Gateway health-check URL (host root + a list-models path). There is no
 # universal health endpoint, and the path that actually answers depends on the
@@ -120,4 +128,4 @@ fi
 
 echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID, health: $OPENCODE_GATEWAY_HEALTH_URL, auth: $OPENCODE_GATEWAY_AUTH_STYLE)"
 
-unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val _rp_health_path
+unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val _rp_health_path _rp_expected_prefix

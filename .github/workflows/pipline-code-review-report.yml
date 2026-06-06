@@ -280,18 +280,25 @@ jobs:
           BASE_REF=$(echo "$PR_JSON" | jq -r .base.ref)
           BASE_SHA=$(echo "$PR_JSON" | jq -r .base.sha)
           HEAD_SHA=$(echo "$PR_JSON" | jq -r .head.sha)
-          
+          # Head/base repos — needed for fork PRs on comment/dispatch triggers, where
+          # there is no github.event.pull_request.* context. Without head_repo, checkout
+          # falls back to github.repository and breaks manual re-runs of fork PRs.
+          HEAD_REPO=$(echo "$PR_JSON" | jq -r .head.repo.full_name)
+          BASE_REPO=$(echo "$PR_JSON" | jq -r .base.repo.full_name)
+
           # Validate extracted data
           if [ -z "$HEAD_REF" ] || [ "$HEAD_REF" = "null" ]; then
             echo "Error: Invalid head.ref in PR data"
             exit 1
           fi
-          
+
           {
             echo "head_ref=${HEAD_REF}"
             echo "base_ref=${BASE_REF}"
             echo "base_sha=${BASE_SHA}"
             echo "head_sha=${HEAD_SHA}"
+            echo "head_repo=${HEAD_REPO}"
+            echo "base_repo=${BASE_REPO}"
             echo "pr_number=${PR_NUMBER}"
           } >> $GITHUB_OUTPUT
         env:
@@ -302,7 +309,24 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref || steps.pr_details.outputs.head_ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          # For fork PRs, the head lives in the fork repo. On comment/dispatch there is
+          # no pull_request context, so fall back to the head_repo captured above (NOT
+          # github.repository, which would check out the wrong repo for fork re-runs).
+          repository: ${{ github.event.pull_request.head.repo.full_name || steps.pr_details.outputs.head_repo || github.repository }}
+
+      - name: Prepare Base Remote
+        run: |
+          set -e
+          # origin is the checked-out HEAD repo — for a fork PR that is the fork, not
+          # the upstream/base repo. The base branch (for merge-base/diff) must come from
+          # the BASE repo, so add an `upstream` remote pointing at it. For same-repo PRs
+          # this equals origin (harmless). All base-branch fetches below use `upstream`.
+          # The actions/checkout token auth is configured per-host, so fetches from this
+          # github.com remote authenticate without extra setup.
+          BASE_REPO="${{ github.event.pull_request.base.repo.full_name || steps.pr_details.outputs.base_repo || github.repository }}"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "${{ github.server_url }}/${BASE_REPO}.git"
+          echo "✓ upstream → ${{ github.server_url }}/${BASE_REPO}.git"
 
       - name: Install opencode + config + warm DB
         run: |
@@ -526,8 +550,8 @@ jobs:
             fi
             # Use merge base for full reviews to avoid including main branch changes
             MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
-            git fetch origin ${MAIN_BRANCH}:${MAIN_BRANCH}
-            MERGE_BASE=$(git merge-base origin/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
+            git fetch upstream ${MAIN_BRANCH}
+            MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
             echo "from_sha=${MERGE_BASE}" >> $GITHUB_OUTPUT
             echo "review_type=full" >> $GITHUB_OUTPUT
             echo "current_sha=${{ steps.pr_info.outputs.head_sha }}" >> $GITHUB_OUTPUT
@@ -570,8 +594,8 @@ jobs:
               echo "No previous review found. Will review entire PR."
               # Use merge base for full reviews to avoid including main branch changes
               MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
-              git fetch origin ${MAIN_BRANCH}:${MAIN_BRANCH}
-              MERGE_BASE=$(git merge-base origin/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
+              git fetch upstream ${MAIN_BRANCH}
+              MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
               {
                 echo "from_sha=${MERGE_BASE}"
                 echo "review_type=full"
@@ -608,8 +632,8 @@ jobs:
                 echo "Previous commit $LAST_REVIEWED_SHA not found in history. Will review entire PR."
                 # Use merge base for full reviews to avoid including main branch changes
                 MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
-                git fetch origin ${MAIN_BRANCH}:${MAIN_BRANCH}
-                MERGE_BASE=$(git merge-base origin/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
+                git fetch upstream ${MAIN_BRANCH}
+                MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${{ steps.pr_info.outputs.head_sha }})
                 {
                   echo "from_sha=${MERGE_BASE}"
                   echo "review_type=full"
@@ -644,10 +668,11 @@ jobs:
           
           echo "Generating diff from $FROM_SHA to $TO_SHA (Review type: $REVIEW_TYPE)"
           
-          # Always get the merge base with the current main branch to exclude main's changes
+          # Always get the merge base with the current main branch to exclude main's changes.
+          # Fetch from `upstream` (the base repo) so fork PRs compute the correct merge base.
           MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref }}"
-          git fetch origin ${MAIN_BRANCH}:${MAIN_BRANCH}
-          MERGE_BASE=$(git merge-base origin/${MAIN_BRANCH} ${TO_SHA})
+          git fetch upstream ${MAIN_BRANCH}
+          MERGE_BASE=$(git merge-base upstream/${MAIN_BRANCH} ${TO_SHA})
           
           echo "Main branch: ${MAIN_BRANCH}"
           echo "Merge base with main: ${MERGE_BASE}"
@@ -1034,18 +1059,17 @@ jobs:
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
           TOTAL_CHUNKS="${{ steps.chunked_review.outputs.total_chunks }}"
 
-          # Use aggregated review if it exists
+          # Use aggregated review if it exists. A missing file means chunked
+          # review or aggregation did not produce output — FAIL CLOSED rather than
+          # fabricating a body that would later fall through to --approve. The
+          # failure() Post Error Comment step still posts operator guidance.
           if [ -f ci_temp/final_review.md ]; then
             echo "Using aggregated review from chunks"
             cp ci_temp/final_review.md ci_temp/review_comment.md
           else
-            echo "ERROR: No review found"
-            {
-              echo "## 🤖 OpenCode CLI Code Review - Error"
-              echo ""
-              echo "⚠️ The chunked review process did not complete successfully."
-              echo "Manual review required."
-            } > ci_temp/review_comment.md
+            echo "ERROR: No aggregated review found (ci_temp/final_review.md missing)."
+            echo "Chunked review/aggregation produced no output — failing closed (not approving)."
+            exit 1
           fi
 
           # Truncate review body if it exceeds GitHub's 65,536 character limit
@@ -1102,10 +1126,17 @@ jobs:
             rm -f ci_temp/review_before_chunks.md ci_temp/review_after_chunks.md ci_temp/review_comment_compact.md
           fi
 
-          # Determine review action from aggregation script output
+          # Determine review action from aggregation script output. On success
+          # aggregate-reviews.sh always emits one of request_changes|approve|comment,
+          # so an EMPTY value means aggregation did not complete — FAIL CLOSED here
+          # rather than defaulting to --approve. A present action (one or more
+          # findings, or an explicit clean approve) proceeds normally.
           REVIEW_ACTION="${{ steps.aggregate_review.outputs.review_action }}"
 
-          if [ -z "$REVIEW_ACTION" ] || [ "$REVIEW_ACTION" = "comment" ]; then
+          if [ -z "$REVIEW_ACTION" ]; then
+            echo "ERROR: aggregation produced no review_action — failing closed (not approving)."
+            exit 1
+          elif [ "$REVIEW_ACTION" = "comment" ]; then
             if [ "$REVIEW_TYPE" = "incremental" ]; then
               REVIEW_ACTION="--comment"
               REVIEW_STATUS="approved"
@@ -1113,7 +1144,7 @@ jobs:
             else
               REVIEW_ACTION="--approve"
               REVIEW_STATUS="approved"
-              echo "Full review with no issues - approving"
+              echo "Full review with no blocking issues - approving"
             fi
           elif [ "$REVIEW_ACTION" = "request_changes" ]; then
             REVIEW_ACTION="--request-changes"
@@ -1154,6 +1185,9 @@ jobs:
         if: failure() && steps.pr_info.outputs.pr_number != '' && steps.gemini_model_test.outputs.all_models_failed != 'true'
         run: |
           set -e
+          # This is the failure path — ci_temp may not exist yet if the job failed
+          # before "Setup Temporary Directory", so create it before writing.
+          mkdir -p ci_temp
           cat > ci_temp/error_comment.md << 'EOF'
           ## ❌ OpenCode CLI Code Review Workflow Failed
 

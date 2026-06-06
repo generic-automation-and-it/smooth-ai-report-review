@@ -1,8 +1,15 @@
 ---
 description: 'AGENTS.md quality standards, required structure, and anti-patterns'
-globs: "**"
+globs: "**/*AGENTS.md"
+paths:
+  - "**/*AGENTS.md"
+applyTo: '**/*AGENTS.md'
 alwaysApply: true
 ---
+<!-- Bundled reference copy of the canonical rule at
+.github/instructions/meta/knowledge-conventional-contexts-quality.instructions.md —
+loaded into review prompts as the AGENTS.md quality standards. Keep the body in
+sync with the canonical file; do not broaden the frontmatter scope beyond *AGENTS.md. -->
 # AGENTS.md Quality Standards
 
 Rules for writing and updating `*_AGENTS.md` files. Applies whenever you create or modify an AGENTS.md — including Phase 8 (Bragi) updates. Updated: 2026-02-28

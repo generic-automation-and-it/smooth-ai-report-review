@@ -57,16 +57,26 @@ elif [ ! -f "$DEST" ]; then
   echo "✓ opencode.json installed: $SRC → $DEST"
 elif grep -q '"litellm-gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
-  # solely the providers we ship plus our own optional `permission` block, and no
-  # other top-level keys. A developer may have hand-merged a provider into a
-  # personal config (per the else-branch guidance); NEVER clobber that.
+  # solely the providers we ship plus our own optional `permission` block, no
+  # other top-level keys, AND every provider's URL/key are still our
+  # {env:OPENCODE_*} placeholders. That last clause is what distinguishes our
+  # config (which never holds real values) from a personal config that merely
+  # reuses the same provider keys but customizes options to real URLs/keys —
+  # without it, a key match alone could clobber that personal config. A
+  # stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names) still uses
+  # the OPENCODE_ placeholder form, so self-heal/refresh below is preserved.
   # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
   # (github-copilot, litellm-gemini, openai) compares in that order.
   is_ours="false"
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
-    jq -e '((keys - ["$schema","provider","permission"]) == []) and ((.provider // {} | keys) == ["github-copilot","litellm-gemini","openai"])' \
-      "$DEST" >/dev/null 2>&1 && is_ours="true"
+    jq -e '
+      ((keys - ["$schema","provider","permission"]) == [])
+      and ((.provider // {} | keys) == ["github-copilot","litellm-gemini","openai"])
+      and (all((.provider // {})[]?;
+            ((.options.baseURL // "") | test("^\\{env:OPENCODE_"))
+            and ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))))
+    ' "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
     jq_available="false"
   fi
@@ -86,14 +96,16 @@ elif grep -q '"litellm-gemini"' "$DEST" 2>/dev/null; then
     echo "    Install jq (brew install jq / apt-get install jq) to enable auto-refresh of this config."
   else
     echo "⚠️  $DEST has a 'litellm-gemini' provider but also other settings —"
-    echo "    NOT overwriting your personal config. Sync the provider.litellm-gemini"
-    echo "    options ({env:OPENCODE_GEMININ_URL}/{env:OPENCODE_GEMININ_API_KEY}) and the"
+    echo "    NOT overwriting your personal config. Sync the provider blocks you use"
+    echo "    (litellm-gemini → {env:OPENCODE_GEMININ_*}, github-copilot →"
+    echo "    {env:OPENCODE_COPILOT_*}, openai → {env:OPENCODE_OPENAI_*}) and the"
     echo "    top-level \"permission\": { \"external_directory\": \"allow\" } block from: $SRC"
   fi
 else
   echo "⚠️  $DEST exists but has no 'litellm-gemini' provider — leaving your personal config untouched."
   echo "    If the review fails with a provider/model-not-found error, merge the"
-  echo "    'provider.litellm-gemini' block from:"
+  echo "    provider block for the provider you use (litellm-gemini / github-copilot"
+  echo "    / openai) from:"
   echo "      $SRC"
   echo "    into your config at:"
   echo "      $DEST"
