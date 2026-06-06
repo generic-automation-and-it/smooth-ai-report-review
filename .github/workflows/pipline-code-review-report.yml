@@ -23,12 +23,12 @@ permissions:
 
 concurrency:
   # Selective concurrency: Only apply shared group to pull_request events
-  # - pull_request events: Use shared group (gemini-review-{pr_number}) so multiple
+  # - pull_request events: Use shared group (ai-review-{pr_number}) so multiple
   #   synchronize events cancel each other (only latest commit matters)
   # - issue_comment, workflow_dispatch: Use unique group per run
-  #   so manual /gemini-review or /ai-review commands don't cancel in-progress automated reviews
+  #   so manual /ai-review commands don't cancel in-progress automated reviews
   # This ensures reviews always complete and aren't cancelled unexpectedly
-  group: ${{ github.event_name == 'pull_request' && format('gemini-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
+  group: ${{ github.event_name == 'pull_request' && format('ai-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: true
 
 env:
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (contains(github.event.comment.body, '/gemini-review') || contains(github.event.comment.body, '/ai-review'))) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
       (github.event_name == 'workflow_dispatch')
     
     env:
@@ -72,6 +72,14 @@ jobs:
       OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
       OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
+      # Optional health-probe path override. The probe defaults to each
+      # provider's OWN native list-models endpoint (GEMINI → /v1beta/models;
+      # OPENAI → /v1/models; COPILOT → /models) — agnostic to whether a proxy
+      # fronts the models. Set this Variable to a non-empty path to force a
+      # specific endpoint — notably "/health" when a LiteLLM proxy fronts the
+      # gateway (LiteLLM exposes /health; the native APIs do not). Empty/unset =
+      # per-provider default.
+      OPENCODE_API_HEALTH_OVERRIDE: ${{ vars.OPENCODE_API_HEALTH_OVERRIDE }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
@@ -150,7 +158,7 @@ jobs:
           # the repo at .agents/skills/ai-review-report/assets/opencode.json and
           # must be in place before any `opencode` command touches the DB.
           # Here we only install repo-independent binaries (ripgrep) and run
-          # the LiteLLM /health probe.
+          # the gateway health probe (path resolved per provider below).
 
           # ripgrep is still useful — opencode and grep tooling both prefer it on PATH.
           # Install it only if absent (guarded below) by dropping a prebuilt static
@@ -171,37 +179,67 @@ jobs:
             echo "✓ ripgrep already installed ($(rg --version | head -1))"
           fi
 
-          # Gateway /health probe (non-blocking diagnostic, transport-independent).
-          # Uses the SELECTED provider's gateway creds resolved above. /health
-          # returns 200 even when individual models are broken — body lists
-          # healthy_endpoints + unhealthy_endpoints. Parse with jq, log only summary
-          # counts + whether our primary model is healthy.
-          HEALTH_URL=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1/health|')
-          echo "Probing ${OPENCODE_PROVIDER:-GEMINI} gateway /health with API key..."
+          # Gateway health probe (non-blocking diagnostic, transport-independent).
+          # Uses the SELECTED provider's gateway creds resolved above. There is no
+          # universal health endpoint, so the path defaults to each provider's OWN
+          # native list-models endpoint (agnostic to whether a proxy fronts it):
+          # GEMINI → /v1beta/models (Google has no /health), OPENAI → /v1/models,
+          # COPILOT → /models. OPENCODE_API_HEALTH_OVERRIDE wins — set it to
+          # "/health" when a LiteLLM proxy fronts the gateway. Mirrors
+          # lib/resolve-provider.sh (this is the pre-checkout copy).
+          if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
+            HEALTH_PATH="${OPENCODE_API_HEALTH_OVERRIDE}"
+          else
+            case "${OPENCODE_PROVIDER:-GEMINI}" in
+              COPILOT) HEALTH_PATH="/models" ;;
+              OPENAI)  HEALTH_PATH="/v1/models" ;;
+              *)       HEALTH_PATH="/v1beta/models" ;;   # GEMINI → Google native list-models
+            esac
+          fi
+          HEALTH_PATH="/${HEALTH_PATH#/}"   # normalize to exactly one leading slash
+          HEALTH_URL=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1|')${HEALTH_PATH}
+          # Auth header: native Google Gemini (generativelanguage.googleapis.com)
+          # takes the key in x-goog-api-key, not Authorization: Bearer. Any other
+          # gateway (LiteLLM / OpenAI / Copilot / Gemini OpenAI-compat) uses Bearer.
+          case "$OPENCODE_GATEWAY_URL" in
+            *generativelanguage.googleapis.com*) AUTH_HEADER="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}" ;;
+            *)                                   AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
+          esac
+          echo "Probing ${OPENCODE_PROVIDER:-GEMINI} gateway health: ${HEALTH_URL}"
           http_code=$(curl -sS -o /tmp/health.out -w "%{http_code}" --max-time 60 \
-            -H "Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" \
+            -H "$AUTH_HEADER" \
             "$HEALTH_URL" 2>/dev/null || echo "curl-error")
           if [ "$http_code" = "200" ]; then
-            healthy_count=$(jq -r '.healthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
-            unhealthy_count=$(jq -r '.unhealthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
-            primary_healthy=$(jq -r --arg m "${OPENCODE_MODEL_PRIMARY_REVIEW}" \
-              '[.healthy_endpoints[]? | select(.model | endswith($m))] | length > 0' \
-              /tmp/health.out 2>/dev/null || echo "false")
-            unhealthy_models=$(jq -r '[.unhealthy_endpoints[]?.model] | join(", ")' \
-              /tmp/health.out 2>/dev/null || echo "")
-            echo "✓ Gateway /health OK — healthy: ${healthy_count}, unhealthy: ${unhealthy_count}"
-            if [ -n "$unhealthy_models" ]; then
-              echo "  Unhealthy models: ${unhealthy_models}"
-            fi
-            if [ "$primary_healthy" = "true" ]; then
-              echo "  ✓ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' is healthy"
+            # LiteLLM /health returns a healthy/unhealthy summary; model-list
+            # endpoints (/models, /v1/models) only confirm reachability. Detect
+            # the LiteLLM shape so the detailed per-model report is shown when
+            # available and we don't falsely warn "NOT in healthy_endpoints" for
+            # a plain model list.
+            if jq -e 'has("healthy_count") or has("healthy_endpoints")' /tmp/health.out >/dev/null 2>&1; then
+              healthy_count=$(jq -r '.healthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
+              unhealthy_count=$(jq -r '.unhealthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
+              primary_healthy=$(jq -r --arg m "${OPENCODE_MODEL_PRIMARY_REVIEW}" \
+                '[.healthy_endpoints[]? | select(.model | endswith($m))] | length > 0' \
+                /tmp/health.out 2>/dev/null || echo "false")
+              unhealthy_models=$(jq -r '[.unhealthy_endpoints[]?.model] | join(", ")' \
+                /tmp/health.out 2>/dev/null || echo "")
+              echo "✓ Gateway /health OK — healthy: ${healthy_count}, unhealthy: ${unhealthy_count}"
+              if [ -n "$unhealthy_models" ]; then
+                echo "  Unhealthy models: ${unhealthy_models}"
+              fi
+              if [ "$primary_healthy" = "true" ]; then
+                echo "  ✓ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' is healthy"
+              else
+                echo "  ⚠️ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' NOT in healthy_endpoints — fallback will trigger"
+              fi
             else
-              echo "  ⚠️ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' NOT in healthy_endpoints — fallback will trigger"
+              echo "✓ Gateway reachable (HTTP 200) at ${HEALTH_URL}"
             fi
           elif [ "$http_code" = "401" ]; then
-            echo "❌ Gateway /health returned 401 — the ${K} secret is invalid for provider ${OPENCODE_PROVIDER:-GEMINI}"
+            echo "❌ Gateway health returned 401 — the ${K} secret is invalid for provider ${OPENCODE_PROVIDER:-GEMINI}"
           else
-            echo "⚠️ Gateway /health returned: ${http_code} — opencode calls likely to fail"
+            echo "⚠️ Gateway health returned: ${http_code} — opencode calls likely to fail (probed ${HEALTH_URL})"
+            echo "   If this gateway's health endpoint differs, set the OPENCODE_API_HEALTH_OVERRIDE Variable to the right path."
             head -c 500 /tmp/health.out 2>/dev/null || true
             echo ""
           fi
@@ -405,7 +443,7 @@ jobs:
             } >> $GITHUB_OUTPUT
           fi
 
-      - name: Post Request Changes - All Gemini Models Failed
+      - name: Post Request Changes - All Models Failed
         if: steps.gemini_model_test.outputs.all_models_failed == 'true'
         run: |
           set -e
@@ -413,11 +451,14 @@ jobs:
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
           CURRENT_SHA="${{ steps.pr_info.outputs.head_sha }}"
           LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # Name the active provider in the message instead of hardcoding "Gemini" —
+          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI) is set at job scope.
+          PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
 
           {
             echo "## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`"
             echo ""
-            echo "**Status:** ⚠️ Unable to run review — all Gemini models unavailable"
+            echo "**Status:** ⚠️ Unable to run review — all ${PROVIDER} models unavailable"
             echo ""
             echo "Both review models failed to respond, typically caused by token quota exhaustion, rate limits, or API key issues:"
             echo ""
@@ -426,8 +467,8 @@ jobs:
             echo ""
             echo "**Next Steps:**"
             echo "- Check the [workflow logs](${LOGS_URL}) for the specific error"
-            echo "- Verify Gemini API quota / billing status"
-            echo "- Re-run the review via \`/gemini-review\` once resolved"
+            echo "- Verify ${PROVIDER} API quota / billing status"
+            echo "- Re-run the review via \`/ai-review\` once resolved"
             echo ""
             echo "---"
             echo "*Automated check by OpenCode CLI Code Review*"
@@ -448,12 +489,12 @@ jobs:
           set -eo pipefail
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
 
-          echo "Checking commit messages for review trigger (/gemini-review or /ai-review)..."
+          echo "Checking commit messages for review trigger (/ai-review)..."
 
           # Query all commits in the PR
           COMMITS=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits --jq '.[].commit.message')
 
-          if echo "$COMMITS" | grep -qiE "/(gemini-review|ai-review)"; then
+          if echo "$COMMITS" | grep -qiE "/ai-review"; then
             echo "✓ Found review trigger in commit message"
             echo "force_full_review_from_commit=true" >> $GITHUB_OUTPUT
           else
@@ -475,9 +516,9 @@ jobs:
 
           if [ "$FORCE_FULL_FROM_FLAG" = "true" ] || [ "$FORCE_FULL_FROM_COMMIT" = "true" ]; then
             if [ "$FORCE_FULL_FROM_COMMIT" = "true" ]; then
-              echo "✓ Review trigger (/gemini-review or /ai-review) found in commit message. Forcing full PR review."
+              echo "✓ Review trigger (/ai-review) found in commit message. Forcing full PR review."
             else
-              echo "Manual trigger detected (/gemini-review comment, review re-request, or workflow dispatch). Forcing full PR review."
+              echo "Manual trigger detected (/ai-review comment, review re-request, or workflow dispatch). Forcing full PR review."
             fi
             # Use merge base for full reviews to avoid including main branch changes
             MAIN_BRANCH="${{ steps.pr_info.outputs.base_ref || 'main' }}"
@@ -909,7 +950,7 @@ jobs:
             echo ""
             echo "**Next Steps:**"
             echo "- Push commits to address the blocking review issues"
-            echo "- A full review will run when you manually request it via \`/gemini-review\` or merge to main"
+            echo "- A full review will run when you manually request it via \`/ai-review\` or merge to main"
             echo ""
             echo "---"
             echo "*Automated check by OpenCode CLI Code Review*"
@@ -1110,13 +1151,13 @@ jobs:
         run: |
           set -e
           cat > ci_temp/error_comment.md << 'EOF'
-          ## ❌ Gemini Code Review Workflow Failed
+          ## ❌ OpenCode CLI Code Review Workflow Failed
 
           The automated code review workflow encountered a critical failure and could not complete.
 
           **Next Steps:**
           - Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed error information
-          - You can manually trigger a review by commenting `/gemini-review` on this PR
+          - You can manually trigger a review by commenting `/ai-review` on this PR
           - Consider reviewing the changes manually if the issue persists
 
           ---

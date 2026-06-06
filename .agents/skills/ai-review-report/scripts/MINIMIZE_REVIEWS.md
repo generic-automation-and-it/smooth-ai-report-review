@@ -31,7 +31,7 @@ The `minimize-previous-reviews.sh` script:
 
 The script runs automatically when:
 - A full review is posted via workflow
-- Triggered by `/gemini-review` comment
+- Triggered by `/ai-review` comment
 - Triggered by re-requesting review
 - Triggered by manual workflow dispatch
 
@@ -119,7 +119,7 @@ mutation($subjectId: ID!, $classifier: ReportedContentClassifiers!) {
 |----------|---------------------------|
 | Full review posted | ✅ Yes |
 | Incremental review posted | ❌ No |
-| `/gemini-review` comment | ✅ Yes (triggers full review) |
+| `/ai-review` comment | ✅ Yes (triggers full review) |
 | Re-request review | ✅ Yes (triggers full review) |
 | Manual workflow dispatch | ✅ Yes (triggers full review) |
 | Auto review on PR update | ❌ No (triggers incremental review) |

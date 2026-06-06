@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Automated, AI-driven pull-request code review. A GitHub Actions gate diffs each PR, splits the changes into context-aware chunks, and runs them through the [OpenCode](https://opencode.ai/) CLI — the model transport — which calls an LLM via a private LiteLLM gateway (provider-agnostic — any model LiteLLM can route to). The gate then posts one consolidated review back to the PR — an executive summary plus collapsible per-chunk detail, with findings categorized by priority (Critical / High / Medium / Low). Runs automatically on PRs and on demand via `/gemini-review`.
+Automated, AI-driven pull-request code review. A GitHub Actions gate diffs each PR, splits the changes into context-aware chunks, and runs them through the [OpenCode](https://opencode.ai/) CLI — the provider-agnostic model transport — which calls the configured LLM at whatever endpoint the selected provider points to: a LiteLLM proxy, or a provider's native API (Google Gemini, OpenAI, GitHub Copilot). The gate then posts one consolidated review back to the PR — an executive summary plus collapsible per-chunk detail, with findings categorized by priority (Critical / High / Medium / Low). Runs automatically on PRs and on demand via `/ai-review`.
 
 Two skills back it:
 - **`ai-review-report`** — generates the review (the CI gate; also runnable locally).
@@ -14,7 +14,7 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 
 | State | When it happens | Outcome |
 |---|---|---|
-| **Full review** | First review on a PR, a `/gemini-review` comment, a re-requested review, or a manual dispatch | Reviews the entire diff against the merge base. Can **approve**, **request changes**, or comment — and clears any prior blocking state. |
+| **Full review** | First review on a PR, an `/ai-review` comment, a re-requested review, or a manual dispatch | Reviews the entire diff against the merge base. Can **approve**, **request changes**, or comment — and clears any prior blocking state. |
 | **Incremental review** | Later pushes to an already-reviewed PR | Reviews only the new commits since the last reviewed commit. **Never approves** — posts comments only. |
 | **No review — `AGENTS.md` missing** | Changed code lacks a required `*_AGENTS.md` context file | The gate blocks instead of reviewing and requests the missing context doc. |
 | **Review bypassed — changes already requested** | The bot already has an open *changes requested* review | Incremental reviews skip (the existing block stands until addressed). A new **full** review still runs and can clear it. |
@@ -59,6 +59,7 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
+| `OPENCODE_API_HEALTH_OVERRIDE` | _(per-provider)_ | Gateway health-probe path. Unset → each provider's native list-models endpoint: `/v1beta/models` (Gemini), `/v1/models` (OpenAI), `/models` (Copilot). Set (e.g. `/health` when a **LiteLLM proxy** fronts the gateway) to force a path. Always host-root-relative. |
 
 > **Switching provider:** set `OPENCODE_PROVIDER` to `COPILOT` or `OPENAI`, supply that provider's `OPENCODE_<P>_URL` (Variable) + `OPENCODE_<P>_API_KEY` (Secret), **and** set the three `OPENCODE_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`). The model-chain defaults are Gemini IDs, which don't resolve on the Copilot/OpenAI gateways — the run **fails fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)) if a `gemini*` model is left in place for a non-`GEMINI` provider. All three credential pairs are wired into the workflow's `env:` block, so no workflow edit is needed to enable a provider — only its URL + key + model Variables.
 
@@ -75,8 +76,10 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
+| `OPENCODE_API_HEALTH_OVERRIDE` | GitHub **Variable** / shell (optional) | Forces the gateway health-probe path. Unset → each provider's native list-models endpoint (`/v1beta/models` for Gemini, `/v1/models` for OpenAI, `/models` for Copilot). Set to `/health` when a LiteLLM proxy fronts the gateway. Always relative to the gateway host root. |
 | `MANDATORY_CONTEXT_FILES` | Workflow `env:` (space-separated) | Context files loaded into every review (coding standards, language/tool setup, review guidelines). |
 | `AGENTS_MD_EXEMPT_PATHS` | Workflow `env:` (pipe-separated) | Paths exempt from the `*_AGENTS.md` validation requirement. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
 | `OPENCODE_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `litellm-gemini` / `github-copilot` / `openai`. |
-| `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the `/health` probe and gateway-reachability checks. |
+| `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the gateway-reachability checks. |
+| `OPENCODE_GATEWAY_HEALTH_URL` | **Derived** | The gateway health URL the probe hits: host root of `OPENCODE_GATEWAY_URL` + the resolved health path (per-provider default or `OPENCODE_API_HEALTH_OVERRIDE`). |

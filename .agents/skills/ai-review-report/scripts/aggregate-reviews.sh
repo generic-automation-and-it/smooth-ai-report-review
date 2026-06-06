@@ -244,7 +244,7 @@ EOF
     cat >> ci_temp/summary_prompt.txt << 'EOF'
 ⚠️ **This PR has CHANGES_REQUESTED from a previous full review.** Issues may have been addressed in these changes.
 - Note if the new changes appear to address previous concerns
-- A new full review (/gemini-review) is needed to clear the blocking status
+- A new full review (/ai-review) is needed to clear the blocking status
 EOF
   else
     cat >> ci_temp/summary_prompt.txt << 'EOF'

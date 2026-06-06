@@ -7,7 +7,7 @@ Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub A
 ## Non-Negotiables
 
 - **Workflow ↔ script paths are coupled.** The gate invokes skill scripts by hardcoded path (`.agents/skills/ai-review-report/scripts/…`). Moving or renaming a script, or the skill folder, silently breaks the gate. Change the workflow YAML and the scripts in the same commit.
-- **The gate runs on `ubuntu-latest`.** opencode reaches the models through the LiteLLM gateway over HTTPS, so the gateway endpoint (`OPENCODE_GEMININ_URL`) **must be reachable from GitHub-hosted runners** — i.e. publicly routable, not VPN-only. If the gateway is ever moved back behind a private network, switch the runner back to `self-hosted`.
+- **The gate runs on `ubuntu-latest`.** opencode is provider-agnostic transport — it reaches the models over HTTPS at whatever endpoint the selected provider is configured with (`OPENCODE_<PROVIDER>_URL`): a LiteLLM proxy, or the provider's native API (Google Gemini, OpenAI, Copilot). That endpoint **must be reachable from GitHub-hosted runners** — i.e. publicly routable, not VPN-only. If a private-network endpoint is ever used, switch the runner back to `self-hosted`.
 - **Credentials are env-injected, never committed.** `assets/opencode.json` holds `{env:OPENCODE_<PROVIDER>_*}` placeholders only. Each provider's gateway URL/key are GitHub **Secrets**; the `OPENCODE_PROVIDER` selector + `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store a URL/key as a Variable or hardcode it.
 
 ## System Context
@@ -19,7 +19,7 @@ C4Context
     title smooth-ai-report-review — System Context
     System(gate, "PR Code Review Gate", "Chunked PR review: GitHub Actions + ai-review-report skill")
     System_Ext(github, "GitHub Actions + API", "CI runtime, PR reviews, GraphQL")
-    System_Ext(gateway, "LiteLLM Gateway", "Proxy to Gemini models (publicly reachable)")
+    System_Ext(gateway, "Model Endpoint", "Selected provider's API — LiteLLM proxy or native (Gemini/OpenAI/Copilot), publicly reachable")
     Rel(gate, github, "Reads diffs, posts/minimizes reviews")
     Rel(gate, gateway, "Sends chunked prompts", "HTTPS")
 ```

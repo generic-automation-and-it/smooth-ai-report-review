@@ -64,7 +64,43 @@ if [ "$OPENCODE_PROVIDER" != "GEMINI" ]; then
   done
 fi
 
-export OPENCODE_PROVIDER OPENCODE_PROVIDER_ID OPENCODE_GATEWAY_URL OPENCODE_GATEWAY_API_KEY
+# Gateway health-check URL (host root + a per-provider path). There is no
+# universal health endpoint — each provider's native API exposes a different
+# liveness/availability check, and none of them is a generic "/health" (that
+# is LiteLLM-specific). The default is therefore keyed to each provider's
+# OWN API, so this is agnostic to whether a LiteLLM proxy sits in front:
+#   GEMINI  → /v1beta/models   (Google Generative Language API list-models;
+#                               native Gemini has no /health)
+#   OPENAI  → /v1/models       (OpenAI list-models)
+#   COPILOT → /models          (Copilot list-models)
+# OPENCODE_API_HEALTH_OVERRIDE wins for any gateway whose health path differs —
+# notably set it to "/health" when a LiteLLM proxy fronts the models (LiteLLM
+# exposes /health with a healthy/unhealthy model summary), or to a sub-path.
+# The path is always taken relative to the host root.
+if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
+  _rp_health_path="${OPENCODE_API_HEALTH_OVERRIDE}"
+else
+  case "$OPENCODE_PROVIDER" in
+    COPILOT) _rp_health_path="/models" ;;
+    OPENAI)  _rp_health_path="/v1/models" ;;
+    *)       _rp_health_path="/v1beta/models" ;;   # GEMINI → Google native list-models
+  esac
+fi
+_rp_health_path="/${_rp_health_path#/}"   # normalize to exactly one leading slash
+OPENCODE_GATEWAY_HEALTH_URL="$(printf '%s' "$OPENCODE_GATEWAY_URL" | sed -E 's#(https?://[^/]+).*#\1#')${_rp_health_path}"
+
+# Health-probe auth style. Native Google Gemini (generativelanguage.googleapis.com)
+# authenticates the API key via the `x-goog-api-key` header, NOT an
+# `Authorization: Bearer` token. Every other gateway we target — a LiteLLM proxy,
+# native OpenAI, Copilot, or Gemini's OpenAI-compat layer — uses Bearer. Detected
+# from the gateway host so the probe authenticates correctly regardless of which
+# URL the user pointed the provider at (opencode itself uses the SDK's own auth).
+case "$OPENCODE_GATEWAY_URL" in
+  *generativelanguage.googleapis.com*) OPENCODE_GATEWAY_AUTH_STYLE="google" ;;
+  *)                                   OPENCODE_GATEWAY_AUTH_STYLE="bearer" ;;
+esac
+
+export OPENCODE_PROVIDER OPENCODE_PROVIDER_ID OPENCODE_GATEWAY_URL OPENCODE_GATEWAY_API_KEY OPENCODE_GATEWAY_HEALTH_URL OPENCODE_GATEWAY_AUTH_STYLE
 
 if [ -n "${GITHUB_ENV:-}" ]; then
   {
@@ -72,9 +108,11 @@ if [ -n "${GITHUB_ENV:-}" ]; then
     echo "OPENCODE_PROVIDER_ID=$OPENCODE_PROVIDER_ID"
     echo "OPENCODE_GATEWAY_URL=$OPENCODE_GATEWAY_URL"
     echo "OPENCODE_GATEWAY_API_KEY=$OPENCODE_GATEWAY_API_KEY"
+    echo "OPENCODE_GATEWAY_HEALTH_URL=$OPENCODE_GATEWAY_HEALTH_URL"
+    echo "OPENCODE_GATEWAY_AUTH_STYLE=$OPENCODE_GATEWAY_AUTH_STYLE"
   } >> "$GITHUB_ENV"
 fi
 
-echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID)"
+echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID, health: $OPENCODE_GATEWAY_HEALTH_URL, auth: $OPENCODE_GATEWAY_AUTH_STYLE)"
 
-unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val
+unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val _rp_health_path

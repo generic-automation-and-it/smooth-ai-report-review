@@ -160,19 +160,30 @@ export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flas
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 
-# Preflight: the gateway lives on a private network. If it's unreachable (e.g.
-# you're not on the VPN), every opencode model call would hang for minutes.
-# Probe it with a short timeout and fail fast with an actionable message.
-GW_HOST=$(printf '%s' "$OPENCODE_GATEWAY_URL" | sed -E 's#(https?://[^/]+).*#\1#')
+# Preflight: the gateway may live on a private network. If it's unreachable
+# (e.g. you're not on the VPN), every opencode model call would hang for
+# minutes. Probe its health URL (resolved per-provider — or via
+# OPENCODE_API_HEALTH_OVERRIDE — by resolve-provider.sh, sourced above) with a
+# short timeout and fail fast. We only treat a *connection* failure as fatal:
+# curl without --fail exits 0 on any HTTP response (even a 404 from a non-
+# LiteLLM gateway that lacks the probed path), and any response proves the host
+# is reachable, which is all this preflight needs to confirm.
+# Auth header style is resolved by resolve-provider.sh (google → x-goog-api-key,
+# everything else → Authorization: Bearer) so native-Gemini URLs authenticate too.
+if [ "$OPENCODE_GATEWAY_AUTH_STYLE" = "google" ]; then
+  _auth_hdr="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}"
+else
+  _auth_hdr="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}"
+fi
 if ! curl -sS -o /dev/null --max-time 8 \
-      -H "Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" \
-      "$GW_HOST/health" 2>/dev/null; then
-  echo "❌ ${OPENCODE_PROVIDER} gateway unreachable: $GW_HOST"
+      -H "$_auth_hdr" \
+      "$OPENCODE_GATEWAY_HEALTH_URL" 2>/dev/null; then
+  echo "❌ ${OPENCODE_PROVIDER} gateway unreachable: $OPENCODE_GATEWAY_HEALTH_URL"
   echo "   Every model call would hang — connect to the VPN / corporate network"
-  echo "   that can reach $GW_HOST, then re-run."
+  echo "   that can reach the gateway, then re-run."
   exit 1
 fi
-echo "🌐 gateway reachable: $GW_HOST"
+echo "🌐 gateway reachable: $OPENCODE_GATEWAY_HEALTH_URL"
 # Install opencode.json so the selected provider resolves.
 bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
 
