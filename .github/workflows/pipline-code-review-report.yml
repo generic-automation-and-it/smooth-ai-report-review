@@ -67,7 +67,7 @@ jobs:
       # repo/org Variables (the user-confirmed config) so they can be retuned
       # without secret access.
       OPENCODE_GEMININ_API_KEY: ${{ secrets.OPENCODE_GEMININ_API_KEY }}
-      OPENCODE_GEMININ_URL: ${{ secrets.OPENCODE_GEMININ_URL }}
+      OPENCODE_GEMININ_URL: ${{ vars.OPENCODE_GEMININ_URL }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
       OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}

@@ -23,16 +23,16 @@ opencode reads these from the process environment via the `{env:…}` placeholde
 | Variable | Purpose | CI source | Local source |
 |----------|---------|-----------|--------------|
 | `OPENCODE_PROVIDER` | Selects the active provider: `GEMINI` (default), `COPILOT`, or `OPENAI`. `lib/resolve-provider.sh` maps it to the provider-id + gateway creds | GitHub **Variable**, default `GEMINI` | `--provider` arg / shell, default `GEMINI` |
-| `OPENCODE_GEMININ_URL` / `OPENCODE_GEMININ_API_KEY` | Gateway base URL + bearer token for the `litellm-gemini` provider | GitHub **Secret** | exported in shell (gateway is VPN-gated) |
-| `OPENCODE_COPILOT_URL` / `OPENCODE_COPILOT_API_KEY` | Gateway URL + key for the `github-copilot` provider | GitHub **Secret** (only if used) | exported in shell |
-| `OPENCODE_OPENAI_URL` / `OPENCODE_OPENAI_API_KEY` | Gateway URL + key for the `openai` provider | GitHub **Secret** (only if used) | exported in shell |
+| `OPENCODE_GEMININ_URL` / `OPENCODE_GEMININ_API_KEY` | Gateway base URL + bearer token for the `litellm-gemini` provider | URL → GitHub **Variable**; key → **Secret** | exported in shell (gateway is VPN-gated) |
+| `OPENCODE_COPILOT_URL` / `OPENCODE_COPILOT_API_KEY` | Gateway URL + key for the `github-copilot` provider | URL → **Variable**; key → **Secret** (only if used) | exported in shell |
+| `OPENCODE_OPENAI_URL` / `OPENCODE_OPENAI_API_KEY` | Gateway URL + key for the `openai` provider | URL → **Variable**; key → **Secret** (only if used) | exported in shell |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | Primary deep chunk-review model (LADR-002) | GitHub **Variable**, default `gemini-3.1-pro-preview`; `workflow_dispatch` input overrides | `--model` arg |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | Second (and last) review model — fallback if primary fails | GitHub **Variable**, default `gemini-2.5-pro` | script default |
 | `OPENCODE_MODEL_ORCHESTRATOR` | Cheap model for semantic grouping + aggregation + summary (LADR-022); falls back to the resolved review model | GitHub **Variable**, default `gemini-3-flash-preview` | script default |
 | `OPENCODE_PROVIDER_ID` | **Derived** by `lib/resolve-provider.sh` — the opencode.json provider key the model is prefixed with (`litellm-gemini` / `github-copilot` / `openai`); consumed by `lib/opencode-with-fallback.sh` | resolver step → `$GITHUB_ENV` | exported by `local-review.sh` |
 | `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** — the selected provider's creds copied to generic names for the `/health` + reachability checks | resolver / Install Dependencies → `$GITHUB_ENV` | exported by `local-review.sh` |
 
-**Secrets vs Variables**: gateway URLs + keys are credentials → **Secrets** (never Variables — those are plaintext and printable in logs). The provider selector + model ids are non-sensitive config → **Variables**, so the chain can be retuned without editing the workflow. Each model `vars.*` has a literal default so an unset Variable never blanks the model.
+**Secrets vs Variables**: gateway **API keys** are credentials → **Secrets** (never Variables — those are plaintext and printable in logs). Gateway **URLs**, the provider selector, and model ids are non-sensitive config → **Variables**, so they can be retuned without editing the workflow. Each model `vars.*` has a literal default so an unset Variable never blanks the model.
 
 **Non-GEMINI fail-fast**: the model-chain defaults are Gemini IDs. When `OPENCODE_PROVIDER` is `COPILOT`/`OPENAI`, you MUST set the three `OPENCODE_MODEL_*` to that provider's models (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`); `lib/resolve-provider.sh` aborts the run if a `gemini*` model leaks through or the selected provider's creds are missing.
 

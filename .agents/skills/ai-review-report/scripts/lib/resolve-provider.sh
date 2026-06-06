@@ -50,7 +50,7 @@ OPENCODE_GATEWAY_URL="${!_rp_url_var}"
 OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 
 # Selected provider's credentials must be present.
-[ -n "$OPENCODE_GATEWAY_URL" ]     || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_url_var is empty/unset. Set it (GitHub Secret / shell export)."
+[ -n "$OPENCODE_GATEWAY_URL" ]     || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_url_var is empty/unset. Set it (GitHub Variable / shell export)."
 [ -n "$OPENCODE_GATEWAY_API_KEY" ] || _rp_die "OPENCODE_PROVIDER=$OPENCODE_PROVIDER selected but $_rp_key_var is empty/unset. Set it (GitHub Secret / shell export)."
 
 # Non-GEMINI providers require an explicit, non-gemini model chain.
