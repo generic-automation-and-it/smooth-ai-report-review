@@ -88,11 +88,11 @@ while [[ $# -gt 0 ]]; do
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's gateway creds exported (requires VPN /"
       echo "    corporate-network access to the gateway host):"
-      echo "      GEMINI                → OPENCODE_GEMINI_URL        + OPENCODE_GEMINI_API_KEY"
-      echo "      COPILOT               → OPENCODE_COPILOT_URL       + OPENCODE_COPILOT_API_KEY"
-      echo "      OPENAI                → OPENCODE_OPENAI_URL        + OPENCODE_OPENAI_API_KEY"
-      echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_URL     + OPENCODE_GO_OPENAI_API_KEY"
-      echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_URL  + OPENCODE_GO_ANTHROPIC_API_KEY"
+      echo "      GEMINI                → OPENCODE_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
+      echo "      COPILOT               → OPENCODE_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
+      echo "      OPENAI                → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
+      echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
+      echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
       echo "  - For any non-GEMINI provider also export OPENCODE_MODEL_SECONDARY_REVIEW"
       echo "    and OPENCODE_MODEL_ORCHESTRATOR (non-gemini model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
@@ -143,8 +143,8 @@ harvest_var() {
 for v in OPENCODE_GEMINI_URL OPENCODE_GEMINI_API_KEY \
          OPENCODE_COPILOT_URL OPENCODE_COPILOT_API_KEY \
          OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY \
-         OPENCODE_GO_OPENAI_URL OPENCODE_GO_OPENAI_API_KEY \
-         OPENCODE_GO_ANTHROPIC_URL OPENCODE_GO_ANTHROPIC_API_KEY; do
+         OPENCODE_GO_OPENAI_API_KEY \
+         OPENCODE_GO_ANTHROPIC_API_KEY; do
   harvest_var "$v" || true
 done
 
