@@ -53,13 +53,13 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | Variable | Default | Role |
 |---|---|---|
 | `OPENCODE_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI` |
-| `OPENCODE_GEMINI_URL` | `https://generativelanguage.googleapis.com/v1beta` | Gemini gateway base URL (default provider). Unset → `@ai-sdk/google`'s native Gemini API base. Point at a LiteLLM proxy to relay instead. |
+| `OPENCODE_GEMINI_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini gateway base URL (default provider, OpenAI-compatible). Unset → `@ai-sdk/google`'s native Gemini API base. Point at a LiteLLM proxy to relay instead. |
 | `OPENCODE_COPILOT_URL` | `https://api.githubcopilot.com` | GitHub Copilot gateway base URL (only if using Copilot models). Unset → `@ai-sdk/github-copilot`'s native API base. |
 | `OPENCODE_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI gateway base URL (only if using OpenAI models). Unset → `@ai-sdk/openai`'s native API base. |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
-| `OPENCODE_API_HEALTH_OVERRIDE` | _(URL-derived)_ | Gateway health-probe path. Unset → derived from the URL's API surface: `/v1beta/models` (Google host), else `/v1/models` (OpenAI-compatible — incl. a **LiteLLM proxy** fronting any provider), except Copilot → `/models`. Set (e.g. `/health` for a LiteLLM proxy's model summary) to force a path. Always host-root-relative. |
+| `OPENCODE_API_HEALTH_OVERRIDE` | _(URL-derived)_ | Gateway health-probe path. Unset → derived from the URL's API surface: `/v1/models` (OpenAI-compatible — incl. Google's OpenAI-compat Gemini endpoint and **LiteLLM proxy** fronting any provider), except Copilot → `/models`. Set (e.g. `/health` for a LiteLLM proxy's model summary) to force a path. Always host-root-relative. |
 
 > **Switching provider:** set `OPENCODE_PROVIDER` to `COPILOT` or `OPENAI`, supply that provider's `OPENCODE_<P>_URL` (Variable) + `OPENCODE_<P>_API_KEY` (Secret), **and** set the three `OPENCODE_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`). The model-chain defaults are Gemini IDs, which don't resolve on the Copilot/OpenAI gateways — the run **fails fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)) if a `gemini*` model is left in place for a non-`GEMINI` provider. All three credential pairs are wired into the workflow's `env:` block, so no workflow edit is needed to enable a provider — only its URL + key + model Variables.
 
@@ -76,7 +76,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
-| `OPENCODE_API_HEALTH_OVERRIDE` | GitHub **Variable** / shell (optional) | Forces the gateway health-probe path. Unset → derived from the URL's API surface (`/v1beta/models` for a Google host, else `/v1/models`, except Copilot → `/models`) — so a LiteLLM/OpenAI-compatible proxy fronting any provider resolves correctly. Set to `/health` to use a LiteLLM proxy's model summary. Always relative to the gateway host root. |
+| `OPENCODE_API_HEALTH_OVERRIDE` | GitHub **Variable** / shell (optional) | Forces the gateway health-probe path. Unset → derived from the URL's API surface (`/v1/models` for OpenAI-compatible including Google's Gemini endpoint, except Copilot → `/models`) — so a LiteLLM/OpenAI-compatible proxy fronting any provider resolves correctly. Set to `/health` to use a LiteLLM proxy's model summary. Always relative to the gateway host root. |
 | `MANDATORY_CONTEXT_FILES` | Workflow `env:` (space-separated) | Context files loaded into every review (coding standards, language/tool setup, review guidelines). |
 | `AGENTS_MD_EXEMPT_PATHS` | Workflow `env:` (pipe-separated) | Paths exempt from the `*_AGENTS.md` validation requirement. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
