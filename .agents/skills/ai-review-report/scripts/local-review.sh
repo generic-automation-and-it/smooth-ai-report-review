@@ -22,8 +22,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
-# Credentials come from the shell environment. Export OPENCODE_LITELLM_API_KEY
-# and OPENCODE_LITELLM_URL before running (e.g. in your shell profile or via
+# Credentials come from the shell environment. Export OPENCODE_GEMININ_API_KEY
+# and OPENCODE_GEMININ_URL before running (e.g. in your shell profile or via
 # direnv); opencode reads them through the {env:...} placeholders in
 # opencode.json. See the "Required environment variables" section of SKILL.md.
 
@@ -73,7 +73,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Prerequisites:"
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
-      echo "  - OPENCODE_LITELLM_URL + OPENCODE_LITELLM_API_KEY exported (LiteLLM gateway;"
+      echo "  - OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY exported (LiteLLM gateway;"
       echo "    requires VPN / corporate-network access to the gateway host)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
@@ -118,7 +118,7 @@ harvest_var() {
   done
   return 1
 }
-for v in OPENCODE_LITELLM_URL OPENCODE_LITELLM_API_KEY; do
+for v in OPENCODE_GEMININ_URL OPENCODE_GEMININ_API_KEY; do
   harvest_var "$v" || true
 done
 
@@ -129,19 +129,19 @@ if ! command -v opencode &>/dev/null; then
 fi
 
 # This review runs exclusively against the LiteLLM gateway (provider
-# litellm-gemini), authenticated with OPENCODE_LITELLM_URL + OPENCODE_LITELLM_API_KEY.
-if [ -z "$OPENCODE_LITELLM_API_KEY" ] || [ -z "$OPENCODE_LITELLM_URL" ]; then
-  echo "❌ OPENCODE_LITELLM_URL + OPENCODE_LITELLM_API_KEY must be set (export them in your shell)."
-  echo "   e.g. OPENCODE_LITELLM_URL=https://litellm.private.prod.zeronorth.app/v1/gemini"
+# litellm-gemini), authenticated with OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY.
+if [ -z "$OPENCODE_GEMININ_API_KEY" ] || [ -z "$OPENCODE_GEMININ_URL" ]; then
+  echo "❌ OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY must be set (export them in your shell)."
+  echo "   e.g. OPENCODE_GEMININ_URL=https://litellm.private.prod.zeronorth.app/v1/gemini"
   exit 1
 fi
-echo "🔑 OPENCODE_LITELLM_API_KEY: set   🌐 OPENCODE_LITELLM_URL: set"
+echo "🔑 OPENCODE_GEMININ_API_KEY: set   🌐 OPENCODE_GEMININ_URL: set"
 # Preflight: the gateway lives on a private network. If it's unreachable (e.g.
 # you're not on the VPN), every opencode model call would hang for minutes.
 # Probe it with a short timeout and fail fast with an actionable message.
-GW_HOST=$(printf '%s' "$OPENCODE_LITELLM_URL" | sed -E 's#(https?://[^/]+).*#\1#')
+GW_HOST=$(printf '%s' "$OPENCODE_GEMININ_URL" | sed -E 's#(https?://[^/]+).*#\1#')
 if ! curl -sS -o /dev/null --max-time 8 \
-      -H "Authorization: Bearer ${OPENCODE_LITELLM_API_KEY}" \
+      -H "Authorization: Bearer ${OPENCODE_GEMININ_API_KEY}" \
       "$GW_HOST/health" 2>/dev/null; then
   echo "❌ LiteLLM gateway unreachable: $GW_HOST"
   echo "   Every model call would hang — connect to the VPN / corporate network"

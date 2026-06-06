@@ -9,7 +9,7 @@
 # An empty model slot is skipped, so a two-tier chain just leaves fb2 empty.
 #
 # Both CI and local runs use the litellm-gemini provider (the internal LiteLLM
-# gateway), authenticated via OPENCODE_LITELLM_URL + OPENCODE_LITELLM_API_KEY.
+# gateway), authenticated via OPENCODE_GEMININ_URL + OPENCODE_GEMININ_API_KEY.
 #
 # Stdout: opencode review output. Stderr: passthrough.
 

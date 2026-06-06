@@ -17,12 +17,12 @@
 #   - Local, dest missing: install it (first run).
 #   - Local, dest is OUR config (has a litellm-gemini block) but references the
 #     OLD env-var names: self-heal — refresh it to the committed version so the
-#     provider resolves OPENCODE_LITELLM_*. Already-current configs are left as-is.
+#     provider resolves OPENCODE_GEMININ_*. Already-current configs are left as-is.
 #   - Local, dest is a hand-rolled personal config (no litellm-gemini block):
 #     do NOT overwrite. Print actionable guidance so a later "provider/model
 #     not found" failure is self-explanatory and the dev can merge it in.
 #
-# Provider config consumes the existing OPENCODE_LITELLM_URL / OPENCODE_LITELLM_API_KEY
+# Provider config consumes the existing OPENCODE_GEMININ_URL / OPENCODE_GEMININ_API_KEY
 # env vars directly (see opencode.json). The provider type is @ai-sdk/google
 # pointed at LiteLLM's Gemini-native baseURL — confirmed working for relayed
 # Gemini setups in upstream issue anomalyco/opencode#5777.
@@ -85,7 +85,7 @@ elif grep -q '"litellm-gemini"' "$DEST" 2>/dev/null; then
   else
     echo "⚠️  $DEST has a 'litellm-gemini' provider but also other settings —"
     echo "    NOT overwriting your personal config. Sync the provider.litellm-gemini"
-    echo "    options ({env:OPENCODE_LITELLM_URL}/{env:OPENCODE_LITELLM_API_KEY}) and the"
+    echo "    options ({env:OPENCODE_GEMININ_URL}/{env:OPENCODE_GEMININ_API_KEY}) and the"
     echo "    top-level \"permission\": { \"external_directory\": \"allow\" } block from: $SRC"
   fi
 else

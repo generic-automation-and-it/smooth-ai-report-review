@@ -22,7 +22,7 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 ## Requirements
 
 - A `self-hosted` runner (the LiteLLM model gateway is on a private network).
-- GitHub **Secrets** `OPENCODE_LITELLM_URL` and `OPENCODE_LITELLM_API_KEY`; optional **Variables** `OPENCODE_MODEL_*` to retune the model chain without editing the workflow.
+- GitHub **Secrets** `OPENCODE_GEMININ_URL` and `OPENCODE_GEMININ_API_KEY`; optional **Variables** `OPENCODE_MODEL_*` to retune the model chain without editing the workflow. See [Providers](#providers) for the full secret/variable list.
 
 ## Providers
 
@@ -59,4 +59,4 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
 
-> **Note:** the committed workflow currently exports only the Gemini gateway env vars (under the original `OPENCODE_LITELLM_*` secret names). If you enable the optional Copilot/OpenAI providers — or point the Gemini provider at the `OPENCODE_GEMININ_*` secrets — add the matching `secrets.*` → `env:` mappings to the job's `env:` block in [`.github/workflows/pipline-code-review-report.yml`](.github/workflows/pipline-code-review-report.yml) so the substitution can resolve.
+> **Note:** the committed workflow exports only the Gemini gateway env vars (`OPENCODE_GEMININ_URL` / `OPENCODE_GEMININ_API_KEY`). To enable the optional Copilot/OpenAI providers, add the matching `secrets.*` → `env:` mappings (`OPENCODE_COPILOT_*` / `OPENCODE_OPENAI_*`) to the job's `env:` block in [`.github/workflows/pipline-code-review-report.yml`](.github/workflows/pipline-code-review-report.yml) so the `{env:...}` substitution can resolve.

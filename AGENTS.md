@@ -8,7 +8,7 @@ Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub A
 
 - **Workflow ↔ script paths are coupled.** The gate invokes skill scripts by hardcoded path (`.agents/skills/ai-review-report/scripts/…`). Moving or renaming a script, or the skill folder, silently breaks the gate. Change the workflow YAML and the scripts in the same commit.
 - **The gate requires a `self-hosted` runner.** opencode reaches the Gemini models through a private-network LiteLLM gateway; `ubuntu-latest` cannot reach it. Do not switch the runner.
-- **Credentials are env-injected, never committed.** `assets/opencode.json` holds `{env:OPENCODE_LITELLM_*}` placeholders only. The gateway URL/key are GitHub **Secrets**; the `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store the URL/key as Variables or hardcode them.
+- **Credentials are env-injected, never committed.** `assets/opencode.json` holds `{env:OPENCODE_GEMININ_*}` placeholders only. The gateway URL/key are GitHub **Secrets**; the `OPENCODE_MODEL_*` ids are GitHub **Variables** (non-sensitive, retunable). Never store the URL/key as Variables or hardcode them.
 
 ## System Context
 

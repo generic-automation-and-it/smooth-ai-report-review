@@ -47,13 +47,13 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     
     env:
-      # OPENCODE_LITELLM_API_KEY and OPENCODE_LITELLM_URL declared at job scope so every
-      # step inherits them. Required by opencode's {env:OPENCODE_LITELLM_API_KEY}
+      # OPENCODE_GEMININ_API_KEY and OPENCODE_GEMININ_URL declared at job scope so every
+      # step inherits them. Required by opencode's {env:OPENCODE_GEMININ_API_KEY}
       # substitution in ~/.config/opencode/opencode.json — without this, the
       # litellm-gemini provider sends an empty Bearer token and LiteLLM returns
       # 401 (root cause of empty-review run 26584156846).
-      OPENCODE_LITELLM_API_KEY: ${{ secrets.OPENCODE_LITELLM_API_KEY }}
-      OPENCODE_LITELLM_URL: ${{ secrets.OPENCODE_LITELLM_URL }}
+      OPENCODE_GEMININ_API_KEY: ${{ secrets.OPENCODE_GEMININ_API_KEY }}
+      OPENCODE_GEMININ_URL: ${{ secrets.OPENCODE_GEMININ_URL }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
@@ -94,14 +94,14 @@ jobs:
           # present-but-wrong value (typo / trailing newline) still passes here
           # and is caught by the /health 401 check below.
           missing=""
-          [ -z "${OPENCODE_LITELLM_API_KEY}" ] && missing="${missing} OPENCODE_LITELLM_API_KEY"
-          [ -z "${OPENCODE_LITELLM_URL}" ] && missing="${missing} OPENCODE_LITELLM_URL"
+          [ -z "${OPENCODE_GEMININ_API_KEY}" ] && missing="${missing} OPENCODE_GEMININ_API_KEY"
+          [ -z "${OPENCODE_GEMININ_URL}" ] && missing="${missing} OPENCODE_GEMININ_URL"
           if [ -n "$missing" ]; then
             echo "❌ Required secret(s) empty/unset:${missing}"
             echo "   Set them in repo Settings → Secrets and variables → Actions → Secrets."
             exit 1
           fi
-          echo "✓ OPENCODE_LITELLM_API_KEY and OPENCODE_LITELLM_URL are present"
+          echo "✓ OPENCODE_GEMININ_API_KEY and OPENCODE_GEMININ_URL are present"
           # opencode is installed AFTER actions/checkout (see "Install opencode +
           # config + warm DB" step) because its provider config source lives in
           # the repo at .agents/skills/ai-review-report/assets/opencode.json and
@@ -131,10 +131,10 @@ jobs:
           # /health returns 200 even when individual models are broken — body lists
           # healthy_endpoints + unhealthy_endpoints. Parse with jq, log only summary
           # counts + whether our primary model is healthy.
-          HEALTH_URL=$(echo "$OPENCODE_LITELLM_URL" | sed -E 's|(https?://[^/]+).*|\1/health|')
+          HEALTH_URL=$(echo "$OPENCODE_GEMININ_URL" | sed -E 's|(https?://[^/]+).*|\1/health|')
           echo "Probing LiteLLM /health with API key..."
           http_code=$(curl -sS -o /tmp/health.out -w "%{http_code}" --max-time 60 \
-            -H "Authorization: Bearer ${OPENCODE_LITELLM_API_KEY}" \
+            -H "Authorization: Bearer ${OPENCODE_GEMININ_API_KEY}" \
             "$HEALTH_URL" 2>/dev/null || echo "curl-error")
           if [ "$http_code" = "200" ]; then
             healthy_count=$(jq -r '.healthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
@@ -154,7 +154,7 @@ jobs:
               echo "  ⚠️ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' NOT in healthy_endpoints — fallback will trigger"
             fi
           elif [ "$http_code" = "401" ]; then
-            echo "❌ LiteLLM /health returned 401 — OPENCODE_LITELLM_API_KEY secret is invalid"
+            echo "❌ LiteLLM /health returned 401 — OPENCODE_GEMININ_API_KEY secret is invalid"
           else
             echo "⚠️ LiteLLM /health returned: ${http_code} — opencode calls likely to fail"
             head -c 500 /tmp/health.out 2>/dev/null || true
@@ -229,7 +229,7 @@ jobs:
           #      (.agents/skills/ai-review-report/assets/opencode.json) into
           #      opencode's global config dir (~/.config/opencode/opencode.json,
           #      precedence 2 per opencode docs). The provider reads
-          #      OPENCODE_LITELLM_URL and OPENCODE_LITELLM_API_KEY directly via
+          #      OPENCODE_GEMININ_URL and OPENCODE_GEMININ_API_KEY directly via
           #      {env:VAR} substitution; no URL derivation needed.
           #   3. Warm the SQLite store. opencode's first DB-touching command
           #      prints "Performing one time database migration..." to stdout.
