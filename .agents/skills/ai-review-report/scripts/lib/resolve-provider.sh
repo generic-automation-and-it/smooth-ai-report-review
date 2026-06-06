@@ -72,45 +72,50 @@ for _rp_mv in OPENCODE_MODEL_PRIMARY_REVIEW OPENCODE_MODEL_SECONDARY_REVIEW OPEN
   esac
 done
 
-# Gateway health-check URL (host root + a list-models path). There is no
-# universal health endpoint, and the path that actually answers depends on the
-# API SURFACE at the URL — NOT on the logical provider. LiteLLM (or any
-# OpenAI-compatible proxy) can front ANY provider, in which case the surface is
-# OpenAI-compatible (`/v1/models`) regardless of which models sit behind it.
-# So the default is keyed off the URL first, provider second:
-#   * Google host (generativelanguage.googleapis.com) → /v1beta/models — the
-#     ONLY surface that is genuinely Gemini-native (no /health, no /v1/models).
+# Gateway health-check URL. There is no universal health endpoint, and the path
+# that actually answers depends on the API SURFACE at the URL — NOT the logical
+# provider:
+#   * Google OpenAI-compatible surface (…/v1beta/openai) — the surface opencode
+#     actually calls — lists models at <baseURL>/models and authenticates with
+#     Bearer. Probe THAT exact path (NOT the native /v1beta/models) so a healthy
+#     result predicts real opencode calls instead of passing on a sibling surface.
+#   * Google NATIVE surface (…/v1beta, no /openai) → host-root /v1beta/models
+#     (x-goog-api-key) — genuinely Gemini-native (no /health, no /v1/models).
 #   * any other host → an OpenAI-compatible proxy/API (LiteLLM, OpenAI, Azure,
-#     a proxied Gemini, …) → /v1/models, except Copilot whose native surface
-#     lists at /models (LiteLLM also serves /models, so this holds when proxied).
+#     a proxied Gemini, …) → host-root /v1/models, except Copilot whose native
+#     surface lists at /models (LiteLLM also serves /models when proxied).
 # OPENCODE_API_HEALTH_OVERRIDE always wins — e.g. set it to "/health" to use a
-# LiteLLM proxy's healthy/unhealthy model summary, or to a sub-path. The path is
-# always taken relative to the host root.
+# LiteLLM proxy's healthy/unhealthy model summary. The override is taken relative
+# to the host root.
+_rp_host_root="$(printf '%s' "$OPENCODE_GATEWAY_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
 if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
-  _rp_health_path="${OPENCODE_API_HEALTH_OVERRIDE}"
+  OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/${OPENCODE_API_HEALTH_OVERRIDE#/}"
 else
   case "$OPENCODE_GATEWAY_URL" in
-    *generativelanguage.googleapis.com*) _rp_health_path="/v1beta/models" ;;   # Gemini-native surface
+    *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/)
+      OPENCODE_GATEWAY_HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;          # Google OpenAI-compat surface
+    *generativelanguage.googleapis.com*)
+      OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1beta/models" ;;            # Gemini-native surface
     *)
       case "$OPENCODE_PROVIDER" in
-        COPILOT) _rp_health_path="/models" ;;
-        *)       _rp_health_path="/v1/models" ;;   # OpenAI-compatible (incl. LiteLLM-fronted Gemini)
+        COPILOT) OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/models" ;;
+        *)       OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1/models" ;;     # OpenAI-compatible (incl. LiteLLM)
       esac
       ;;
   esac
 fi
-_rp_health_path="/${_rp_health_path#/}"   # normalize to exactly one leading slash
-OPENCODE_GATEWAY_HEALTH_URL="$(printf '%s' "$OPENCODE_GATEWAY_URL" | sed -E 's#(https?://[^/]+).*#\1#')${_rp_health_path}"
 
-# Health-probe auth style. Native Google Gemini (generativelanguage.googleapis.com)
-# authenticates the API key via the `x-goog-api-key` header, NOT an
-# `Authorization: Bearer` token. Every other gateway we target — a LiteLLM proxy,
-# native OpenAI, Copilot, or Gemini's OpenAI-compat layer — uses Bearer. Detected
-# from the gateway host so the probe authenticates correctly regardless of which
-# URL the user pointed the provider at (opencode itself uses the SDK's own auth).
+# Health-probe auth style. The native Google Gemini surface
+# (generativelanguage.googleapis.com/v1beta) authenticates the API key via the
+# `x-goog-api-key` header, NOT an `Authorization: Bearer` token. Google's
+# OpenAI-compatible surface (…/v1beta/openai) and every other gateway we target —
+# a LiteLLM proxy, native OpenAI, Copilot — use Bearer. Detected from the URL so
+# the probe authenticates correctly regardless of which surface the provider
+# points at (opencode itself uses the SDK's own auth).
 case "$OPENCODE_GATEWAY_URL" in
-  *generativelanguage.googleapis.com*) OPENCODE_GATEWAY_AUTH_STYLE="google" ;;
-  *)                                   OPENCODE_GATEWAY_AUTH_STYLE="bearer" ;;
+  *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/) OPENCODE_GATEWAY_AUTH_STYLE="bearer" ;;   # Google OpenAI-compat
+  *generativelanguage.googleapis.com*)                                                    OPENCODE_GATEWAY_AUTH_STYLE="google" ;;   # native Gemini
+  *)                                                                                       OPENCODE_GATEWAY_AUTH_STYLE="bearer" ;;
 esac
 
 export OPENCODE_PROVIDER OPENCODE_PROVIDER_ID OPENCODE_GATEWAY_URL OPENCODE_GATEWAY_API_KEY OPENCODE_GATEWAY_HEALTH_URL OPENCODE_GATEWAY_AUTH_STYLE
@@ -128,4 +133,4 @@ fi
 
 echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID, health: $OPENCODE_GATEWAY_HEALTH_URL, auth: $OPENCODE_GATEWAY_AUTH_STYLE)"
 
-unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val _rp_health_path _rp_expected_prefix
+unset _rp_id _rp_url_var _rp_key_var _rp_mv _rp_val _rp_host_root _rp_expected_prefix

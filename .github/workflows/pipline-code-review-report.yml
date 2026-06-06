@@ -179,35 +179,41 @@ jobs:
           fi
 
           # Gateway health probe (non-blocking diagnostic, transport-independent).
-          # The path that answers depends on the API SURFACE at the URL, not the
-          # logical provider: LiteLLM (or any OpenAI-compatible proxy) can front
-          # ANY provider, exposing /v1/models regardless of the models behind it.
-          # So key off the URL first, provider second: a Google host is the only
-          # genuinely Gemini-native surface (/v1beta/models); any other host is
-          # OpenAI-compatible (/v1/models, except Copilot's native /models).
-          # OPENCODE_API_HEALTH_OVERRIDE wins — set it to "/health" for a LiteLLM
-          # proxy's model summary. Mirrors lib/resolve-provider.sh (pre-checkout copy).
+          # The path AND auth depend on the API SURFACE at the URL, not the logical
+          # provider:
+          #   * Google OpenAI-compat surface (…/v1beta/openai) — what opencode calls —
+          #     lists models at <baseURL>/models with Bearer. Probe THAT so a healthy
+          #     result predicts real opencode calls (not a sibling native surface).
+          #   * Google NATIVE surface (…/v1beta, no /openai) → host-root /v1beta/models,
+          #     x-goog-api-key.
+          #   * any other host → OpenAI-compatible (/v1/models, except Copilot /models),
+          #     Bearer.
+          # OPENCODE_API_HEALTH_OVERRIDE wins (host-root-relative) — set it to "/health"
+          # for a LiteLLM proxy's model summary. Mirrors lib/resolve-provider.sh.
+          HOST_ROOT=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1|')
           if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
-            HEALTH_PATH="${OPENCODE_API_HEALTH_OVERRIDE}"
+            HEALTH_URL="${HOST_ROOT}/${OPENCODE_API_HEALTH_OVERRIDE#/}"
           else
             case "$OPENCODE_GATEWAY_URL" in
-              *generativelanguage.googleapis.com*) HEALTH_PATH="/v1beta/models" ;;   # Gemini-native surface
+              *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/)
+                HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;      # Google OpenAI-compat surface
+              *generativelanguage.googleapis.com*)
+                HEALTH_URL="${HOST_ROOT}/v1beta/models" ;;           # Gemini-native surface
               *)
                 case "${OPENCODE_PROVIDER:-GEMINI}" in
-                  COPILOT) HEALTH_PATH="/models" ;;
-                  *)       HEALTH_PATH="/v1/models" ;;   # OpenAI-compatible (incl. LiteLLM-fronted Gemini)
+                  COPILOT) HEALTH_URL="${HOST_ROOT}/models" ;;
+                  *)       HEALTH_URL="${HOST_ROOT}/v1/models" ;;    # OpenAI-compatible (incl. LiteLLM)
                 esac
                 ;;
             esac
           fi
-          HEALTH_PATH="/${HEALTH_PATH#/}"   # normalize to exactly one leading slash
-          HEALTH_URL=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1|')${HEALTH_PATH}
-          # Auth header: native Google Gemini (generativelanguage.googleapis.com)
-          # takes the key in x-goog-api-key, not Authorization: Bearer. Any other
-          # gateway (LiteLLM / OpenAI / Copilot / Gemini OpenAI-compat) uses Bearer.
+          # Auth header: the native Google Gemini surface (…/v1beta) takes the key
+          # in x-goog-api-key; Google's OpenAI-compat surface (…/v1beta/openai) and
+          # every other gateway (LiteLLM / OpenAI / Copilot) use Authorization: Bearer.
           case "$OPENCODE_GATEWAY_URL" in
-            *generativelanguage.googleapis.com*) AUTH_HEADER="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}" ;;
-            *)                                   AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
+            *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/) AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
+            *generativelanguage.googleapis.com*)                                                    AUTH_HEADER="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}" ;;
+            *)                                                                                       AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
           esac
           echo "Probing ${OPENCODE_PROVIDER:-GEMINI} gateway health: ${HEALTH_URL}"
           http_code=$(curl -sS -o /tmp/health.out -w "%{http_code}" --max-time 60 \
