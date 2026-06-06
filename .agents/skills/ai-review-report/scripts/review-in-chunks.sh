@@ -451,7 +451,7 @@ EOF
   # Testing_Rules_AGENTS.md will be in context_files if test directory is in changed paths
 
   # Get absolute path for file access instructions
-  local repo_root=$(pwd)
+  local repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
 
   # Detect migration/schema chunks (SQL files or EF Core migration files)
   local is_migration=false

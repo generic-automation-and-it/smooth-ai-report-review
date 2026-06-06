@@ -60,7 +60,7 @@ REVIEWS_JSON=$(gh api graphql -f query='
 GEMINI_REVIEW_NODE_IDS=$(echo "$REVIEWS_JSON" | jq -r \
   --arg current_id "$CURRENT_REVIEW_ID" \
   '.data.repository.pullRequest.reviews.nodes[] |
-   select(.body | test("🤖 (Gemini CLI|OpenCode CLI) Code Review")) |
+   select(.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) |
    select(if $current_id != "" then (.databaseId | tostring) != $current_id else true end) |
    .id'
 )
