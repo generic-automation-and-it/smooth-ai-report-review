@@ -53,9 +53,9 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | Variable | Default | Role |
 |---|---|---|
 | `OPENCODE_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `COPILOT`, or `OPENAI` |
-| `OPENCODE_GEMININ_URL` | — | Gemini gateway base URL (required — default provider) |
-| `OPENCODE_COPILOT_URL` | — | GitHub Copilot gateway base URL (only if using Copilot models) |
-| `OPENCODE_OPENAI_URL` | — | OpenAI gateway base URL (only if using OpenAI models) |
+| `OPENCODE_GEMININ_URL` | `https://generativelanguage.googleapis.com/v1beta` | Gemini gateway base URL (default provider). Unset → `@ai-sdk/google`'s native Gemini API base. Point at a LiteLLM proxy to relay instead. |
+| `OPENCODE_COPILOT_URL` | `https://api.githubcopilot.com` | GitHub Copilot gateway base URL (only if using Copilot models). Unset → `@ai-sdk/github-copilot`'s native API base. |
+| `OPENCODE_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI gateway base URL (only if using OpenAI models). Unset → `@ai-sdk/openai`'s native API base. |
 | `OPENCODE_MODEL_PRIMARY_REVIEW` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
 | `OPENCODE_MODEL_SECONDARY_REVIEW` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
