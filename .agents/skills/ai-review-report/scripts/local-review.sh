@@ -165,32 +165,20 @@ export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flas
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 
-# Preflight: the gateway may live on a private network. If it's unreachable
-# (e.g. you're not on the VPN), every opencode model call would hang for
-# minutes. Probe its health URL (resolved per-provider — or via
-# OPENCODE_API_HEALTH_OVERRIDE — by resolve-provider.sh, sourced above) with a
-# short timeout and fail fast. We only treat a *connection* failure as fatal:
-# curl without --fail exits 0 on any HTTP response (even a 404 from a non-
-# LiteLLM gateway that lacks the probed path), and any response proves the host
-# is reachable, which is all this preflight needs to confirm.
-# Auth header style is resolved by resolve-provider.sh (google → x-goog-api-key,
-# everything else → Authorization: Bearer) so native-Gemini URLs authenticate too.
-if [ "$OPENCODE_GATEWAY_AUTH_STYLE" = "google" ]; then
-  _auth_hdr="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}"
-else
-  _auth_hdr="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}"
-fi
-if ! curl -sS -o /dev/null --max-time 8 \
-      -H "$_auth_hdr" \
-      "$OPENCODE_GATEWAY_HEALTH_URL" 2>/dev/null; then
-  echo "❌ ${OPENCODE_PROVIDER} gateway unreachable: $OPENCODE_GATEWAY_HEALTH_URL"
-  echo "   Every model call would hang — connect to the VPN / corporate network"
-  echo "   that can reach the gateway, then re-run."
+# Install opencode.json so the selected provider resolves, THEN health-check.
+# (Config must be in place before `opencode serve` starts.)
+bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
+
+# Health check (provider-agnostic): start `opencode serve`, hit its
+# /global/health, tear it down (lib/opencode-health.sh). This replaced the old
+# per-provider gateway preflight. NOTE: /global/health confirms opencode itself
+# is up; it does NOT verify the upstream gateway is reachable, so it no longer
+# pre-empts a private-network/VPN hang — the process-group timeout shim below
+# still bounds any hang during the actual model calls.
+if ! bash "$SCRIPT_DIR/lib/opencode-health.sh"; then
+  echo "❌ opencode health check failed (see output above). Aborting."
   exit 1
 fi
-echo "🌐 gateway reachable: $OPENCODE_GATEWAY_HEALTH_URL"
-# Install opencode.json so the selected provider resolves.
-bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
 
 if ! command -v jq &>/dev/null; then
   echo "❌ jq not found. Install with: brew install jq"

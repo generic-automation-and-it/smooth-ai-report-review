@@ -60,7 +60,8 @@
       },
       "models": {
         "minimax-m2.7": { "name": "MiniMax M2.7" },
-        "qwen3.7-plus": { "name": "Qwen3.7 Plus" }
+        "qwen3.7-plus": { "name": "Qwen3.7 Plus" },
+        "qwen3.6-plus": { "name": "Qwen3.6 Plus" }
       }
     }
   },

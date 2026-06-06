@@ -24,10 +24,12 @@
 #                                  URL is the fixed literal https://opencode.ai/
 #                                  zen/go/v1 — hardcoded in opencode.json too — so
 #                                  only their API key comes from an env var).
-#                                  These generic names are what the bash-side
-#                                  /health probe + presence checks read, so those
-#                                  checks are no longer Gemini-specific. The
-#                                  provider-specific names stay exported too —
+#                                  These generic names are what the credential
+#                                  presence checks read, so that check is not
+#                                  Gemini-specific. (Health is checked separately
+#                                  and provider-agnostically via the opencode
+#                                  server — lib/opencode-health.sh — not here.)
+#                                  The provider-specific names stay exported too —
 #                                  opencode.json's {env:OPENCODE_<P>_*}
 #                                  substitution references those literal names.
 #
@@ -99,54 +101,15 @@ for _rp_mv in OPENCODE_MODEL_PRIMARY_REVIEW OPENCODE_MODEL_SECONDARY_REVIEW OPEN
   fi
 done
 
-# Gateway health-check URL. There is no universal health endpoint, and the path
-# that actually answers depends on the API SURFACE at the URL — NOT the logical
-# provider:
-#   * Google OpenAI-compatible surface (…/v1beta/openai) — the surface opencode
-#     actually calls — lists models at <baseURL>/models and authenticates with
-#     Bearer. Probe THAT exact path (NOT the native /v1beta/models) so a healthy
-#     result predicts real opencode calls instead of passing on a sibling surface.
-#   * Google NATIVE surface (…/v1beta, no /openai) → host-root /v1beta/models
-#     (x-goog-api-key) — genuinely Gemini-native (no /health, no /v1/models).
-#   * any other host → an OpenAI-compatible proxy/API (LiteLLM, OpenAI, Azure,
-#     a proxied Gemini, …) → host-root /v1/models, except Copilot whose native
-#     surface lists at /models (LiteLLM also serves /models when proxied).
-# OPENCODE_API_HEALTH_OVERRIDE always wins — e.g. set it to "/health" to use a
-# LiteLLM proxy's healthy/unhealthy model summary. The override is taken relative
-# to the host root.
-_rp_host_root="$(printf '%s' "$OPENCODE_GATEWAY_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
-if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
-  OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/${OPENCODE_API_HEALTH_OVERRIDE#/}"
-else
-  case "$OPENCODE_GATEWAY_URL" in
-    *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/)
-      OPENCODE_GATEWAY_HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;          # Google OpenAI-compat surface
-    *generativelanguage.googleapis.com*)
-      OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1beta/models" ;;            # Gemini-native surface
-    *)
-      case "$OPENCODE_PROVIDER" in
-        COPILOT)                                  OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/models" ;;
-        OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC) OPENCODE_GATEWAY_HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;  # OpenCode Zen lists at <baseURL>/models (base .../zen/go/v1), not host-root
-        *)                                        OPENCODE_GATEWAY_HEALTH_URL="${_rp_host_root}/v1/models" ;;        # OpenAI-compatible (incl. LiteLLM)
-      esac
-      ;;
-  esac
-fi
+# Health checking is no longer per-provider. The single health signal is opencode
+# itself (lib/opencode-health.sh: `opencode serve` + /global/health), which is
+# identical for every provider — so there is no gateway health URL or per-surface
+# auth style to derive here. This resolver only maps the provider → id + creds and
+# fails fast on a bad model chain; the credential presence checks above guard the
+# key. (Removed: OPENCODE_GATEWAY_HEALTH_URL, OPENCODE_GATEWAY_AUTH_STYLE,
+# OPENCODE_API_HEALTH_OVERRIDE.)
 
-# Health-probe auth style. The native Google Gemini surface
-# (generativelanguage.googleapis.com/v1beta) authenticates the API key via the
-# `x-goog-api-key` header, NOT an `Authorization: Bearer` token. Google's
-# OpenAI-compatible surface (…/v1beta/openai) and every other gateway we target —
-# a LiteLLM proxy, native OpenAI, Copilot — use Bearer. Detected from the URL so
-# the probe authenticates correctly regardless of which surface the provider
-# points at (opencode itself uses the SDK's own auth).
-case "$OPENCODE_GATEWAY_URL" in
-  *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/) OPENCODE_GATEWAY_AUTH_STYLE="bearer" ;;   # Google OpenAI-compat
-  *generativelanguage.googleapis.com*)                                                    OPENCODE_GATEWAY_AUTH_STYLE="google" ;;   # native Gemini
-  *)                                                                                       OPENCODE_GATEWAY_AUTH_STYLE="bearer" ;;
-esac
-
-export OPENCODE_PROVIDER OPENCODE_PROVIDER_ID OPENCODE_GATEWAY_URL OPENCODE_GATEWAY_API_KEY OPENCODE_GATEWAY_HEALTH_URL OPENCODE_GATEWAY_AUTH_STYLE
+export OPENCODE_PROVIDER OPENCODE_PROVIDER_ID OPENCODE_GATEWAY_URL OPENCODE_GATEWAY_API_KEY
 
 if [ -n "${GITHUB_ENV:-}" ]; then
   {
@@ -154,11 +117,9 @@ if [ -n "${GITHUB_ENV:-}" ]; then
     echo "OPENCODE_PROVIDER_ID=$OPENCODE_PROVIDER_ID"
     echo "OPENCODE_GATEWAY_URL=$OPENCODE_GATEWAY_URL"
     echo "OPENCODE_GATEWAY_API_KEY=$OPENCODE_GATEWAY_API_KEY"
-    echo "OPENCODE_GATEWAY_HEALTH_URL=$OPENCODE_GATEWAY_HEALTH_URL"
-    echo "OPENCODE_GATEWAY_AUTH_STYLE=$OPENCODE_GATEWAY_AUTH_STYLE"
   } >> "$GITHUB_ENV"
 fi
 
-echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID, health: $OPENCODE_GATEWAY_HEALTH_URL, auth: $OPENCODE_GATEWAY_AUTH_STYLE)"
+echo "🔀 OpenCode provider: $OPENCODE_PROVIDER (provider-id: $OPENCODE_PROVIDER_ID)"
 
-unset _rp_id _rp_url_var _rp_url_fixed _rp_key_var _rp_mv _rp_val _rp_lc _rp_host_root
+unset _rp_id _rp_url_var _rp_url_fixed _rp_key_var _rp_mv _rp_val _rp_lc
