@@ -12,10 +12,28 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
         required: false
         type: string
         default: ''
+      model_preset:
+        # One-click preset: picking a model here sets the provider AND all three
+        # model tiers (primary/secondary/orchestrator) to that single model, so a
+        # reviewer can switch the whole review onto e.g. GPT-5.5 or Qwen3.7 Plus
+        # without touching the repo Variables. Resolved in the job env: block below
+        # (highest precedence — wins over "model" and the OPENCODE_REVIEW_REPORT_* Variables).
+        # Add a new option here AND extend the env: expressions in the same commit.
+        description: 'Model preset (optional). Selecting one overrides the provider AND all three model tiers (primary/secondary/orchestrator) with that single model — takes precedence over "model" and the repo OPENCODE_REVIEW_REPORT_* Variables. Leave on "(repository default)" to use the configured Variables.'
+        required: false
+        type: choice
+        default: '(repository default)'
+        options:
+          - '(repository default)'
+          - 'OpenAI GPT-5.5'
+          - 'OpenCode DeepSeek V4 Pro'
+          - 'OpenCode GLM-5.1'
+          - 'OpenCode MiniMax m3'
+          - 'OpenCode Qwen3.7 Plus'
 permissions:
   pull-requests: write
   contents: read
@@ -51,13 +69,33 @@ jobs:
       # Variable OPENCODE_REVIEW_REPORT_PROVIDER to switch which provider the review routes to.
       # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
       # and fails fast on a mismatched model chain.
-      OPENCODE_REVIEW_REPORT_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
+      # The workflow_dispatch "model_preset" input (when not the default) wins over
+      # the Variable: each preset pins the provider its model belongs to.
+      OPENCODE_REVIEW_REPORT_PROVIDER: >-
+        ${{
+        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'OPENAI') ||
+        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'OPENCODE-GO-OPENAI') ||
+        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'OPENCODE-GO-OPENAI') ||
+        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'OPENCODE-GO-ANTHROPIC') ||
+        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
+        vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
       # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
       # here (string literals, no empty-secret hazard) so every step — including the
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
       # value for local runs.
-      OPENCODE_REVIEW_REPORT_PROVIDER_ID: ${{ (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
+      # Preset (when set) pins the provider-id too, in lockstep with the provider
+      # selector above; otherwise derived from the Variable as before.
+      OPENCODE_REVIEW_REPORT_PROVIDER_ID: >-
+        ${{
+        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
+        ((github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || github.event.inputs.model_preset == 'OpenCode GLM-5.1') && 'go-openai') ||
+        ((github.event.inputs.model_preset == 'OpenCode MiniMax m3' || github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus') && 'go-anthropic') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
+        'gemini' }}
       # All five provider credential pairs are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
@@ -85,19 +123,46 @@ jobs:
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
-      # which would otherwise blank the model). The dispatch input still wins for
-      # the primary review model. NOTE: the literal defaults are Gemini model IDs —
-      # correct for the default provider. For any non-GEMINI provider you MUST set
-      # these Variables to that provider's models: gpt-5.5 (COPILOT/OPENAI),
-      # deepseek-v4-pro/glm-5.1 (OPENCODE-GO-OPENAI), or qwen3.7-plus/minimax-m2.7
-      # (OPENCODE-GO-ANTHROPIC). lib/resolve-provider.sh fails the run fast if a
-      # gemini* model leaks through to a non-GEMINI provider.
+      # which would otherwise blank the model). Precedence per tier:
+      #   model_preset (dispatch dropdown, when not the default) wins everywhere —
+      #   it pins ALL THREE tiers to the one selected model (and the provider above).
+      #   Then, for PRIMARY only, the free-text "model" dispatch input; then the
+      #   repo Variable; then the literal default. NOTE: the literal defaults are
+      #   Gemini model IDs — correct for the default provider. For any non-GEMINI
+      #   provider you MUST set these Variables (or pick a model_preset) to that
+      #   provider's models: gpt-5.5 (COPILOT/OPENAI), deepseek-v4-pro/glm-5.1
+      #   (OPENCODE-GO-OPENAI), or qwen3.7-plus/minimax-m3 (OPENCODE-GO-ANTHROPIC).
+      #   lib/resolve-provider.sh fails the run fast if a gemini* model leaks
+      #   through to a non-GEMINI provider.
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
-      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
-      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
-      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      # The model_preset map is repeated across the three tiers because a preset
+      # collapses all of them onto the same model; keep the five options in sync.
+      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: >-
+        ${{
+        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: >-
+        ${{
+        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
+      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: >-
+        ${{
+        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       # Max changed files the gate will review. A PR larger than this is too big to
