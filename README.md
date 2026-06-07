@@ -31,13 +31,13 @@ OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-revi
 
 | Provider | Status | Models | Env vars (gateway URL + key) |
 |---|---|---|---|
-| **GitHub Copilot** (`github-copilot`, `@ai-sdk/openai-compatible`) | Default — the model chain points here | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `GH_TOKEN` (base URL hardcoded) |
+| **GitHub Copilot** (`github-copilot`, `@ai-sdk/github-copilot`) | Default — the model chain points here | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_COPILOT_API_KEY` (endpoint built-in) |
 | **Gemini** (`gemini`, `@ai-sdk/google`) | Optional | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_REVIEW_REPORT_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
 | **OpenAI** (`openai`, `@ai-sdk/openai`) | Optional | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_REVIEW_REPORT_OPENAI_URL`, `OPENCODE_OPENAI_API_KEY` |
 | **OpenCode Go — OpenAI** (`go-openai`, `@ai-sdk/openai-compatible`) | Optional — [OpenCode's own gateway](https://opencode.ai/docs/go/) (OpenCode Zen), OpenAI-compatible surface | `deepseek-v4-flash`, `deepseek-v4-pro`, `glm-5.1` | `OPENCODE_GO_OPENAI_API_KEY` (base URL hardcoded) |
 | **OpenCode Go — Anthropic** (`go-anthropic`, `@ai-sdk/anthropic`) | Optional — same gateway, Anthropic-compatible surface | `minimax-m2.7`, `qwen3.7-plus`, `qwen3.6-plus` | `OPENCODE_GO_ANTHROPIC_API_KEY` (base URL hardcoded) |
 
-> **GitHub Copilot is key-only.** The Copilot endpoint (`https://api.githubcopilot.com`) is pinned as the `github-copilot` provider's `baseURL` in `opencode.json` (hardcoded, fixed public endpoint), so the provider has **no URL Variable** — its only credential is `GH_TOKEN`, a GitHub token with Copilot access. It is wired via `@ai-sdk/openai-compatible` (sending `GH_TOKEN` as a direct `Authorization: Bearer` plus the `Copilot-Integration-Id` / `Editor-Version` headers the Copilot API requires) rather than `@ai-sdk/github-copilot`, to bypass that SDK's OAuth token-exchange step. Locally `GH_TOKEN` is whatever your `gh` CLI / shell already exports; in CI it is the `GH_TOKEN` Secret.
+> **GitHub Copilot is key-only.** The Copilot endpoint is built into the `@ai-sdk/github-copilot` SDK, so the provider has **no URL Variable** — its only credential is `OPENCODE_COPILOT_API_KEY`, a GitHub token with Copilot access. Locally it is exported in your shell; in CI it is the `OPENCODE_COPILOT_API_KEY` Secret.
 
 > **OpenCode Go is two providers.** Its Zen gateway exposes two SDK surfaces under one base (`https://opencode.ai/zen/go/v1`, hardcoded in `opencode.json`): an OpenAI-compatible one (`/chat/completions`, serving DeepSeek/GLM) and an Anthropic-compatible one (`/messages`, serving MiniMax/Qwen). A single opencode.json provider block can pin only one `npm`, so the surfaces are split into `go-openai` and `go-anthropic`, selected by `OPENCODE-GO-OPENAI` / `OPENCODE-GO-ANTHROPIC`. The base URL is a fixed public endpoint so there's **no URL Variable** — only the API key Secret. The same Zen API key works for both surfaces.
 
@@ -51,7 +51,7 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 
 | Secret | For | Required? |
 |---|---|---|
-| `GH_TOKEN` | GitHub token with Copilot access (`github-copilot` provider) | Required (default provider) |
+| `OPENCODE_COPILOT_API_KEY` | GitHub token with Copilot access (`github-copilot` provider) | Required (default provider) |
 | `OPENCODE_GEMINI_API_KEY` | Gemini gateway API key | Only if using Gemini models |
 | `OPENCODE_OPENAI_API_KEY` | OpenAI gateway API key | Only if using OpenAI models |
 | `OPENCODE_GO_OPENAI_API_KEY` | OpenCode Go (OpenAI surface) API key | Only if using `OPENCODE-GO-OPENAI` |
@@ -71,7 +71,7 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING` | `10` | If changed file count is this value or lower, review as a single chunk. Above it, use normal chunking flow. |
 | `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT` | `100` | Upper bound on changed files. If a PR exceeds it, the gate posts REQUEST_CHANGES ("too many files to review") and skips the AI review entirely. Raise it for unavoidably large changesets. |
 
-> **Switching provider:** the default is `COPILOT` (key-only via the `GH_TOKEN` Secret, GPT model chain). To switch to `GEMINI`, `OPENAI`, `OPENCODE-GO-OPENAI`, or `OPENCODE-GO-ANTHROPIC`, set `OPENCODE_REVIEW_REPORT_PROVIDER` and supply that provider's API key — `OPENCODE_<P>_API_KEY` (Secret), or `GH_TOKEN` for Copilot — and, for the gateway-relayed providers, its `OPENCODE_REVIEW_REPORT_<P>_URL` (Variable); Copilot and the two OpenCode Go surfaces need no URL Variable (endpoint hardcoded) — **and** set the three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.4` / `gpt-5.5` / `gpt-5.4-mini` for Copilot/OpenAI, `gemini-3.1-pro-preview` / `gemini-2.5-pro` / `gemini-3-flash-preview` for `GEMINI`, `deepseek-v4-pro` / `deepseek-v4-flash` / `glm-5.1` for `OPENCODE-GO-OPENAI`, or `qwen3.7-plus` / `minimax-m2.7` for `OPENCODE-GO-ANTHROPIC`). A `gemini*` model left in place for a non-`GEMINI` provider makes the run **fail fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)). All provider credentials are wired into the workflow's `env:` block, so no workflow edit is needed to switch — only the key (+ URL for the relayed providers) + model Variables.
+> **Switching provider:** the default is `COPILOT` (key-only via the `OPENCODE_COPILOT_API_KEY` Secret, GPT model chain). To switch to `GEMINI`, `OPENAI`, `OPENCODE-GO-OPENAI`, or `OPENCODE-GO-ANTHROPIC`, set `OPENCODE_REVIEW_REPORT_PROVIDER` and supply that provider's API key — `OPENCODE_<P>_API_KEY` (Secret), or `OPENCODE_COPILOT_API_KEY` for Copilot — and, for the gateway-relayed providers, its `OPENCODE_REVIEW_REPORT_<P>_URL` (Variable); Copilot and the two OpenCode Go surfaces need no URL Variable (endpoint hardcoded) — **and** set the three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables to that provider's model IDs (e.g. `gpt-5.4` / `gpt-5.5` / `gpt-5.4-mini` for Copilot/OpenAI, `gemini-3.1-pro-preview` / `gemini-2.5-pro` / `gemini-3-flash-preview` for `GEMINI`, `deepseek-v4-pro` / `deepseek-v4-flash` / `glm-5.1` for `OPENCODE-GO-OPENAI`, or `qwen3.7-plus` / `minimax-m2.7` for `OPENCODE-GO-ANTHROPIC`). A `gemini*` model left in place for a non-`GEMINI` provider makes the run **fail fast** (in [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh)). All provider credentials are wired into the workflow's `env:` block, so no workflow edit is needed to switch — only the key (+ URL for the relayed providers) + model Variables.
 
 ## Environment variables
 
@@ -80,7 +80,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | Variable | Set by | Purpose |
 |---|---|---|
 | `OPENCODE_REVIEW_REPORT_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `COPILOT`) | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `OPENCODE-GO-OPENAI`, or `OPENCODE-GO-ANTHROPIC`. |
-| `GH_TOKEN` (**Secret**) | GitHub / `gh` CLI / shell export | GitHub token with Copilot access (`github-copilot` provider). Endpoint is hardcoded (`https://api.githubcopilot.com`) — no URL Variable. |
+| `OPENCODE_COPILOT_API_KEY` (**Secret**) | GitHub / shell export | GitHub token with Copilot access (`github-copilot` provider). Endpoint is built into the `@ai-sdk/github-copilot` SDK — no URL Variable. |
 | `OPENCODE_REVIEW_REPORT_GEMINI_URL` (**Variable**) / `OPENCODE_GEMINI_API_KEY` (**Secret**) | GitHub / shell export | Gemini gateway base URL + API key (`gemini` provider). |
 | `OPENCODE_REVIEW_REPORT_OPENAI_URL` (**Variable**) / `OPENCODE_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenAI gateway base URL + API key (`openai` provider). |
 | `OPENCODE_GO_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenCode Go OpenAI-compatible API key (`go-openai` provider). Base URL is hardcoded (`https://opencode.ai/zen/go/v1`) — no URL Variable. |

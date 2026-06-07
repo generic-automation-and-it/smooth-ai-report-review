@@ -33,7 +33,7 @@ PR_NUMBER=""
 BASE_BRANCH="main"
 OPENCODE_MODEL="gpt-5.4"
 # Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC).
-# Default COPILOT (GitHub Copilot via the GH_TOKEN of the developer running this);
+# Default COPILOT (GitHub Copilot via the OPENCODE_COPILOT_API_KEY of the developer running this);
 # override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. The default
 # model chain below (primary gpt-5.4 / secondary gpt-5.5 / orchestrator gpt-5.4-mini)
 # matches COPILOT/OPENAI. For GEMINI you must pass a matching --model (and export
@@ -90,7 +90,7 @@ while [[ $# -gt 0 ]]; do
       echo "Prerequisites:"
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's credentials exported:"
-      echo "      COPILOT               → GH_TOKEN  (your GitHub token with Copilot access; URL is the fixed Copilot endpoint)"
+      echo "      COPILOT               → OPENCODE_COPILOT_API_KEY  (your GitHub token with Copilot access; URL is the built-in Copilot endpoint)"
       echo "      GEMINI                → OPENCODE_REVIEW_REPORT_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
       echo "      OPENAI                → OPENCODE_REVIEW_REPORT_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
       echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
@@ -143,11 +143,11 @@ harvest_var() {
 }
 # Harvest every provider's credential; lib/resolve-provider.sh picks the
 # credential for the selected OPENCODE_REVIEW_REPORT_PROVIDER and validates it
-# below. COPILOT (the default) authenticates with GH_TOKEN — the developer's
+# below. COPILOT (the default) authenticates with OPENCODE_COPILOT_API_KEY — the developer's
 # GitHub token with Copilot access; it is usually already in the environment
 # (gh CLI), but harvest it from the shell rc files too in case it is only
 # exported there.
-for v in GH_TOKEN \
+for v in OPENCODE_COPILOT_API_KEY \
          OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
          OPENCODE_REVIEW_REPORT_OPENAI_URL OPENCODE_OPENAI_API_KEY \
          OPENCODE_GO_OPENAI_API_KEY \

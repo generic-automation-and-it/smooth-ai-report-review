@@ -26,7 +26,7 @@
 #                                  COPILOT, whose URL is the fixed Copilot
 #                                  endpoint https://api.githubcopilot.com — for
 #                                  these only the API key comes from an env var,
-#                                  and COPILOT's key is GH_TOKEN).
+#                                  and COPILOT's key is OPENCODE_COPILOT_API_KEY).
 #                                  These generic names are what the credential
 #                                  presence checks read, so that check is not
 #                                  Gemini-specific. (Health is checked separately
@@ -59,14 +59,13 @@ OPENCODE_REVIEW_REPORT_PROVIDER="$(printf '%s' "$OPENCODE_REVIEW_REPORT_PROVIDER
 # https://opencode.ai/zen/go/v1, hardcoded in opencode.json too), so its
 # providers carry no URL env var — _rp_url_fixed supplies the value the health
 # probe needs. COPILOT is the same shape: a fixed endpoint
-# (https://api.githubcopilot.com, declared as the github-copilot baseURL in
-# opencode.json), and its only credential is GH_TOKEN — the user's GitHub token
-# with Copilot access (no per-deployment URL Variable, no separate API-key
-# Secret). The other providers read their gateway URL from an env var.
+# (https://api.githubcopilot.com, built into the @ai-sdk/github-copilot SDK),
+# and its only credential is OPENCODE_COPILOT_API_KEY — a GitHub token with
+# Copilot access (no per-deployment URL Variable, no separate API-key Secret). The other providers read their gateway URL from an env var.
 _rp_url_fixed=""
 case "$OPENCODE_REVIEW_REPORT_PROVIDER" in
   GEMINI)                _rp_id="gemini";         _rp_url_var="OPENCODE_REVIEW_REPORT_GEMINI_URL";        _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
-  COPILOT)               _rp_id="github-copilot"; _rp_url_var="";  _rp_url_fixed="https://api.githubcopilot.com"; _rp_key_var="GH_TOKEN" ;;
+  COPILOT)               _rp_id="github-copilot"; _rp_url_var="";  _rp_url_fixed="https://api.githubcopilot.com"; _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
   OPENAI)                _rp_id="openai";         _rp_url_var="OPENCODE_REVIEW_REPORT_OPENAI_URL";         _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
   OPENCODE-GO-OPENAI)    _rp_id="go-openai";      _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
   OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;

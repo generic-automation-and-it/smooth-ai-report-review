@@ -67,13 +67,10 @@ jobs:
       # API keys stay Secrets; gateway URLs are non-sensitive and come from
       # repo/org Variables (the user-confirmed config) so they can be retuned
       # without secret access.
-      # COPILOT (the default provider) authenticates with GH_TOKEN — a GitHub token
-      # with Copilot access (Secret) — and has no gateway URL: the
-      # @ai-sdk/github-copilot SDK has a fixed built-in endpoint. NOTE: gh CLI
-      # prefers GH_TOKEN over GITHUB_TOKEN, so this job-scoped GH_TOKEN also becomes
-      # the token gh uses in steps that don't set GITHUB_TOKEN explicitly — give the
-      # GH_TOKEN Secret repo + pull-requests scope so those gh calls keep working.
-      GH_TOKEN: ${{ secrets.OPENCODE_GITHUB_API_KEY }}
+      # COPILOT (the default provider) authenticates with OPENCODE_COPILOT_API_KEY — a
+      # GitHub token with Copilot access (Secret) — and has no gateway URL:
+      # @ai-sdk/github-copilot has a fixed built-in endpoint.
+      OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
@@ -144,12 +141,12 @@ jobs:
           # U = name of the provider's URL env var (read via indirection). GW_URL =
           # a fixed literal URL for providers whose endpoint is not env-configurable
           # (the two OpenCode Go surfaces share the public Zen base; COPILOT uses the
-          # @ai-sdk/github-copilot SDK's fixed https://api.githubcopilot.com and its
-          # key K=GH_TOKEN). When GW_URL is set it wins; otherwise the URL comes from
+          # @ai-sdk/github-copilot) and its
+          # key K=OPENCODE_COPILOT_API_KEY). When GW_URL is set it wins; otherwise the URL comes from
           # ${!U}.
           U=""; GW_URL=""
           case "${OPENCODE_REVIEW_REPORT_PROVIDER:-COPILOT}" in
-            COPILOT)               GW_URL="https://api.githubcopilot.com"; K=GH_TOKEN ;;
+            COPILOT)               GW_URL="https://api.githubcopilot.com"; K=OPENCODE_COPILOT_API_KEY ;;
             OPENAI)                U=OPENCODE_REVIEW_REPORT_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
             OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
             OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;

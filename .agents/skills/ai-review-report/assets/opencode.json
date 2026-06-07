@@ -15,15 +15,10 @@
       }
     },
     "github-copilot": {
-      "npm": "@ai-sdk/openai-compatible",
+      "npm": "@ai-sdk/github-copilot",
       "name": "GitHub Copilot",
       "options": {
-        "baseURL": "https://api.githubcopilot.com",
-        "apiKey": "{env:GH_TOKEN}",
-        "headers": {
-          "Copilot-Integration-Id": "vscode-chat",
-          "Editor-Version": "vscode/1.95.0"
-        }
+        "apiKey": "{env:OPENCODE_COPILOT_API_KEY}"
       },
       "models": {
         "gpt-5.5": { "name": "GPT-5.5" },

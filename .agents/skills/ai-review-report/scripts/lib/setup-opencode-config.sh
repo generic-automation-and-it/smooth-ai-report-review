@@ -59,11 +59,11 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
   # solely the providers we ship plus our own optional `permission` and `agent`
   # blocks, no other top-level keys, AND every provider's apiKey is still one of
-  # our {env:...} placeholders ({env:OPENCODE_*}, or {env:GH_TOKEN} for the
-  # github-copilot provider). That apiKey clause is the real discriminator:
-  # it distinguishes our config (which never holds a real key) from a personal
-  # config that merely reuses the same provider keys but customizes options to
-  # real keys — without it, a key match alone could clobber that personal config.
+  # our {env:...} placeholders ({env:OPENCODE_*}). That apiKey clause is the
+  # real discriminator: it distinguishes our config (which never holds a real
+  # key) from a personal config that merely reuses the same provider keys but
+  # customizes options to real keys — without it, a key match alone could
+  # clobber that personal config.
   # A stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names) still uses
   # the OPENCODE_ placeholder form, so self-heal/refresh is preserved.
   # baseURL is optional: providers with no baseURL use the native SDK base, so an
@@ -81,7 +81,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
       and ((.provider // {} | keys) == ["gemini","github-copilot","go-anthropic","go-openai","openai"])
       and ((.agent // {} | keys) | (. == [] or . == ["review"]))
       and (all((.provider // {})[]?;
-            ((.options.apiKey // "") | test("^\\{env:(OPENCODE_|GH_TOKEN)"))
+            ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
             and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https://opencode\\.ai/zen/go/|https://api\\.githubcopilot\\.com)"))))
     ' "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
@@ -105,7 +105,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
     echo "⚠️  $DEST has a 'gemini' provider but also other settings —"
     echo "    NOT overwriting your personal config. Sync the provider blocks you use"
     echo "    (gemini → {env:OPENCODE_GEMINI_*}, github-copilot →"
-    echo "    {env:GH_TOKEN}, openai → {env:OPENCODE_OPENAI_*},"
+    echo "    {env:OPENCODE_COPILOT_API_KEY}, openai → {env:OPENCODE_OPENAI_*},"
     echo "    go-openai → {env:OPENCODE_GO_OPENAI_API_KEY}, go-anthropic →"
     echo "    {env:OPENCODE_GO_ANTHROPIC_API_KEY} — both with the hardcoded"
     echo "    https://opencode.ai/zen/go/v1 baseURL) and the"
