@@ -8,11 +8,11 @@ namespace Project.Domain.Documents;
 // constructor, a DI-injected factory, or an IDocumentReferenceFactory interface.
 public sealed class DocumentReference
 {
-    public Guid Id { get; }
-    public string BlobKey { get; }
-    public string ContentType { get; }
-    public long SizeBytes { get; }
-    public DateTimeOffset CreatedAtUtc { get; }
+    public Guid Id { get; init; }
+    public string BlobKey { get; init; }
+    public string ContentType { get; init; }
+    public long SizeBytes { get; init; }
+    public DateTimeOffset CreatedAtUtc { get; init; }
 
     private DocumentReference() { }
 

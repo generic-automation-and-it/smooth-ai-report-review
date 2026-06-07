@@ -71,6 +71,13 @@ DR_SUPPLEMENT_DEST=".agents/skills/code-review-standards/SKILL.md"
 EVAL_RECALL_THRESHOLD="${EVAL_RECALL_THRESHOLD:-80}"
 EVAL_SAMPLES="${EVAL_SAMPLES:-1}"
 EVAL_FILTER="${EVAL_FILTER:-}"
+# Optional triage archive: when set, each fixture's concatenated review markdown
+# is copied to "$EVAL_ARTIFACT_DIR/<id>.review.md" (and infra-fail run logs to
+# "<fixture>.lastlog"). The per-fixture sandbox + WORK_ROOT are wiped on exit, so
+# without this a precision FAIL leaves no trace of WHAT the model flagged — the
+# CI workflow sets this and uploads the dir so failures are inspectable.
+EVAL_ARTIFACT_DIR="${EVAL_ARTIFACT_DIR:-}"
+[ -n "$EVAL_ARTIFACT_DIR" ] && mkdir -p "$EVAL_ARTIFACT_DIR" 2>/dev/null || true
 
 EXPERTISE_STATEMENT="You are a principal software engineer performing a rigorous \
 pull-request code review. You apply the project's documented code-review standards \
@@ -212,6 +219,7 @@ run_fixture() {
     # No review produced at all — surface the run log for diagnosis.
     echo "__INFRA_FAIL__"
     cp "$sandbox/ci_temp/review_run.log" "$WORK_ROOT/$(basename "$fdir").lastlog" 2>/dev/null || true
+    [ -n "${EVAL_ARTIFACT_DIR:-}" ] && cp "$sandbox/ci_temp/review_run.log" "$EVAL_ARTIFACT_DIR/$(basename "$fdir").lastlog" 2>/dev/null || true
     rm -rf "$sandbox"
     return 1
   fi
@@ -258,7 +266,11 @@ for manifest in "${manifests[@]}"; do
     if [ "$out" = "__INFRA_FAIL__" ]; then sample_infra_fail=true; break; fi
     sevs="${out#*|}"          # e.g. "HIGH,MEDIUM" or ""
 
-    # precision: any of CRITICAL/HIGH/MEDIUM present is a re-raised false positive
+    # precision: any of CRITICAL/HIGH/MEDIUM present is a re-raised false positive.
+    # NOTE: this precision bar is intentionally STRICTER than the production gate's
+    # blocking threshold — the gate blocks a PR only on [VERIFIED] Critical/High
+    # (LADR-012/015), but a re-raised DR at MEDIUM is still review noise on a
+    # confirmed false positive, so the eval fails on it too. Low/none is allowed.
     if printf '%s' "$sevs" | grep -qE '(CRITICAL|HIGH|MEDIUM)'; then
       flagged_any=true
     fi
@@ -277,6 +289,15 @@ for manifest in "${manifests[@]}"; do
     RESULTS+=("$kind|$id|INFRA|model/run failure — see logs in $WORK_ROOT")
     echo "    ⚠️  INFRA FAILURE (no usable review)"
     continue
+  fi
+
+  # Triage archive: keep the (last sample's) review so a precision FAIL can be
+  # inspected after the sandbox is wiped. Skipped under selftest (no real review).
+  if [ -n "$EVAL_ARTIFACT_DIR" ] && [ "$SELFTEST" != "1" ]; then
+    review_path="${out%|*}"
+    if [ -n "$review_path" ] && [ -f "$review_path" ]; then
+      cp "$review_path" "$EVAL_ARTIFACT_DIR/$id.review.md" 2>/dev/null || true
+    fi
   fi
 
   if [ "$kind" = "must-not-flag" ]; then
@@ -334,6 +355,7 @@ echo "------------------------------------------"
 echo " Precision (must-not-flag): $precision_pass/$precision_total clean (${precision_rate}%)  [zero-tolerance]"
 echo " Recall    (must-catch)   : $recall_caught/$recall_total caught (${recall_rate}%)  [threshold ${EVAL_RECALL_THRESHOLD}%]"
 [ "$infra_fail" -gt 0 ] && echo " Infra failures           : $infra_fail (counted as run failure)"
+[ -n "$EVAL_ARTIFACT_DIR" ] && echo " Reviews archived to      : $EVAL_ARTIFACT_DIR (per-fixture <id>.review.md)"
 echo "------------------------------------------"
 
 fail=0
