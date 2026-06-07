@@ -3,7 +3,7 @@
 #
 # Single source of truth that maps the user-facing OPENCODE_PROVIDER selector
 # (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC,
-# default GEMINI) onto:
+# default COPILOT) onto:
 #   - OPENCODE_PROVIDER_ID         the provider KEY in assets/opencode.json that
 #                                  opencode-with-fallback.sh prefixes onto the
 #                                  model (`opencode run --model <id>/<model>`):
@@ -20,10 +20,13 @@
 #   - OPENCODE_GATEWAY_URL /       the selected provider's gateway credentials,
 #     OPENCODE_GATEWAY_API_KEY     copied out of the provider-specific
 #                                  OPENCODE_<P>_URL / OPENCODE_<P>_API_KEY pair
-#                                  (EXCEPT the two OpenCode Go providers, whose
-#                                  URL is the fixed literal https://opencode.ai/
-#                                  zen/go/v1 — hardcoded in opencode.json too — so
-#                                  only their API key comes from an env var).
+#                                  (EXCEPT the fixed-endpoint providers: the two
+#                                  OpenCode Go providers, whose URL is the fixed
+#                                  literal https://opencode.ai/zen/go/v1, and
+#                                  COPILOT, whose URL is the @ai-sdk/github-copilot
+#                                  SDK's fixed https://api.githubcopilot.com — for
+#                                  these only the API key comes from an env var,
+#                                  and COPILOT's key is GH_TOKEN).
 #                                  These generic names are what the credential
 #                                  presence checks read, so that check is not
 #                                  Gemini-specific. (Health is checked separately
@@ -49,17 +52,21 @@
 
 _rp_die() { echo "❌ $*" >&2; exit 1; }
 
-OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
+OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-COPILOT}"
 OPENCODE_PROVIDER="$(printf '%s' "$OPENCODE_PROVIDER" | tr '[:lower:]' '[:upper:]')"
 
 # OpenCode Go's gateway is a fixed public endpoint (the OpenCode Zen base
 # https://opencode.ai/zen/go/v1, hardcoded in opencode.json too), so its
 # providers carry no URL env var — _rp_url_fixed supplies the value the health
-# probe needs. The other providers read their gateway URL from an env var.
+# probe needs. COPILOT is the same shape: the @ai-sdk/github-copilot SDK has a
+# fixed built-in endpoint (https://api.githubcopilot.com, not declared in
+# opencode.json), and its only credential is GH_TOKEN — the user's GitHub token
+# with Copilot access (no per-deployment URL Variable, no separate API-key
+# Secret). The other providers read their gateway URL from an env var.
 _rp_url_fixed=""
 case "$OPENCODE_PROVIDER" in
   GEMINI)                _rp_id="gemini";         _rp_url_var="OPENCODE_GEMINI_URL";        _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
-  COPILOT)               _rp_id="github-copilot"; _rp_url_var="OPENCODE_COPILOT_URL";        _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
+  COPILOT)               _rp_id="github-copilot"; _rp_url_var="";  _rp_url_fixed="https://api.githubcopilot.com"; _rp_key_var="GH_TOKEN" ;;
   OPENAI)                _rp_id="openai";         _rp_url_var="OPENCODE_OPENAI_URL";         _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
   OPENCODE-GO-OPENAI)    _rp_id="go-openai";      _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
   OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;

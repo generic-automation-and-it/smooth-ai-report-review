@@ -43,7 +43,7 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     
     env:
-      # Provider selector, default GEMINI. Allowed:
+      # Provider selector, default COPILOT. Allowed:
       #   GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
       # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
       # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
@@ -51,29 +51,35 @@ jobs:
       # Variable OPENCODE_PROVIDER to switch which provider the review routes to.
       # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
       # and fails fast on a mismatched model chain.
-      OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
+      OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'COPILOT' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
       # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
       # here (string literals, no empty-secret hazard) so every step — including the
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
-      # value for local runs.
-      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
-      # All five provider credential pairs are exported at job scope so opencode's
-      # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
-      # resolves for whichever provider is selected. Unused pairs resolve empty and
-      # are simply never routed to. Without the active pair the provider sends an
-      # empty Bearer token and the gateway returns 401 (cf. empty-review run
-      # 26584156846). The "Install Dependencies" step copies the SELECTED pair into
-      # OPENCODE_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
-      # secret stays empty and trips the presence check rather than silently
-      # falling back to another provider's creds).
+      # value for local runs. Unset or COPILOT falls through to github-copilot, to
+      # match the default provider above.
+      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'GEMINI' && 'gemini') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'github-copilot' }}
+      # All provider credentials are exported at job scope so opencode's
+      # {env:...} substitution in ~/.config/opencode/opencode.json resolves for
+      # whichever provider is selected. Unused ones resolve empty and are simply
+      # never routed to. Without the active credential the provider sends an empty
+      # Bearer token and the gateway returns 401 (cf. empty-review run
+      # 26584156846). The "Install Dependencies" step copies the SELECTED
+      # credential into OPENCODE_GATEWAY_URL/_API_KEY (via bash indirection, so an
+      # empty selected secret stays empty and trips the presence check rather than
+      # silently falling back to another provider's creds).
       # API keys stay Secrets; gateway URLs are non-sensitive and come from
       # repo/org Variables (the user-confirmed config) so they can be retuned
       # without secret access.
+      # COPILOT (the default provider) authenticates with GH_TOKEN — a GitHub token
+      # with Copilot access (Secret) — and has no gateway URL: the
+      # @ai-sdk/github-copilot SDK has a fixed built-in endpoint. NOTE: gh CLI
+      # prefers GH_TOKEN over GITHUB_TOKEN, so this job-scoped GH_TOKEN also becomes
+      # the token gh uses in steps that don't set GITHUB_TOKEN explicitly — give the
+      # GH_TOKEN Secret repo + pull-requests scope so those gh calls keep working.
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
       OPENCODE_GEMINI_URL: ${{ vars.OPENCODE_GEMINI_URL }}
-      OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
-      OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
       OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
       # OpenCode Go: only the API key is configurable — the gateway base URL is the
@@ -85,18 +91,19 @@ jobs:
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
       # which would otherwise blank the model). The dispatch input still wins for
-      # the primary review model. NOTE: the literal defaults are Gemini model IDs —
-      # correct for the default provider. For any non-GEMINI provider you MUST set
-      # these Variables to that provider's models: gpt-5.5 (COPILOT/OPENAI),
+      # the primary review model. NOTE: the literal defaults are GitHub Copilot
+      # (GPT) model IDs — correct for the default provider (COPILOT). For any other
+      # provider you MUST set these Variables to that provider's models:
+      # gemini-3.1-pro-preview/gemini-2.5-pro/gemini-3-flash-preview (GEMINI),
       # deepseek-v4-pro/glm-5.1 (OPENCODE-GO-OPENAI), or qwen3.7-plus/minimax-m2.7
       # (OPENCODE-GO-ANTHROPIC). lib/resolve-provider.sh fails the run fast if a
       # gemini* model leaks through to a non-GEMINI provider.
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
-      OPENCODE_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
-      OPENCODE_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
-      OPENCODE_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      OPENCODE_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_MODEL_PRIMARY_REVIEW || 'gpt-5.4' }}
+      OPENCODE_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_MODEL_SECONDARY_REVIEW || 'gpt-5.5' }}
+      OPENCODE_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_MODEL_ORCHESTRATOR || 'gpt-5.4-mini' }}
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
       # Mandatory context files loaded for every review (space-separated)
@@ -136,11 +143,13 @@ jobs:
           # isn't available until after actions/checkout.
           # U = name of the provider's URL env var (read via indirection). GW_URL =
           # a fixed literal URL for providers whose endpoint is not env-configurable
-          # (the two OpenCode Go surfaces share the public Zen base). When GW_URL is
-          # set it wins; otherwise the URL comes from ${!U}.
+          # (the two OpenCode Go surfaces share the public Zen base; COPILOT uses the
+          # @ai-sdk/github-copilot SDK's fixed https://api.githubcopilot.com and its
+          # key K=GH_TOKEN). When GW_URL is set it wins; otherwise the URL comes from
+          # ${!U}.
           U=""; GW_URL=""
-          case "${OPENCODE_PROVIDER:-GEMINI}" in
-            COPILOT)               U=OPENCODE_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
+          case "${OPENCODE_PROVIDER:-COPILOT}" in
+            COPILOT)               GW_URL="https://api.githubcopilot.com"; K=GH_TOKEN ;;
             OPENAI)                U=OPENCODE_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
             OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
             OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;

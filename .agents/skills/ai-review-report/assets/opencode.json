@@ -18,7 +18,7 @@
       "npm": "@ai-sdk/github-copilot",
       "name": "GitHub Copilot",
       "options": {
-        "apiKey": "{env:OPENCODE_COPILOT_API_KEY}"
+        "apiKey": "{env:GH_TOKEN}"
       },
       "models": {
         "gpt-5.5": { "name": "GPT-5.5" },
