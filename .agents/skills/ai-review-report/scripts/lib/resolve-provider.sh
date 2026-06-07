@@ -37,7 +37,7 @@
 # actionable message rather than limping on to a confusing empty/auth-error review:
 #   - the selected provider's URL + API key must be non-empty;
 #   - for any provider OTHER than GEMINI, the resolved review-model chain
-#     (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / _SECONDARY_REVIEW / _ORCHESTRATOR) must be
+#     (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / _SECONDARY / _ORCHESTRATOR) must be
 #     set and must NOT name a `gemini*` model — those IDs don't resolve on the
 #     Copilot/OpenAI gateways (their declared models are gpt-5.5 / gpt-5.4 /
 #     gpt-5.4-mini in opencode.json).

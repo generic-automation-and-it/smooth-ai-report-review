@@ -64,8 +64,9 @@ jobs:
       # are simply never routed to. Without the active pair the provider sends an
       # empty Bearer token and the gateway returns 401 (cf. empty-review run
       # 26584156846). The "Install Dependencies" step copies the SELECTED pair into
-      # OPENCODE_REVIEW_REPORT_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
-      # secret stays empty and trips the presence check rather than silently
+      # OPENCODE_REVIEW_REPORT_GATEWAY_URL (renamed) and OPENCODE_GATEWAY_API_KEY (the
+      # API-key exception keeps its OPENCODE_*_API_KEY name) via bash indirection, so an
+      # empty selected secret stays empty and trips the presence check rather than silently
       # falling back to another provider's creds).
       # API keys stay Secrets; gateway URLs are non-sensitive and come from
       # repo/org Variables (the user-confirmed config) so they can be retuned
