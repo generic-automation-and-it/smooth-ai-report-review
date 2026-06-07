@@ -23,10 +23,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
 # Credentials come from the shell environment. Export the selected provider's
-# OPENCODE_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
+# OPENCODE_REVIEW_REPORT_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
 # profile or via direnv); opencode reads them through the {env:...} placeholders
-# in opencode.json. The provider is chosen with --provider / OPENCODE_PROVIDER
-# (default GEMINI). See the "Required environment variables" section of SKILL.md.
+# in opencode.json. The provider is chosen with --provider / OPENCODE_REVIEW_REPORT_PROVIDER
+# (default COPILOT). See the "Required environment variables" section of SKILL.md.
 
 # Defaults
 PR_NUMBER=""
@@ -34,12 +34,12 @@ BASE_BRANCH="main"
 OPENCODE_MODEL="gpt-5.4"
 # Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC).
 # Default COPILOT (GitHub Copilot via the GH_TOKEN of the developer running this);
-# override with --provider or the OPENCODE_PROVIDER env var. The default model chain
-# below (primary gpt-5.4 / secondary gpt-5.5 / orchestrator gpt-5.4-mini) matches
-# COPILOT/OPENAI. For GEMINI you must pass a matching --model (and export
-# OPENCODE_MODEL_SECONDARY_REVIEW / OPENCODE_MODEL_ORCHESTRATOR with gemini-* ids);
-# lib/resolve-provider.sh fails fast otherwise.
-OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-COPILOT}"
+# override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. The default
+# model chain below (primary gpt-5.4 / secondary gpt-5.5 / orchestrator gpt-5.4-mini)
+# matches COPILOT/OPENAI. For GEMINI you must pass a matching --model (and export
+# OPENCODE_REVIEW_REPORT_MODEL_SECONDARY / OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
+# with gemini-* ids); lib/resolve-provider.sh fails fast otherwise.
+OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-COPILOT}"
 POST_REVIEW=false
 OPEN_AFTER=false
 REVIEW_TYPE="full"
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --provider)
-      OPENCODE_PROVIDER="$2"
+      OPENCODE_REVIEW_REPORT_PROVIDER="$2"
       shift 2
       ;;
     --post)
@@ -82,7 +82,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --model MODEL        Primary review model ID (default: gpt-5.4). Must"
       echo "                       be a model of the selected provider (e.g. gemini-2.5-pro for GEMINI)."
       echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC"
-      echo "                       (default: COPILOT; or set OPENCODE_PROVIDER)"
+      echo "                       (default: COPILOT; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
       echo "  --post               Post review to PR (requires --pr)"
       echo "  --open               Open final review in \$EDITOR after completion"
       echo "  --help, -h           Show this help"
@@ -91,13 +91,13 @@ while [[ $# -gt 0 ]]; do
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's credentials exported:"
       echo "      COPILOT               → GH_TOKEN  (your GitHub token with Copilot access; URL is the fixed Copilot endpoint)"
-      echo "      GEMINI                → OPENCODE_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
-      echo "      OPENAI                → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
+      echo "      GEMINI                → OPENCODE_REVIEW_REPORT_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
+      echo "      OPENAI                → OPENCODE_REVIEW_REPORT_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
       echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
       echo "  - The default model chain (gpt-5.4 / gpt-5.5 / gpt-5.4-mini) matches"
-      echo "    COPILOT/OPENAI. For GEMINI export OPENCODE_MODEL_SECONDARY_REVIEW and"
-      echo "    OPENCODE_MODEL_ORCHESTRATOR (gemini-* model IDs) and pass --model gemini-*"
+      echo "    COPILOT/OPENAI. For GEMINI export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY and"
+      echo "    OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (gemini-* model IDs) and pass --model gemini-*"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
       exit 0
@@ -142,13 +142,14 @@ harvest_var() {
   return 1
 }
 # Harvest every provider's credential; lib/resolve-provider.sh picks the
-# credential for the selected OPENCODE_PROVIDER and validates it below. COPILOT
-# (the default) authenticates with GH_TOKEN — the developer's GitHub token with
-# Copilot access; it is usually already in the environment (gh CLI), but harvest
-# it from the shell rc files too in case it is only exported there.
+# credential for the selected OPENCODE_REVIEW_REPORT_PROVIDER and validates it
+# below. COPILOT (the default) authenticates with GH_TOKEN — the developer's
+# GitHub token with Copilot access; it is usually already in the environment
+# (gh CLI), but harvest it from the shell rc files too in case it is only
+# exported there.
 for v in GH_TOKEN \
-         OPENCODE_GEMINI_URL OPENCODE_GEMINI_API_KEY \
-         OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY \
+         OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
+         OPENCODE_REVIEW_REPORT_OPENAI_URL OPENCODE_OPENAI_API_KEY \
          OPENCODE_GO_OPENAI_API_KEY \
          OPENCODE_GO_ANTHROPIC_API_KEY; do
   harvest_var "$v" || true
@@ -164,10 +165,10 @@ fi
 # missing creds / a model chain that doesn't match the provider. Export the model
 # chain FIRST so the resolver can validate it (primary = --model arg). These are
 # also what review-in-chunks.sh / aggregate-reviews.sh consume.
-export OPENCODE_PROVIDER
-export OPENCODE_MODEL_PRIMARY_REVIEW="$OPENCODE_MODEL"
-export OPENCODE_MODEL_SECONDARY_REVIEW="${OPENCODE_MODEL_SECONDARY_REVIEW:-gpt-5.5}"
-export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gpt-5.4-mini}"
+export OPENCODE_REVIEW_REPORT_PROVIDER
+export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="$OPENCODE_MODEL"
+export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
+export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.4-mini}"
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 
@@ -206,7 +207,7 @@ cd "$REPO_ROOT"
 echo "=========================================="
 echo "🔍 OpenCode Local Code Review"
 echo "=========================================="
-echo "Provider: $OPENCODE_PROVIDER"
+echo "Provider: $OPENCODE_REVIEW_REPORT_PROVIDER"
 echo "Model: $OPENCODE_MODEL"
 echo "Base branch: $BASE_BRANCH"
 [ -n "$PR_NUMBER" ] && echo "PR: #$PR_NUMBER"
@@ -307,7 +308,7 @@ touch "$GITHUB_OUTPUT"
 # Set mandatory context files (same as workflow env)
 export MANDATORY_CONTEXT_FILES=".docs/nfr/PROJECT_SETUP_AGENTS.md .agents/skills/code-review-standards/SKILL.md .docs/nfr/TOOL_SETUP_AGENTS.md .agents/rules-scoped/backend/testing-standards.instructions.md .agents/rules-scoped/backend/dotnet-standards.instructions.md"
 
-# Model chain (OPENCODE_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
+# Model chain (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
 # already exported and validated above, before sourcing lib/resolve-provider.sh,
 # so review-in-chunks.sh / aggregate-reviews.sh inherit them here.
 

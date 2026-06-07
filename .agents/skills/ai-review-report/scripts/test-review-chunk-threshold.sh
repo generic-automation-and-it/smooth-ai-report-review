@@ -75,7 +75,7 @@ run_case() {
   to_sha="$(git rev-parse HEAD)"
 
   if [ -n "${threshold}" ]; then
-    OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING="${threshold}" \
+    OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING="${threshold}" \
     GITHUB_OUTPUT="${output_file}" \
     PATH="${test_repo}/bin:${PATH}" \
     bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh "${from_sha}" "${to_sha}" "test-model" "test expertise" >/dev/null

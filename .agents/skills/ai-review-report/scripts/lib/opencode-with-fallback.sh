@@ -8,9 +8,9 @@
 #   - orchestrator:  ORCHESTRATOR     <resolved review model>   ""
 # An empty model slot is skipped, so a two-tier chain just leaves fb2 empty.
 #
-# The provider is selected by OPENCODE_PROVIDER (GEMINI|COPILOT|OPENAI|
+# The provider is selected by OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI|COPILOT|OPENAI|
 # OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC) and resolved to its opencode
-# provider-id by lib/resolve-provider.sh, which exports OPENCODE_PROVIDER_ID
+# provider-id by lib/resolve-provider.sh, which exports OPENCODE_REVIEW_REPORT_PROVIDER_ID
 # (gemini / github-copilot / openai / go-openai / go-anthropic). This script
 # reads that id below; it defaults to gemini when unset so a bare
 # invocation keeps the historical Gemini behavior. Credentials are read by
@@ -33,7 +33,7 @@ if [ -z "$prompt_file" ] || [ ! -f "$prompt_file" ]; then
   exit 64
 fi
 
-PROVIDER="${OPENCODE_PROVIDER_ID:-gemini}"
+PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 
 run_opencode() {
   # --agent review (LADR-029): pin the locked-down `review` agent from
