@@ -303,18 +303,19 @@ jobs:
           echo "✓ upstream → ${{ github.server_url }}/${BASE_REPO}.git"
 
       - name: Initialize OPENCODE
-        id: gemini_model_test
+        id: initialize_opencode
         run: |
           set -e
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          REQUESTED_VERSION="${OPENCODE_REQUESTED_VERSION:-latest}"
-          PINNED_VERSION="${OPENCODE_CLI_VERSION#v}"
+          REQUESTED_PIN_VERSION_CLEAN="${OPENCODE_CLI_VERSION:-}"
+          REQUESTED_PIN_VERSION_CLEAN="${REQUESTED_PIN_VERSION_CLEAN#v}"
+          OPENCODE_VERSION_REGEX='v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?'
 
           cached_version=""
           if command -v opencode >/dev/null 2>&1; then
-            cached_version="$(opencode --version | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
+            cached_version="$(opencode --version | grep -Eo "$OPENCODE_VERSION_REGEX" | head -1 | sed 's/^v//' || true)"
             if [ -n "$cached_version" ]; then
               echo "✓ OPENCODE found in cache (version: $cached_version)"
             fi
@@ -322,10 +323,11 @@ jobs:
 
           install_needed="false"
           install_reason=""
-          if [ -n "${PINNED_VERSION}" ]; then
-            if [ "$cached_version" != "$PINNED_VERSION" ]; then
+          install_performed="false"
+          if [ -n "${REQUESTED_PIN_VERSION_CLEAN}" ]; then
+            if [ "$cached_version" != "$REQUESTED_PIN_VERSION_CLEAN" ]; then
               install_needed="true"
-              install_reason="Pinned version requested (${PINNED_VERSION})"
+              install_reason="Pinned version requested (${REQUESTED_PIN_VERSION_CLEAN})"
             fi
           else
             install_needed="true"
@@ -335,39 +337,49 @@ jobs:
           if [ "$install_needed" = "true" ]; then
             echo "Installing OPENCODE (${install_reason})..."
             set +e
-            if [ -n "${PINNED_VERSION}" ]; then
-              VERSION="${PINNED_VERSION}" OPENCODE_CLI_VERSION="${PINNED_VERSION}" curl -fsSL https://opencode.ai/install | bash
+            if [ -n "${REQUESTED_PIN_VERSION_CLEAN}" ]; then
+              # Some installer revisions read VERSION while others read OPENCODE_CLI_VERSION.
+              VERSION="${REQUESTED_PIN_VERSION_CLEAN}" OPENCODE_CLI_VERSION="${REQUESTED_PIN_VERSION_CLEAN}" curl -fsSL https://opencode.ai/install | bash
             else
               curl -fsSL https://opencode.ai/install | bash
             fi
             install_exit=$?
             set -e
             if [ "$install_exit" -ne 0 ]; then
-              if [ -n "$cached_version" ] && [ -z "${PINNED_VERSION}" ]; then
+              if [ -n "$cached_version" ] && [ -z "${REQUESTED_PIN_VERSION_CLEAN}" ]; then
+                if ! opencode --version >/dev/null 2>&1; then
+                  echo "❌ Latest download failed and cached OPENCODE binary command failed."
+                  exit "$install_exit"
+                fi
                 echo "⚠️ Latest download failed; continuing with cached OPENCODE ${cached_version}."
               else
                 echo "❌ OPENCODE install failed and no usable cached binary is available."
                 exit "$install_exit"
               fi
+            else
+              install_performed="true"
             fi
           else
-            echo "✓ Requested OPENCODE version already cached (${PINNED_VERSION})"
+            echo "✓ Requested OPENCODE version already cached (${REQUESTED_PIN_VERSION_CLEAN})"
           fi
 
           if ! command -v opencode >/dev/null 2>&1; then
             echo "❌ opencode is not available after initialization."
             exit 1
           fi
-          installed_version="$(opencode --version | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
+          installed_version="$(opencode --version | grep -Eo "$OPENCODE_VERSION_REGEX" | head -1 | sed 's/^v//' || true)"
           if [ -z "$installed_version" ]; then
-            installed_version="$REQUESTED_VERSION"
+            echo "❌ Unable to determine installed OPENCODE version."
+            exit 1
           fi
-          if [ -n "${PINNED_VERSION}" ] && [ "$installed_version" != "$PINNED_VERSION" ]; then
-            echo "❌ OPENCODE version mismatch: expected ${PINNED_VERSION}, got ${installed_version}."
+          if [ -n "${REQUESTED_PIN_VERSION_CLEAN}" ] && [ "$installed_version" != "$REQUESTED_PIN_VERSION_CLEAN" ]; then
+            echo "❌ OPENCODE version mismatch: expected ${REQUESTED_PIN_VERSION_CLEAN}, got ${installed_version}."
             exit 1
           fi
           echo "✓ OPENCODE ready (version: ${installed_version})"
-          echo "opencode_cache_version=${installed_version}" >> "$GITHUB_OUTPUT"
+          echo "opencode_version_before=${cached_version}" >> "$GITHUB_OUTPUT"
+          echo "opencode_version_after=${installed_version}" >> "$GITHUB_OUTPUT"
+          echo "opencode_install_performed=${install_performed}" >> "$GITHUB_OUTPUT"
 
           echo "Installing opencode provider config..."
           bash .agents/skills/ai-review-report/scripts/lib/setup-opencode-config.sh
@@ -458,12 +470,12 @@ jobs:
           fi
 
       - name: Save OPENCODE cache
-        if: ${{ success() && steps.opencode_cache_restore.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.initialize_opencode.outputs.opencode_install_performed == 'true' && (steps.initialize_opencode.outputs.opencode_version_before == '' || steps.initialize_opencode.outputs.opencode_version_after != steps.initialize_opencode.outputs.opencode_version_before) }}
         uses: actions/cache/save@v4
         with:
           path: |
             ~/.opencode/bin
-          key: opencode-${{ runner.os }}-${{ steps.gemini_model_test.outputs.opencode_cache_version }}
+          key: opencode-${{ runner.os }}-${{ steps.initialize_opencode.outputs.opencode_version_after }}
 
       - name: Get PR Information
         id: pr_info
