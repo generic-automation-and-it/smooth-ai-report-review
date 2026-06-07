@@ -51,14 +51,10 @@ jobs:
       # Variable OPENCODE_REVIEW_REPORT_PROVIDER to switch which provider the review routes to.
       # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
       # and fails fast on a mismatched model chain.
-      OPENCODE_REVIEW_REPORT_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'COPILOT' }}
+      OPENCODE_REVIEW_REPORT_PROVIDER: 'COPILOT'
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
-      # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
-      # here (string literals, no empty-secret hazard) so every step — including the
-      # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
-      # value for local runs. Unset or COPILOT falls through to github-copilot, to
-      # match the default provider above.
-      OPENCODE_REVIEW_REPORT_PROVIDER_ID: ${{ (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'GEMINI' && 'gemini') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'github-copilot' }}
+      # with. Hardcoded to github-copilot to match the hardcoded COPILOT provider above.
+      OPENCODE_REVIEW_REPORT_PROVIDER_ID: 'github-copilot'
       # All provider credentials are exported at job scope so opencode's
       # {env:...} substitution in ~/.config/opencode/opencode.json resolves for
       # whichever provider is selected. Unused ones resolve empty and are simply
@@ -101,9 +97,9 @@ jobs:
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
-      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gpt-5.4' }}
-      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gpt-5.5' }}
-      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gpt-5.4-mini' }}
+      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || 'gpt-5.4' }}
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: 'gpt-5.5'
+      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: 'gpt-5.4-mini'
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       # Max changed files the gate will review. A PR larger than this is too big to
