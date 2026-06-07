@@ -68,7 +68,7 @@ OPENCODE_MODEL_DISPLAY_NAME=$(get_model_display_name "$OPENCODE_MODEL_ID")
 # orchestrator is down (it is intentionally not probed at startup). The
 # orchestrator id is an explicit, independently-tunable env var — no longer
 # derived from the review model.
-ORCHESTRATOR_MODEL_ID="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+ORCHESTRATOR_MODEL_ID="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
 
 echo "Orchestrator model: $ORCHESTRATOR_MODEL_ID (review model was $OPENCODE_MODEL_ID)"
 
