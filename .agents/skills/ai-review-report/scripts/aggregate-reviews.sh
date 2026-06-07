@@ -99,96 +99,17 @@ done
 
 echo "✅ Combined all chunk reviews"
 
-# LADR-017: Single-chunk short-circuit
-# A 1-chunk PR has no cross-chunk surface to analyse — the holistic Gemini pass
-# is pure overhead (~15 min on Pro). Build the summary programmatically from the
-# chunk review's existing per-file priority findings instead.
-if [ "$TOTAL_CHUNKS" -eq 1 ] && [ -f ci_temp/reviews/chunk_0.md ]; then
-  echo "ℹ️ Single-chunk PR — skipping holistic Gemini call (LADR-017)"
-
-  # Detect actual Critical/High findings (filter "None found" / "N/A" placeholders)
-  # Anchor the placeholder match to ": (placeholder) <end-of-line>" so it doesn't
-  # spuriously match "NA" inside words like "concatenated" with case-insensitive grep.
-  HAS_CRITICAL_RAW=$(grep -E "^- 🔴 \[(VERIFIED|SPECULATIVE)\] Critical:" ci_temp/reviews/chunk_0.md 2>/dev/null | grep -vEi ": [\"'*]*(none found|n/a|not applicable)[\"'*.]*[[:space:]]*$" || true)
-  HAS_HIGH_RAW=$(grep -E "^- 🟠 \[(VERIFIED|SPECULATIVE)\] High Priority:" ci_temp/reviews/chunk_0.md 2>/dev/null | grep -vEi ": [\"'*]*(none found|n/a|not applicable)[\"'*.]*[[:space:]]*$" || true)
-
-  # Only count [VERIFIED] findings as blocking — [SPECULATIVE] cannot block (per LADR-012/LADR-015)
-  HAS_CRITICAL=$(echo "$HAS_CRITICAL_RAW" | grep -E "\[VERIFIED\]" || true)
-  HAS_HIGH=$(echo "$HAS_HIGH_RAW" | grep -E "\[VERIFIED\]" || true)
-
-  if grep -q "## ⚠️ Review Failed" ci_temp/reviews/chunk_0.md 2>/dev/null; then
-    # Fail-closed: the chunk produced a failure marker (empty/silent provider
-    # failure, timeout, gateway down). Zero findings here means "we couldn't
-    # review", NOT "clean" — never auto-approve a failed review.
-    SC_ACTION="REQUEST_CHANGES"
-    SC_DECISION="REQUEST CHANGES"
-    SC_RATIONALE="Chunk review failed (empty/marker output) — could not certify the PR; not auto-approving."
-  elif [ "$REVIEW_TYPE" = "incremental" ]; then
-    # LADR-004: incremental reviews must never auto-resolve to APPROVE
-    SC_ACTION="COMMENT"
-    SC_DECISION="COMMENT"
-    SC_RATIONALE="Incremental review — per LADR-004 only full reviews resolve to a final acceptance state."
-  elif [ -n "$HAS_CRITICAL" ] || [ -n "$HAS_HIGH" ]; then
-    SC_ACTION="REQUEST_CHANGES"
-    SC_DECISION="REQUEST CHANGES"
-    SC_RATIONALE="Verified Critical or High Priority findings present in chunk review."
-  else
-    SC_ACTION="APPROVE"
-    SC_DECISION="APPROVE"
-    SC_RATIONALE="No verified Critical/High findings in chunk review."
-  fi
-
-  # Generate a real Overall Summary via a targeted Flash call.
-  # The short-circuit skips the full holistic aggregation, but a 2-3 sentence
-  # narrative is still valuable and cheap on Flash (< 30 s).
-  SC_OVERALL_SUMMARY="See per-file findings under \"Detailed Chunk Reviews\" below."
-  {
-    echo "Based on the following code review of a pull request, write 2-3 sentences describing:"
-    echo "1. What this PR changes (the technical change)"
-    echo "2. Why it is being made (the goal or benefit)"
-    echo ""
-    echo "Output ONLY the 2-3 sentences. No headers, no bullets, no code blocks."
-    echo ""
-    echo "---"
-    echo ""
-    cat ci_temp/reviews/chunk_0.md
-  } > ci_temp/sc_summary_prompt.txt
-
-  # LADR-023: opencode transport via the selected provider (default `gemini`).
-  if bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/sc_summary_prompt.txt > ci_temp/sc_summary_raw.txt 2>/dev/null; then
-    RAW_SUMMARY=$(grep -v "^$" ci_temp/sc_summary_raw.txt | head -c 600 || true)
-    [ -n "$RAW_SUMMARY" ] && SC_OVERALL_SUMMARY="$RAW_SUMMARY"
-  fi
-
-  cat > ci_temp/pr_summary.md << EOF
-## 📋 Overall Summary
-
-${SC_OVERALL_SUMMARY}
-
-## 🔍 Issues Summary
-
-All findings (Critical / High / Medium / Low) are listed per file in the detailed chunk review below. No cross-chunk aggregation applies — this PR was reviewed as a single unit.
-
-## 🎯 Recommendation
-
-**Decision:** ${SC_DECISION}
-**Rationale:** ${SC_RATIONALE}
-
-**MACHINE_READABLE_ACTION:** ${SC_ACTION}
-
----
-DETAILED_SECTION_MARKER
----
-
-## 🔄 Holistic Cross-Chunk Analysis
-
-Not applicable — this PR was reviewed as a single chunk.
-EOF
-
-  echo "✅ PR summary generated (programmatic, no LLM call)"
-  echo "📋 Short-circuit recommendation: ${SC_DECISION}"
-
-else
+# LADR-030 (supersedes LADR-017): the holistic / high-level aggregation now runs
+# for EVERY PR, including single-chunk ones, so reviewers always get an aggregated
+# Overall Summary, Issues Summary, Suggested Fixes and Recommendation — not just the
+# raw per-file chunk findings. LADR-017 skipped this for `TOTAL_CHUNKS=1` on the
+# premise that the pass was a ~15-min Pro-tier call with no cross-chunk surface; that
+# rationale is stale (LADR-022 moved aggregation onto the cheap orchestrator/Flash
+# model, ~30 s) and the missing high-level report was the visible gap users hit on
+# small PRs. The two safety properties the old short-circuit enforced are preserved
+# downstream regardless of chunk count: the fail-closed net (out-of-band
+# chunk_<n>.failed flag files, LADR-031) catches any unreviewed chunk, and the
+# workflow forces incremental reviews to COMMENT (never APPROVE) per LADR-004.
 
 # Generate PR-level summary
 echo "Generating PR summary..."
@@ -213,10 +134,18 @@ if [ -f "ci_temp/pr_description.txt" ]; then
   fi
 fi
 
+# LADR-030: aggregation runs for every PR. Phrase the chunk context honestly so a
+# single-chunk PR is not described as "multiple chunks".
+if [ "$TOTAL_CHUNKS" -eq 1 ]; then
+  CHUNK_CONTEXT_INTRO="You are analyzing a pull request whose changes were reviewed in a single chunk. Aggregate that chunk's findings into a clear, high-level PR summary."
+else
+  CHUNK_CONTEXT_INTRO="You are analyzing a pull request that was reviewed in ${TOTAL_CHUNKS} chunks."
+fi
+
 cat > ci_temp/summary_prompt.txt << EOF
 ${EXPERTISE_STATEMENT}
 
-You are analyzing a pull request that was reviewed in multiple chunks.
+${CHUNK_CONTEXT_INTRO}
 
 **Review Type:** ${REVIEW_TYPE^^}
 EOF
@@ -285,10 +214,10 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 1. A concise PR-level summary (for the main review body)
 2. A detailed holistic analysis (to be placed with the individual chunk reviews)
 
-**Important:** This PR was split into chunks for memory efficiency. Each chunk was reviewed independently without knowledge of other chunks. Your role is to:
-1. Aggregate all issues from individual chunks
-2. Perform a HOLISTIC analysis looking for cross-cutting concerns, architectural issues, and patterns across chunks
-3. Identify issues that span multiple chunks or become apparent only when viewing all changes together
+**Important:** This PR's changes were reviewed in one or more chunks for memory efficiency; each chunk was reviewed independently. Your role is to:
+1. Aggregate all issues from the chunk review(s)
+2. Perform a HOLISTIC analysis looking for cross-cutting concerns, architectural issues, and patterns across the whole PR
+3. Surface issues that become apparent when viewing all changes together (for multi-chunk PRs this includes issues that span chunks)
 
 **Confidence Tag Handling:**
 - Individual chunk reviews tag findings as `[VERIFIED]` (reviewer saw the code) or `[SPECULATIVE]` (inferred from partial context).
@@ -556,8 +485,6 @@ Please review the detailed chunk reviews below.
 EOF
 fi
 
-fi  # end TOTAL_CHUNKS=1 short-circuit (LADR-017)
-
 # Split the summary into main section and detailed section
 if grep -q "DETAILED_SECTION_MARKER" ci_temp/pr_summary.md; then
   # Extract main summary (before marker)
@@ -679,14 +606,23 @@ echo "✅ Final review comment prepared"
 # First try to parse the machine-readable action field (more reliable)
 REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md | sed 's/.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\?\([A-Z_]*\)\]\?.*/\1/' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
-# Fail-closed safety net (multi-chunk): if ANY chunk failed to review (failure
-# marker present in the combined reviews), never APPROVE regardless of the
-# summarizer's verdict — a failed chunk means part of the PR was not reviewed.
-# Complements the single-chunk guard (LADR-017 short-circuit). The LLM counts
-# Critical/High findings and would otherwise treat a failure marker as "0 issues".
-if grep -q "## ⚠️ Review Failed" ci_temp/combined_reviews.md 2>/dev/null; then
+# Fail-closed safety net: if ANY chunk failed to review, never APPROVE regardless
+# of the summarizer's verdict — a failed chunk means part of the PR was not
+# reviewed. This guards every PR, single- or multi-chunk, which is why LADR-030
+# could safely drop the old single-chunk short-circuit. The LLM counts
+# Critical/High findings and would otherwise treat a failure as "0 issues".
+#
+# LADR-031: the signal is OUT-OF-BAND — `review-in-chunks.sh` drops a
+# `ci_temp/reviews/chunk_<n>.failed` flag file for any chunk it could not review.
+# We do NOT grep the review TEXT for "## ⚠️ Review Failed": when this gate reviews
+# its own repo, the review body legitimately QUOTES that marker (it's documented in
+# SKILL.md and this script), and a text grep false-matched the quote → forced
+# REQUEST_CHANGES on a clean APPROVE (observed on PR #15). A flag file cannot be
+# quoted into existence by review content.
+if ls ci_temp/reviews/chunk_*.failed >/dev/null 2>&1; then
   if [ "$REVIEW_DECISION" != "request_changes" ]; then
-    echo "⚠️ A chunk failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
+    FAILED_CHUNKS=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
+    echo "⚠️ ${FAILED_CHUNKS} chunk(s) failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
     REVIEW_DECISION="request_changes"
   fi
 fi
