@@ -522,7 +522,7 @@ EOF
 
 cat ci_temp/combined_reviews.md >> ci_temp/summary_prompt.txt
 
-# Call the Gemini model via opencode for the aggregation summary
+# Call the agent model via opencode for the aggregation summary
 # (LADR-022: aggregation runs on the ORCHESTRATOR model, falling back to the
 #  resolved review model; LADR-023: opencode transport).
 agg_ok=true

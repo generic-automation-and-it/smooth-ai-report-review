@@ -32,8 +32,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 PR_NUMBER=""
 BASE_BRANCH="main"
 OPENCODE_MODEL="gemini-2.5-pro"
-# Provider selector (GEMINI | COPILOT | OPENAI). Default GEMINI; override with
-# --provider or the OPENCODE_PROVIDER env var. For non-GEMINI providers you must
+# Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC).
+# Default GEMINI; override with --provider or the OPENCODE_PROVIDER env var. For non-GEMINI providers you must
 # also pass a matching --model (and export OPENCODE_MODEL_SECONDARY_REVIEW /
 # OPENCODE_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
 OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
@@ -78,7 +78,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --base BRANCH        Base branch to diff against (default: main)"
       echo "  --model MODEL        Primary review model ID (default: gemini-2.5-pro). Must"
       echo "                       be a model of the selected provider (e.g. gpt-5.5 for OPENAI)."
-      echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI (default: GEMINI; or set OPENCODE_PROVIDER)"
+      echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC"
+      echo "                       (default: GEMINI; or set OPENCODE_PROVIDER)"
       echo "  --post               Post review to PR (requires --pr)"
       echo "  --open               Open final review in \$EDITOR after completion"
       echo "  --help, -h           Show this help"
@@ -87,11 +88,13 @@ while [[ $# -gt 0 ]]; do
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's gateway creds exported (requires VPN /"
       echo "    corporate-network access to the gateway host):"
-      echo "      GEMINI  → OPENCODE_GEMINI_URL + OPENCODE_GEMINI_API_KEY"
-      echo "      COPILOT → OPENCODE_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
-      echo "      OPENAI  → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
-      echo "  - For COPILOT/OPENAI also export OPENCODE_MODEL_SECONDARY_REVIEW and"
-      echo "    OPENCODE_MODEL_ORCHESTRATOR (non-gemini model IDs)"
+      echo "      GEMINI                → OPENCODE_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
+      echo "      COPILOT               → OPENCODE_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
+      echo "      OPENAI                → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
+      echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
+      echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
+      echo "  - For any non-GEMINI provider also export OPENCODE_MODEL_SECONDARY_REVIEW"
+      echo "    and OPENCODE_MODEL_ORCHESTRATOR (non-gemini model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
       exit 0
@@ -139,7 +142,9 @@ harvest_var() {
 # pair for the selected OPENCODE_PROVIDER and validates it below.
 for v in OPENCODE_GEMINI_URL OPENCODE_GEMINI_API_KEY \
          OPENCODE_COPILOT_URL OPENCODE_COPILOT_API_KEY \
-         OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY; do
+         OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY \
+         OPENCODE_GO_OPENAI_API_KEY \
+         OPENCODE_GO_ANTHROPIC_API_KEY; do
   harvest_var "$v" || true
 done
 
@@ -160,32 +165,20 @@ export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flas
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 
-# Preflight: the gateway may live on a private network. If it's unreachable
-# (e.g. you're not on the VPN), every opencode model call would hang for
-# minutes. Probe its health URL (resolved per-provider — or via
-# OPENCODE_API_HEALTH_OVERRIDE — by resolve-provider.sh, sourced above) with a
-# short timeout and fail fast. We only treat a *connection* failure as fatal:
-# curl without --fail exits 0 on any HTTP response (even a 404 from a non-
-# LiteLLM gateway that lacks the probed path), and any response proves the host
-# is reachable, which is all this preflight needs to confirm.
-# Auth header style is resolved by resolve-provider.sh (google → x-goog-api-key,
-# everything else → Authorization: Bearer) so native-Gemini URLs authenticate too.
-if [ "$OPENCODE_GATEWAY_AUTH_STYLE" = "google" ]; then
-  _auth_hdr="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}"
-else
-  _auth_hdr="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}"
-fi
-if ! curl -sS -o /dev/null --max-time 8 \
-      -H "$_auth_hdr" \
-      "$OPENCODE_GATEWAY_HEALTH_URL" 2>/dev/null; then
-  echo "❌ ${OPENCODE_PROVIDER} gateway unreachable: $OPENCODE_GATEWAY_HEALTH_URL"
-  echo "   Every model call would hang — connect to the VPN / corporate network"
-  echo "   that can reach the gateway, then re-run."
+# Install opencode.json so the selected provider resolves, THEN health-check.
+# (Config must be in place before `opencode serve` starts.)
+bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
+
+# Health check (provider-agnostic): start `opencode serve`, hit its
+# /global/health, tear it down (lib/opencode-health.sh). This replaced the old
+# per-provider gateway preflight. NOTE: /global/health confirms opencode itself
+# is up; it does NOT verify the upstream gateway is reachable, so it no longer
+# pre-empts a private-network/VPN hang — the process-group timeout shim below
+# still bounds any hang during the actual model calls.
+if ! bash "$SCRIPT_DIR/lib/opencode-health.sh"; then
+  echo "❌ opencode health check failed (see output above). Aborting."
   exit 1
 fi
-echo "🌐 gateway reachable: $OPENCODE_GATEWAY_HEALTH_URL"
-# Install opencode.json so the selected provider resolves.
-bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
 
 if ! command -v jq &>/dev/null; then
   echo "❌ jq not found. Install with: brew install jq"

@@ -683,14 +683,15 @@ EOF
     echo "  ⚠️ WARNING: Prompt size ${prompt_size} bytes may cause timeout"
   fi
 
-  # Review with the Gemini model via opencode (LADR-023 transport)
-  echo "  Reviewing with Gemini model (with file access enabled)..."
+  # Review with the agent model via opencode (LADR-023 transport)
+  echo "  Reviewing with agent model (with file access enabled)..."
   # 5-minute timeout (300s) to prevent indefinite hangs.
-  # opencode-with-fallback.sh runs opencode's default `build` agent (model
-  # overridden via --model). That agent provides read/grep, so the prompt's
-  # read_file context-loading works (with the diff also inline as a fallback).
-  # Fallback chain preserves LADR-002. To restrict tools explicitly, pin a
-  # custom narrow agent in opencode.json (tracked follow-up).
+  # opencode-with-fallback.sh runs the locked-down `review` agent (LADR-029,
+  # --agent review; read/grep only, no skill/task/edit/bash) with the model
+  # overridden via --model. That agent provides read/grep, so the prompt's
+  # read_file context-loading works (with the diff also inline as a fallback),
+  # but cannot self-activate this repo's ai-review-report skill. Fallback chain
+  # preserves LADR-002.
   if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     # Empty-output detection: opencode can exit 0 while producing no review
     # text (e.g. provider silently failing, agent misconfiguration). A real
@@ -713,7 +714,7 @@ EOF
       {
         echo "## ⚠️ Review Failed for Chunk: ${chunk_dir}"
         echo ""
-        echo "**Reason:** opencode returned empty/tiny output (${review_size} bytes) — likely silent provider failure."
+        echo "**Reason:** opencode returned empty/tiny output (${review_size} bytes) — provider failure or agent tool-misfire (e.g. skill self-activation; see LADR-029)."
         echo ""
         echo "Check the workflow logs for \`chunk_${chunk_num}_stderr.log\` contents."
       } > "ci_temp/reviews/chunk_${chunk_num}.md"

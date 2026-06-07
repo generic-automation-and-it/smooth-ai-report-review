@@ -37,9 +37,63 @@
         "gpt-5.4": { "name": "GPT-5.4" },
         "gpt-5.4-mini": { "name": "GPT-5.4 mini" }
       }
+    },
+    "go-openai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenCode Go (OpenAI-compatible)",
+      "options": {
+        "baseURL": "https://opencode.ai/zen/go/v1",
+        "apiKey": "{env:OPENCODE_GO_OPENAI_API_KEY}"
+      },
+      "models": {
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "deepseek-v4-pro":   { "name": "DeepSeek V4 Pro" },
+        "glm-5.1":           { "name": "GLM-5.1" }
+      }
+    },
+    "go-anthropic": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "OpenCode Go (Anthropic-compatible)",
+      "options": {
+        "baseURL": "https://opencode.ai/zen/go/v1",
+        "apiKey": "{env:OPENCODE_GO_ANTHROPIC_API_KEY}"
+      },
+      "models": {
+        "minimax-m2.7": { "name": "MiniMax M2.7" },
+        "qwen3.7-plus": { "name": "Qwen3.7 Plus" },
+        "qwen3.6-plus": { "name": "Qwen3.6 Plus" }
+      }
     }
   },
   "permission": {
     "external_directory": "allow"
+  },
+  "agent": {
+    "review": {
+      "mode": "primary",
+      "description": "Locked-down PR-review agent (LADR-029): read-only context access, no skill/task/edit/write/bash. Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure failure mode).",
+      "tools": {
+        "skill": false,
+        "task": false,
+        "edit": false,
+        "write": false,
+        "bash": false,
+        "webfetch": false,
+        "websearch": false
+      },
+      "permission": {
+        "skill": "deny",
+        "task": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "external_directory": "allow"
+      }
+    }
   }
 }

@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT).'
+        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
         required: false
         type: string
         default: ''
@@ -43,18 +43,22 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     
     env:
-      # Provider selector (GEMINI | COPILOT | OPENAI), default GEMINI. Set the
-      # repo/org Variable OPENCODE_PROVIDER to switch which opencode.json provider
-      # the review routes to. lib/resolve-provider.sh maps this to the gateway
-      # credentials + provider-id and fails fast on a mismatched model chain.
+      # Provider selector, default GEMINI. Allowed:
+      #   GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
+      # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
+      # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
+      # one opencode.json provider block can pin only one npm. Set the repo/org
+      # Variable OPENCODE_PROVIDER to switch which provider the review routes to.
+      # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
+      # and fails fast on a mismatched model chain.
       OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
-      # with (gemini / github-copilot / openai). Computed here (string
-      # literals, no empty-secret hazard) so every step — including the
+      # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
+      # here (string literals, no empty-secret hazard) so every step — including the
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
       # value for local runs.
-      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || 'gemini' }}
-      # All three provider credential pairs are exported at job scope so opencode's
+      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
+      # All five provider credential pairs are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to. Without the active pair the provider sends an
@@ -72,21 +76,21 @@ jobs:
       OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
       OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
-      # Optional health-probe path override. The probe picks a default from the
-      # gateway URL's API surface (Google host → /v1beta/models; any other host →
-      # /v1/models, except Copilot → /models) — so a LiteLLM/OpenAI-compatible
-      # proxy fronting ANY provider resolves correctly. Set this Variable to force
-      # a path — notably "/health" to use a LiteLLM proxy's healthy/unhealthy model
-      # summary. Empty/unset = the URL-derived default.
-      OPENCODE_API_HEALTH_OVERRIDE: ${{ vars.OPENCODE_API_HEALTH_OVERRIDE }}
+      # OpenCode Go: only the API key is configurable — the gateway base URL is the
+      # fixed public Zen endpoint (https://opencode.ai/zen/go/v1), hardcoded in
+      # opencode.json and in the resolver/health-probe (no OPENCODE_GO_*_URL var).
+      OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
+      OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
       # which would otherwise blank the model). The dispatch input still wins for
       # the primary review model. NOTE: the literal defaults are Gemini model IDs —
-      # correct for the default provider. When OPENCODE_PROVIDER is COPILOT/OPENAI
-      # you MUST set these Variables to that provider's models (e.g. gpt-5.5);
-      # lib/resolve-provider.sh fails the run fast if a gemini* model leaks through.
+      # correct for the default provider. For any non-GEMINI provider you MUST set
+      # these Variables to that provider's models: gpt-5.5 (COPILOT/OPENAI),
+      # deepseek-v4-pro/glm-5.1 (OPENCODE-GO-OPENAI), or qwen3.7-plus/minimax-m2.7
+      # (OPENCODE-GO-ANTHROPIC). lib/resolve-provider.sh fails the run fast if a
+      # gemini* model leaks through to a non-GEMINI provider.
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
@@ -123,13 +127,20 @@ jobs:
           # canonical one in lib/resolve-provider.sh (used by local-review.sh);
           # this is the pre-checkout bootstrap copy because that repo script
           # isn't available until after actions/checkout.
+          # U = name of the provider's URL env var (read via indirection). GW_URL =
+          # a fixed literal URL for providers whose endpoint is not env-configurable
+          # (the two OpenCode Go surfaces share the public Zen base). When GW_URL is
+          # set it wins; otherwise the URL comes from ${!U}.
+          U=""; GW_URL=""
           case "${OPENCODE_PROVIDER:-GEMINI}" in
-            COPILOT) U=OPENCODE_COPILOT_URL; K=OPENCODE_COPILOT_API_KEY ;;
-            OPENAI)  U=OPENCODE_OPENAI_URL;  K=OPENCODE_OPENAI_API_KEY ;;
-            GEMINI)  U=OPENCODE_GEMINI_URL; K=OPENCODE_GEMINI_API_KEY ;;
-            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, or OPENAI)."; exit 1 ;;
+            COPILOT)               U=OPENCODE_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
+            OPENAI)                U=OPENCODE_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
+            OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
+            OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
+            GEMINI)                U=OPENCODE_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
+            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)."; exit 1 ;;
           esac
-          OPENCODE_GATEWAY_URL="${!U}"
+          OPENCODE_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
           OPENCODE_GATEWAY_API_KEY="${!K}"
           # Export to later steps so the probe + scripts read the resolved creds.
           {
@@ -141,8 +152,9 @@ jobs:
           # are missing/empty — e.g. the repo Secrets were never created under
           # these names, or were cleared. Without this the job would limp on to a
           # confusing all-models-failed review. NOTE: this only catches
-          # empty/unset; a present-but-wrong value (typo / trailing newline) still
-          # passes here and is caught by the /health 401 check below.
+          # empty/unset; a present-but-wrong value (typo / trailing newline) is
+          # caught later by the real model call in "Assert Review Model Selection
+          # Works" (the opencode /global/health check does not validate the key).
           missing=""
           [ -z "${OPENCODE_GATEWAY_API_KEY}" ] && missing="${missing} ${K}"
           [ -z "${OPENCODE_GATEWAY_URL}" ] && missing="${missing} ${U}"
@@ -151,13 +163,15 @@ jobs:
             echo "   Set them in repo Settings → Secrets and variables → Actions (API keys = Secrets, URLs = Variables)."
             exit 1
           fi
-          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U}, ${K})"
+          # U is unset for OpenCode Go (fixed Zen base via GW_URL, no URL var), so
+          # only print it when present — avoids a stray empty "(, KEY)" diagnostic.
+          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U:+${U}, }${K})"
           # opencode is installed AFTER actions/checkout (see "Install opencode +
           # config + warm DB" step) because its provider config source lives in
           # the repo at .agents/skills/ai-review-report/assets/opencode.json and
           # must be in place before any `opencode` command touches the DB.
-          # Here we only install repo-independent binaries (ripgrep) and run
-          # the gateway health probe (path resolved per provider below).
+          # Here we only install repo-independent binaries (ripgrep); the opencode
+          # health check runs after opencode is installed.
 
           # ripgrep is still useful — opencode and grep tooling both prefer it on PATH.
           # Install it only if absent (guarded below) by dropping a prebuilt static
@@ -178,81 +192,11 @@ jobs:
             echo "✓ ripgrep already installed ($(rg --version | head -1))"
           fi
 
-          # Gateway health probe (non-blocking diagnostic, transport-independent).
-          # The path AND auth depend on the API SURFACE at the URL, not the logical
-          # provider:
-          #   * Google OpenAI-compat surface (…/v1beta/openai) — what opencode calls —
-          #     lists models at <baseURL>/models with Bearer. Probe THAT so a healthy
-          #     result predicts real opencode calls (not a sibling native surface).
-          #   * Google NATIVE surface (…/v1beta, no /openai) → host-root /v1beta/models,
-          #     x-goog-api-key.
-          #   * any other host → OpenAI-compatible (/v1/models, except Copilot /models),
-          #     Bearer.
-          # OPENCODE_API_HEALTH_OVERRIDE wins (host-root-relative) — set it to "/health"
-          # for a LiteLLM proxy's model summary. Mirrors lib/resolve-provider.sh.
-          HOST_ROOT=$(echo "$OPENCODE_GATEWAY_URL" | sed -E 's|(https?://[^/]+).*|\1|')
-          if [ -n "${OPENCODE_API_HEALTH_OVERRIDE:-}" ]; then
-            HEALTH_URL="${HOST_ROOT}/${OPENCODE_API_HEALTH_OVERRIDE#/}"
-          else
-            case "$OPENCODE_GATEWAY_URL" in
-              *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/)
-                HEALTH_URL="${OPENCODE_GATEWAY_URL%/}/models" ;;      # Google OpenAI-compat surface
-              *generativelanguage.googleapis.com*)
-                HEALTH_URL="${HOST_ROOT}/v1beta/models" ;;           # Gemini-native surface
-              *)
-                case "${OPENCODE_PROVIDER:-GEMINI}" in
-                  COPILOT) HEALTH_URL="${HOST_ROOT}/models" ;;
-                  *)       HEALTH_URL="${HOST_ROOT}/v1/models" ;;    # OpenAI-compatible (incl. LiteLLM)
-                esac
-                ;;
-            esac
-          fi
-          # Auth header: the native Google Gemini surface (…/v1beta) takes the key
-          # in x-goog-api-key; Google's OpenAI-compat surface (…/v1beta/openai) and
-          # every other gateway (LiteLLM / OpenAI / Copilot) use Authorization: Bearer.
-          case "$OPENCODE_GATEWAY_URL" in
-            *generativelanguage.googleapis.com*/openai|*generativelanguage.googleapis.com*/openai/) AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
-            *generativelanguage.googleapis.com*)                                                    AUTH_HEADER="x-goog-api-key: ${OPENCODE_GATEWAY_API_KEY}" ;;
-            *)                                                                                       AUTH_HEADER="Authorization: Bearer ${OPENCODE_GATEWAY_API_KEY}" ;;
-          esac
-          echo "Probing ${OPENCODE_PROVIDER:-GEMINI} gateway health: ${HEALTH_URL}"
-          http_code=$(curl -sS -o /tmp/health.out -w "%{http_code}" --max-time 60 \
-            -H "$AUTH_HEADER" \
-            "$HEALTH_URL" 2>/dev/null || echo "curl-error")
-          if [ "$http_code" = "200" ]; then
-            # LiteLLM /health returns a healthy/unhealthy summary; model-list
-            # endpoints (/models, /v1/models) only confirm reachability. Detect
-            # the LiteLLM shape so the detailed per-model report is shown when
-            # available and we don't falsely warn "NOT in healthy_endpoints" for
-            # a plain model list.
-            if jq -e 'has("healthy_count") or has("healthy_endpoints")' /tmp/health.out >/dev/null 2>&1; then
-              healthy_count=$(jq -r '.healthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
-              unhealthy_count=$(jq -r '.unhealthy_count // 0' /tmp/health.out 2>/dev/null || echo "?")
-              primary_healthy=$(jq -r --arg m "${OPENCODE_MODEL_PRIMARY_REVIEW}" \
-                '[.healthy_endpoints[]? | select(.model | endswith($m))] | length > 0' \
-                /tmp/health.out 2>/dev/null || echo "false")
-              unhealthy_models=$(jq -r '[.unhealthy_endpoints[]?.model] | join(", ")' \
-                /tmp/health.out 2>/dev/null || echo "")
-              echo "✓ Gateway /health OK — healthy: ${healthy_count}, unhealthy: ${unhealthy_count}"
-              if [ -n "$unhealthy_models" ]; then
-                echo "  Unhealthy models: ${unhealthy_models}"
-              fi
-              if [ "$primary_healthy" = "true" ]; then
-                echo "  ✓ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' is healthy"
-              else
-                echo "  ⚠️ Primary model '${OPENCODE_MODEL_PRIMARY_REVIEW}' NOT in healthy_endpoints — fallback will trigger"
-              fi
-            else
-              echo "✓ Gateway reachable (HTTP 200) at ${HEALTH_URL}"
-            fi
-          elif [ "$http_code" = "401" ]; then
-            echo "❌ Gateway health returned 401 — the ${K} secret is invalid for provider ${OPENCODE_PROVIDER:-GEMINI}"
-          else
-            echo "⚠️ Gateway health returned: ${http_code} — opencode calls likely to fail (probed ${HEALTH_URL})"
-            echo "   If this gateway's health endpoint differs, set the OPENCODE_API_HEALTH_OVERRIDE Variable to the right path."
-            head -c 500 /tmp/health.out 2>/dev/null || true
-            echo ""
-          fi
+          # Health is checked later, after opencode is installed, via the
+          # opencode server (see the "opencode health (server /global/health)"
+          # step). The old per-provider gateway probe (each provider's /models or
+          # /health endpoint with its own auth header) was removed — the single
+          # provider-agnostic signal is now opencode's own /global/health.
 
           # RTK is no longer installed for this workflow — the Gemini hook was
           # @google/gemini-cli specific and opencode handles its own tool I/O.
@@ -370,6 +314,14 @@ jobs:
           opencode stats >/dev/null || true
           echo "✓ opencode DB initialised"
 
+      - name: opencode health (server /global/health)
+        # Provider-agnostic health check: start `opencode serve`, hit its
+        # /global/health, tear it down (lib/opencode-health.sh). Replaces the old
+        # per-provider gateway probes. Non-blocking (|| true) — same as the old
+        # probe: it is a diagnostic; the real functional gate is the model-call
+        # step below. Must run after opencode is installed AND configured.
+        run: bash .agents/skills/ai-review-report/scripts/lib/opencode-health.sh || true
+
       - name: Resolve & validate provider / model selection
         # Post-checkout (repo script now available). Canonical provider resolver:
         # re-confirms OPENCODE_PROVIDER_ID + gateway creds and FAILS FAST when a
@@ -397,11 +349,15 @@ jobs:
           ERROR_PATTERN="NOT_FOUND\|not found\|404\|quota\|exhausted\|rate.limit\|RESOURCE_EXHAUSTED\|INVALID_ARGUMENT\|API_KEY_INVALID\|API key not valid\|400\|401\|authentication failed\|provider error\|model not found\|sqlite-migration"
 
           run_probe() {
-            # Mirrors lib/opencode-with-fallback.sh: no --agent, WARN-level
+            # Mirrors lib/opencode-with-fallback.sh: --agent review (LADR-029,
+            # the locked-down read-only review agent — exercising the same agent
+            # the real review calls use, so a misconfigured `review` agent fails
+            # fast HERE instead of silently emptying every chunk), WARN-level
             # logging (short probe so verbose INFO/--print-logs adds noise
             # without helping). ERROR_PATTERN below catches the failure modes.
             # Provider-id is resolved from OPENCODE_PROVIDER (default gemini).
             opencode run \
+              --agent review \
               --model "${OPENCODE_PROVIDER_ID:-gemini}/$1" \
               --format default \
               --log-level WARN \
@@ -486,7 +442,7 @@ jobs:
           CURRENT_SHA="${{ steps.pr_info.outputs.head_sha }}"
           LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           # Name the active provider in the message instead of hardcoding "Gemini" —
-          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI) is set at job scope.
+          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC) is set at job scope.
           PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
 
           {
