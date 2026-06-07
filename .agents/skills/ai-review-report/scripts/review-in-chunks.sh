@@ -113,12 +113,24 @@ done
 # Falls back to directory-based grouping if LLM grouping fails
 SEMANTIC_GROUPING_THRESHOLD=15
 SEMANTIC_GROUPING_SUCCESS=false
+REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING="${OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING:-10}"
+FORCE_SINGLE_CHUNK=false
+
+if ! [[ "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" =~ ^[0-9]+$ ]]; then
+  echo "⚠️ Invalid OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING='${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING}' (must be integer). Using default: 10"
+  REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING=10
+fi
 
 file_count=$(tr '\0' '\n' < ci_temp/changed_files.txt | grep -c '.' || echo "0")
 echo ""
 echo "Files to review: ${file_count}"
+echo "Single chunk threshold: ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} files (OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING)"
 
-if [ "$file_count" -ge "$SEMANTIC_GROUPING_THRESHOLD" ]; then
+if [ "$file_count" -le "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" ]; then
+  FORCE_SINGLE_CHUNK=true
+  echo "Using single chunk review (${file_count} files <= ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} threshold)"
+  tr '\0' '\n' < ci_temp/changed_files.txt | awk 'NF {print "all-changes::" $0}' | sort > ci_temp/file_groups_sorted.txt
+elif [ "$file_count" -ge "$SEMANTIC_GROUPING_THRESHOLD" ]; then
   echo "Attempting semantic business context grouping (${file_count} files >= ${SEMANTIC_GROUPING_THRESHOLD} threshold)..."
 
   # Build prompt for semantic grouping
@@ -215,7 +227,7 @@ fi
 echo ""
 
 # Second pass: Group files by top-level directory (fallback if semantic grouping failed)
-if [ "$SEMANTIC_GROUPING_SUCCESS" = false ]; then
+if [ "$FORCE_SINGLE_CHUNK" = false ] && [ "$SEMANTIC_GROUPING_SUCCESS" = false ]; then
   echo "Using directory-based grouping..."
   tr '\0' '\n' < ci_temp/changed_files.txt | while IFS= read -r file; do
     # Check if this is a test file with a mapped code file
@@ -280,51 +292,56 @@ _process_chunk_group() {
   fi
 }
 
-echo ""
-echo "Adaptive chunk splitting (max diff size per chunk: ${MAX_CHUNK_SIZE} bytes)..."
+if [ "$FORCE_SINGLE_CHUNK" = true ]; then
+  echo "Skipping adaptive chunk splitting (single-chunk mode enabled)"
+  echo ""
+else
+  echo ""
+  echo "Adaptive chunk splitting (max diff size per chunk: ${MAX_CHUNK_SIZE} bytes)..."
 
-for _split_iter in 1 2 3 4 5; do
-  _had_splits=false
-  > ci_temp/file_groups_next.txt
+  for _split_iter in 1 2 3 4 5; do
+    _had_splits=false
+    > ci_temp/file_groups_next.txt
 
-  _current_group=""
-  _current_files=""
-  _current_count=0
+    _current_group=""
+    _current_files=""
+    _current_count=0
 
-  while IFS= read -r _line; do
-    _group="${_line%%::*}"
-    _file="${_line#*::}"
+    while IFS= read -r _line; do
+      _group="${_line%%::*}"
+      _file="${_line#*::}"
 
-    if [ "$_group" != "$_current_group" ] && [ -n "$_current_group" ]; then
-      _process_chunk_group "$_current_group" "$_current_files" "$_current_count" >> ci_temp/file_groups_next.txt
-      _current_files=""
-      _current_count=0
-    fi
+      if [ "$_group" != "$_current_group" ] && [ -n "$_current_group" ]; then
+        _process_chunk_group "$_current_group" "$_current_files" "$_current_count" >> ci_temp/file_groups_next.txt
+        _current_files=""
+        _current_count=0
+      fi
 
-    _current_group="$_group"
-    if [ -n "$_current_files" ]; then
-      _current_files="${_current_files}
+      _current_group="$_group"
+      if [ -n "$_current_files" ]; then
+        _current_files="${_current_files}
 ${_file}"
-    else
-      _current_files="$_file"
+      else
+        _current_files="$_file"
+      fi
+      _current_count=$((_current_count + 1))
+    done < ci_temp/file_groups_sorted.txt
+
+    # Process last group
+    if [ "$_current_count" -gt 0 ]; then
+      _process_chunk_group "$_current_group" "$_current_files" "$_current_count" >> ci_temp/file_groups_next.txt
     fi
-    _current_count=$((_current_count + 1))
-  done < ci_temp/file_groups_sorted.txt
 
-  # Process last group
-  if [ "$_current_count" -gt 0 ]; then
-    _process_chunk_group "$_current_group" "$_current_files" "$_current_count" >> ci_temp/file_groups_next.txt
-  fi
+    sort ci_temp/file_groups_next.txt > ci_temp/file_groups_sorted.txt
 
-  sort ci_temp/file_groups_next.txt > ci_temp/file_groups_sorted.txt
+    if [ "$_had_splits" = false ]; then
+      echo "  ✅ All chunks within size limit (${_split_iter} iteration(s))"
+      break
+    fi
+  done
 
-  if [ "$_had_splits" = false ]; then
-    echo "  ✅ All chunks within size limit (${_split_iter} iteration(s))"
-    break
-  fi
-done
-
-echo ""
+  echo ""
+fi
 
 # Process each directory group as a chunk
 CHUNK_NUM=0
@@ -856,4 +873,3 @@ fi
 
 # Output for workflow
 echo "total_chunks=$CHUNK_NUM" >> "$GITHUB_OUTPUT"
-
