@@ -52,27 +52,30 @@ jobs:
 
     env:
       # Provider selector — dispatch input wins, else repo Variable, else GEMINI.
-      OPENCODE_PROVIDER: ${{ github.event.inputs.provider || vars.OPENCODE_PROVIDER || 'GEMINI' }}
+      # Same OPENCODE_REVIEW_REPORT_* Variables/Secrets the review gate uses, so the
+      # eval exercises the DESIGNED models (not a hardcoded chain).
+      OPENCODE_REVIEW_REPORT_PROVIDER: ${{ github.event.inputs.provider || vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
       # All provider credential pairs at job scope so opencode.json's
-      # {env:OPENCODE_<P>_*} substitution resolves for whichever provider is
-      # selected. API keys = Secrets; gateway URLs = Variables (retunable). The
-      # two OpenCode Go surfaces have no URL var (fixed public Zen base).
+      # {env:OPENCODE_*} substitution resolves for whichever provider is selected.
+      # API keys = Secrets (un-prefixed); gateway URLs = OPENCODE_REVIEW_REPORT_*
+      # Variables (retunable). The two OpenCode Go surfaces have no URL var (fixed
+      # public Zen base).
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
-      OPENCODE_GEMINI_URL: ${{ vars.OPENCODE_GEMINI_URL }}
+      OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
-      OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
+      OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
-      OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
+      OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
       OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
       OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
       # Model chain — same Variables + literal Gemini defaults as the review gate.
       # The dispatch input overrides the primary. For any non-GEMINI provider you
       # MUST set these Variables to that provider's models (lib/resolve-provider.sh
       # fails fast if a gemini* id leaks through to a non-GEMINI provider).
-      OPENCODE_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
-      OPENCODE_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
-      OPENCODE_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
-      OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
+      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
+      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       # Disable Claude Code (.claude) support to avoid conflicts with opencode.
       OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
       OPENCODE_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
@@ -91,9 +94,9 @@ jobs:
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          PIN="${OPENCODE_CLI_VERSION#v}"
+          PIN="${OPENCODE_REVIEW_REPORT_CLI_VERSION#v}"
           if [ -n "$PIN" ]; then
-            VERSION="$PIN" OPENCODE_CLI_VERSION="$PIN" curl -fsSL https://opencode.ai/install | bash
+            VERSION="$PIN" OPENCODE_REVIEW_REPORT_CLI_VERSION="$PIN" curl -fsSL https://opencode.ai/install | bash
           else
             curl -fsSL https://opencode.ai/install | bash
           fi

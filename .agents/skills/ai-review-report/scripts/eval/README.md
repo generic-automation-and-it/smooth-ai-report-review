@@ -41,7 +41,7 @@ Reuses the exact CI provider/transport resolution: `lib/resolve-provider.sh` +
 
 | Var | Default | Meaning |
 |---|---|---|
-| `OPENCODE_PROVIDER` + `OPENCODE_MODEL_*` | GEMINI chain | provider/model, resolved exactly like CI |
+| `OPENCODE_REVIEW_REPORT_PROVIDER` + `OPENCODE_REVIEW_REPORT_MODEL_*` | GEMINI chain | the gate's designed provider/models (same Variables + `OPENCODE_<P>_API_KEY` Secrets), resolved exactly like CI |
 | `EVAL_RECALL_THRESHOLD` | `80` | min must-catch catch-rate %% to pass |
 | `EVAL_SAMPLES` | `1` | runs per fixture (>1 = precision worst-case, recall majority) |
 | `EVAL_CORPUS_DIR` | `./corpus` | corpus root override |

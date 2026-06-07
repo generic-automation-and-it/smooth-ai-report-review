@@ -6,7 +6,7 @@
 #   1. harvests every provider's credentials from the shell rc files (the skill
 #      runs scripts in a non-interactive shell that does not source ~/.zshrc);
 #   2. provides macOS GNU-tool shims (`timeout` — review-in-chunks.sh uses it);
-#   3. sets the model chain (primary = --model) and exports OPENCODE_PROVIDER;
+#   3. sets the model chain (primary = --model) and exports OPENCODE_REVIEW_REPORT_PROVIDER;
 #   4. hands off to run-evals.sh, which resolves+validates the provider, installs
 #      the managed opencode.json, health-checks opencode, and runs the corpus.
 #
@@ -17,10 +17,14 @@
 #
 #   --provider P           GEMINI (default) | COPILOT | OPENAI |
 #                          OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
-#   --model M              chunk-review model under eval (default gemini-3.1-pro-preview).
-#                          For non-GEMINI providers also export
-#                          OPENCODE_MODEL_SECONDARY_REVIEW / OPENCODE_MODEL_ORCHESTRATOR
-#                          (non-gemini ids) — lib/resolve-provider.sh fails fast otherwise.
+#                          (or set OPENCODE_REVIEW_REPORT_PROVIDER)
+#   --model M              chunk-review model under eval (default: the
+#                          OPENCODE_REVIEW_REPORT_MODEL_PRIMARY env/Variable, else
+#                          gemini-3.1-pro-preview). For non-GEMINI providers also
+#                          export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
+#                          OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini ids)
+#                          — else they default to --model; lib/resolve-provider.sh
+#                          fails fast on a gemini id under a non-GEMINI provider.
 #   --samples N            runs per fixture (default 1; >1 = precision worst-case, recall majority)
 #   --recall-threshold N   min must-catch catch-rate %% to pass (default 80)
 #   --filter SUBSTR        only run fixtures whose id contains SUBSTR
@@ -29,12 +33,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
-OPENCODE_MODEL="${OPENCODE_MODEL_PRIMARY_REVIEW:-gemini-3.1-pro-preview}"
+OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
+OPENCODE_MODEL="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gemini-3.1-pro-preview}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --provider)         OPENCODE_PROVIDER="$2"; shift 2 ;;
+    --provider)         OPENCODE_REVIEW_REPORT_PROVIDER="$2"; shift 2 ;;
     --model)            OPENCODE_MODEL="$2"; shift 2 ;;
     --samples)          export EVAL_SAMPLES="$2"; shift 2 ;;
     --recall-threshold) export EVAL_RECALL_THRESHOLD="$2"; shift 2 ;;
@@ -69,9 +73,9 @@ harvest_var() {
   done
   return 1
 }
-for v in OPENCODE_GEMINI_URL OPENCODE_GEMINI_API_KEY \
-         OPENCODE_COPILOT_URL OPENCODE_COPILOT_API_KEY \
-         OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY \
+for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
+         OPENCODE_REVIEW_REPORT_COPILOT_URL OPENCODE_COPILOT_API_KEY \
+         OPENCODE_REVIEW_REPORT_OPENAI_URL OPENCODE_OPENAI_API_KEY \
          OPENCODE_GO_OPENAI_API_KEY \
          OPENCODE_GO_ANTHROPIC_API_KEY; do
   harvest_var "$v" || true
@@ -109,10 +113,13 @@ SHIM_EOF
 fi
 
 # ---- 3. Model chain + provider selector --------------------------------------
-export OPENCODE_PROVIDER
-export OPENCODE_MODEL_PRIMARY_REVIEW="$OPENCODE_MODEL"
-export OPENCODE_MODEL_SECONDARY_REVIEW="${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
-export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+# Same OPENCODE_REVIEW_REPORT_* names the gate uses, so the eval runs the designed
+# models. Secondary/orchestrator default to the chosen PRIMARY model (not a Gemini
+# literal) so a non-GEMINI chain stays same-family for lib/resolve-provider.sh.
+export OPENCODE_REVIEW_REPORT_PROVIDER
+export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="$OPENCODE_MODEL"
+export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-$OPENCODE_MODEL}"
+export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-$OPENCODE_MODEL}"
 
 # ---- 4. Hand off to the core runner (does resolve + config + health + loop) ---
 exec bash "$SCRIPT_DIR/run-evals.sh"

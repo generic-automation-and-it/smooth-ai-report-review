@@ -23,13 +23,18 @@
 # Run locally via eval/local-evals.sh (handles cred harvest + macOS timeout shim)
 # or in CI via the workflow_dispatch-only .github/workflows/llm-eval-harness.yml.
 #
-# Environment (provider/model — resolved exactly like CI, LADR-026/027):
-#   OPENCODE_PROVIDER              GEMINI (default) | COPILOT | OPENAI |
-#                                  OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
-#   OPENCODE_MODEL_PRIMARY_REVIEW  required — the chunk-review model under eval
-#   OPENCODE_MODEL_SECONDARY_REVIEW / OPENCODE_MODEL_ORCHESTRATOR
-#                                  fallback / non-analytical model (defaults below)
-#   plus the selected provider's OPENCODE_<P>_URL / _API_KEY (validated by resolver)
+# Environment (provider/model — the SAME designed-model config the gate uses,
+# resolved exactly like CI via lib/resolve-provider.sh, LADR-026/027):
+#   OPENCODE_REVIEW_REPORT_PROVIDER          GEMINI (default) | COPILOT | OPENAI |
+#                                            OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
+#   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY     required — the chunk-review model under eval
+#   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY / OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
+#                                            fallback / non-analytical model (default: the
+#                                            designed PRIMARY model — see below)
+#   plus the selected provider's OPENCODE_REVIEW_REPORT_<P>_URL (Variable) +
+#   OPENCODE_<P>_API_KEY (Secret) — validated by the resolver. These are the same
+#   GitHub Variables/Secrets that define the gate's models, so the eval tests the
+#   designed models, not a hardcoded chain.
 #
 # Eval config:
 #   EVAL_RECALL_THRESHOLD   min must-catch catch-rate %% to pass        (default 80)
@@ -96,11 +101,15 @@ if [ "$SELFTEST" != "1" ]; then
   [ -f "$REVIEW_SCRIPT" ] || die "review-in-chunks.sh not found at $REVIEW_SCRIPT (workflow↔script path coupling)."
   [ -f "$DR_INSTRUCTIONS_SRC" ] || die "DR standards not found at $DR_INSTRUCTIONS_SRC."
   [ -f "$DR_SUPPLEMENT_SRC" ]   || die "DR supplement not found at $DR_SUPPLEMENT_SRC."
-  [ -n "${OPENCODE_MODEL_PRIMARY_REVIEW:-}" ] || die "OPENCODE_MODEL_PRIMARY_REVIEW is unset — set the chunk-review model under eval (run via local-evals.sh / the CI workflow)."
+  [ -n "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-}" ] || die "OPENCODE_REVIEW_REPORT_MODEL_PRIMARY is unset — set the chunk-review model under eval (the OPENCODE_REVIEW_REPORT_MODEL_PRIMARY Variable, or --model via local-evals.sh / the CI workflow)."
 
-  # Default the rest of the chain so the resolver + review script have a full set.
-  export OPENCODE_MODEL_SECONDARY_REVIEW="${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
-  export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+  # Default the rest of the chain to the designed PRIMARY model (NOT a hardcoded
+  # Gemini id): keeps a non-GEMINI provider's chain same-family so the resolver
+  # does not abort, and means the eval never silently tests a model the deployment
+  # did not design. An explicit OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
+  # _ORCHESTRATOR Variable still wins.
+  export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
+  export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
 
   # Resolve provider → provider-id + creds (fails fast on bad creds / model chain),
   # then install the managed opencode.json and run the provider-agnostic health
@@ -114,8 +123,8 @@ fi
 echo "=========================================="
 echo " LLM Eval Harness — chunk-review model"
 echo "=========================================="
-echo "Provider : ${OPENCODE_PROVIDER:-(selftest)} (id: ${OPENCODE_PROVIDER_ID:-?})"
-echo "Model    : ${OPENCODE_MODEL_PRIMARY_REVIEW:-(selftest)} (fallback: ${OPENCODE_MODEL_SECONDARY_REVIEW:-})"
+echo "Provider : ${OPENCODE_REVIEW_REPORT_PROVIDER:-(selftest)} (id: ${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-?})"
+echo "Model    : ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-(selftest)} (fallback: ${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-})"
 echo "Corpus   : $CORPUS_DIR"
 echo "Samples  : $EVAL_SAMPLES | Recall threshold: ${EVAL_RECALL_THRESHOLD}%"
 [ -n "$EVAL_FILTER" ] && echo "Filter   : $EVAL_FILTER"
@@ -185,7 +194,7 @@ run_fixture() {
     git diff --name-only -z "$from_sha..$to_sha" > ci_temp/changed_files.txt
     printf '%s\n%s\n' "$DR_INSTRUCTIONS_DEST" "$DR_SUPPLEMENT_DEST" > ci_temp/context_files.txt
 
-    export OPENCODE_MODEL_ID="$OPENCODE_MODEL_PRIMARY_REVIEW"
+    export OPENCODE_MODEL_ID="$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY"
     export GITHUB_OUTPUT="$sandbox/ci_temp/github_output.txt"
     : > "$GITHUB_OUTPUT"
 
