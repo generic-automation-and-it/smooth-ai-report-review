@@ -34,7 +34,7 @@ BASE_BRANCH="main"
 OPENCODE_MODEL="gemini-2.5-pro"
 # Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC).
 # Default GEMINI; override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. For non-GEMINI providers you must
-# also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW /
+# also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
 # OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
 OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
 POST_REVIEW=false
@@ -93,7 +93,7 @@ while [[ $# -gt 0 ]]; do
       echo "      OPENAI                → OPENCODE_REVIEW_REPORT_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
       echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
-      echo "  - For any non-GEMINI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW"
+      echo "  - For any non-GEMINI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY"
       echo "    and OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
@@ -159,8 +159,8 @@ fi
 # chain FIRST so the resolver can validate it (primary = --model arg). These are
 # also what review-in-chunks.sh / aggregate-reviews.sh consume.
 export OPENCODE_REVIEW_REPORT_PROVIDER
-export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW="$OPENCODE_MODEL"
-export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
+export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="$OPENCODE_MODEL"
+export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
 export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"

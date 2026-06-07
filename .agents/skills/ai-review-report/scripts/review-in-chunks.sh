@@ -709,7 +709,7 @@ EOF
   # read_file context-loading works (with the diff also inline as a fallback),
   # but cannot self-activate this repo's ai-review-report skill. Fallback chain
   # preserves LADR-002.
-  if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     # Empty-output detection: opencode can exit 0 while producing no review
     # text (e.g. provider silently failing, agent misconfiguration). A real
     # chunk review is always at least a few hundred bytes of markdown with

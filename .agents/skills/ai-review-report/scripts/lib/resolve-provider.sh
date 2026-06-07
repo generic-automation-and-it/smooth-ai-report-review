@@ -37,7 +37,7 @@
 # actionable message rather than limping on to a confusing empty/auth-error review:
 #   - the selected provider's URL + API key must be non-empty;
 #   - for any provider OTHER than GEMINI, the resolved review-model chain
-#     (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW / _SECONDARY_REVIEW / _ORCHESTRATOR) must be
+#     (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / _SECONDARY_REVIEW / _ORCHESTRATOR) must be
 #     set and must NOT name a `gemini*` model — those IDs don't resolve on the
 #     Copilot/OpenAI gateways (their declared models are gpt-5.5 / gpt-5.4 /
 #     gpt-5.4-mini in opencode.json).
@@ -84,7 +84,7 @@ OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 # allow-list would block future ones. Instead fail fast HERE only on the mismatch
 # guaranteed to break: a GEMINI gateway needs gemini-* ids, and a non-GEMINI
 # gateway must NOT carry a leftover gemini-* id (it won't resolve on Copilot/OpenAI).
-for _rp_mv in OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR; do
+for _rp_mv in OPENCODE_REVIEW_REPORT_MODEL_PRIMARY OPENCODE_REVIEW_REPORT_MODEL_SECONDARY OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR; do
   _rp_val="${!_rp_mv}"
   [ -n "$_rp_val" ] || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv is unset. Set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models."
   _rp_lc="$(printf '%s' "$_rp_val" | tr '[:upper:]' '[:lower:]')"

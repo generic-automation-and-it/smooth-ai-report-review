@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
+        description: 'Primary review model ID (optional). Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
         required: false
         type: string
         default: ''
@@ -94,8 +94,8 @@ jobs:
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
-      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
-      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
+      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
@@ -399,8 +399,8 @@ jobs:
 
           echo "Testing the two-tier review chain via opencode (LADR-002)..."
           echo ""
-          echo "Primary review:   ${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}"
-          echo "Secondary review: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}"
+          echo "Primary review:   ${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}"
+          echo "Secondary review: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}"
           echo "Orchestrator:     ${{ env.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR }} (not probed — falls back to the resolved review model at runtime)"
 
           # Error pattern — covers the upstream LiteLLM/Gemini error surface
@@ -437,40 +437,40 @@ jobs:
 
           # Test 1: primary review model
           echo ""
-          echo "=== Test 1: primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' ==="
-          output=$(run_probe "${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}")
+          echo "=== Test 1: primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}' ==="
+          output=$(run_probe "${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}")
 
           if echo "$output" | grep -iq "$ERROR_PATTERN"; then
-            echo "⚠️ Primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' not available, quota exceeded, or API key error"
+            echo "⚠️ Primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}' not available, quota exceeded, or API key error"
             echo "  Error: $(echo "$output" | grep -i "error\|quota\|not.found\|invalid\|API.key" | head -2 || true)"
 
             # Test 2: secondary review model
             echo ""
-            echo "=== Test 2: secondary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}' ==="
-            output=$(run_probe "${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}")
+            echo "=== Test 2: secondary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}' ==="
+            output=$(run_probe "${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}")
 
             if echo "$output" | grep -iq "$ERROR_PATTERN"; then
               echo "⚠️ Both review models failed — will post request-changes review and exit cleanly"
-              echo "  Primary '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
-              echo "  Secondary '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
+              echo "  Primary '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
+              echo "  Secondary '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
               echo "--- opencode output ---"
               echo "$output"
               echo "-----------------------"
               echo "all_models_failed=true" >> $GITHUB_OUTPUT
               echo "selected_model=none" >> $GITHUB_OUTPUT
             else
-              echo "✓ Secondary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}' works correctly"
+              echo "✓ Secondary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}' works correctly"
               echo "  Response: $(echo "$output" | head -20)"
-              echo "selected_model=${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}" >> $GITHUB_OUTPUT
+              echo "selected_model=${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}" >> $GITHUB_OUTPUT
               echo ""
-              echo "📌 Using secondary review model: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}"
+              echo "📌 Using secondary review model: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}"
             fi
           else
-            echo "✓ Primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' works correctly"
+            echo "✓ Primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}' works correctly"
             echo "  Response: $(echo "$output" | head -20)"
-            echo "selected_model=${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}" >> $GITHUB_OUTPUT
+            echo "selected_model=${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}" >> $GITHUB_OUTPUT
             echo ""
-            echo "📌 Using primary review model: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}"
+            echo "📌 Using primary review model: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}"
           fi
 
       - name: Save OPENCODE cache
@@ -525,8 +525,8 @@ jobs:
             echo ""
             echo "Both review models failed to respond, typically caused by token quota exhaustion, rate limits, or API key issues:"
             echo ""
-            echo "- Primary review: \`${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}\`"
-            echo "- Secondary review: \`${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}\`"
+            echo "- Primary review: \`${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}\`"
+            echo "- Secondary review: \`${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}\`"
             echo ""
             echo "**Next Steps:**"
             echo "- Check the [workflow logs](${LOGS_URL}) for the specific error"
