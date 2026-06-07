@@ -114,6 +114,11 @@ jobs:
       # These are typically documentation-only paths that don't need AI context files
       AGENTS_MD_EXEMPT_PATHS: >-
         .docs/release-notes
+      # Disable Claude Code (.claude) support to avoid conflicts between
+      # opencode and Claude Code's .claude directory features.
+      OPENCODE_DISABLE_CLAUDE_CODE: "1"
+      OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1"
+      OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1"
     
     steps:
       - name: Install Dependencies

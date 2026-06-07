@@ -34,6 +34,9 @@ opencode reads these from the process environment via the `{env:…}` placeholde
 | `OPENCODE_HEALTH_TIMEOUT` | Seconds `lib/opencode-health.sh` waits for `opencode serve` to come up + answer `/global/health` (default 30) | optional | optional |
 | `OPENCODE_PROVIDER_ID` | **Derived** by `lib/resolve-provider.sh` — the opencode.json provider key the model is prefixed with (`gemini` / `github-copilot` / `openai` / `go-openai` / `go-anthropic`); consumed by `lib/opencode-with-fallback.sh` | resolver step → `$GITHUB_ENV` | exported by `local-review.sh` |
 | `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** — the selected provider's creds copied to generic names for the credential presence check (health is checked separately + provider-agnostically via the opencode server, so there is no per-provider gateway health URL/auth) | resolver / Install Dependencies → `$GITHUB_ENV` | exported by `local-review.sh` |
+| `OPENCODE_DISABLE_CLAUDE_CODE` | Set to `1` to disable all `.claude` support in opencode — prevents conflicts with Claude Code's `.claude` directory features. **Always set to `1`** (hardcoded in `opencode-health.sh`, `opencode-with-fallback.sh`, and the workflow `env:` block) | hardcoded `"1"` | hardcoded `1` |
+| `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT` | Set to `1` to disable only `~/.claude/CLAUDE.md` injection. **Always set to `1`** (see above) | hardcoded `"1"` | hardcoded `1` |
+| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` | Set to `1` to disable only `.claude/skills` auto-discovery. **Always set to `1`** (see above) | hardcoded `"1"` | hardcoded `1` |
 
 **Secrets vs Variables**: gateway **API keys** are credentials → **Secrets** (never Variables — those are plaintext and printable in logs). Gateway **URLs**, the provider selector, and model ids are non-sensitive config → **Variables**, so they can be retuned without editing the workflow. Each model `vars.*` has a literal default so an unset Variable never blanks the model.
 
