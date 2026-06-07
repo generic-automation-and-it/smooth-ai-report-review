@@ -73,7 +73,7 @@ jobs:
       # prefers GH_TOKEN over GITHUB_TOKEN, so this job-scoped GH_TOKEN also becomes
       # the token gh uses in steps that don't set GITHUB_TOKEN explicitly — give the
       # GH_TOKEN Secret repo + pull-requests scope so those gh calls keep working.
-      GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+      GH_TOKEN: ${{ secrets.OPENCODE_GITHUB_API_KEY }}
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
