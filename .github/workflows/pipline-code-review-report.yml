@@ -503,7 +503,7 @@ jobs:
           fi
 
       - name: Post Request Changes - All Models Failed
-        if: steps.gemini_model_test.outputs.all_models_failed == 'true'
+        if: steps.initialize_opencode.outputs.all_models_failed == 'true'
         run: |
           set -e
           mkdir -p ci_temp
@@ -929,14 +929,14 @@ jobs:
 
       - name: Validate AGENTS.md Requirements
         id: validate_agents
-        if: steps.pr_diff.outputs.has_changes == 'true' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         env:
           BASE_REF: ${{ steps.pr_info.outputs.base_ref || 'main' }}
         run: |
           bash .agents/skills/ai-review-report/scripts/validate-agents-md.sh "${{ steps.determine_review.outputs.review_type }}"
 
       - name: Block PR if AGENTS.md Validation Failed
-        if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         run: |
           set -e
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
@@ -994,7 +994,7 @@ jobs:
 
       - name: Skip Review Due to Blocking Review
         # Only skip INCREMENTAL reviews when blocked - FULL reviews should run to potentially clear the block
-        if: steps.pr_diff.outputs.has_changes == 'true' && steps.check_blocking_review.outputs.has_blocking_review == 'true' && steps.determine_review.outputs.review_type != 'full' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.check_blocking_review.outputs.has_blocking_review == 'true' && steps.determine_review.outputs.review_type != 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         run: |
           set -e
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
@@ -1029,13 +1029,13 @@ jobs:
         if: |
           (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
           (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
-          steps.gemini_model_test.outputs.all_models_failed != 'true'
+          steps.initialize_opencode.outputs.all_models_failed != 'true'
         continue-on-error: true
         run: |
           bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
             "${{ steps.determine_review.outputs.from_sha }}" \
             "${{ steps.determine_review.outputs.current_sha }}" \
-            "${{ steps.gemini_model_test.outputs.selected_model }}" \
+            "${{ steps.initialize_opencode.outputs.selected_model }}" \
             "${{ steps.file_types.outputs.expertise_statement }}"
         env:
           REVIEW_MODE: ${{ steps.file_types.outputs.review_mode }}
@@ -1045,12 +1045,12 @@ jobs:
         if: |
           (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
           (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
-          steps.gemini_model_test.outputs.all_models_failed != 'true'
+          steps.initialize_opencode.outputs.all_models_failed != 'true'
         continue-on-error: true
         run: |
           bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh \
             "${{ steps.chunked_review.outputs.total_chunks }}" \
-            "${{ steps.gemini_model_test.outputs.selected_model }}" \
+            "${{ steps.initialize_opencode.outputs.selected_model }}" \
             "${{ steps.determine_review.outputs.review_type }}" \
             "${{ steps.determine_review.outputs.from_sha }}" \
             "${{ steps.pr_diff.outputs.files_changed }}" \
@@ -1062,7 +1062,7 @@ jobs:
 
       - name: Minimize Previous Gemini Reviews
         # Only minimize when: has changes, full review, AND validation passed (to avoid minimizing the validation failure review)
-        if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         run: |
           # Minimize BEFORE posting new review to avoid race condition where new review gets minimized
           bash .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh \
@@ -1079,7 +1079,7 @@ jobs:
           steps.pr_diff.outputs.has_changes == 'true' &&
           (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
           (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
-          steps.gemini_model_test.outputs.all_models_failed != 'true'
+          steps.initialize_opencode.outputs.all_models_failed != 'true'
         run: |
           set -e
           set -o pipefail
@@ -1213,7 +1213,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Post Error Comment
-        if: failure() && steps.pr_info.outputs.pr_number != '' && steps.gemini_model_test.outputs.all_models_failed != 'true'
+        if: failure() && steps.pr_info.outputs.pr_number != '' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         run: |
           set -e
           # This is the failure path — ci_temp may not exist yet if the job failed
