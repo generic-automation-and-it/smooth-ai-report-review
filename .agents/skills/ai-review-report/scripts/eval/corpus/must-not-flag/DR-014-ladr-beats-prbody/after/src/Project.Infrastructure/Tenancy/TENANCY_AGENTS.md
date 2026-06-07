@@ -2,6 +2,11 @@
 
 Domain: multi-tenant data isolation in the Infrastructure layer.
 
+## TL;DR
+
+Tenant data is isolated by resolving a per-tenant PostgreSQL connection string.
+The implementation intentionally does not use an EF Core discriminator column.
+
 ## Requirements
 
 - Each tenant's data is isolated at the database level via a dedicated connection string.
@@ -56,3 +61,9 @@ constructing the scoped `AppDbContext`.
   the per-tenant connection string is resolved fresh each time.
 - No EF Core discriminator column exists on any entity. Suggesting one is a review
   false positive covered by this LADR.
+
+## Changelog
+
+| Date | Change | Ref |
+|:-----|:-------|:----|
+| 2026-06-07 | Added DR-014 fixture context documenting the accepted per-tenant connection-string design. | DR-014 |

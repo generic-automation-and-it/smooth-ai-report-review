@@ -4,7 +4,7 @@ namespace Project.Infrastructure.Tenancy;
 
 /// <summary>
 /// Resolves the PostgreSQL connection string for the current tenant.
-/// Tenants are isolated by database — see LADR-10 in Tenancy_AGENTS.md.
+/// Tenants are isolated by database — see LADR-10 in TENANCY_AGENTS.md.
 /// There is intentionally no discriminator column; each tenant gets its own
 /// database instance addressed by its connection string.
 /// </summary>
