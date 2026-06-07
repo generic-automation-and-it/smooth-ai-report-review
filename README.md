@@ -89,3 +89,45 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
 | `OPENCODE_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `gemini` / `github-copilot` / `openai` / `go-openai` / `go-anthropic`. |
 | `OPENCODE_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the credential presence check. (Health is checked separately and provider-agnostically via the opencode server — `lib/opencode-health.sh` — so there is no derived per-provider health URL.) |
+
+## Using `/ai-review`
+
+`/ai-review` is the companion skill that **consumes** a posted review and applies fix/skip decisions back to the PR. It is invoked locally inside Claude Code after the CI gate has posted a review.
+
+### Two modes
+
+| Mode | When to use | Invocation |
+|---|---|---|
+| **Analyse** | Fetch a posted review and get a recommended fix/skip table | `/ai-review <pr>` |
+| **Execute** | Apply the fix/skip decisions from an analyse run | `/ai-review <pr> 1=fix 2=skip …` |
+
+Modes are auto-detected: if any argument matches `<N>=fix` or `<N>=skip`, execute mode is used; otherwise analyse.
+
+### Quick examples
+
+```bash
+# Analyse PR 48 — fetches the latest AI review and outputs a fix/skip recommendation table
+/ai-review 48
+
+# Execute decisions from the analyse output
+/ai-review 48 1=fix 2=skip 3=fix
+
+# Force a specific review source (auto-detected by default)
+/ai-review analyse 48 --source=copilot
+/ai-review execute 48 1=fix --source=other
+```
+
+### Result routing
+
+- **GitHub Copilot review** — replies to and resolves each inline review thread per decision, then posts a summary comment on the PR.
+- **Other review** (OpenCode/Gemini/generic) — appends the fix/skip table to the PR description's **AI Review Notes** section.
+
+Source is auto-detected by scanning the PR's reviews for the Copilot bot. Override with `--source=copilot` or `--source=other`.
+
+### Guardrails
+
+- Analyse **always stops** — execute is never triggered automatically.
+- Fixes are scoped to selected items only; unrelated threads are never resolved.
+- Non-Copilot flow appends to AI Review Notes — it never overwrites existing content.
+
+Full spec: [`.agents/skills/ai-review/SKILL.md`](.agents/skills/ai-review/SKILL.md)
