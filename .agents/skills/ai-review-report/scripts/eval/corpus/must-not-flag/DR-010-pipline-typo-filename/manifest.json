@@ -1,0 +1,6 @@
+{
+  "id": "DR-010-pipline-typo-filename",
+  "kind": "must-not-flag",
+  "label": "DR-010",
+  "note": "The misspelled filename pipline-code-review-report.yml is intentional and load-bearing; reviewer must NOT flag the typo or suggest renaming the file."
+}

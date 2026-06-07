@@ -1,0 +1,6 @@
+{
+  "id": "DR-013-mode-aware-deadcode",
+  "kind": "must-not-flag",
+  "label": "DR-013",
+  "note": "PR deletes a feature-flag property AND the throw gated on it. The throw was unreachable in continuous mode (the surviving mode), so removing it is dead-code cleanup, not a regression. Reviewer must NOT flag a swallowed-exception regression."
+}

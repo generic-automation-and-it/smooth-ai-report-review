@@ -1,0 +1,6 @@
+{
+  "id": "DR-009-opencode-google-sdk",
+  "kind": "must-not-flag",
+  "label": "DR-009",
+  "note": "The gemini provider intentionally uses npm @ai-sdk/google with an OpenAI-compatible gateway URL — this is provider-agnostic transport and reviewer must NOT flag a provider/SDK mismatch or suggest switching to @ai-sdk/openai-compatible."
+}

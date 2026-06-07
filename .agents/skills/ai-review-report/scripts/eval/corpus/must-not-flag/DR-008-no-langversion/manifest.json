@@ -1,0 +1,6 @@
+{
+  "id": "DR-008-no-langversion",
+  "kind": "must-not-flag",
+  "label": "DR-008",
+  "note": "Modern .NET SDK auto-enables the latest C# version; omitting LangVersion from a net10.0 csproj is correct and reviewer must NOT flag it as missing."
+}

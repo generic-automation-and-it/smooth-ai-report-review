@@ -1,0 +1,6 @@
+{
+  "id": "DR-012-efcore-expression-tree",
+  "kind": "must-not-flag",
+  "label": "DR-012",
+  "note": "Navigation-property access inside an EF Core .Select()/.Where() lambda is an expression tree translated to SQL (LEFT JOIN with NULL propagation), not runtime C#. Reviewer must NOT flag NRE or suggest ?. on navigation properties inside the IQueryable projection."
+}

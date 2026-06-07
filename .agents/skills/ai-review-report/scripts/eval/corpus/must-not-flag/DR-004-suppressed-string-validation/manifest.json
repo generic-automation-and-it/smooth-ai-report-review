@@ -1,0 +1,6 @@
+{
+  "id": "DR-004-suppressed-string-validation",
+  "kind": "must-not-flag",
+  "label": "DR-004",
+  "note": "Max-length validation is intentionally suppressed for columns that hold arbitrarily long values such as file paths, URLs, and external identifiers; reviewer must NOT flag the missing length limit or the suppression as a code smell."
+}

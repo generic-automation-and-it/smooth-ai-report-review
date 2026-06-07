@@ -1,0 +1,6 @@
+{
+  "id": "DR-002-hybrid-storage",
+  "kind": "must-not-flag",
+  "label": "DR-002",
+  "note": "Operational-log payloads are intentionally written to both the primary database and a secondary object store for fast access and archive/fallback; reviewer must NOT flag this dual-write as redundant or duplicate storage."
+}

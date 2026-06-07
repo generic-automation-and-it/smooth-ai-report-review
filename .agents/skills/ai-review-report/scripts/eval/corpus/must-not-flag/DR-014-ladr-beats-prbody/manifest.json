@@ -1,0 +1,6 @@
+{
+  "id": "DR-014-ladr-beats-prbody",
+  "kind": "must-not-flag",
+  "label": "DR-014",
+  "note": "When the same diff contains an LADR documenting a design decision and code implementing that exact decision, the reviewer must NOT flag the chosen approach at Critical/High."
+}
