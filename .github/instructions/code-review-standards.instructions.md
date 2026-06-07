@@ -12,7 +12,7 @@ alwaysApply: true
 ---
 # Code Review Standards & Design Decisions
 
-Intentional patterns for AI reviewers to prevent false positives. Updated: 2026-06-06
+Intentional patterns for AI reviewers to prevent false positives. Updated: 2026-06-07
 
 ## ADRs
 
@@ -75,6 +75,10 @@ The `gemini` provider in `.agents/skills/ai-review-report/assets/opencode.json` 
 
 The gate's workflow file is named `pipline-code-review-report.yml` — the misspelling ("pipline") is **intentional and load-bearing**. The filename is referenced by hardcoded path from the skill scripts, the workflow YAML, `SKILL.md`, and `AGENTS.md`; the workflow↔script path coupling is a documented **Non-Negotiable**. Renaming it would silently break the review gate. **DO NOT flag** the typo as an issue or suggest renaming the file.
 
+### DR-011: opencode Agent `permission` Keys Are a Fixed Set (No `write`)
+
+The locked-down `review` agent in `.agents/skills/ai-review-report/assets/opencode.json` (LADR-029) blocks file writes with **two** layers: `tools.write: false` (removes the write tool) and `permission.edit: "deny"` (denies file mutation). opencode's `PermissionConfig` defines a **fixed key set** — `bash`, `edit`, `read`, `grep`, `glob`, `list`, `task`, `skill`, `external_directory`, `webfetch`, `websearch`, `lsp`, `todowrite`, `question`, `doom_loop` — and has **no `write` key** (verified against `https://opencode.ai/config.json`). **DO NOT suggest** adding `"write": "deny"` (or any other undefined key) to a `permission` block: opencode silently ignores unknown permission keys, so it is a no-op that only *looks* like a guard. Write protection is already two-layer via `tools.write:false` + `permission.edit:deny`. (Recurring false positive: flagged Medium as a "belt-and-suspenders gap" on PR #5.)
+
 ## Code Comments Policy
 
 **DO NOT add comments to code** unless explicitly requested by the user.
@@ -94,3 +98,4 @@ The gate's workflow file is named `pipline-code-review-report.yml` — the missp
 |:-----|:-------|
 | 2026-05-30 | Initial version. |
 | 2026-06-06 | Add DR-009 (opencode.json `@ai-sdk/google` + OpenAI-compat URL pairing) and DR-010 (`pipline` filename typo is load-bearing) — recurring AI-review false positives on this repo's own PRs. |
+| 2026-06-07 | Add DR-011 (opencode agent `permission` keys are a fixed set with no `write` — suggesting `permission.write:deny` is a silently-ignored no-op). Recurring false positive on PR #5. |
