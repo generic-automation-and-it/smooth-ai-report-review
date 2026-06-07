@@ -735,6 +735,11 @@ EOF
         echo ""
         echo "Check the workflow logs for \`chunk_${chunk_num}_stderr.log\` contents."
       } > "ci_temp/reviews/chunk_${chunk_num}.md"
+      # LADR-031: out-of-band failure signal. Aggregation keys its fail-closed
+      # decision off this flag file, NOT off grepping the marker text above — the
+      # marker string gets quoted into legitimate review bodies when the gate
+      # reviews its own docs, which text-grepping false-matches (see LADR-031).
+      echo "empty/tiny output (${review_size} bytes)" > "ci_temp/reviews/chunk_${chunk_num}.failed"
     else
       echo "  ✅ Chunk ${chunk_num} review completed (${review_size} bytes)"
     fi
@@ -759,6 +764,8 @@ EOF
       echo "**Chunk:** ${chunk_dir} (${#files[@]} files)"
       echo "**Prompt Size:** ${prompt_size} bytes"
     } > ci_temp/reviews/chunk_${chunk_num}.md
+    # LADR-031: out-of-band failure signal (see comment at the empty/tiny site).
+    echo "exit code ${exit_code}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
   fi
 
   echo ""

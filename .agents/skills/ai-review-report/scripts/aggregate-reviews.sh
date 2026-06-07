@@ -107,8 +107,8 @@ echo "✅ Combined all chunk reviews"
 # rationale is stale (LADR-022 moved aggregation onto the cheap orchestrator/Flash
 # model, ~30 s) and the missing high-level report was the visible gap users hit on
 # small PRs. The two safety properties the old short-circuit enforced are preserved
-# downstream regardless of chunk count: the `## ⚠️ Review Failed` fail-closed net
-# reads combined_reviews.md (which includes a single chunk's chunk_0), and the
+# downstream regardless of chunk count: the fail-closed net (out-of-band
+# chunk_<n>.failed flag files, LADR-031) catches any unreviewed chunk, and the
 # workflow forces incremental reviews to COMMENT (never APPROVE) per LADR-004.
 
 # Generate PR-level summary
@@ -606,16 +606,23 @@ echo "✅ Final review comment prepared"
 # First try to parse the machine-readable action field (more reliable)
 REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md | sed 's/.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\?\([A-Z_]*\)\]\?.*/\1/' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
-# Fail-closed safety net: if ANY chunk failed to review (failure marker present
-# in the combined reviews), never APPROVE regardless of the summarizer's verdict —
-# a failed chunk means part of the PR was not reviewed. This guards every PR,
-# single- or multi-chunk (combined_reviews.md includes a single chunk's chunk_0),
-# which is why LADR-030 could safely drop the old single-chunk short-circuit. The
-# LLM counts Critical/High findings and would otherwise treat a failure marker as
-# "0 issues".
-if grep -q "## ⚠️ Review Failed" ci_temp/combined_reviews.md 2>/dev/null; then
+# Fail-closed safety net: if ANY chunk failed to review, never APPROVE regardless
+# of the summarizer's verdict — a failed chunk means part of the PR was not
+# reviewed. This guards every PR, single- or multi-chunk, which is why LADR-030
+# could safely drop the old single-chunk short-circuit. The LLM counts
+# Critical/High findings and would otherwise treat a failure as "0 issues".
+#
+# LADR-031: the signal is OUT-OF-BAND — `review-in-chunks.sh` drops a
+# `ci_temp/reviews/chunk_<n>.failed` flag file for any chunk it could not review.
+# We do NOT grep the review TEXT for "## ⚠️ Review Failed": when this gate reviews
+# its own repo, the review body legitimately QUOTES that marker (it's documented in
+# SKILL.md and this script), and a text grep false-matched the quote → forced
+# REQUEST_CHANGES on a clean APPROVE (observed on PR #15). A flag file cannot be
+# quoted into existence by review content.
+if ls ci_temp/reviews/chunk_*.failed >/dev/null 2>&1; then
   if [ "$REVIEW_DECISION" != "request_changes" ]; then
-    echo "⚠️ A chunk failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
+    FAILED_CHUNKS=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
+    echo "⚠️ ${FAILED_CHUNKS} chunk(s) failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
     REVIEW_DECISION="request_changes"
   fi
 fi
