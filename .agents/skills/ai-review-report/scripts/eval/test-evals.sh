@@ -112,6 +112,7 @@ CLEAN_MNF='- 🔴 [VERIFIED] Critical: None found
 - 🟡 [VERIFIED] Medium Priority: None found'
 CAUGHT_HIGH='- 🟠 [VERIFIED] High Priority: real seeded defect'
 CAUGHT_CRIT='- 🔴 [VERIFIED] Critical: real seeded defect'
+CAUGHT_MEDIUM='- 🟡 [VERIFIED] Medium Priority: real seeded defect'
 REGRESSION='- 🟠 [VERIFIED] High Priority: re-raised a known false positive'
 
 # Case A: everything passes -> exit 0
@@ -147,6 +148,16 @@ if run_corpus "$E"; then bad "min_severity CRITICAL unmet should exit non-zero (
 F="$TMP_DIR/corpusF"
 make_fixture "$F" must-catch mc-crit CRITICAL "$CAUGHT_CRIT"
 if run_corpus "$F"; then ok "min_severity CRITICAL met -> exit 0"; else bad "CRITICAL met should pass (see $F/out.log)"; fi
+
+# Case G: min_severity MEDIUM met by a MEDIUM flag -> pass
+G="$TMP_DIR/corpusG"
+make_fixture "$G" must-catch mc-medium MEDIUM "$CAUGHT_MEDIUM"
+if run_corpus "$G"; then ok "min_severity MEDIUM met -> exit 0"; else bad "MEDIUM met should pass (see $G/out.log)"; fi
+
+# Case H: min_severity HIGH is not met by only a MEDIUM flag -> recall miss
+H="$TMP_DIR/corpusH"
+make_fixture "$H" must-catch mc-high HIGH "$CAUGHT_MEDIUM"
+if run_corpus "$H"; then bad "min_severity HIGH should not be met by MEDIUM (see $H/out.log)"; else ok "min_severity HIGH not met by MEDIUM -> exit non-zero"; fi
 
 echo ""
 echo "=========================================="

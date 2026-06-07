@@ -265,6 +265,8 @@ for manifest in "${manifests[@]}"; do
     # recall: caught if a flag at >= min_sev is present
     case "$min_sev" in
       CRITICAL) printf '%s' "$sevs" | grep -q 'CRITICAL' && caught_count=$((caught_count+1)) ;;
+      HIGH)     printf '%s' "$sevs" | grep -qE '(CRITICAL|HIGH)' && caught_count=$((caught_count+1)) ;;
+      MEDIUM)   printf '%s' "$sevs" | grep -qE '(CRITICAL|HIGH|MEDIUM)' && caught_count=$((caught_count+1)) ;;
       *)        printf '%s' "$sevs" | grep -qE '(CRITICAL|HIGH)' && caught_count=$((caught_count+1)) ;;
     esac
     [ "$EVAL_SAMPLES" -gt 1 ] && echo "    sample $s/$EVAL_SAMPLES: [${sevs:-clean}]"

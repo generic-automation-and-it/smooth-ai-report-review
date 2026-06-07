@@ -3,7 +3,7 @@
 # Scores the chunk-review LLM (the gate's blocking-findings call) against a
 # labeled corpus on two axes — precision (must-NOT-flag / the DR golden set) and
 # recall (must-catch / seeded real defects) — so prompt/model/LADR changes can be
-# regression-tested. See LADR-030 in .agents/skills/ai-review-report/SKILL.md.
+# regression-tested. See LADR-033 in .agents/skills/ai-review-report/SKILL.md.
 #
 # *** MAKES REAL, PAID MODEL CALLS — manual only (workflow_dispatch). It is NOT
 #     wired to pull_request and is NOT part of the default bash-test path. ***
@@ -68,13 +68,12 @@ jobs:
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
       OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
       OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
-      # Model chain — same Variables + literal Gemini defaults as the review gate.
-      # The dispatch input overrides the primary. For any non-GEMINI provider you
-      # MUST set these Variables to that provider's models (lib/resolve-provider.sh
-      # fails fast if a gemini* id leaks through to a non-GEMINI provider).
+      # Model chain — dispatch input overrides PRIMARY. SECONDARY/ORCHESTRATOR are
+      # optional; run-evals.sh defaults blanks to PRIMARY so non-GEMINI dispatches
+      # do not inherit Gemini literals from the review gate.
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
-      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
-      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || '' }}
+      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || '' }}
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       # Disable Claude Code (.claude) support to avoid conflicts with opencode.
       OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}

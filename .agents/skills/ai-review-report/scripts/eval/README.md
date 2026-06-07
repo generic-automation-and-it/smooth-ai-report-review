@@ -3,7 +3,7 @@
 Scores the **chunk-review LLM** (the gate's blocking-findings call in
 `review-in-chunks.sh`) against a labeled corpus on two axes, so prompt / model /
 LADR changes can be **regression-tested** instead of being caught in production
-by adding another DR. See **LADR-030** in `../../SKILL.md`.
+by adding another DR. See **LADR-033** in `../../SKILL.md`.
 
 > ⚠️ `run-evals.sh` / `local-evals.sh` make **real, paid model calls**. They are
 > opt-in only — never in the default bash-test path. The default-path-safe test
@@ -55,7 +55,7 @@ Create `corpus/{must-not-flag|must-catch}/<id>/`:
   ```json
   { "id": "<id>", "kind": "must-not-flag" | "must-catch",
     "label": "DR-007" | "MC-002",
-    "min_severity": "HIGH" | "CRITICAL",   // must-catch only
+    "min_severity": "MEDIUM" | "HIGH" | "CRITICAL",   // must-catch only
     "note": "one line" }
   ```
 - `after/<repo/relative/path>` — post-change file(s); the whole tree is committed

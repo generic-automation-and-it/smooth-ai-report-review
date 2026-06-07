@@ -2,14 +2,15 @@
 # score-review.sh — parse a chunk-review markdown and report which severities
 # carry a real, blocking finding.
 #
-# Reuses the pipeline's flag grammar (LADR-012 / LADR-015 / LADR-017):
+# Reuses the pipeline's flag grammar (LADR-012 / LADR-015) for the eval harness
+# introduced by LADR-033:
 #   - Only [VERIFIED] findings count. [SPECULATIVE] never blocks, so it is never
 #     scored as a flag (mirrors the gate: only [VERIFIED] Critical/High can block).
 #   - The per-file output template (review-in-chunks.sh) always prints all four
 #     severity lines with "None found" for the empty ones, so a "None found"
 #     placeholder is NOT a flag. The placeholder match is case-insensitive and
 #     tolerates quoted / bolded / period-terminated variants (same shape as the
-#     aggregation placeholder strip in LADR-017).
+#     aggregation placeholder strip in LADR-030).
 #   - The severity keyword must appear in the LABEL (text before the first colon)
 #     so a High-priority finding whose *description* mentions the word "critical"
 #     is not miscounted as a Critical flag.
