@@ -97,6 +97,8 @@ jobs:
       OPENCODE_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
       OPENCODE_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
       OPENCODE_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      # Optional CLI version pin. Unset/empty means "install latest".
+      OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
       # Mandatory context files loaded for every review (space-separated)
       # These contain project coding standards, language version info, and review guidelines.
       # The repo-root AGENTS.md must be listed here explicitly: find-context-files.sh's
@@ -264,6 +266,28 @@ jobs:
           # github.repository, which would check out the wrong repo for fork re-runs).
           repository: ${{ github.event.pull_request.head.repo.full_name || steps.pr_details.outputs.head_repo || github.repository }}
 
+      - name: Resolve OPENCODE version
+        id: opencode_version
+        run: |
+          set -e
+          if [ -n "${OPENCODE_CLI_VERSION:-}" ]; then
+            REQUESTED_VERSION="${OPENCODE_CLI_VERSION#v}"
+          else
+            REQUESTED_VERSION="latest"
+          fi
+          echo "requested_version=${REQUESTED_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "OPENCODE_REQUESTED_VERSION=${REQUESTED_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Restore OPENCODE cache
+        id: opencode_cache_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.opencode/bin
+          key: opencode-${{ runner.os }}-${{ steps.opencode_version.outputs.requested_version }}
+          restore-keys: |
+            opencode-${{ runner.os }}-
+
       - name: Prepare Base Remote
         run: |
           set -e
@@ -278,34 +302,72 @@ jobs:
           git remote add upstream "${{ github.server_url }}/${BASE_REPO}.git"
           echo "✓ upstream → ${{ github.server_url }}/${BASE_REPO}.git"
 
-      - name: Install opencode + config + warm DB
+      - name: Initialize OPENCODE
+        id: gemini_model_test
         run: |
           set -e
-          # Single cohesive opencode setup, post-checkout so opencode.json is
-          # available from the repo.
-          #
-          # Order is deliberate:
-          #   1. Install opencode binary (LADR-023).
-          #   2. Install provider config from the skill source-of-truth
-          #      (.agents/skills/ai-review-report/assets/opencode.json) into
-          #      opencode's global config dir (~/.config/opencode/opencode.json,
-          #      precedence 2 per opencode docs). The provider reads
-          #      OPENCODE_GEMINI_URL and OPENCODE_GEMINI_API_KEY directly via
-          #      {env:VAR} substitution; no URL derivation needed.
-          #   3. Warm the SQLite store. opencode's first DB-touching command
-          #      prints "Performing one time database migration..." to stdout.
-          #      If that first command is `opencode run`, the migration text
-          #      mixes into the model response (observed on run 26581846525).
-          #      `opencode stats` is the lightest command that triggers it —
-          #      no network call. Config is already in place at this point so
-          #      opencode never operates without its provider config.
-
-          echo "Installing opencode..."
-          curl -fsSL https://opencode.ai/install | bash
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          opencode --version
+          REQUESTED_VERSION="${OPENCODE_REQUESTED_VERSION:-latest}"
+          PINNED_VERSION="${OPENCODE_CLI_VERSION#v}"
+
+          cached_version=""
+          if command -v opencode >/dev/null 2>&1; then
+            cached_version="$(opencode --version | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
+            if [ -n "$cached_version" ]; then
+              echo "✓ OPENCODE found in cache (version: $cached_version)"
+            fi
+          fi
+
+          install_needed="false"
+          install_reason=""
+          if [ -n "${PINNED_VERSION}" ]; then
+            if [ "$cached_version" != "$PINNED_VERSION" ]; then
+              install_needed="true"
+              install_reason="Pinned version requested (${PINNED_VERSION})"
+            fi
+          else
+            install_needed="true"
+            install_reason="Latest version requested"
+          fi
+
+          if [ "$install_needed" = "true" ]; then
+            echo "Installing OPENCODE (${install_reason})..."
+            set +e
+            if [ -n "${PINNED_VERSION}" ]; then
+              VERSION="${PINNED_VERSION}" OPENCODE_CLI_VERSION="${PINNED_VERSION}" curl -fsSL https://opencode.ai/install | bash
+            else
+              curl -fsSL https://opencode.ai/install | bash
+            fi
+            install_exit=$?
+            set -e
+            if [ "$install_exit" -ne 0 ]; then
+              if [ -n "$cached_version" ] && [ -z "${PINNED_VERSION}" ]; then
+                echo "⚠️ Latest download failed; continuing with cached OPENCODE ${cached_version}."
+              else
+                echo "❌ OPENCODE install failed and no usable cached binary is available."
+                exit "$install_exit"
+              fi
+            fi
+          else
+            echo "✓ Requested OPENCODE version already cached (${PINNED_VERSION})"
+          fi
+
+          if ! command -v opencode >/dev/null 2>&1; then
+            echo "❌ opencode is not available after initialization."
+            exit 1
+          fi
+          installed_version="$(opencode --version | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
+          if [ -z "$installed_version" ]; then
+            installed_version="$REQUESTED_VERSION"
+          fi
+          if [ -n "${PINNED_VERSION}" ] && [ "$installed_version" != "$PINNED_VERSION" ]; then
+            echo "❌ OPENCODE version mismatch: expected ${PINNED_VERSION}, got ${installed_version}."
+            exit 1
+          fi
+          echo "✓ OPENCODE ready (version: ${installed_version})"
+          echo "opencode_cache_version=${installed_version}" >> "$GITHUB_OUTPUT"
 
           echo "Installing opencode provider config..."
           bash .agents/skills/ai-review-report/scripts/lib/setup-opencode-config.sh
@@ -313,25 +375,12 @@ jobs:
           echo "Warming opencode SQLite store..."
           opencode stats >/dev/null || true
           echo "✓ opencode DB initialised"
+          echo "Running OPENCODE health check..."
+          bash .agents/skills/ai-review-report/scripts/lib/opencode-health.sh || true
 
-      - name: opencode health (server /global/health)
-        # Provider-agnostic health check: start `opencode serve`, hit its
-        # /global/health, tear it down (lib/opencode-health.sh). Replaces the old
-        # per-provider gateway probes. Non-blocking (|| true) — same as the old
-        # probe: it is a diagnostic; the real functional gate is the model-call
-        # step below. Must run after opencode is installed AND configured.
-        run: bash .agents/skills/ai-review-report/scripts/lib/opencode-health.sh || true
+          echo "Resolving provider/model chain..."
+          bash .agents/skills/ai-review-report/scripts/lib/resolve-provider.sh
 
-      - name: Resolve & validate provider / model selection
-        # Post-checkout (repo script now available). Canonical provider resolver:
-        # re-confirms OPENCODE_PROVIDER_ID + gateway creds and FAILS FAST when a
-        # non-GEMINI provider is paired with an unset or gemini* model chain —
-        # before the expensive chunked review runs.
-        run: bash .agents/skills/ai-review-report/scripts/lib/resolve-provider.sh
-
-      - name: Assert Review Model Selection Works
-        id: gemini_model_test
-        run: |
           echo "Testing the two-tier review chain via opencode (LADR-002)..."
           echo ""
           echo "Primary review:   ${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}"
@@ -407,6 +456,14 @@ jobs:
             echo ""
             echo "📌 Using primary review model: ${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}"
           fi
+
+      - name: Save OPENCODE cache
+        if: ${{ success() && steps.opencode_cache_restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.opencode/bin
+          key: opencode-${{ runner.os }}-${{ steps.gemini_model_test.outputs.opencode_cache_version }}
 
       - name: Get PR Information
         id: pr_info
