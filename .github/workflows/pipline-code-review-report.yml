@@ -116,9 +116,9 @@ jobs:
         .docs/release-notes
       # Disable Claude Code (.claude) support to avoid conflicts between
       # opencode and Claude Code's .claude directory features.
-      OPENCODE_DISABLE_CLAUDE_CODE: "1"
-      OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1"
-      OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1"
+      # Override via the OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE Variable (default 1).
+      OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+      OPENCODE_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
     
     steps:
       - name: Install Dependencies
