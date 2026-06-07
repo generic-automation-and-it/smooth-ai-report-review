@@ -34,6 +34,10 @@ if ! command -v opencode >/dev/null 2>&1; then
   exit 1
 fi
 
+# Disable Claude Code (.claude) support to avoid conflicts with opencode.
+# OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE can override the value (default 1).
+export OPENCODE_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
+
 # Start the server in the background; capture its stdout/stderr so we can parse
 # the listening URL (opencode picks the port, so we don't assume 4096).
 opencode serve >"$LOG" 2>&1 &

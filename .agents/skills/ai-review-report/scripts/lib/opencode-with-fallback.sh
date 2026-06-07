@@ -20,6 +20,10 @@
 
 set -e
 
+# Disable Claude Code (.claude) support to avoid conflicts with opencode.
+# OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE can override the value (default 1).
+export OPENCODE_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
+
 primary="$1"; fb1="$2"; fb2="$3"; shift 3
 [ "$1" = "--" ] && shift
 prompt_file="$1"; shift
