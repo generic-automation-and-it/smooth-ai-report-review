@@ -38,11 +38,15 @@ fi
 # the listening URL (opencode picks the port, so we don't assume 4096).
 opencode serve >"$LOG" 2>&1 &
 _serve_pid=$!
-trap '[ -n "${_serve_pid:-}" ] && kill "$_serve_pid" 2>/dev/null; wait "$_serve_pid" 2>/dev/null || true; rm -f "$LOG" 2>/dev/null || true' EXIT
+trap '[ -n "${_serve_pid:-}" ] && kill "$_serve_pid" 2>/dev/null; wait "$_serve_pid" 2>/dev/null || true; rm -f "$LOG" "/tmp/opencode-health.$$.out" 2>/dev/null || true' EXIT
+
+# Single deadline shared by both waits below, so TIMEOUT bounds the TOTAL
+# (server-up + health-ready) wait — not 2× TIMEOUT as two independent loops did.
+DEADLINE=$((SECONDS + TIMEOUT))
 
 # Wait for the "listening on <url>" line (or the process to die early).
 BASE=""
-for _ in $(seq 1 "$TIMEOUT"); do
+while [ "$SECONDS" -lt "$DEADLINE" ]; do
   BASE="$(grep -oE 'http://[^[:space:]]+' "$LOG" 2>/dev/null | head -1)"
   [ -n "$BASE" ] && break
   kill -0 "$_serve_pid" 2>/dev/null || { echo "❌ opencode serve exited before reporting a URL:" >&2; tail -n 20 "$LOG" >&2 2>/dev/null || true; exit 1; }
@@ -59,9 +63,10 @@ HEALTH_URL="${BASE%/}/global/health"
 echo "Probing opencode health: ${HEALTH_URL}"
 
 # Poll /global/health until 200 (routes come up a beat after the socket binds).
+# Shares DEADLINE with the URL wait above (see note there).
 http_code="000"
-for _ in $(seq 1 "$TIMEOUT"); do
-  http_code="$(curl -sS -o /tmp/opencode-health.$$.out -w '%{http_code}' --max-time 5 "$HEALTH_URL" 2>/dev/null || echo 000)"
+while [ "$SECONDS" -lt "$DEADLINE" ]; do
+  http_code="$(curl -sS -o "/tmp/opencode-health.$$.out" -w '%{http_code}' --max-time 5 "$HEALTH_URL" 2>/dev/null || echo 000)"
   [ "$http_code" = "200" ] && break
   sleep 1
 done

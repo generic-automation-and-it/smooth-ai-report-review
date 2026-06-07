@@ -58,7 +58,7 @@ jobs:
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
       # value for local runs.
       OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
-      # All three provider credential pairs are exported at job scope so opencode's
+      # All five provider credential pairs are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to. Without the active pair the provider sends an
@@ -163,7 +163,9 @@ jobs:
             echo "   Set them in repo Settings → Secrets and variables → Actions (API keys = Secrets, URLs = Variables)."
             exit 1
           fi
-          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U}, ${K})"
+          # U is unset for OpenCode Go (fixed Zen base via GW_URL, no URL var), so
+          # only print it when present — avoids a stray empty "(, KEY)" diagnostic.
+          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U:+${U}, }${K})"
           # opencode is installed AFTER actions/checkout (see "Install opencode +
           # config + warm DB" step) because its provider config source lives in
           # the repo at .agents/skills/ai-review-report/assets/opencode.json and
@@ -440,7 +442,7 @@ jobs:
           CURRENT_SHA="${{ steps.pr_info.outputs.head_sha }}"
           LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           # Name the active provider in the message instead of hardcoding "Gemini" —
-          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI) is set at job scope.
+          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC) is set at job scope.
           PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
 
           {
