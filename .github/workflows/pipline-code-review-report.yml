@@ -347,11 +347,15 @@ jobs:
           ERROR_PATTERN="NOT_FOUND\|not found\|404\|quota\|exhausted\|rate.limit\|RESOURCE_EXHAUSTED\|INVALID_ARGUMENT\|API_KEY_INVALID\|API key not valid\|400\|401\|authentication failed\|provider error\|model not found\|sqlite-migration"
 
           run_probe() {
-            # Mirrors lib/opencode-with-fallback.sh: no --agent, WARN-level
+            # Mirrors lib/opencode-with-fallback.sh: --agent review (LADR-029,
+            # the locked-down read-only review agent — exercising the same agent
+            # the real review calls use, so a misconfigured `review` agent fails
+            # fast HERE instead of silently emptying every chunk), WARN-level
             # logging (short probe so verbose INFO/--print-logs adds noise
             # without helping). ERROR_PATTERN below catches the failure modes.
             # Provider-id is resolved from OPENCODE_PROVIDER (default gemini).
             opencode run \
+              --agent review \
               --model "${OPENCODE_PROVIDER_ID:-gemini}/$1" \
               --format default \
               --log-level WARN \

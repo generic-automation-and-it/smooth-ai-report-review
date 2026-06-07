@@ -57,8 +57,8 @@ elif [ ! -f "$DEST" ]; then
   echo "✓ opencode.json installed: $SRC → $DEST"
 elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
-  # solely the providers we ship plus our own optional `permission` block, no
-  # other top-level keys, AND every provider's apiKey is still our
+  # solely the providers we ship plus our own optional `permission` and `agent`
+  # blocks, no other top-level keys, AND every provider's apiKey is still our
   # {env:OPENCODE_*} placeholder. That apiKey clause is the real discriminator:
   # it distinguishes our config (which never holds a real key) from a personal
   # config that merely reuses the same provider keys but customizes options to
@@ -75,8 +75,9 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
     jq -e '
-      ((keys - ["$schema","provider","permission"]) == [])
+      ((keys - ["$schema","provider","permission","agent"]) == [])
       and ((.provider // {} | keys) == ["gemini","github-copilot","go-anthropic","go-openai","openai"])
+      and ((.agent // {} | keys) | (. == [] or . == ["review"]))
       and (all((.provider // {})[]?;
             ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
             and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https://opencode\\.ai/zen/go/)"))))

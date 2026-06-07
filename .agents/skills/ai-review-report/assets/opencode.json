@@ -67,5 +67,33 @@
   },
   "permission": {
     "external_directory": "allow"
+  },
+  "agent": {
+    "review": {
+      "mode": "primary",
+      "description": "Locked-down PR-review agent (LADR-029): read-only context access, no skill/task/edit/write/bash. Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure failure mode).",
+      "tools": {
+        "skill": false,
+        "task": false,
+        "edit": false,
+        "write": false,
+        "bash": false,
+        "webfetch": false,
+        "websearch": false
+      },
+      "permission": {
+        "skill": "deny",
+        "task": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "external_directory": "allow"
+      }
+    }
   }
 }

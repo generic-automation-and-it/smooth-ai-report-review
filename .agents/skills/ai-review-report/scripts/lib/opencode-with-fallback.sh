@@ -31,14 +31,15 @@ fi
 PROVIDER="${OPENCODE_PROVIDER_ID:-gemini}"
 
 run_opencode() {
-  # No --agent flag: we let opencode use its DEFAULT `build` agent but override
-  #   its model via --model (so it runs on Gemini, not build's pinned model).
-  #   The default agent provides read/grep tools, so the prompt's read_file
-  #   instructions work — the model reads the listed context files. opencode.json
-  #   sets `permission.external_directory: allow` (LADR-025), the headless
-  #   equivalent of the old gemini-cli --yolo: without it opencode auto-rejects
-  #   reads of in-repo dot-paths (.github/*, .docs/*, .agents/rules-scoped/*) in
-  #   non-interactive `run` mode, which silently empties the chunk.
+  # --agent review (LADR-029): pin the locked-down `review` agent from
+  #   opencode.json instead of the DEFAULT `build` agent. `review` has read/grep
+  #   but NO skill/task/edit/write/bash, so the model cannot self-activate this
+  #   repo's own ai-review-report skill (which `build` auto-discovered and fired
+  #   on the .github workflow chunk, ending the turn with empty stdout). It still
+  #   reads context files; opencode.json sets `permission.external_directory:
+  #   allow` (LADR-025) — the headless equivalent of gemini-cli --yolo — globally
+  #   and on the agent, so reads of in-repo dot-paths (.github/*, .docs/*,
+  #   .agents/rules-scoped/*) are not auto-rejected in non-interactive `run` mode.
   # Prompt is fed via stdin (not "$(cat …)" argv expansion) so large chunks
   #   never hit ARG_MAX; matches the original `gemini < file` call shape.
   # --log-level WARN: keeps stdout clean for the legacy parser surface.
@@ -48,11 +49,25 @@ run_opencode() {
   #   --print-logs.
   # --format default: human-readable markdown matching the legacy parser surface
   #   (sed/grep on DETAILED_SECTION_MARKER and per-priority emoji lines).
-  opencode run \
+  # Empty-output guard (LADR-029): opencode can exit 0 while emitting empty/tiny
+  #   stdout (silent provider failure, or an agent that spent its turn on tool
+  #   calls). Capture the output and FAIL (return 1) when it is below the same
+  #   200-byte floor review-in-chunks.sh enforces — so try_run falls through to
+  #   the next model in the chain instead of returning a hollow "success" that
+  #   short-circuits the fallback. Whatever little came back is echoed to stderr
+  #   for diagnostics. Reviews are a few KB, so buffering in a var is safe.
+  local _out
+  _out=$(opencode run \
+    --agent review \
     --model "${PROVIDER}/$1" \
     --format default \
     --log-level WARN \
-    < "$prompt_file"
+    < "$prompt_file") || return 1
+  if [ "${#_out}" -lt 200 ]; then
+    printf '%s' "$_out" >&2
+    return 1
+  fi
+  printf '%s\n' "$_out"
 }
 
 try_run() {
