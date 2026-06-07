@@ -113,18 +113,18 @@ done
 # Falls back to directory-based grouping if LLM grouping fails
 SEMANTIC_GROUPING_THRESHOLD=15
 SEMANTIC_GROUPING_SUCCESS=false
-REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING="${OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING:-10}"
+REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING="${OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING:-10}"
 FORCE_SINGLE_CHUNK=false
 
 if ! [[ "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" =~ ^[0-9]+$ ]]; then
-  echo "⚠️ Invalid OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING='${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING}' (must be integer). Using default: 10"
+  echo "⚠️ Invalid OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING='${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING}' (must be integer). Using default: 10"
   REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING=10
 fi
 
 file_count=$(tr '\0' '\n' < ci_temp/changed_files.txt | grep -c '.' || echo "0")
 echo ""
 echo "Files to review: ${file_count}"
-echo "Single chunk threshold: ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} files (OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING)"
+echo "Single chunk threshold: ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} files (OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING)"
 
 if [ "$file_count" -le "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" ]; then
   FORCE_SINGLE_CHUNK=true
@@ -169,7 +169,7 @@ SEMANTIC_PROMPT_EOF
   # LADR-022: semantic grouping is file classification, not code analysis — use the
   # ORCHESTRATOR (cheap) model, falling back to the resolved review model if it's down.
   # LADR-023: CLI transport is opencode; helper preserves the fallback chain.
-  if timeout 60s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}" "$OPENCODE_MODEL_ID" "" -- ci_temp/semantic_grouping_prompt.txt > ci_temp/semantic_grouping_raw.txt 2>/dev/null; then
+  if timeout 60s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}" "$OPENCODE_MODEL_ID" "" -- ci_temp/semantic_grouping_prompt.txt > ci_temp/semantic_grouping_raw.txt 2>/dev/null; then
     # Extract only valid group::file lines, strip whitespace and backticks
     grep '::' ci_temp/semantic_grouping_raw.txt \
       | sed 's/^[[:space:]`]*//;s/[[:space:]`]*$//' \
@@ -709,7 +709,7 @@ EOF
   # read_file context-loading works (with the diff also inline as a fallback),
   # but cannot self-activate this repo's ai-review-report skill. Fallback chain
   # preserves LADR-002.
-  if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     # Empty-output detection: opencode can exit 0 while producing no review
     # text (e.g. provider silently failing, agent misconfiguration). A real
     # chunk review is always at least a few hundred bytes of markdown with

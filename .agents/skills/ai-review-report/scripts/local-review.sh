@@ -23,9 +23,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
 # Credentials come from the shell environment. Export the selected provider's
-# OPENCODE_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
+# OPENCODE_REVIEW_REPORT_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
 # profile or via direnv); opencode reads them through the {env:...} placeholders
-# in opencode.json. The provider is chosen with --provider / OPENCODE_PROVIDER
+# in opencode.json. The provider is chosen with --provider / OPENCODE_REVIEW_REPORT_PROVIDER
 # (default GEMINI). See the "Required environment variables" section of SKILL.md.
 
 # Defaults
@@ -33,10 +33,10 @@ PR_NUMBER=""
 BASE_BRANCH="main"
 OPENCODE_MODEL="gemini-2.5-pro"
 # Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC).
-# Default GEMINI; override with --provider or the OPENCODE_PROVIDER env var. For non-GEMINI providers you must
-# also pass a matching --model (and export OPENCODE_MODEL_SECONDARY_REVIEW /
-# OPENCODE_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
-OPENCODE_PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
+# Default GEMINI; override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. For non-GEMINI providers you must
+# also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW /
+# OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
+OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
 POST_REVIEW=false
 OPEN_AFTER=false
 REVIEW_TYPE="full"
@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --provider)
-      OPENCODE_PROVIDER="$2"
+      OPENCODE_REVIEW_REPORT_PROVIDER="$2"
       shift 2
       ;;
     --post)
@@ -79,7 +79,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --model MODEL        Primary review model ID (default: gemini-2.5-pro). Must"
       echo "                       be a model of the selected provider (e.g. gpt-5.5 for OPENAI)."
       echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC"
-      echo "                       (default: GEMINI; or set OPENCODE_PROVIDER)"
+      echo "                       (default: GEMINI; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
       echo "  --post               Post review to PR (requires --pr)"
       echo "  --open               Open final review in \$EDITOR after completion"
       echo "  --help, -h           Show this help"
@@ -88,13 +88,13 @@ while [[ $# -gt 0 ]]; do
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's gateway creds exported (requires VPN /"
       echo "    corporate-network access to the gateway host):"
-      echo "      GEMINI                → OPENCODE_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
-      echo "      COPILOT               → OPENCODE_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
-      echo "      OPENAI                → OPENCODE_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
+      echo "      GEMINI                → OPENCODE_REVIEW_REPORT_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
+      echo "      COPILOT               → OPENCODE_REVIEW_REPORT_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
+      echo "      OPENAI                → OPENCODE_REVIEW_REPORT_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
       echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
-      echo "  - For any non-GEMINI provider also export OPENCODE_MODEL_SECONDARY_REVIEW"
-      echo "    and OPENCODE_MODEL_ORCHESTRATOR (non-gemini model IDs)"
+      echo "  - For any non-GEMINI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW"
+      echo "    and OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
       exit 0
@@ -139,10 +139,10 @@ harvest_var() {
   return 1
 }
 # Harvest every provider's credential pair; lib/resolve-provider.sh picks the
-# pair for the selected OPENCODE_PROVIDER and validates it below.
-for v in OPENCODE_GEMINI_URL OPENCODE_GEMINI_API_KEY \
-         OPENCODE_COPILOT_URL OPENCODE_COPILOT_API_KEY \
-         OPENCODE_OPENAI_URL OPENCODE_OPENAI_API_KEY \
+# pair for the selected OPENCODE_REVIEW_REPORT_PROVIDER and validates it below.
+for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
+         OPENCODE_REVIEW_REPORT_COPILOT_URL OPENCODE_COPILOT_API_KEY \
+         OPENCODE_REVIEW_REPORT_OPENAI_URL OPENCODE_OPENAI_API_KEY \
          OPENCODE_GO_OPENAI_API_KEY \
          OPENCODE_GO_ANTHROPIC_API_KEY; do
   harvest_var "$v" || true
@@ -158,10 +158,10 @@ fi
 # missing creds / a model chain that doesn't match the provider. Export the model
 # chain FIRST so the resolver can validate it (primary = --model arg). These are
 # also what review-in-chunks.sh / aggregate-reviews.sh consume.
-export OPENCODE_PROVIDER
-export OPENCODE_MODEL_PRIMARY_REVIEW="$OPENCODE_MODEL"
-export OPENCODE_MODEL_SECONDARY_REVIEW="${OPENCODE_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
-export OPENCODE_MODEL_ORCHESTRATOR="${OPENCODE_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+export OPENCODE_REVIEW_REPORT_PROVIDER
+export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW="$OPENCODE_MODEL"
+export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW:-gemini-2.5-pro}"
+export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 
@@ -300,7 +300,7 @@ touch "$GITHUB_OUTPUT"
 # Set mandatory context files (same as workflow env)
 export MANDATORY_CONTEXT_FILES=".docs/nfr/PROJECT_SETUP_AGENTS.md .agents/skills/code-review-standards/SKILL.md .docs/nfr/TOOL_SETUP_AGENTS.md .agents/rules-scoped/backend/testing-standards.instructions.md .agents/rules-scoped/backend/dotnet-standards.instructions.md"
 
-# Model chain (OPENCODE_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
+# Model chain (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
 # already exported and validated above, before sourcing lib/resolve-provider.sh,
 # so review-in-chunks.sh / aggregate-reviews.sh inherit them here.
 

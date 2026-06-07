@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Blank → OPENCODE_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
+        description: 'Primary review model ID (optional). Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
         required: false
         type: string
         default: ''
@@ -48,34 +48,34 @@ jobs:
       # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
       # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
       # one opencode.json provider block can pin only one npm. Set the repo/org
-      # Variable OPENCODE_PROVIDER to switch which provider the review routes to.
+      # Variable OPENCODE_REVIEW_REPORT_PROVIDER to switch which provider the review routes to.
       # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
       # and fails fast on a mismatched model chain.
-      OPENCODE_PROVIDER: ${{ vars.OPENCODE_PROVIDER || 'GEMINI' }}
+      OPENCODE_REVIEW_REPORT_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
       # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
       # here (string literals, no empty-secret hazard) so every step — including the
       # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
       # value for local runs.
-      OPENCODE_PROVIDER_ID: ${{ (vars.OPENCODE_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
+      OPENCODE_REVIEW_REPORT_PROVIDER_ID: ${{ (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') || (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') || 'gemini' }}
       # All five provider credential pairs are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to. Without the active pair the provider sends an
       # empty Bearer token and the gateway returns 401 (cf. empty-review run
       # 26584156846). The "Install Dependencies" step copies the SELECTED pair into
-      # OPENCODE_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
+      # OPENCODE_REVIEW_REPORT_GATEWAY_URL/_API_KEY (via bash indirection, so an empty selected
       # secret stays empty and trips the presence check rather than silently
       # falling back to another provider's creds).
       # API keys stay Secrets; gateway URLs are non-sensitive and come from
       # repo/org Variables (the user-confirmed config) so they can be retuned
       # without secret access.
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
-      OPENCODE_GEMINI_URL: ${{ vars.OPENCODE_GEMINI_URL }}
+      OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
-      OPENCODE_COPILOT_URL: ${{ vars.OPENCODE_COPILOT_URL }}
+      OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
-      OPENCODE_OPENAI_URL: ${{ vars.OPENCODE_OPENAI_URL }}
+      OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
       # OpenCode Go: only the API key is configurable — the gateway base URL is the
       # fixed public Zen endpoint (https://opencode.ai/zen/go/v1), hardcoded in
       # opencode.json and in the resolver/health-probe (no OPENCODE_GO_*_URL var).
@@ -94,11 +94,15 @@ jobs:
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
-      OPENCODE_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
-      OPENCODE_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
-      OPENCODE_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW || 'gemini-3.1-pro-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW || 'gemini-2.5-pro' }}
+      OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
       # Optional CLI version pin. Unset/empty means "install latest".
-      OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
+      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
+      # Max changed files the gate will review. A PR larger than this is too big to
+      # review reliably, so the gate posts REQUEST_CHANGES asking for a split rather
+      # than attempting a low-quality review. Repo/org Variable; default 100.
+      OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
       # Mandatory context files loaded for every review (space-separated)
       # These contain project coding standards, language version info, and review guidelines.
       # The repo-root AGENTS.md must be listed here explicitly: find-context-files.sh's
@@ -121,7 +125,7 @@ jobs:
       - name: Install Dependencies
         run: |
           set -e
-          # Resolve the SELECTED provider's gateway credentials (OPENCODE_PROVIDER
+          # Resolve the SELECTED provider's gateway credentials (OPENCODE_REVIEW_REPORT_PROVIDER
           # is set at job scope). Done in bash via indirection — NOT a YAML
           # expression — so an empty selected secret resolves to empty (and trips
           # the presence check below) rather than silently short-circuiting to
@@ -134,19 +138,19 @@ jobs:
           # (the two OpenCode Go surfaces share the public Zen base). When GW_URL is
           # set it wins; otherwise the URL comes from ${!U}.
           U=""; GW_URL=""
-          case "${OPENCODE_PROVIDER:-GEMINI}" in
-            COPILOT)               U=OPENCODE_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
-            OPENAI)                U=OPENCODE_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
+          case "${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}" in
+            COPILOT)               U=OPENCODE_REVIEW_REPORT_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
+            OPENAI)                U=OPENCODE_REVIEW_REPORT_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
             OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
             OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
-            GEMINI)                U=OPENCODE_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
-            *) echo "❌ Unknown OPENCODE_PROVIDER='${OPENCODE_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)."; exit 1 ;;
+            GEMINI)                U=OPENCODE_REVIEW_REPORT_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
+            *) echo "❌ Unknown OPENCODE_REVIEW_REPORT_PROVIDER='${OPENCODE_REVIEW_REPORT_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)."; exit 1 ;;
           esac
-          OPENCODE_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
+          OPENCODE_REVIEW_REPORT_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
           OPENCODE_GATEWAY_API_KEY="${!K}"
           # Export to later steps so the probe + scripts read the resolved creds.
           {
-            echo "OPENCODE_GATEWAY_URL=${OPENCODE_GATEWAY_URL}"
+            echo "OPENCODE_REVIEW_REPORT_GATEWAY_URL=${OPENCODE_REVIEW_REPORT_GATEWAY_URL}"
             echo "OPENCODE_GATEWAY_API_KEY=${OPENCODE_GATEWAY_API_KEY}"
           } >> "$GITHUB_ENV"
 
@@ -159,15 +163,15 @@ jobs:
           # Works" (the opencode /global/health check does not validate the key).
           missing=""
           [ -z "${OPENCODE_GATEWAY_API_KEY}" ] && missing="${missing} ${K}"
-          [ -z "${OPENCODE_GATEWAY_URL}" ] && missing="${missing} ${U}"
+          [ -z "${OPENCODE_REVIEW_REPORT_GATEWAY_URL}" ] && missing="${missing} ${U}"
           if [ -n "$missing" ]; then
-            echo "❌ Required gateway setting(s) empty/unset for OPENCODE_PROVIDER=${OPENCODE_PROVIDER:-GEMINI}:${missing}"
+            echo "❌ Required gateway setting(s) empty/unset for OPENCODE_REVIEW_REPORT_PROVIDER=${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}:${missing}"
             echo "   Set them in repo Settings → Secrets and variables → Actions (API keys = Secrets, URLs = Variables)."
             exit 1
           fi
           # U is unset for OpenCode Go (fixed Zen base via GW_URL, no URL var), so
           # only print it when present — avoids a stray empty "(, KEY)" diagnostic.
-          echo "✓ Gateway credentials present for provider ${OPENCODE_PROVIDER:-GEMINI} (${U:+${U}, }${K})"
+          echo "✓ Gateway credentials present for provider ${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI} (${U:+${U}, }${K})"
           # opencode is installed AFTER actions/checkout (see "Install opencode +
           # config + warm DB" step) because its provider config source lives in
           # the repo at .agents/skills/ai-review-report/assets/opencode.json and
@@ -270,8 +274,8 @@ jobs:
         id: opencode_version
         run: |
           set -e
-          if [ -n "${OPENCODE_CLI_VERSION:-}" ]; then
-            REQUESTED_VERSION="${OPENCODE_CLI_VERSION#v}"
+          if [ -n "${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}" ]; then
+            REQUESTED_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION#v}"
           else
             REQUESTED_VERSION="latest"
           fi
@@ -309,7 +313,7 @@ jobs:
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          REQUESTED_PIN_VERSION_CLEAN="${OPENCODE_CLI_VERSION:-}"
+          REQUESTED_PIN_VERSION_CLEAN="${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}"
           REQUESTED_PIN_VERSION_CLEAN="${REQUESTED_PIN_VERSION_CLEAN#v}"
           OPENCODE_VERSION_REGEX='v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?'
 
@@ -338,8 +342,8 @@ jobs:
             echo "Installing OPENCODE (${install_reason})..."
             set +e
             if [ -n "${REQUESTED_PIN_VERSION_CLEAN}" ]; then
-              # Some installer revisions read VERSION while others read OPENCODE_CLI_VERSION.
-              VERSION="${REQUESTED_PIN_VERSION_CLEAN}" OPENCODE_CLI_VERSION="${REQUESTED_PIN_VERSION_CLEAN}" curl -fsSL https://opencode.ai/install | bash
+              # Some installer revisions read VERSION while others read OPENCODE_REVIEW_REPORT_CLI_VERSION.
+              VERSION="${REQUESTED_PIN_VERSION_CLEAN}" OPENCODE_REVIEW_REPORT_CLI_VERSION="${REQUESTED_PIN_VERSION_CLEAN}" curl -fsSL https://opencode.ai/install | bash
             else
               curl -fsSL https://opencode.ai/install | bash
             fi
@@ -395,9 +399,9 @@ jobs:
 
           echo "Testing the two-tier review chain via opencode (LADR-002)..."
           echo ""
-          echo "Primary review:   ${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}"
-          echo "Secondary review: ${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}"
-          echo "Orchestrator:     ${{ env.OPENCODE_MODEL_ORCHESTRATOR }} (not probed — falls back to the resolved review model at runtime)"
+          echo "Primary review:   ${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}"
+          echo "Secondary review: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}"
+          echo "Orchestrator:     ${{ env.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR }} (not probed — falls back to the resolved review model at runtime)"
 
           # Error pattern — covers the upstream LiteLLM/Gemini error surface
           # that any client (opencode, gemini-cli, curl) will see. Removed the
@@ -416,10 +420,10 @@ jobs:
             # fast HERE instead of silently emptying every chunk), WARN-level
             # logging (short probe so verbose INFO/--print-logs adds noise
             # without helping). ERROR_PATTERN below catches the failure modes.
-            # Provider-id is resolved from OPENCODE_PROVIDER (default gemini).
+            # Provider-id is resolved from OPENCODE_REVIEW_REPORT_PROVIDER (default gemini).
             opencode run \
               --agent review \
-              --model "${OPENCODE_PROVIDER_ID:-gemini}/$1" \
+              --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/$1" \
               --format default \
               --log-level WARN \
               "Say 'OK'" 2>&1 || true
@@ -433,40 +437,40 @@ jobs:
 
           # Test 1: primary review model
           echo ""
-          echo "=== Test 1: primary review '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' ==="
-          output=$(run_probe "${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}")
+          echo "=== Test 1: primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' ==="
+          output=$(run_probe "${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}")
 
           if echo "$output" | grep -iq "$ERROR_PATTERN"; then
-            echo "⚠️ Primary review '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' not available, quota exceeded, or API key error"
+            echo "⚠️ Primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' not available, quota exceeded, or API key error"
             echo "  Error: $(echo "$output" | grep -i "error\|quota\|not.found\|invalid\|API.key" | head -2 || true)"
 
             # Test 2: secondary review model
             echo ""
-            echo "=== Test 2: secondary review '${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}' ==="
-            output=$(run_probe "${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}")
+            echo "=== Test 2: secondary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}' ==="
+            output=$(run_probe "${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}")
 
             if echo "$output" | grep -iq "$ERROR_PATTERN"; then
               echo "⚠️ Both review models failed — will post request-changes review and exit cleanly"
-              echo "  Primary '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
-              echo "  Secondary '${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
+              echo "  Primary '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
+              echo "  Secondary '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}' - NOT AVAILABLE / QUOTA EXCEEDED / API KEY ERROR"
               echo "--- opencode output ---"
               echo "$output"
               echo "-----------------------"
               echo "all_models_failed=true" >> $GITHUB_OUTPUT
               echo "selected_model=none" >> $GITHUB_OUTPUT
             else
-              echo "✓ Secondary review '${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}' works correctly"
+              echo "✓ Secondary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}' works correctly"
               echo "  Response: $(echo "$output" | head -20)"
-              echo "selected_model=${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}" >> $GITHUB_OUTPUT
+              echo "selected_model=${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}" >> $GITHUB_OUTPUT
               echo ""
-              echo "📌 Using secondary review model: ${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}"
+              echo "📌 Using secondary review model: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}"
             fi
           else
-            echo "✓ Primary review '${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}' works correctly"
+            echo "✓ Primary review '${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}' works correctly"
             echo "  Response: $(echo "$output" | head -20)"
-            echo "selected_model=${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}" >> $GITHUB_OUTPUT
+            echo "selected_model=${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}" >> $GITHUB_OUTPUT
             echo ""
-            echo "📌 Using primary review model: ${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}"
+            echo "📌 Using primary review model: ${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}"
           fi
 
       - name: Save OPENCODE cache
@@ -511,8 +515,8 @@ jobs:
           CURRENT_SHA="${{ steps.pr_info.outputs.head_sha }}"
           LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           # Name the active provider in the message instead of hardcoding "Gemini" —
-          # OPENCODE_PROVIDER (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC) is set at job scope.
-          PROVIDER="${OPENCODE_PROVIDER:-GEMINI}"
+          # OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC) is set at job scope.
+          PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
 
           {
             echo "## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`"
@@ -521,8 +525,8 @@ jobs:
             echo ""
             echo "Both review models failed to respond, typically caused by token quota exhaustion, rate limits, or API key issues:"
             echo ""
-            echo "- Primary review: \`${{ env.OPENCODE_MODEL_PRIMARY_REVIEW }}\`"
-            echo "- Secondary review: \`${{ env.OPENCODE_MODEL_SECONDARY_REVIEW }}\`"
+            echo "- Primary review: \`${{ env.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY_REVIEW }}\`"
+            echo "- Secondary review: \`${{ env.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY_REVIEW }}\`"
             echo ""
             echo "**Next Steps:**"
             echo "- Check the [workflow logs](${LOGS_URL}) for the specific error"
@@ -773,6 +777,61 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Block PR if Too Many Files Changed
+        id: file_count_gate
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.initialize_opencode.outputs.all_models_failed != 'true'
+        run: |
+          set -e
+          FILES_CHANGED="${{ steps.pr_diff.outputs.files_changed }}"
+          MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
+
+          # Validate the configured limit is a positive integer; fall back to 100.
+          if ! [[ "$MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$MAX_FILE_COUNT" -le 0 ]; then
+            echo "⚠️ Invalid OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT='${MAX_FILE_COUNT}' (must be a positive integer). Using default: 100"
+            MAX_FILE_COUNT=100
+          fi
+
+          echo "Files changed: ${FILES_CHANGED} (limit: ${MAX_FILE_COUNT})"
+
+          if [ "$FILES_CHANGED" -le "$MAX_FILE_COUNT" ]; then
+            echo "exceeded=false" >> $GITHUB_OUTPUT
+            echo "✓ Within file-count limit — proceeding with review."
+            exit 0
+          fi
+
+          echo "exceeded=true" >> $GITHUB_OUTPUT
+          echo "✗ Too many changed files (${FILES_CHANGED} > ${MAX_FILE_COUNT}) — blocking with REQUEST_CHANGES."
+
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          CURRENT_SHA="${{ steps.determine_review.outputs.current_sha }}"
+
+          {
+            echo "## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`"
+            echo ""
+            echo "**Status:** ❌ BLOCKED - Too many changed files"
+            echo ""
+            echo "This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **${MAX_FILE_COUNT}**. A changeset this large cannot be reviewed reliably."
+            echo ""
+            echo "**Next Steps:**"
+            echo "- Split this PR into smaller, focused PRs (each at or under ${MAX_FILE_COUNT} files)."
+            echo "- Or, if a large changeset is unavoidable, raise the limit by setting the \`OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT\` repository Variable."
+            echo ""
+            echo "---"
+            echo "*Automated check by OpenCode CLI Code Review*"
+          } > ci_temp/too_many_files_review.md
+
+          gh pr review ${PR_NUMBER} \
+            --request-changes \
+            --body-file ci_temp/too_many_files_review.md || {
+            echo "Failed to post too-many-files review"
+            exit 1
+          }
+
+          echo "PR blocked due to too many changed files"
+          exit 0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Skip if No Changes
         if: steps.pr_diff.outputs.has_changes == 'false'
         run: |
@@ -936,7 +995,7 @@ jobs:
           bash .agents/skills/ai-review-report/scripts/validate-agents-md.sh "${{ steps.determine_review.outputs.review_type }}"
 
       - name: Block PR if AGENTS.md Validation Failed
-        if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true'
+        if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           set -e
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
@@ -994,7 +1053,7 @@ jobs:
 
       - name: Skip Review Due to Blocking Review
         # Only skip INCREMENTAL reviews when blocked - FULL reviews should run to potentially clear the block
-        if: steps.pr_diff.outputs.has_changes == 'true' && steps.check_blocking_review.outputs.has_blocking_review == 'true' && steps.determine_review.outputs.review_type != 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true'
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.check_blocking_review.outputs.has_blocking_review == 'true' && steps.determine_review.outputs.review_type != 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           set -e
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
@@ -1029,7 +1088,8 @@ jobs:
         if: |
           (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
           (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
-          steps.initialize_opencode.outputs.all_models_failed != 'true'
+          steps.initialize_opencode.outputs.all_models_failed != 'true' &&
+          steps.file_count_gate.outputs.exceeded != 'true'
         continue-on-error: true
         run: |
           bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
@@ -1045,7 +1105,8 @@ jobs:
         if: |
           (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
           (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
-          steps.initialize_opencode.outputs.all_models_failed != 'true'
+          steps.initialize_opencode.outputs.all_models_failed != 'true' &&
+          steps.file_count_gate.outputs.exceeded != 'true'
         continue-on-error: true
         run: |
           bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh \
@@ -1062,7 +1123,7 @@ jobs:
 
       - name: Minimize Previous Gemini Reviews
         # Only minimize when: has changes, full review, AND validation passed (to avoid minimizing the validation failure review)
-        if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.initialize_opencode.outputs.all_models_failed != 'true'
+        if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           # Minimize BEFORE posting new review to avoid race condition where new review gets minimized
           bash .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh \
@@ -1079,7 +1140,8 @@ jobs:
           steps.pr_diff.outputs.has_changes == 'true' &&
           (steps.validate_agents.outputs.validation_passed != 'false' || steps.determine_review.outputs.review_type != 'full') &&
           (steps.check_blocking_review.outputs.has_blocking_review != 'true' || steps.determine_review.outputs.review_type == 'full') &&
-          steps.initialize_opencode.outputs.all_models_failed != 'true'
+          steps.initialize_opencode.outputs.all_models_failed != 'true' &&
+          steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           set -e
           set -o pipefail
