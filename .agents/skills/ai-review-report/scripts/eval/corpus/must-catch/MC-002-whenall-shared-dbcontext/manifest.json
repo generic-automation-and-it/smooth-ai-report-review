@@ -1,0 +1,7 @@
+{
+  "id": "MC-002-whenall-shared-dbcontext",
+  "kind": "must-catch",
+  "label": "MC-002",
+  "min_severity": "HIGH",
+  "note": "Real concurrency defect: Task.WhenAll runs two queries concurrently on the SAME DbContext instance (not thread-safe) — corruption/crash. This is exactly the bug DR-007 warns against; the reviewer SHOULD flag it."
+}

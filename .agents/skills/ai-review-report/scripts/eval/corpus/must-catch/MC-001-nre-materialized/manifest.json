@@ -1,0 +1,7 @@
+{
+  "id": "MC-001-nre-materialized",
+  "kind": "must-catch",
+  "label": "MC-001",
+  "min_severity": "HIGH",
+  "note": "Real NullReferenceException risk: the query is materialized with ToListAsync first, then plain C# dereferences result.Customer.Name where Customer is a nullable navigation property that EF may not have loaded, causing NRE at runtime."
+}

@@ -1,0 +1,6 @@
+{
+  "id": "DR-006-gha-uses-valid",
+  "kind": "must-not-flag",
+  "label": "DR-006",
+  "note": "Standard pinned action refs like actions/checkout@v4 are valid uses: syntax — reviewer must NOT hallucinate that they are file paths or invalid versions."
+}
