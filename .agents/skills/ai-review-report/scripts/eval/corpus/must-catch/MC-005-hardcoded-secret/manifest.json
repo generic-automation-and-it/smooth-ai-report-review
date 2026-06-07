@@ -1,0 +1,7 @@
+{
+  "id": "MC-005-hardcoded-secret",
+  "kind": "must-catch",
+  "label": "MC-005",
+  "min_severity": "HIGH",
+  "note": "Hardcoded API key committed in source: the private const ApiKey literal will be stored in git history and visible to anyone with repo read access, enabling unauthorized use of the external payment service."
+}

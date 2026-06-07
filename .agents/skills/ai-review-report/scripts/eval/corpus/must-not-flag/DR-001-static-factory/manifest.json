@@ -1,0 +1,6 @@
+{
+  "id": "DR-001-static-factory",
+  "kind": "must-not-flag",
+  "label": "DR-001",
+  "note": "Static factory methods with a private constructor are the preferred domain-model construction pattern; reviewer must NOT suggest DI factories, a public constructor, or a factory interface."
+}

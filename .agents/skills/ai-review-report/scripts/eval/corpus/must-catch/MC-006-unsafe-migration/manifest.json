@@ -1,0 +1,7 @@
+{
+  "id": "MC-006-unsafe-migration",
+  "kind": "must-catch",
+  "label": "MC-006",
+  "min_severity": "HIGH",
+  "note": "Unsafe EF Core migration: Up() drops a column with no data-preservation step, and Down() is empty so the migration cannot be rolled back, making this a one-way destructive schema change with no recovery path."
+}

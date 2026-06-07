@@ -1,0 +1,7 @@
+{
+  "id": "MC-003-reachable-guard-deleted",
+  "kind": "must-catch",
+  "label": "MC-003",
+  "min_severity": "HIGH",
+  "note": "Reachable null-guard deleted: the ArgumentNullException guard on request.Customer was the only protection before Customer.Id is dereferenced; callers can pass null legally (nullable reference type), so removing the guard introduces a real NRE regression."
+}

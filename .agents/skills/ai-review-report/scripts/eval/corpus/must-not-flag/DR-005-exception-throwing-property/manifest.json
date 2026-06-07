@@ -1,0 +1,6 @@
+{
+  "id": "DR-005-exception-throwing-property",
+  "kind": "must-not-flag",
+  "label": "DR-005",
+  "note": "A property that throws InvalidOperationException when accessed without satisfying the guard is intentional defensive programming; reviewer must NOT flag the throwing property as an anti-pattern or suggest removing the exception."
+}

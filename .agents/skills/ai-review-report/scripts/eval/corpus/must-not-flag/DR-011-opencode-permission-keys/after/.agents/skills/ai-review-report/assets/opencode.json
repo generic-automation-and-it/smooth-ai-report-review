@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gemini": {
+      "npm": "@ai-sdk/google",
+      "name": "Gemini",
+      "options": {
+        "apiKey": "{env:OPENCODE_GEMINI_API_KEY}"
+      },
+      "models": {
+        "gemini-2.5-pro":   { "name": "Gemini 2.5 Pro" },
+        "gemini-2.5-flash": { "name": "Gemini 2.5 Flash" }
+      }
+    }
+  },
+  "permission": {
+    "external_directory": "allow"
+  },
+  "agent": {
+    "review": {
+      "mode": "primary",
+      "description": "Locked-down PR-review agent (LADR-029): read-only context access, no skill/task/edit/write/bash. Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files.",
+      "tools": {
+        "skill": false,
+        "task": false,
+        "edit": false,
+        "write": false,
+        "bash": false,
+        "webfetch": false,
+        "websearch": false
+      },
+      "permission": {
+        "skill": "deny",
+        "task": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "external_directory": "allow"
+      }
+    }
+  }
+}

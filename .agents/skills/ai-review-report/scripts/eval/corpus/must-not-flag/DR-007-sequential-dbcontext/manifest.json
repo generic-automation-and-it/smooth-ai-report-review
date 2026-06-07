@@ -1,0 +1,6 @@
+{
+  "id": "DR-007-sequential-dbcontext",
+  "kind": "must-not-flag",
+  "label": "DR-007",
+  "note": "Sequential awaited queries on a single DbContext is the correct (default) pattern; reviewer must NOT suggest Task.WhenAll on a shared DbContext."
+}
