@@ -5,8 +5,13 @@
 # recall (must-catch / seeded real defects) — so prompt/model/LADR changes can be
 # regression-tested. See LADR-033 in .agents/skills/ai-review-report/SKILL.md.
 #
-# *** MAKES REAL, PAID MODEL CALLS — manual only (workflow_dispatch). It is NOT
-#     wired to pull_request and is NOT part of the default bash-test path. ***
+# *** MAKES REAL, PAID MODEL CALLS. Triggers: manual (workflow_dispatch) + a
+#     POST-MERGE CANARY on push to main, path-filtered to the review-pipeline files
+#     that actually change the eval outcome (the prompt/transport/corpus under the
+#     skill, the DR standards, this workflow). It is deliberately NOT wired to
+#     pull_request — it never blocks a PR and is not in the default bash-test path.
+#     The eval scores the reviewer model against a fixed corpus, so an arbitrary
+#     PR's content cannot change the result; only the path-filtered files can. ***
 #
 # Workflow↔script path coupling (repo Non-Negotiable): this file invokes the
 # harness by hardcoded path (.agents/skills/ai-review-report/scripts/eval/...).
@@ -14,6 +19,17 @@
 name: LLM Eval Harness
 
 on:
+  # Post-merge canary: run after a change lands on main, but ONLY when it touches
+  # the review pipeline (the prompt-assembly + transport + corpus the eval scores,
+  # the DR standards the reviewer reads, or this workflow). Cannot block a merge —
+  # a regression surfaces as a failed run on main. Arbitrary product/doc PRs that
+  # do not touch these paths never trigger a paid run.
+  push:
+    branches: [main]
+    paths:
+      - ".agents/skills/ai-review-report/**"
+      - ".github/instructions/code-review-standards.instructions.md"
+      - ".github/workflows/llm-eval-harness.yml"
   workflow_dispatch:
     inputs:
       provider:
@@ -82,6 +98,10 @@ jobs:
       EVAL_RECALL_THRESHOLD: ${{ github.event.inputs.recall_threshold || '80' }}
       EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
       EVAL_FILTER: ${{ github.event.inputs.filter || '' }}
+      # Triage archive: run-evals.sh copies each fixture's review markdown here so
+      # a precision FAIL is inspectable (the per-fixture sandbox is wiped on exit).
+      # Uploaded by the post-run step below (if: always(), since a regression exits 1).
+      EVAL_ARTIFACT_DIR: ${{ github.workspace }}/ci_temp/eval-artifacts
 
     steps:
       - name: Checkout Code
@@ -113,3 +133,15 @@ jobs:
         run: |
           set -e
           bash .agents/skills/ai-review-report/scripts/eval/run-evals.sh
+
+      - name: Upload eval review artifacts
+        # Always upload (the eval step exits non-zero on a precision/recall
+        # regression) so the per-fixture review markdown — the only record of WHAT
+        # the model flagged — survives for triage. No-op if the dir is empty.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: llm-eval-reviews
+          path: ci_temp/eval-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
