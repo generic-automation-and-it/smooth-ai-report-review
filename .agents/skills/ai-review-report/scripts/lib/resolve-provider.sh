@@ -23,8 +23,8 @@
 #                                  (EXCEPT the fixed-endpoint providers: the two
 #                                  OpenCode Go providers, whose URL is the fixed
 #                                  literal https://opencode.ai/zen/go/v1, and
-#                                  COPILOT, whose URL is the @ai-sdk/github-copilot
-#                                  SDK's fixed https://api.githubcopilot.com — for
+#                                  COPILOT, whose URL is the fixed Copilot
+#                                  endpoint https://api.githubcopilot.com — for
 #                                  these only the API key comes from an env var,
 #                                  and COPILOT's key is GH_TOKEN).
 #                                  These generic names are what the credential
@@ -58,8 +58,8 @@ OPENCODE_REVIEW_REPORT_PROVIDER="$(printf '%s' "$OPENCODE_REVIEW_REPORT_PROVIDER
 # OpenCode Go's gateway is a fixed public endpoint (the OpenCode Zen base
 # https://opencode.ai/zen/go/v1, hardcoded in opencode.json too), so its
 # providers carry no URL env var — _rp_url_fixed supplies the value the health
-# probe needs. COPILOT is the same shape: the @ai-sdk/github-copilot SDK has a
-# fixed built-in endpoint (https://api.githubcopilot.com, not declared in
+# probe needs. COPILOT is the same shape: a fixed endpoint
+# (https://api.githubcopilot.com, declared as the github-copilot baseURL in
 # opencode.json), and its only credential is GH_TOKEN — the user's GitHub token
 # with Copilot access (no per-deployment URL Variable, no separate API-key
 # Secret). The other providers read their gateway URL from an env var.

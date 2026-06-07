@@ -66,10 +66,11 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # real keys — without it, a key match alone could clobber that personal config.
   # A stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names) still uses
   # the OPENCODE_ placeholder form, so self-heal/refresh is preserved.
-  # baseURL is optional: most providers ship with no baseURL (native SDK base) so
-  # an absent baseURL passes; the two OpenCode Go providers ship a hardcoded
-  # https://opencode.ai/zen/go/v1 base (fixed public Zen endpoint, not env-driven),
-  # so a present baseURL must be either our {env:OPENCODE_*} form OR that Zen base.
+  # baseURL is optional: providers with no baseURL use the native SDK base, so an
+  # absent baseURL passes; the fixed-endpoint providers ship a hardcoded base (the
+  # two OpenCode Go surfaces use https://opencode.ai/zen/go/v1; github-copilot uses
+  # https://api.githubcopilot.com), so a present baseURL must be either our
+  # {env:OPENCODE_*} form OR one of those hardcoded fixed endpoints.
   # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
   # compares as: gemini, github-copilot, go-anthropic, go-openai, openai.
   is_ours="false"
@@ -81,7 +82,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
       and ((.agent // {} | keys) | (. == [] or . == ["review"]))
       and (all((.provider // {})[]?;
             ((.options.apiKey // "") | test("^\\{env:(OPENCODE_|GH_TOKEN)"))
-            and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https://opencode\\.ai/zen/go/)"))))
+            and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https://opencode\\.ai/zen/go/|https://api\\.githubcopilot\\.com)"))))
     ' "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
     jq_available="false"
