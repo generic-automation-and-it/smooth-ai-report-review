@@ -69,7 +69,7 @@ Modern .NET SDK auto-enables the latest C# version. `<LangVersion>` in csproj is
 
 ### DR-009: opencode.json Gemini Provider — `@ai-sdk/google` + OpenAI-Compatible URL
 
-The `gemini` provider in `.agents/skills/ai-review-report/assets/opencode.json` intentionally declares `npm: "@ai-sdk/google"` while `OPENCODE_GEMINI_URL` may point at an OpenAI-compatible gateway surface (`…/v1beta/openai`). opencode is **provider-agnostic transport** — it reaches the endpoint over HTTPS regardless of the SDK label — and this exact pairing is proven working in the prototype repo on every run. **DO NOT flag** it as a "provider/SDK mismatch" or critical integration failure, and **DO NOT suggest** switching to `@ai-sdk/openai-compatible`. Any change to the provider transport is a deliberate engineering decision, not a review fix. (Recurring false positive: flagged Critical across multiple reviews, skipped each time.)
+The `gemini` provider in `.agents/skills/ai-review-report/assets/opencode.json` intentionally declares `npm: "@ai-sdk/google"` while `OPENCODE_REVIEW_REPORT_GEMINI_URL` may point at an OpenAI-compatible gateway surface (`…/v1beta/openai`). opencode is **provider-agnostic transport** — it reaches the endpoint over HTTPS regardless of the SDK label — and this exact pairing is proven working in the prototype repo on every run. **DO NOT flag** it as a "provider/SDK mismatch" or critical integration failure, and **DO NOT suggest** switching to `@ai-sdk/openai-compatible`. Any change to the provider transport is a deliberate engineering decision, not a review fix. (Recurring false positive: flagged Critical across multiple reviews, skipped each time.)
 
 ### DR-010: Workflow Filename `pipline-code-review-report.yml` (Typo Is Load-Bearing)
 

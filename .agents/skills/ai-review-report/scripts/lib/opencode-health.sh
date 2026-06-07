@@ -4,7 +4,7 @@
 # Replaces the old per-provider gateway probes (each provider's /models,
 # /v1beta/models, or /health endpoint, each with its own auth header). The
 # single health signal now is opencode ITSELF, identically for every
-# OPENCODE_PROVIDER: start `opencode serve` on localhost, read the URL it prints
+# OPENCODE_REVIEW_REPORT_PROVIDER: start `opencode serve` on localhost, read the URL it prints
 #   opencode server listening on http://127.0.0.1:4096
 # hit that server's /global/health, then tear the server down. No per-provider
 # URL/auth derivation, so it works the same for gemini / copilot / openai /
@@ -19,14 +19,14 @@
 # `serve` starts cleanly), plus curl.
 #
 # Optional env:
-#   OPENCODE_HEALTH_TIMEOUT  seconds to wait for the server + health (default 30)
+#   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT  seconds to wait for the server + health (default 30)
 #
 # Exit 0 if /global/health returns 200; 1 otherwise. Callers decide whether a
 # failure is fatal (local preflight) or a non-blocking warning (CI diagnostic).
 
 set -u
 
-TIMEOUT="${OPENCODE_HEALTH_TIMEOUT:-30}"
+TIMEOUT="${OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT:-30}"
 LOG="/tmp/opencode-serve.$$.log"
 
 if ! command -v opencode >/dev/null 2>&1; then
