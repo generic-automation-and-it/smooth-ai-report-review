@@ -10,6 +10,114 @@ Two skills back it:
 
 Implementation details and decisions live in [`.agents/skills/ai-review-report/SKILL.md`](.agents/skills/ai-review-report/SKILL.md).
 
+## Install into another repo (AI-agent driven)
+
+These steps are written for an **AI coding agent running in the _target_ repo**. Point it at this README — best via the **raw** URL (`https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/README.md`), which returns clean Markdown; a `blob/…#install-into-another-repo-ai-agent-driven` link also works but serves HTML. No marketplace, no template engine — it copies the gate plus its two skills out of this repo and then wires up provider credentials.
+
+> **If you are that AI agent and the operator said "install this":** execute the steps below **now**, in the current repository — do not merely summarize them. Run Step 1 from the repo root. Do **not** enter any API key yourself: stop at Step 2, ask the operator which provider to use, and output the exact Secret/Variable names for them to set.
+
+**Source repo:** `generic-automation-and-it/smooth-ai-report-review` (branch `main`).
+
+**What gets installed:**
+1. The gate workflow → `.github/workflows/pipline-code-review-report.yml` (the `pipline` spelling is intentional and load-bearing — do **not** rename it).
+2. The `ai-review-report` skill → `.agents/skills/ai-review-report/`, **excluding `scripts/eval/`** (the eval harness is for developing this skill, not for running the gate).
+3. The `ai-review` skill → `.agents/skills/ai-review/` (the local `/ai-review` companion that **consumes** a posted review and applies fix/skip decisions; not invoked by the CI gate, but installs the command developers run in their AI tool).
+
+> **Install to `.agents/`, even if you use Cursor/Claude.** The workflow calls its scripts by hardcoded path `.agents/skills/ai-review-report/scripts/…`, so on the runner the skill **must** live there. In this repo `.cursor`, `.claude`, and `.codex` are top-level symlinks → `.agents`, which is the only reason the same files also appear under `.cursor/skills/…`. Recreate those symlinks in the target if your tool reads skills from `.cursor`/`.claude`/`.codex`.
+
+### Step 1 — copy the files (auto-detects install vs update)
+
+Run this **from the target repo's root**. It refuses to run anywhere else, detects whether the gate already exists (→ `update`) or not (→ `install`), copies the files, and verifies the result — failing loudly on a partial copy.
+
+```bash
+set -e
+
+# Preflight: must be inside the target git repo, with git available.
+command -v git >/dev/null || { echo "✗ git not found"; exit 1; }
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "✗ run this inside the target git repository"; exit 1; }
+cd "$ROOT"
+
+# Detect install vs update: update if ANY target already exists.
+if [ -e .github/workflows/pipline-code-review-report.yml ] \
+   || [ -d .agents/skills/ai-review-report ] \
+   || [ -d .agents/skills/ai-review ]; then
+  MODE="update"
+else
+  MODE="install"
+fi
+echo "Mode: $MODE"
+
+# Fetch the source (public repo; --depth 1 is enough).
+SRC="$(mktemp -d)"
+git clone --depth 1 https://github.com/generic-automation-and-it/smooth-ai-report-review.git "$SRC"
+
+# On update, remove existing skill trees first so files deleted upstream don't linger.
+if [ "$MODE" = update ]; then
+  rm -rf .agents/skills/ai-review-report .agents/skills/ai-review
+fi
+
+# 1) gate workflow (straight overwrite on update)
+mkdir -p .github/workflows
+cp "$SRC/.github/workflows/pipline-code-review-report.yml" .github/workflows/
+
+# 2) the two skills — real path under .agents/ (required by the workflow's hardcoded script paths)
+mkdir -p .agents/skills
+cp -R "$SRC/.agents/skills/ai-review-report" .agents/skills/
+cp -R "$SRC/.agents/skills/ai-review"        .agents/skills/
+
+# exclude the eval harness — not needed to run the gate
+rm -rf .agents/skills/ai-review-report/scripts/eval
+
+# OPTIONAL: surface the skills to Cursor/Claude/Codex too (mirrors this repo's layout)
+for t in .cursor .claude .codex; do [ -e "$t" ] || ln -s .agents "$t"; done
+
+rm -rf "$SRC"
+
+# Verify — fail loudly on a partial copy instead of reporting success.
+test -f .github/workflows/pipline-code-review-report.yml \
+ && test -f .agents/skills/ai-review-report/SKILL.md \
+ && test -f .agents/skills/ai-review/SKILL.md \
+ && test ! -e .agents/skills/ai-review-report/scripts/eval \
+ && echo "✓ $MODE complete" || { echo "✗ install incomplete — check output above"; exit 1; }
+```
+
+**Then message the operator using `$MODE`:**
+- `install` → "**Installed** the AI review gate (workflow + `ai-review-report` + `ai-review`)."
+- `update` → "**Updated** the existing AI review gate." Note that files were overwritten and they should review `git diff` before committing — an update can change workflow steps, scripts, or the `opencode.json` provider config.
+
+> The workflow's `MANDATORY_CONTEXT_FILES` list points at product-repo paths (e.g. `.docs/nfr/…`, `.agents/rules-scoped/backend/…`). Any that don't exist in the target **warn-and-skip** — the gate still runs. Trim that `env:` list in the workflow to the target repo's real context files when convenient.
+
+### Step 2 — ask which provider, then output the config to add
+
+After copying, **ask the operator which model provider to use**, then tell them exactly which GitHub **Secrets** and **Variables** to add under **Settings → Secrets and variables → Actions**. Resolve their answer against this matrix:
+
+| Provider chosen | Add Secret (API key) | Add Variables |
+|---|---|---|
+| **Gemini** _(default)_ | `OPENCODE_GEMINI_API_KEY` | *(none required)* — optional: `OPENCODE_REVIEW_REPORT_GEMINI_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai`) |
+| **OpenAI** | `OPENCODE_OPENAI_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=OPENAI`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=gpt-5.5`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=gpt-5.4`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=gpt-5.4-mini`; optional `OPENCODE_REVIEW_REPORT_OPENAI_URL` (default `https://api.openai.com/v1`) |
+| **GitHub Copilot** | `OPENCODE_COPILOT_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=COPILOT`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=gpt-5.5`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=gpt-5.4`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=gpt-5.4-mini`; optional `OPENCODE_REVIEW_REPORT_COPILOT_URL` (default `https://api.githubcopilot.com`) |
+| **OpenCode Go — OpenAI** | `OPENCODE_GO_OPENAI_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-OPENAI`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=deepseek-v4-pro`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=deepseek-v4-flash`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=glm-5.1` — **no URL Variable** (base URL hardcoded) |
+| **OpenCode Go — Anthropic** | `OPENCODE_GO_ANTHROPIC_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-ANTHROPIC`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=qwen3.7-plus`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=minimax-m2.7`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=minimax-m3` — **no URL Variable** (base URL hardcoded) |
+
+The agent must state these rules when emitting the config:
+- **API keys are Secrets; everything else is a Variable.** Never store a key as a Variable (Variables are plaintext and printable in logs).
+- **Any non-Gemini provider MUST set all three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables.** The defaults are Gemini model IDs and the run **fails fast** if a `gemini*` model is left on another provider.
+- Offer the equivalent `gh` commands rather than only describing the UI, e.g.:
+  ```bash
+  gh secret set OPENCODE_OPENAI_API_KEY                          # prompts for the value
+  gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body OPENAI
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body gpt-5.5
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body gpt-5.4
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body gpt-5.4-mini
+  ```
+
+### Step 3 — repo settings (one-time)
+
+- **Settings → Actions → General → Workflow permissions → enable "Allow GitHub Actions to create and approve pull requests."** Without it, a clean full review fails when the gate tries to approve. (An org-level policy can force this off and override the repo toggle.)
+- The chosen provider's gateway must be **reachable from GitHub-hosted `ubuntu-latest`** — publicly routable, not VPN-only. For a private-network gateway, switch the workflow's `runs-on` to `self-hosted`.
+
+Then open a PR (or comment `/ai-review` on one) to trigger the gate. Full variable reference is in [Environment variables](#environment-variables); per-provider detail in [Providers](#providers).
+
 ## Review states
 
 | State | When it happens | Outcome |
