@@ -72,14 +72,14 @@
   "agent": {
     "review": {
       "mode": "primary",
-      "description": "Locked-down PR-review agent (LADR-029): read-only context access, no skill/task/edit/write/bash. Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure failure mode).",
+      "description": "Locked-down PR-review agent (LADR-029): no skill/task/edit/write (read + bash + web enabled). Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure failure mode).",
       "tools": {
         "skill": false,
         "task": false,
         "edit": false,
         "write": false,
         "bash": true,
-        "webfetch": false,
+        "webfetch": true,
         "websearch": true
       },
       "permission": {
