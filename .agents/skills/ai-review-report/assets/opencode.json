@@ -59,9 +59,10 @@
         "apiKey": "{env:OPENCODE_GO_ANTHROPIC_API_KEY}"
       },
       "models": {
+        "minimax-m3":   { "name": "MiniMax M3" },
         "minimax-m2.7": { "name": "MiniMax M2.7" },
         "qwen3.7-plus": { "name": "Qwen3.7 Plus" },
-        "qwen3.6-plus": { "name": "Qwen3.6 Plus" }
+        "qwen3.6-pro":  { "name": "Qwen3.6 Pro" }
       }
     }
   },
@@ -71,23 +72,23 @@
   "agent": {
     "review": {
       "mode": "primary",
-      "description": "Locked-down PR-review agent (LADR-029): read-only context access, no skill/task/edit/write/bash. Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure failure mode).",
+      "description": "Locked-down PR-review agent (LADR-029): no skill/task/edit/write (read + bash + web enabled). Prevents the review model from self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure failure mode).",
       "tools": {
         "skill": false,
         "task": false,
         "edit": false,
         "write": false,
-        "bash": false,
-        "webfetch": false,
-        "websearch": false
+        "bash": true,
+        "webfetch": true,
+        "websearch": true
       },
       "permission": {
         "skill": "deny",
         "task": "deny",
         "edit": "deny",
-        "bash": "deny",
-        "webfetch": "deny",
-        "websearch": "deny",
+        "bash": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
         "read": "allow",
         "grep": "allow",
         "glob": "allow",
