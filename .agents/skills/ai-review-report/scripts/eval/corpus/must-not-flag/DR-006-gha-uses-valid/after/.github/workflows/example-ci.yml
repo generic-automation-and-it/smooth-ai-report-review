@@ -1,3 +1,7 @@
+# Action refs below use major-version tags (e.g. `actions/checkout@v4`), which are
+# valid `uses:` syntax (DR-006). Do NOT flag these as invalid versions, fabricated
+# file paths, or nonexistent releases. Major-tag pinning is an intentional choice
+# here; do NOT raise SHA-pinning as a Critical/High/Medium hardening finding.
 name: CI
 
 on:
