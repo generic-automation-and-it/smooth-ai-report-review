@@ -22,10 +22,17 @@
 #     do NOT overwrite. Print actionable guidance so a later "provider/model
 #     not found" failure is self-explanatory and the dev can merge it in.
 #
-# The `gemini` provider is `@ai-sdk/google` using its native Gemini API base
-# (no baseURL in opencode.json) and reads OPENCODE_GEMINI_API_KEY via {env:…}.
-# A relaying gateway provider (e.g. a LiteLLM proxy with its own baseURL) may be
-# added as a separate provider block later.
+# The committed opencode.json ships NO baseURL on the env-driven providers
+# (gemini → @ai-sdk/google, github-copilot, openai), so each defaults to its
+# native SDK endpoint. When a deployment fronts a provider with a gateway
+# (e.g. a LiteLLM proxy), it sets OPENCODE_REVIEW_REPORT_<P>_URL and this script
+# injects that value as the provider's options.baseURL in the INSTALLED config
+# (_inject_base_urls, LADR-034). API keys are still read via {env:OPENCODE_*_API_KEY}.
+# An empty/unset URL var → no baseURL added (native base kept), which is why the
+# baseURL is injected dynamically rather than as a static {env:…} placeholder:
+# an unset placeholder would substitute to an empty-string baseURL and break the
+# SDK. The two OpenCode Go providers are never injected — their base is the fixed
+# public Zen endpoint hardcoded in opencode.json (no URL var).
 #
 # Must run AFTER actions/checkout — see LADR-023.
 
@@ -49,12 +56,49 @@ fi
 
 mkdir -p "$DEST_DIR"
 
+# Per-provider baseURL injection (LADR-034). For each env-driven provider whose
+# OPENCODE_REVIEW_REPORT_<P>_URL is non-empty, set its options.baseURL in the
+# installed config to that value (e.g. a LiteLLM proxy). Empty/unset → left
+# alone (native SDK base). Idempotent: it always sets baseURL to the current env
+# value, so a refreshed-from-SRC config (no baseURL) is re-injected each run.
+# Only invoked for configs WE manage (see dest_managed below) — never for a
+# hand-rolled personal config. Skipped (with a notice) when jq is unavailable.
+_inject_base_urls() {
+  local dest="$1" pair id var url tmp
+  command -v jq >/dev/null 2>&1 || {
+    echo "ℹ️  jq not found — skipping baseURL injection (providers use native SDK base)."
+    return 0
+  }
+  for pair in "gemini:OPENCODE_REVIEW_REPORT_GEMINI_URL" \
+              "github-copilot:OPENCODE_REVIEW_REPORT_COPILOT_URL" \
+              "openai:OPENCODE_REVIEW_REPORT_OPENAI_URL"; do
+    id="${pair%%:*}"; var="${pair#*:}"; url="${!var:-}"
+    [ -n "$url" ] || continue
+    jq -e --arg id "$id" '.provider[$id]' "$dest" >/dev/null 2>&1 || continue
+    tmp="$(mktemp)"
+    if jq --arg id "$id" --arg url "$url" \
+          '.provider[$id].options.baseURL = $url' "$dest" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$dest"
+      echo "✓ baseURL injected for provider '$id' (from $var)."
+    else
+      rm -f "$tmp"
+      echo "⚠️  Failed to inject baseURL for '$id' — left config unchanged." >&2
+    fi
+  done
+}
+
+# Tracks whether the final $DEST is a config we wrote/own (and may therefore
+# inject into). Stays false for a left-untouched personal config.
+dest_managed="false"
+
 if [ "${CI:-}" = "true" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   cp "$SRC" "$DEST"
   echo "✓ opencode.json installed (CI — always refreshed): $SRC → $DEST"
+  dest_managed="true"
 elif [ ! -f "$DEST" ]; then
   cp "$SRC" "$DEST"
   echo "✓ opencode.json installed: $SRC → $DEST"
+  dest_managed="true"
 elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # The dest has our provider. Only auto-refresh if it is OUR managed shape —
   # solely the providers we ship plus our own optional `permission` and `agent`
@@ -65,10 +109,11 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # real keys — without it, a key match alone could clobber that personal config.
   # A stale-but-ours config (e.g. old {env:OPENCODE_LITELLM_*} names) still uses
   # the OPENCODE_ placeholder form, so self-heal/refresh is preserved.
-  # baseURL is optional: most providers ship with no baseURL (native SDK base) so
-  # an absent baseURL passes; the two OpenCode Go providers ship a hardcoded
-  # https://opencode.ai/zen/go/v1 base (fixed public Zen endpoint, not env-driven),
-  # so a present baseURL must be either our {env:OPENCODE_*} form OR that Zen base.
+  # baseURL is optional: an absent baseURL passes (committed shape — native SDK
+  # base). A present baseURL may be (a) our {env:OPENCODE_*} form, (b) the
+  # hardcoded https://opencode.ai/zen/go/v1 Zen base, or (c) any http(s):// URL
+  # injected by _inject_base_urls (LADR-034) from OPENCODE_REVIEW_REPORT_<P>_URL —
+  # all three keep this recognized as our managed config so self-heal still runs.
   # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
   # compares as: gemini, github-copilot, go-anthropic, go-openai, openai.
   is_ours="false"
@@ -80,7 +125,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
       and ((.agent // {} | keys) | (. == [] or . == ["review"]))
       and (all((.provider // {})[]?;
             ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
-            and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https://opencode\\.ai/zen/go/)"))))
+            and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https?://)"))))
     ' "$DEST" >/dev/null 2>&1 && is_ours="true"
   else
     jq_available="false"
@@ -94,6 +139,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
       cp "$SRC" "$DEST"
       echo "♻️  Stale opencode.json detected — refreshed to the committed version (provider + permission): $DEST"
     fi
+    dest_managed="true"
   elif [ "$jq_available" = "false" ]; then
     # jq is required to safely tell our managed config apart from a hand-rolled
     # personal one, so we can't auto-refresh — leave the file untouched (safe).
@@ -117,4 +163,10 @@ else
   echo "      $SRC"
   echo "    into your config at:"
   echo "      $DEST"
+fi
+
+# Inject per-provider gateway baseURLs (LADR-034) only into a config we manage —
+# a left-untouched personal config keeps the user's own baseURLs.
+if [ "$dest_managed" = "true" ]; then
+  _inject_base_urls "$DEST"
 fi
