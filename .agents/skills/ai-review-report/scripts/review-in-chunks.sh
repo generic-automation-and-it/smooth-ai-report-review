@@ -11,7 +11,7 @@ fi
 
 # Script: review-in-chunks.sh
 # Purpose: Review PR changes in chunks to avoid memory issues
-# Usage: Called from pipline-code-review-report.yml workflow
+# Usage: Called from pipeline-code-review-report.yml workflow
 # Arguments: $1=FROM_SHA $2=TO_SHA $3=OPENCODE_MODEL_ID $4=EXPERTISE_STATEMENT
 
 FROM_SHA="$1"
