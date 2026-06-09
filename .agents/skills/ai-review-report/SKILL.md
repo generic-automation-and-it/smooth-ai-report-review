@@ -7,16 +7,7 @@ description: Automated PR code review pipeline using chunked processing, context
 
 Automated PR code review using chunked processing, context-aware analysis, and provider-selectable models (Gemini / Copilot / OpenAI, chosen by `OPENCODE_REVIEW_REPORT_PROVIDER`) served through the `opencode` CLI. Updated: 2026-06-08. Maintainer: Platform Engineering.
 
-**Skill layout** (Agent Skills format — agentskills.io):
-- `SKILL.md` — this file (current-state instructions + active LADRs + Key Behaviors)
-- `AGENTS.md` — editor's companion (LADR history with Date/Status/Context, env-var provenance, confirmed-FP PR references, supersede chains, skill layout, what the chunk-review model doesn't need to re-read every review). Load when updating this skill or auditing past decisions.
-- `assets/opencode.json` — provider config (`gemini`, `github-copilot`, `openai`, `go-openai`, `go-anthropic`) installed into opencode's global scope at job start
-- `assets/review-config.json` — file-exclusion patterns (lock files, generated code) consumed by `scripts/filter-excluded-files.sh`
-- `scripts/` — CI shell scripts (`review-in-chunks.sh`, `aggregate-reviews.sh`, etc.)
-- `scripts/lib/` — shared helpers (`resolve-provider.sh`, `opencode-with-fallback.sh`, `setup-opencode-config.sh`, `opencode-health.sh`)
-- `scripts/eval/` — opt-in LLM eval harness (LADR-033) — precision/recall vs a labeled corpus
-- `references/CHANGELOG.md` — dated audit trail (load only when updating this skill)
-- `references/knowledge-conventional-contexts-quality.instructions.md` — bundled copy of the AGENTS.md quality standards the review/validation prompts apply
+**Skill layout, env-var provenance, the full LADR history (Date/Context/supersede chains), and confirmed false-positive PR references live in the sibling `AGENTS.md`** — load it when updating this skill or auditing past decisions. This file (`SKILL.md`) is the runtime contract: current-state instructions, the active LADRs as rules (Decision + Consequences), and Key Behaviors.
 
 ## Required Environment Variables
 
@@ -57,8 +48,8 @@ GitHub Actions workflow that reviews PRs in chunks through the `opencode` CLI tr
 - **Never fetch or sync main branch** in the workflow
 - **Context file updates must be atomic** — workflow YAML and this SKILL.md committed together
 - **`ai-workflow-rules.instructions.md` is excluded from Gemini context** — that file is for coding AI (Claude Code), not review AI (Gemini)
-- **Verify refactor suggestions are not already applied** — before recommending a syntactic refactor (primary constructor, record types, collection expressions `[...]`, `GetRequiredService<T>()` vs `GetService`, null-coalescing assignment, `using` declarations, file-scoped namespaces), check the current class/method signature or declaration line via `read_file`. Do NOT suggest a pattern already in use. Confirmed false positive: PR #4992 (BNKI-1066) suggested primary constructor for `BunkeringImportService` — class already used primary constructor syntax.
-- **Source-of-truth precedence: diff + LADR/spec over PR-body intent** — when the PR description (including AI Review Notes "Focus Areas" / "Known Issues" wording) conflicts with the current diff against base or with an LADR / `*_AGENTS.md` in the loaded context, the diff and LADR are ground truth. PR-body text inevitably goes stale across follow-up commits and design changes. Do NOT mass-flag the code as wrong because it contradicts an outdated PR-body claim — flag the description as stale at **Low** instead. If an LADR documents the chosen approach (Decision / Alternatives Considered / Implementation notes), the implementation is by definition intentional — see DR-014 in `.agents/skills/code-review-standards/SKILL.md`. Confirmed false positive: PR #5258 (BNKI-1190) flagged `Secondary.Enabled: true` in prod as High×14 because the original AI Review Notes said "off in prod" — that wording was superseded by a later user decision (committed in `e7083c3`) and the kill-switch LADR-10 explicitly allows the flip; same review also flagged a Critical "missing type-name discriminator" using PR-body wording over LADR-10's chosen connection-string design.
+- **Verify refactor suggestions are not already applied** — before recommending a syntactic refactor (primary constructor, record types, collection expressions `[...]`, `GetRequiredService<T>()` vs `GetService`, null-coalescing assignment, `using` declarations, file-scoped namespaces), check the current class/method signature or declaration line via `read_file`. Do NOT suggest a pattern already in use.
+- **Source-of-truth precedence: diff + LADR/spec over PR-body intent** — when the PR description (including AI Review Notes "Focus Areas" / "Known Issues" wording) conflicts with the current diff against base or with an LADR / `*_AGENTS.md` in the loaded context, the diff and LADR are ground truth. PR-body text inevitably goes stale across follow-up commits and design changes. Do NOT mass-flag the code as wrong because it contradicts an outdated PR-body claim — flag the description as stale at **Low** instead. If an LADR documents the chosen approach (Decision / Alternatives Considered / Implementation notes), the implementation is by definition intentional — see DR-014 in `.agents/skills/code-review-standards/SKILL.md`.
 
 ## System Context
 
@@ -92,7 +83,7 @@ The LADRs are the **decisions the model must follow** — they are the rules, no
 ### LADR-002: Two-Tier Review Model Chain
 
 - **Status**: Accepted
-- **Decision**: Deep chunk-review chain is two-tier: `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` (default `gemini-3.1-pro-preview`) → `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` (default `gemini-2.5-pro`). No third tier — the old `auto`/Flash last-resort reviewer was removed; a degraded Flash review is worse than an honest "models down". If BOTH review models fail the startup probe, soft-fail per LADR-021. Models come from GitHub **Variables** (literal defaults); `workflow_dispatch` input overrides the primary. The startup probe tests only these two review models (the orchestrator is not probed — LADR-022). Error detection includes quota/rate-limit patterns.
+- **Decision**: Deep chunk-review chain is two-tier: `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` (default `gemini-3.1-pro-preview`) → `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` (default `gemini-2.5-pro`). No third tier — a degraded Flash review is worse than an honest "models down". If BOTH review models fail the startup probe, soft-fail per LADR-021. Models come from GitHub **Variables** (literal defaults); `workflow_dispatch` input overrides the primary. The startup probe tests only these two review models (the orchestrator is not probed — LADR-022). Error detection includes quota/rate-limit patterns.
 - **Consequences**: High reliability for the substantive review; slightly longer startup due to model testing. Independent of the orchestrator tier, which can be retuned without touching the review chain.
 
 ### LADR-003: Context-Aware Review with On-Demand File Access
@@ -128,7 +119,7 @@ The LADRs are the **decisions the model must follow** — they are the rules, no
 ### LADR-009: Selective Concurrency
 
 - **Status**: Accepted
-- **Decision**: Only `pull_request` events share concurrency group `ai-review-{pr_number}`. Other events (`issue_comment`, `workflow_dispatch`) use unique `{run_id}-{run_attempt}` per run. `pull_request_target` trigger was removed (caused duplicate runs on PR creation).
+- **Decision**: Only `pull_request` events share concurrency group `ai-review-{pr_number}`. Other events (`issue_comment`, `workflow_dispatch`) use unique `{run_id}-{run_attempt}` per run.
 - **Consequences**: Automated reviews always complete; manual triggers run independently; rapid commits still cancel each other.
 
 ### LADR-010: Adaptive Chunk Splitting by Directory Depth
@@ -140,7 +131,7 @@ The LADRs are the **decisions the model must follow** — they are the rules, no
 ### LADR-011: Semantic Business Context Grouping via LLM
 
 - **Status**: Accepted
-- **Decision**: LLM pre-processing groups files by business context for PRs with 15+ files (threshold raised from 8 → 15 after PR #5326 — 10 files over-split into 6 chunks with tiny per-chunk output, hitting GitHub's 65KB review-body limit). 60-second timeout, strict validation (every file exactly once), falls back to directory grouping on failure. Includes "logic moved" detection: when code is removed from one file and similar code added in another, both are grouped together.
+- **Decision**: LLM pre-processing groups files by business context for PRs with 15+ files. 60-second timeout, strict validation (every file exactly once), falls back to directory grouping on failure. Includes "logic moved" detection: when code is removed from one file and similar code added in another, both are grouped together.
 - **Consequences**: Cross-cutting features reviewed together for medium-to-large PRs; small PRs (<15 files) skip the extra semantic-grouping API call (~10-30s saved) and use cheaper directory grouping. Non-deterministic grouping above the threshold; LADR-010 applies as safety net.
 
 ### LADR-012: Confidence Tagging and Verification-Incomplete Suppression
@@ -182,37 +173,36 @@ The LADRs are the **decisions the model must follow** — they are the rules, no
 ### LADR-021: All-Models-Failed Posts Request-Changes Instead of Failing Workflow
 
 - **Status**: Accepted
-- **Decision**: On all-models-failed, the model-test step sets `all_models_failed=true` (and `selected_model=none`) and completes successfully. A new step `Post Request Changes - All Gemini Models Failed`, gated on `steps.gemini_model_test.outputs.all_models_failed == 'true'`, posts a `--request-changes` review naming the failed models and pointing to the workflow logs. All downstream side-effect steps (Validate AGENTS.md, Block PR if AGENTS.md Validation Failed, Skip Review Due to Blocking Review, Review PR in Chunks, Aggregate Reviews, Minimize Previous Gemini Reviews, Post Review Comment, Post Error Comment) are gated with `steps.gemini_model_test.outputs.all_models_failed != 'true'` so they no-op on this path. The job exits green.
+- **Decision**: On all-models-failed, the model-test step sets `all_models_failed=true` and completes successfully; a dedicated step posts a `--request-changes` review naming the failed models and linking the workflow logs, and all downstream side-effect steps are gated to no-op on this path. The job exits green.
 - **Consequences**: Quota / API-key incidents surface as a request-changes review (the existing "Failed → request-changes" branch of the decision matrix in Key Behaviors) rather than a red workflow check. Re-running once the upstream issue is resolved (via `/ai-review`) clears the request-changes state through a fresh full review. Trade-off: a green workflow check no longer guarantees a Gemini review ran — reviewers must read the posted review body to see whether substantive findings or an infrastructure failure produced the request-changes verdict.
 
 ### LADR-022: Explicit Orchestrator Model for Non-Analytical Calls
 
 - **Status**: Accepted
-- **Decision**: Replace the `auto` derivation with an explicit, independently-tunable `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` (default `gemini-3-flash-preview`, a GitHub Variable). All non-chunk-review calls run on it. Its fallback is the **resolved review model** (the chunk chain's winner), so if the orchestrator is down the summary still runs on a known-healthy model. The orchestrator is intentionally **not** probed at startup (its fallback is already proven by the LADR-002 probe). Removed: the `auto` logical name, `resolve_model()`'s `auto`→flash mapping, and `get_aggregation_model()`.
+- **Decision**: Replace the `auto` derivation with an explicit, independently-tunable `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` (default `gemini-3-flash-preview`, a GitHub Variable). All non-chunk-review calls run on it. Its fallback is the **resolved review model** (the chunk chain's winner), so if the orchestrator is down the summary still runs on a known-healthy model. The orchestrator is intentionally **not** probed at startup (its fallback is already proven by the LADR-002 probe).
 - **Consequences**: Lower per-PR cost without changing review quality (analysis stays on the Pro review chain). The `**Model:**` field shows the resolved review model. Deterministic — no reliance on a proxy router to interpret `auto`. Orchestrator and review tiers tune independently.
 
 ### LADR-023: opencode as Transport for Gemini Models
 
-- **Status**: Accepted (partially superseded by LADR-029 — chunk review now passes `--agent review` rather than the default `build` agent)
-- **Decision**: Use `opencode` as the CLI transport. Gemini *models* unchanged — LADR-002 two-tier review chain and LADR-022 (explicit orchestrator) preserved at the call-site level. The provider is declared in `assets/opencode.json` as a custom `@ai-sdk/google` provider named `gemini`, with `baseURL={env:OPENCODE_REVIEW_REPORT_GEMINI_URL}` and `apiKey={env:OPENCODE_GEMINI_API_KEY}`. The `litellm-gemini` provider name was renamed to `gemini` (BNKI-001 PR #1) and the per-provider `baseURL` placeholders were removed (each `@ai-sdk/*` now uses its native API base; a relaying-gateway provider with its own baseURL may be added separately). Originally passed NO `--agent` flag — that stance was superseded by LADR-029 (custom `review` agent with no pinned `model` field, so `--model` still wins). The `gemini` provider registers four physical model ids (`gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash`). The old `auto` logical name and its `resolve_model()` mapping were removed (LADR-022) — every call site now passes an explicit model id.
-- **Consequences**: Unblocks the 2026-06-18 EOL deadline. Posted review still surfaces the chunk-review model id in `**Model:**`. The workflow filename is `pipeline-code-review-report.yml` (the comment trigger is `/ai-review`). LADR-015 file-state verification works via the `review` agent's read tool.
+- **Status**: Accepted
+- **Decision**: Use `opencode` as the CLI transport (provider-agnostic). Gemini *models* are unchanged — the LADR-002 two-tier chain and LADR-022 orchestrator are preserved at the call site. The provider is declared in `assets/opencode.json` as `@ai-sdk/google` named `gemini` with `apiKey={env:OPENCODE_GEMINI_API_KEY}`; the gateway `baseURL` is **injected at install time** from `OPENCODE_REVIEW_REPORT_GEMINI_URL` (LADR-034), not committed (DR-009). The `gemini` provider registers four physical model ids (`gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash`); every call site passes an explicit model id. Chunk review runs on the locked-down `review` agent (LADR-029).
+- **Consequences**: Posted review surfaces the chunk-review model id in `**Model:**`; LADR-015 file-state verification works via the `review` agent's read tool. The workflow filename is `pipeline-code-review-report.yml` (the comment trigger is `/ai-review`).
 
 ### LADR-025: Allow `external_directory` reads (headless `--yolo` equivalent)
 
 - **Status**: Accepted
 - **Decision**: Add a top-level `"permission": { "external_directory": "allow" }` block to `assets/opencode.json` — the headless equivalent of `--yolo` for the one gate that was failing (`read`/`grep`/`glob` already default to `allow`). `setup-opencode-config.sh`'s self-heal `is_ours` predicate was widened to treat `permission` as part of our managed-config shape. The review pipeline only reads — never edits or runs bash — so allowing reads is safe.
-- **Consequences**: Chunks reliably load context files; LADR-015 verification reads work; clean PRs can resolve to APPROVE again (as pre-migration). Trade-off: the model may read any in-repo path during a review — acceptable (same effective access as the prior `--yolo`).
-- **Update (LADR-029)**: the original "tighter scoping later" note was realized — `external_directory: allow` is now ALSO set on a read-only `review` agent (`--agent review`) that additionally denies skill/task/edit/bash.
+- **Consequences**: Chunks reliably load context files; LADR-015 verification reads work; clean PRs can resolve to APPROVE again. Trade-off: the model may read any in-repo path during a review — acceptable (same effective access as the prior `--yolo`). `external_directory: allow` is also set on the locked-down `review` agent (LADR-029).
 
 ### LADR-026: Env-Selected Provider (GEMINI / COPILOT / OPENAI)
 
-- **Status**: Accepted (supersedes the single-provider stance of LADR-024; extended by LADR-027 for OpenCode Go)
+- **Status**: Accepted
 - **Decision**: Promote the providers from config-only to runtime-selectable via the `OPENCODE_REVIEW_REPORT_PROVIDER` Variable (default `GEMINI`). `lib/resolve-provider.sh` is the single source of truth: it maps the selector → `OPENCODE_REVIEW_REPORT_PROVIDER_ID` (the opencode provider key prefixed onto the model), copies the selected provider's URL/key into generic `OPENCODE_REVIEW_REPORT_GATEWAY_URL`/`_API_KEY` (for the credential presence check), and **fails fast** when the selected provider's creds are missing or the `OPENCODE_REVIEW_REPORT_MODEL_*` chain doesn't match the provider's model family (GEMINI → `gemini-*`, others → `gpt-*`). All call sites prefix `${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/<model>`; the workflow exports all three credential pairs at job scope; `local-review.sh` harvests all three pairs and sources the same resolver.
 - **Consequences**: One gate, any of three providers, switchable by a Variable + that provider's URL/key/model Variables — no workflow edit. opencode is genuinely provider-agnostic transport: the endpoint may be a LiteLLM proxy or a native API. Trade-off: the model-chain defaults are Gemini IDs, so a non-GEMINI run MUST set `OPENCODE_REVIEW_REPORT_MODEL_*` to that provider's models or the resolver aborts (intentional, prevents confusing downstream `opencode run` failures).
 
 ### LADR-027: OpenCode Go Providers — split by SDK surface (`go-openai` + `go-anthropic`)
 
-- **Status**: Accepted (extends LADR-026)
+- **Status**: Accepted
 - **Decision**: Split OpenCode Go into **two** providers rather than one, each with its own `npm` + `baseURL` + credential namespace:
   - **`go-openai`** — `npm: "@ai-sdk/openai-compatible"`, `baseURL: "https://opencode.ai/zen/go/v1"` (hardcoded), `apiKey={env:OPENCODE_GO_OPENAI_API_KEY}`. Models: `deepseek-v4-flash`, `deepseek-v4-pro`, `glm-5.1`.
   - **`go-anthropic`** — `npm: "@ai-sdk/anthropic"`, `baseURL: "https://opencode.ai/zen/go/v1"` (hardcoded), `apiKey={env:OPENCODE_GO_ANTHROPIC_API_KEY}`. Models: `minimax-m3`, `minimax-m2.7`, `qwen3.7-plus`, `qwen3.6-pro`.
