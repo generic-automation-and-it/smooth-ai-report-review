@@ -36,8 +36,8 @@ cmd_detect() {
   local hit
   hit=$(
     {
-      gh api "repos/{owner}/{repo}/pulls/${pr}/reviews" -q '.[].user.login'
-      gh api "repos/{owner}/{repo}/pulls/${pr}/comments" -q '.[].user.login'
+      gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/reviews" -q '.[].user.login'
+      gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/comments" -q '.[].user.login'
     } 2>/dev/null | grep -Ei "$COPILOT_LOGINS_RE" | head -n1 || true
   )
   if [ -n "$hit" ]; then echo "COPILOT"; else echo "OTHER"; fi
@@ -46,7 +46,7 @@ cmd_detect() {
 cmd_threads() {
   local pr="$1"
   gh api graphql \
-    -F owner="$(repo_owner)" -F repo="$(repo_name)" -F pr="$pr" \
+    -f owner="$(repo_owner)" -f repo="$(repo_name)" -F pr="$pr" \
     -f query='
       query($owner:String!,$repo:String!,$pr:Int!){
         repository(owner:$owner,name:$repo){

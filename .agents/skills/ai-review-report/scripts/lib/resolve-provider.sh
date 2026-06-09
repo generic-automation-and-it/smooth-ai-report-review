@@ -112,11 +112,15 @@ done
 export OPENCODE_REVIEW_REPORT_PROVIDER OPENCODE_REVIEW_REPORT_PROVIDER_ID OPENCODE_REVIEW_REPORT_GATEWAY_URL OPENCODE_GATEWAY_API_KEY
 
 if [ -n "${GITHUB_ENV:-}" ]; then
+  # Only the non-sensitive resolved vars go to $GITHUB_ENV. The API key is NOT
+  # written here: it would persist the secret to every subsequent workflow step,
+  # and nothing downstream reads OPENCODE_GATEWAY_API_KEY (opencode.json
+  # substitutes the provider-specific {env:OPENCODE_*_API_KEY}; the presence check
+  # above uses the in-process value). It stays exported in-process for local runs.
   {
     echo "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER"
     echo "OPENCODE_REVIEW_REPORT_PROVIDER_ID=$OPENCODE_REVIEW_REPORT_PROVIDER_ID"
     echo "OPENCODE_REVIEW_REPORT_GATEWAY_URL=$OPENCODE_REVIEW_REPORT_GATEWAY_URL"
-    echo "OPENCODE_GATEWAY_API_KEY=$OPENCODE_GATEWAY_API_KEY"
   } >> "$GITHUB_ENV"
 fi
 

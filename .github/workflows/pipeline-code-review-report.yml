@@ -219,10 +219,13 @@ jobs:
           esac
           OPENCODE_REVIEW_REPORT_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
           OPENCODE_GATEWAY_API_KEY="${!K}"
-          # Export to later steps so the probe + scripts read the resolved creds.
+          # Export the non-sensitive resolved URL to later steps. The API key is
+          # deliberately NOT written to $GITHUB_ENV — that would persist the secret
+          # to every later step, and nothing downstream reads OPENCODE_GATEWAY_API_KEY
+          # (opencode.json substitutes the provider-specific {env:OPENCODE_*_API_KEY};
+          # the presence check below uses the in-step value).
           {
             echo "OPENCODE_REVIEW_REPORT_GATEWAY_URL=${OPENCODE_REVIEW_REPORT_GATEWAY_URL}"
-            echo "OPENCODE_GATEWAY_API_KEY=${OPENCODE_GATEWAY_API_KEY}"
           } >> "$GITHUB_ENV"
 
           # Fail fast (and clearly) if the selected provider's gateway credentials
@@ -355,7 +358,7 @@ jobs:
 
       - name: Restore OPENCODE cache
         id: opencode_cache_restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.opencode/bin
@@ -546,7 +549,7 @@ jobs:
 
       - name: Save OPENCODE cache
         if: ${{ success() && steps.initialize_opencode.outputs.opencode_install_performed == 'true' && (steps.initialize_opencode.outputs.opencode_version_before == '' || steps.initialize_opencode.outputs.opencode_version_after != steps.initialize_opencode.outputs.opencode_version_before) }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.opencode/bin
