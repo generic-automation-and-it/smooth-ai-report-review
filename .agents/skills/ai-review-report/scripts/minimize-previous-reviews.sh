@@ -3,7 +3,7 @@ set -e
 
 # Script: minimize-previous-reviews.sh
 # Purpose: Minimize (hide) previous Gemini reviews when a new full review is posted
-# Usage: Called from pipline-code-review-report.yml workflow after posting a full review
+# Usage: Called from pipeline-code-review-report.yml workflow after posting a full review
 # Arguments: $1=PR_NUMBER $2=REVIEW_TYPE $3=GITHUB_REPOSITORY $4=CURRENT_REVIEW_ID (optional)
 
 PR_NUMBER="$1"

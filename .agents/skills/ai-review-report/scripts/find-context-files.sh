@@ -3,7 +3,7 @@ set -e
 
 # Script: find-context-files.sh
 # Purpose: Discover relevant *AGENTS.md files based on changed files in PR
-# Usage: Called from pipline-code-review-report.yml workflow
+# Usage: Called from pipeline-code-review-report.yml workflow
 # Output: ci_temp/context_files.txt with list of relevant context files
 
 echo "Looking for relevant *AGENTS.md files based on changed files..."
