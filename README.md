@@ -19,15 +19,15 @@ These steps are written for an **AI coding agent running in the _target_ repo**.
 **Source repo:** `generic-automation-and-it/smooth-ai-report-review` (branch `main`).
 
 **What gets installed:**
-1. The gate workflow → `.github/workflows/pipline-code-review-report.yml` (the `pipline` spelling is intentional and load-bearing — do **not** rename it).
-2. The `ai-review-report` skill → `.agents/skills/ai-review-report/`, **excluding `scripts/eval/`** (the eval harness is for developing this skill, not for running the gate).
-3. The `ai-review` skill → `.agents/skills/ai-review/` (the local `/ai-review` companion that **consumes** a posted review and applies fix/skip decisions; not invoked by the CI gate, but installs the command developers run in their AI tool).
+1. The gate workflow → `.github/workflows/pipeline-code-review-report.yml`.
+2. The `ai-review-report` skill → `<skills-dir>/ai-review-report/`, **excluding `scripts/eval/`** (the eval harness is for developing this skill, not for running the gate).
+3. The `ai-review` skill → `<skills-dir>/ai-review/` (the local `/ai-review` companion that **consumes** a posted review and applies fix/skip decisions; not invoked by the CI gate, but installs the command developers run in their AI tool).
 
-> **Install to `.agents/`, even if you use Cursor/Claude.** The workflow calls its scripts by hardcoded path `.agents/skills/ai-review-report/scripts/…`, so on the runner the skill **must** live there. In this repo `.cursor`, `.claude`, and `.codex` are top-level symlinks → `.agents`, which is the only reason the same files also appear under `.cursor/skills/…`. Recreate those symlinks in the target if your tool reads skills from `.cursor`/`.claude`/`.codex`.
+> **One skills dir, no per-agent copies or symlinks.** Both skills install into a single `<skills-dir>`, chosen by priority — the first existing of `.agents/skills`, `.ai/skills`, `.claude/skills`, `.codex/skills`; if none exist, `.agents/skills`. Because the gate calls its scripts by path, when `<skills-dir>` is **not** `.agents/skills` Step 1 repoints the workflow's (and `setup-opencode-config.sh`'s) hardcoded `.agents/skills/ai-review…` references to the chosen dir; target-repo context paths (`.agents/rules/…`, `.docs/…`, `code-review-standards`) are left untouched. The scripts find their own siblings by relative path, so they work unchanged from any of these dirs.
 
 ### Step 1 — copy the files (auto-detects install vs update)
 
-Run this **from the target repo's root**. It refuses to run anywhere else, detects whether the gate already exists (→ `update`) or not (→ `install`), copies the files, and verifies the result — failing loudly on a partial copy.
+Run this **from the target repo's root**. It refuses to run anywhere else, detects whether the gate already exists (→ `update`) or not (→ `install`), copies the files, and verifies the result — failing loudly on a partial copy. On **update** it finds a prior gate under either the canonical `pipeline-…` or the legacy `pipline-…` filename, carries over your existing `runs-on`, replaces the legacy name with the canonical one, and prints the old→new workflow diff for review.
 
 ```bash
 set -e
@@ -37,10 +37,25 @@ command -v git >/dev/null || { echo "✗ git not found"; exit 1; }
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "✗ run this inside the target git repository"; exit 1; }
 cd "$ROOT"
 
-# Detect install vs update: update if ANY target already exists.
-if [ -e .github/workflows/pipline-code-review-report.yml ] \
-   || [ -d .agents/skills/ai-review-report ] \
-   || [ -d .agents/skills/ai-review ]; then
+WF=".github/workflows/pipeline-code-review-report.yml"    # canonical name
+WF_OLD=".github/workflows/pipline-code-review-report.yml" # legacy typo'd name from older installs
+
+# Pick the ONE skills dir to install into, by priority: the first that already
+# exists, else .agents. No per-agent copies or symlinks are created.
+DEST=".agents"
+for d in .agents .ai .claude .codex; do
+  if [ -d "$d/skills" ]; then DEST="$d"; break; fi
+done
+echo "Skills dir: $DEST/skills"
+
+# Find an existing gate (canonical OR legacy name) and stash it for delta analysis.
+PREV=""
+for w in "$WF" "$WF_OLD"; do [ -f "$w" ] && { PREV="$w"; break; }; done
+PREV_SAVE="$(git rev-parse --git-dir)/ci-prev-workflow.yml"
+[ -n "$PREV" ] && cp "$PREV" "$PREV_SAVE"
+
+# Detect install vs update: update if a prior gate OR skill tree exists.
+if [ -n "$PREV" ] || [ -d "$DEST/skills/ai-review-report" ] || [ -d "$DEST/skills/ai-review" ]; then
   MODE="update"
 else
   MODE="install"
@@ -53,37 +68,62 @@ git clone --depth 1 https://github.com/generic-automation-and-it/smooth-ai-repor
 
 # On update, remove existing skill trees first so files deleted upstream don't linger.
 if [ "$MODE" = update ]; then
-  rm -rf .agents/skills/ai-review-report .agents/skills/ai-review
+  rm -rf "$DEST/skills/ai-review-report" "$DEST/skills/ai-review"
 fi
 
-# 1) gate workflow (straight overwrite on update)
+# 1) gate workflow → canonical name; drop any legacy typo'd copy so there's exactly one gate.
 mkdir -p .github/workflows
-cp "$SRC/.github/workflows/pipline-code-review-report.yml" .github/workflows/
+cp "$SRC/$WF" "$WF"
+[ -f "$WF_OLD" ] && rm -f "$WF_OLD"
 
-# 2) the two skills — real path under .agents/ (required by the workflow's hardcoded script paths)
-mkdir -p .agents/skills
-cp -R "$SRC/.agents/skills/ai-review-report" .agents/skills/
-cp -R "$SRC/.agents/skills/ai-review"        .agents/skills/
+# 2) the two skills — into the chosen dir
+mkdir -p "$DEST/skills"
+cp -R "$SRC/.agents/skills/ai-review-report" "$DEST/skills/"
+cp -R "$SRC/.agents/skills/ai-review"        "$DEST/skills/"
 
 # exclude the eval harness — not needed to run the gate
-rm -rf .agents/skills/ai-review-report/scripts/eval
+rm -rf "$DEST/skills/ai-review-report/scripts/eval"
 
-# OPTIONAL: surface the skills to Cursor/Claude/Codex too (mirrors this repo's layout)
-for t in .cursor .claude .codex; do [ -e "$t" ] || ln -s .agents "$t"; done
+# 3) when NOT installing under .agents, repoint the gate's hardcoded skill paths
+#    (the workflow's refs + setup-opencode-config.sh's opencode.json path) at $DEST.
+#    Scoped to the literal '.agents/skills/ai-review' so target-repo context paths
+#    (.agents/rules/…, .docs/…, code-review-standards) are left untouched.
+if [ "$DEST" != ".agents" ]; then
+  command -v perl >/dev/null || { echo "✗ perl needed to repoint paths for $DEST/skills"; exit 1; }
+  find "$WF" "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" -type f \
+    -exec perl -i -pe "s{\.agents/skills/ai-review}{$DEST/skills/ai-review}g" {} +
+fi
+
+# 4) update only: carry over the previous gate's runs-on (e.g. self-hosted) and show the delta
+#    so the agent can ask the operator which other prior customizations to re-introduce.
+if [ "$MODE" = update ] && [ -n "$PREV" ]; then
+  command -v perl >/dev/null || { echo "✗ perl needed to preserve runs-on"; exit 1; }
+  OLD_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$PREV_SAVE" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//')"
+  if [ -n "$OLD_RO" ]; then
+    OLD_RO="$OLD_RO" perl -i -pe 'if(!$d && /^(\s*)runs-on:/){$_="$1runs-on: $ENV{OLD_RO}\n";$d=1}' "$WF"
+    echo "↻ carried over previous runs-on: $OLD_RO"
+  fi
+  echo "=== Δ previous gate ($PREV) → new gate (runs-on already merged) ==="
+  diff -u "$PREV_SAVE" "$WF" || true
+  echo "(previous workflow saved at $PREV_SAVE)"
+fi
 
 rm -rf "$SRC"
 
 # Verify — fail loudly on a partial copy instead of reporting success.
-test -f .github/workflows/pipline-code-review-report.yml \
- && test -f .agents/skills/ai-review-report/SKILL.md \
- && test -f .agents/skills/ai-review/SKILL.md \
- && test ! -e .agents/skills/ai-review-report/scripts/eval \
- && echo "✓ $MODE complete" || { echo "✗ install incomplete — check output above"; exit 1; }
+# Assert a deep runtime script too (not just SKILL.md): the gate's first call is
+# setup-opencode-config.sh, so a truncated copy must fail HERE, not on the runner.
+test -f "$WF" \
+ && test -f "$DEST/skills/ai-review-report/SKILL.md" \
+ && test -f "$DEST/skills/ai-review/SKILL.md" \
+ && test -f "$DEST/skills/ai-review-report/scripts/lib/setup-opencode-config.sh" \
+ && test ! -e "$DEST/skills/ai-review-report/scripts/eval" \
+ && echo "✓ $MODE complete ($DEST/skills)" || { echo "✗ install incomplete — check output above"; exit 1; }
 ```
 
 **Then message the operator using `$MODE`:**
-- `install` → "**Installed** the AI review gate (workflow + `ai-review-report` + `ai-review`)."
-- `update` → "**Updated** the existing AI review gate." Note that files were overwritten and they should review `git diff` before committing — an update can change workflow steps, scripts, or the `opencode.json` provider config.
+- `install` → "**Installed** the AI review gate (workflow + `ai-review-report` + `ai-review` under `$DEST/skills`)."
+- `update` → "**Updated** the existing AI review gate." The block printed an old→new workflow **diff** and already carried over your previous `runs-on`. **Present that diff to the operator as a table** — columns `id | change` — and **ask which of the remaining old customizations to re-introduce** into the new workflow before committing (the freshly-copied file is canonical otherwise; a legacy `pipline-…` gate is replaced by the canonical `pipeline-…` name). Then have them review `git diff` before committing — an update can change workflow steps, scripts, or the `opencode.json` provider config.
 
 > The workflow's `MANDATORY_CONTEXT_FILES` list points at product-repo paths (e.g. `.docs/nfr/…`, `.agents/rules-scoped/backend/…`). Any that don't exist in the target **warn-and-skip** — the gate still runs. Trim that `env:` list in the workflow to the target repo's real context files when convenient.
 

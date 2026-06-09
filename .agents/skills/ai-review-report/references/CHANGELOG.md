@@ -2,7 +2,7 @@
 
 > Historical record for the `ai-review-report` skill. Load only when updating the skill or auditing past decisions; not needed for routine skill execution.
 >
-> **Imported history:** entries dated before 2026-06-01 predate this polyrepo — they describe the skill's life inside its origin monorepo and reference legacy names/paths that **do not exist here**, preserved verbatim as an audit trail (not as current locations). In particular: the `.ai/…` prefix is dead — this repo uses `.agents/…`; and the old `manual-gemini-cli-code-review.yml` workflow / `gemini-code-review` / `open-code-review-report` skill dirs are now the `pipline-code-review-report` gate under `.agents/skills/ai-review-report/`.
+> **Imported history:** entries dated before 2026-06-01 predate this polyrepo — they describe the skill's life inside its origin monorepo and reference legacy names/paths that **do not exist here**, preserved verbatim as an audit trail (not as current locations). In particular: the `.ai/…` prefix is dead — this repo uses `.agents/…`; and the old `manual-gemini-cli-code-review.yml` workflow / `gemini-code-review` / `open-code-review-report` skill dirs are now the `pipeline-code-review-report` gate under `.agents/skills/ai-review-report/`.
 
 | Date | Change | Ref |
 |:-----|:-------|:----|

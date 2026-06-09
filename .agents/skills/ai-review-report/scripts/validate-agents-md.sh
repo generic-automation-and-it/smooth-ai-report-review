@@ -3,7 +3,7 @@ set -e
 
 # Script: validate-agents-md.sh
 # Purpose: Validate that FULL reviews include at least one documentation file with proper naming
-# Usage: Called from pipline-code-review-report.yml workflow for FULL reviews only
+# Usage: Called from pipeline-code-review-report.yml workflow for FULL reviews only
 # Arguments: $1=REVIEW_TYPE
 #
 # Validation Rules:

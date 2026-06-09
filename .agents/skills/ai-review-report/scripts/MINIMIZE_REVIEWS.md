@@ -8,7 +8,7 @@ This feature automatically minimizes (marks as "OUTDATED") previous PR code revi
 
 ### Workflow Integration
 
-The `minimize-previous-reviews.sh` script is integrated into the `.github/workflows/pipline-code-review-report.yml` workflow:
+The `minimize-previous-reviews.sh` script is integrated into the `.github/workflows/pipeline-code-review-report.yml` workflow:
 
 1. **After posting a full review**, the workflow automatically calls the minimize script
 2. **Only full reviews trigger minimization** - incremental reviews are left visible
@@ -186,7 +186,7 @@ The script includes a 0.5 second delay between requests to avoid rate limits. Gr
 ## Related Files
 
 - **Script**: `.agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh`
-- **Workflow**: `.github/workflows/pipline-code-review-report.yml`
+- **Workflow**: `.github/workflows/pipeline-code-review-report.yml`
 - **Test Script**: `.agents/skills/ai-review-report/scripts/test-minimize-reviews.sh`
 
 ## References

@@ -1,6 +1,6 @@
 ---
 name: ai-review-report
-description: Automated PR code review pipeline using chunked processing, context-aware analysis, and provider-selectable models (Gemini / Copilot / OpenAI via OPENCODE_REVIEW_REPORT_PROVIDER) through the opencode CLI transport. Use when modifying the `pipline-code-review-report` workflow, debugging review failures, adding/changing LADRs or Key Behaviors, or understanding the review decision matrix, two-tier review chain, chunked architecture, or false-positive prevention rules. Do NOT use for unrelated CI workflows or for AI-coder workflow rules (see `.agents/rules/ai-workflow-rules.instructions.md` instead).
+description: Automated PR code review pipeline using chunked processing, context-aware analysis, and provider-selectable models (Gemini / Copilot / OpenAI via OPENCODE_REVIEW_REPORT_PROVIDER) through the opencode CLI transport. Use when modifying the `pipeline-code-review-report` workflow, debugging review failures, adding/changing LADRs or Key Behaviors, or understanding the review decision matrix, two-tier review chain, chunked architecture, or false-positive prevention rules. Do NOT use for unrelated CI workflows or for AI-coder workflow rules (see `.agents/rules/ai-workflow-rules.instructions.md` instead).
 ---
 
 # OpenCode CLI Code Review
@@ -195,7 +195,7 @@ The LADRs are the **decisions the model must follow** — they are the rules, no
 
 - **Status**: Accepted (partially superseded by LADR-029 — chunk review now passes `--agent review` rather than the default `build` agent)
 - **Decision**: Use `opencode` as the CLI transport. Gemini *models* unchanged — LADR-002 two-tier review chain and LADR-022 (explicit orchestrator) preserved at the call-site level. The provider is declared in `assets/opencode.json` as a custom `@ai-sdk/google` provider named `gemini`, with `baseURL={env:OPENCODE_REVIEW_REPORT_GEMINI_URL}` and `apiKey={env:OPENCODE_GEMINI_API_KEY}`. The `litellm-gemini` provider name was renamed to `gemini` (BNKI-001 PR #1) and the per-provider `baseURL` placeholders were removed (each `@ai-sdk/*` now uses its native API base; a relaying-gateway provider with its own baseURL may be added separately). Originally passed NO `--agent` flag — that stance was superseded by LADR-029 (custom `review` agent with no pinned `model` field, so `--model` still wins). The `gemini` provider registers four physical model ids (`gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash`). The old `auto` logical name and its `resolve_model()` mapping were removed (LADR-022) — every call site now passes an explicit model id.
-- **Consequences**: Unblocks the 2026-06-18 EOL deadline. Posted review still surfaces the chunk-review model id in `**Model:**`. The workflow filename is `pipline-code-review-report.yml` (the comment trigger is `/ai-review`). LADR-015 file-state verification works via the `review` agent's read tool.
+- **Consequences**: Unblocks the 2026-06-18 EOL deadline. Posted review still surfaces the chunk-review model id in `**Model:**`. The workflow filename is `pipeline-code-review-report.yml` (the comment trigger is `/ai-review`). LADR-015 file-state verification works via the `review` agent's read tool.
 
 ### LADR-025: Allow `external_directory` reads (headless `--yolo` equivalent)
 

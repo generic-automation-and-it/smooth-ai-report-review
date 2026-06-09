@@ -10,7 +10,7 @@ fi
 
 # Script: aggregate-reviews.sh
 # Purpose: Aggregate chunked reviews and generate PR summary
-# Usage: Called from pipline-code-review-report.yml workflow
+# Usage: Called from pipeline-code-review-report.yml workflow
 # Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS
 
 TOTAL_CHUNKS="$1"
