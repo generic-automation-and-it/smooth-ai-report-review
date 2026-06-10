@@ -32,13 +32,11 @@ all_success=true
 echo "Creating directory symlinks for AI agent tools..."
 create_symlink ".claude" ".agents" || all_success=false
 create_symlink ".codex" ".agents" || all_success=false
-create_symlink ".cursor" ".agents" || all_success=false
 
 # Create file symlinks for context files
 echo ""
 echo "Creating file symlinks for context files..."
 create_symlink "CLAUDE.md" "AGENTS.md" || all_success=false
-create_symlink "GEMINI.md" "AGENTS.md" || all_success=false
 
 # Configure git to handle symlinks properly
 echo ""

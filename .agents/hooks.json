@@ -1,15 +1,3 @@
 {
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 .agents/hooks/slnx-docs-sync.py"
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }

@@ -33,18 +33,9 @@
       "Bash(git diff:*)",
       "Bash(git pull:*)",
       "Bash(git reset:*)",
-      "Skill(agile-github-task-from-diff)",
-      "Skill(ai-brain-dump)",
-      "Skill(ai-mansplain)",
       "Skill(ai-review)",
-      "Skill(ai-template-sync)",
-      "Skill(context-load-agents-context)",
-      "Skill(context-load-context)",
-      "Skill(git-commit)",
-      "Skill(git-commit-push)",
-      "Skill(git-commit-push-pr)",
-      "Skill(git-sync)",
-      "Skill(manage-rule-system)",
+      "Skill(ai-review-report)",
+      "Skill(git-commit-review-push)",
       "Bash(node:*)",
       "Bash(powershell.exe:*)",
       "Bash(python3:*)",
@@ -75,46 +66,6 @@
     ],
     "ask": [
       "Bash(gh pr close:*)"
-    ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 .agents/hooks/slnx-docs-sync.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".agents/hooks/load-agents-context.sh"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".agents/hooks/manage-rule-system-context.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".agents/hooks/code-review-standards-context.sh"
-          }
-        ]
-      }
     ]
   }
 }
