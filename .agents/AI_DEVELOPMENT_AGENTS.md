@@ -4,7 +4,7 @@
 
 ## 🎯 TL;DR
 
-The `.agents` folder provides a tool-agnostic structure for AI-assisted development, with symbolic links (`.claude`, `.cursor`, `.codex`) ensuring compatibility across multiple AI coding tools without duplication or vendor lock-in. In this repo it is deliberately minimal: it carries only the AI PR review pipeline skills and their supporting configuration — the generic devex scaffolding (rule system, hooks, prompt/role/document templates, auxiliary skills) was removed in the 2026-06-10 cleanup (#34).
+The `.agents` folder provides a tool-agnostic structure for AI-assisted development, with symbolic links (`.claude`, `.codex`) ensuring compatibility across multiple AI coding tools without duplication or vendor lock-in. In this repo it is deliberately minimal: it carries only the AI PR review pipeline skills and their supporting configuration — the generic devex scaffolding (rule system, hooks, prompt/role/document templates, auxiliary skills) was removed in the 2026-06-10 cleanup (#34).
 
 ## 📋 Overview
 
@@ -31,9 +31,7 @@ This is a unified AI development experience folder that centralizes skills and c
 | `.agents/skills/git-commit-review-push/` | Commit (with `/ai-review` trigger on the final commit) and push to remote |
 | `.claude` → `.agents` | Symbolic link for Claude Code compatibility |
 | `.codex` → `.agents` | Symbolic link for OpenAI Codex compatibility |
-| `.cursor` → `.agents` | Symbolic link for Cursor AI compatibility |
 | `CLAUDE.md` → `AGENTS.md` | Symbolic link alias for Claude-compatible root context discovery |
-| `GEMINI.md` → `AGENTS.md` | Symbolic link alias for Gemini-compatible root context discovery |
 
 ### Tool Compatibility Matrix
 
@@ -41,9 +39,7 @@ This is a unified AI development experience folder that centralizes skills and c
 | :---- | :---- | :---- |
 | **Claude Code** | Via `.claude` symlink | ✅ Active |
 | **GitHub Copilot** | `.github/copilot-instructions.md` pointing at root `AGENTS.md` for repo-wide context | ✅ Active |
-| **Cursor AI** | Via `.cursor` symlink | ✅ Active |
 | **OpenAI Codex** | Via `.codex` symlink | ✅ Active |
-| **Gemini** | Via `GEMINI.md` symlink | ✅ Compatible |
 | **Aider** | Direct `.agents` access (CLI) | ✅ Compatible |
 
 ## 📐 Architecture Decisions (Lightweight ADRs)
@@ -103,15 +99,14 @@ This is a unified AI development experience folder that centralizes skills and c
 
 ## 📊 Setup Instructions
 
-**Symlinks (`.claude`, `.codex`, `.cursor`, `CLAUDE.md`, `GEMINI.md`) are committed to git and available immediately after clone, so no setup script is required.**
+**Symlinks (`.claude`, `.codex`, `CLAUDE.md`) are committed to git and available immediately after clone, so no setup script is required.**
 
 ```bash
 # Verify links are present after clone
-ls -la | grep -E '(\.claude|\.codex|\.cursor)'
+ls -la | grep -E '(\.claude|\.codex)'
 # Expected output:
 # lrwxr-xr-x ... .claude -> .agents
 # lrwxr-xr-x ... .codex -> .agents
-# lrwxr-xr-x ... .cursor -> .agents
 ```
 
 **Optional: Run setup script to recreate symlink aliases if needed:**
@@ -129,3 +124,4 @@ ls -la | grep -E '(\.claude|\.codex|\.cursor)'
 | :---- | :---- | :---- |
 | 2026-05-30 | Initial version. | |
 | 2026-06-10 | Devex cleanup: removed rules/hooks/templates/auxiliary skills; kept only the review-pipeline skills; retired LADR-004; added LADR-005. | #34 |
+| 2026-06-10 | Dropped Cursor and Gemini support: `.cursor` and `GEMINI.md` symlinks removed (also from the setup scripts). | #34 |

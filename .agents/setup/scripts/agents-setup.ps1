@@ -46,12 +46,10 @@ $allSuccess = $true
 Write-Host "Creating directory symlinks for AI agent tools..." -ForegroundColor Cyan
 $allSuccess = (Create-Symlink ".claude" ".agents" $true) -and $allSuccess
 $allSuccess = (Create-Symlink ".codex" ".agents" $true) -and $allSuccess
-$allSuccess = (Create-Symlink ".cursor" ".agents" $true) -and $allSuccess
 
 # Create file symlinks for context files
 Write-Host "`nCreating file symlinks for context files..." -ForegroundColor Cyan
 $allSuccess = (Create-Symlink "CLAUDE.md" "AGENTS.md") -and $allSuccess
-$allSuccess = (Create-Symlink "GEMINI.md" "AGENTS.md") -and $allSuccess
 
 # Configure git to handle symlinks properly
 if ($allSuccess) {
