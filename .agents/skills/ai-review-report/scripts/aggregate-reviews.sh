@@ -225,6 +225,12 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 - **Do NOT elevate `[SPECULATIVE]` findings** to 🔴 Critical or 🟠 High Priority during aggregation. A speculative finding in a chunk stays speculative in the summary.
 - Per LADR-019 you do NOT have file-system access at the aggregation step — chunk reviews already performed `read_file` verification for Critical/High findings. Tag promotion is not your responsibility.
 
+**Review-Coverage Gaps Are NOT Code Issues (MANDATORY):**
+- A file that was not included in any review chunk, a chunk that failed or timed out, or a PR-author focus area you could not verify is a REVIEW-COVERAGE GAP, not a code defect.
+- **NEVER list a coverage gap under 🔴 Critical, 🟠 High, or 🟡 Medium.** Report it as 🔵 Low Priority informational only, tagged `[SPECULATIVE]` — you have not seen the code, so it can never be `[VERIFIED]`.
+- **NEVER count coverage gaps in the Recommendation's Step 1 issue counts.** The pipeline's fail-closed safety net (LADR-031) handles failed chunks mechanically — re-flagging them as blocking issues double-counts the failure.
+- This applies even when the PR author's AI Review Notes ask you to focus on that file or area: "I could not verify X" is 🔵 Low, never a blocking finding.
+
 **Required Output Format:**
 
 ## 📋 Overall Summary
@@ -370,7 +376,7 @@ EOF
   # Add integration-related checks only for FULL reviews
   if [ "$REVIEW_TYPE" = "full" ]; then
     cat >> ci_temp/summary_prompt.txt << 'EOF'
-- **Missing implementations** (e.g., frontend changes without backend support, or vice versa)
+- **Missing implementations** (e.g., frontend changes without backend support, or vice versa) — based ONLY on the diffs the chunk reviews actually saw. "A file was not present in the review chunks" is a review-coverage gap (🔵 Low, `[SPECULATIVE]`), NOT a missing implementation
 - **Integration concerns**: Verify new code is properly called/integrated into the application
 - **Dependency Injection**: New classes and interfaces must be properly registered in DI container
 - **Test Coverage**: Every code change should have corresponding tests added or updated
@@ -504,6 +510,12 @@ fi
 SHORT_FROM_SHA="${FROM_SHA:0:7}"
 SHORT_CURRENT_SHA="${CURRENT_SHA:0:7}"
 
+# LADR-036: count failed chunks BEFORE the body is assembled so the posted body
+# can carry a coverage banner that matches the fail-closed override at the end
+# of this script. LADR-031: the signal is flag-file existence ONLY — NEVER grep
+# review text for the failure marker (a quoted marker false-matched on PR #15).
+FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
+
 cat > ci_temp/final_review.md << EOF
 ## 🤖 OpenCode CLI Code Review - Commit: \`${SHORT_CURRENT_SHA}\`
 
@@ -535,6 +547,21 @@ fi
 cat >> ci_temp/final_review.md << EOF
 **Reviewed in:** ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "")
 **Model:** ${OPENCODE_MODEL_DISPLAY_NAME}
+EOF
+
+# LADR-036: coverage banner. When any chunk failed, the fail-closed override at
+# the end of this script forces REQUEST_CHANGES even if the Recommendation says
+# APPROVE — say so in the body, so the posted state and the body never
+# contradict (review 4465489664 posted an APPROVE-worded body as
+# CHANGES_REQUESTED with no explanation).
+if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+  cat >> ci_temp/final_review.md << EOF
+
+> ⚠️ **Review coverage incomplete:** ${FAILED_CHUNK_COUNT} of ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "") failed to review (see the failed-chunk details below). Because part of the PR was not reviewed, this review is posted as **REQUEST CHANGES (fail-closed)** regardless of the Recommendation section. Re-run \`/ai-review\` to retry once the failure is addressed.
+EOF
+fi
+
+cat >> ci_temp/final_review.md << EOF
 
 ---
 
@@ -619,10 +646,11 @@ REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary
 # SKILL.md and this script), and a text grep false-matched the quote → forced
 # REQUEST_CHANGES on a clean APPROVE (observed on PR #15). A flag file cannot be
 # quoted into existence by review content.
-if ls ci_temp/reviews/chunk_*.failed >/dev/null 2>&1; then
+# LADR-036: FAILED_CHUNK_COUNT was computed from the same flag files before the
+# body was assembled, so the coverage banner above and this override always agree.
+if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
   if [ "$REVIEW_DECISION" != "request_changes" ]; then
-    FAILED_CHUNKS=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
-    echo "⚠️ ${FAILED_CHUNKS} chunk(s) failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
+    echo "⚠️ ${FAILED_CHUNK_COUNT} chunk(s) failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
     REVIEW_DECISION="request_changes"
   fi
 fi

@@ -252,6 +252,11 @@ fi
 # Splits oversized directory groups by progressively deeper directory levels
 # to keep each chunk's diff within size limits for reliable Gemini processing
 MAX_CHUNK_SIZE=102400  # 100KB diff size limit per chunk
+# LADR-035: hard chunk-prompt size enforcement. The adaptive split alone cannot
+# bound the prompt (a single-directory group can't split deeper, and per-file
+# diffs were appended unbounded — PR #5404 built a 90MB prompt and timed out).
+MAX_FILE_DIFF_SIZE=$MAX_CHUNK_SIZE  # per-file diff cap inside a chunk prompt
+MAX_PROMPT_DIFF_SIZE=204800         # 200KB total diff budget per chunk prompt
 
 _process_chunk_group() {
   local group="$1"
@@ -270,17 +275,42 @@ _process_chunk_group() {
   done <<< "$files"
 
   if [ "$diff_size" -gt "$MAX_CHUNK_SIZE" ] && [ "$count" -gt 1 ]; then
-    echo "  ⚡ Splitting '${group}' (${diff_size} bytes, ${count} files) → deeper directory level" >&2
     _had_splits=true
     local depth
     depth=$(echo "$group" | awk -F'/' '{print NF}')
     local new_depth=$((depth + 1))
-    while IFS= read -r f; do
+    # Propose the deeper-directory regroup first, then check it actually splits.
+    local proposed
+    proposed=$(while IFS= read -r f; do
       [ -z "$f" ] && continue
-      local new_group
-      new_group=$(dirname "$f" | cut -d'/' -f1-${new_depth})
-      echo "${new_group}::${f}"
-    done <<< "$files"
+      echo "$(dirname "$f" | cut -d'/' -f1-${new_depth})::${f}"
+    done <<< "$files")
+    local distinct_groups
+    distinct_groups=$(printf '%s\n' "$proposed" | awk -F'::' '{print $1}' | sort -u | grep -c . || true)
+    if [ "${distinct_groups:-0}" -le 1 ]; then
+      # LADR-035: every file sits in the same directory (or the same single
+      # deeper directory / semantic group), so the deeper-level regroup is a
+      # no-op — the 5-iteration loop would exhaust and the oversized group
+      # survive intact (PR #5404: 17 files in ONE directory → 90MB prompt →
+      # 300s timeout). Halve the file list instead; an oversized half halves
+      # again on the next iteration (up to 2^5 subgroups). '@' is safe in
+      # group names — downstream parsing splits on '::' only.
+      echo "  ⚡ Splitting '${group}' (${diff_size} bytes, ${count} files) → halving (single directory, cannot split deeper)" >&2
+      local half=$(((count + 1) / 2))
+      local idx=0
+      while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        idx=$((idx + 1))
+        if [ "$idx" -le "$half" ]; then
+          echo "${group}@1::${f}"
+        else
+          echo "${group}@2::${f}"
+        fi
+      done <<< "$files"
+    else
+      echo "  ⚡ Splitting '${group}' (${diff_size} bytes, ${count} files) → deeper directory level" >&2
+      printf '%s\n' "$proposed"
+    fi
   else
     if [ "$diff_size" -gt "$MAX_CHUNK_SIZE" ]; then
       echo "  ⚠️ Single file in '${group}' exceeds limit (${diff_size} bytes) - cannot split further" >&2
@@ -675,7 +705,14 @@ For each file, use this structure:
 
 EOF
 
-  # Generate diff for just these files, with integrity checking
+  # Generate diff for just these files, with integrity checking and hard size
+  # enforcement (LADR-035): a per-file cap (MAX_FILE_DIFF_SIZE) and a chunk-wide
+  # diff budget (MAX_PROMPT_DIFF_SIZE). Oversized diffs are truncated/omitted
+  # with read_file guidance instead of appended unbounded — safe because the
+  # review agent has read access (LADR-025/029) and Critical/High already
+  # requires read_file verification (LADR-015); a bounded prompt degrades to
+  # on-demand reading, never to a timeout + forced fail-closed block (PR #5404).
+  local prompt_diff_total=0
   for f in "${files[@]}"; do
     local file_diff
     file_diff=$(git diff "${FROM_SHA}..${TO_SHA}" -- "$f" 2>/dev/null) || {
@@ -683,12 +720,38 @@ EOF
       continue
     }
     local file_diff_size=${#file_diff}
-    if [ "$file_diff_size" -gt "$MAX_CHUNK_SIZE" ]; then
+
+    # Budget exhausted: append NO diff for this file — read_file on demand only.
+    if [ "$prompt_diff_total" -ge "$MAX_PROMPT_DIFF_SIZE" ]; then
+      echo "  ✂️ Diff omitted for ${f} (${file_diff_size} bytes — chunk diff budget exhausted)"
       echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-      echo "⚠️ **DIFF INTEGRITY WARNING for \`$f\`**: This file's diff is very large (${file_diff_size} bytes) and may be truncated or incomplete. **Do NOT raise Critical or High issues for this file without first using \`read_file\` to verify the current file state.**" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      echo "⚠️ **DIFF OMITTED for \`$f\`** (${file_diff_size} bytes): the chunk prompt diff budget (${MAX_PROMPT_DIFF_SIZE} bytes) is exhausted. Use \`read_file\` to review this file. **Do NOT raise Critical or High issues for this file without \`read_file\` verification.**" >> ci_temp/chunk_${chunk_num}_prompt.txt
       echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      continue
     fi
-    echo "$file_diff" >> ci_temp/chunk_${chunk_num}_prompt.txt
+
+    # Per-file cap, never exceeding what is left of the chunk budget.
+    local budget_left=$((MAX_PROMPT_DIFF_SIZE - prompt_diff_total))
+    local effective_cap=$MAX_FILE_DIFF_SIZE
+    if [ "$budget_left" -lt "$effective_cap" ]; then
+      effective_cap=$budget_left
+    fi
+
+    if [ "$file_diff_size" -gt "$effective_cap" ]; then
+      # LADR-015 integrity warning, reworded for LADR-035: the diff is now
+      # actually truncated (not just "may be incomplete").
+      local omitted_bytes=$((file_diff_size - effective_cap))
+      echo "  ✂️ Diff truncated for ${f} (${file_diff_size} → ${effective_cap} bytes)"
+      echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      echo "⚠️ **DIFF INTEGRITY WARNING for \`$f\`**: This file's diff is very large (${file_diff_size} bytes) and has been TRUNCATED to the first ${effective_cap} bytes below. **Do NOT raise Critical or High issues for this file without first using \`read_file\` to verify the current file state.**" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      printf '%s\n' "${file_diff:0:$effective_cap}" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      echo "[... diff truncated: ${omitted_bytes} bytes omitted — use \`read_file\` to see the full file ...]" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      prompt_diff_total=$((prompt_diff_total + effective_cap))
+    else
+      echo "$file_diff" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      prompt_diff_total=$((prompt_diff_total + file_diff_size))
+    fi
   done
 
   # Get prompt size
