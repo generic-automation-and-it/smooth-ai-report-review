@@ -1,96 +1,56 @@
 # AI Skills
 
-Self-contained skills for Claude Code, GitHub Copilot, and OpenAI Codex providing specialized workflows and tools.
+Self-contained skills for Claude Code, GitHub Copilot, and OpenAI Codex powering this repo's AI PR review pipeline.
 
-Skills live **flat**, one directory per skill directly under `.agents/skills/`. Each folder name is **category-prefixed** (`agile-`, `ai-`, `context-`, `git-`) so the listing groups by category when sorted. The prefix is the only grouping mechanism — there are no category subfolders (Claude Code discovers skills exactly one level under `.claude/skills/`).
+Skills live **flat**, one directory per skill directly under `.agents/skills/`. A skill's folder name MUST equal its `name:` frontmatter (this is the slash-command name), and folders sit exactly one level under `.agents/skills/` (Claude Code discovers skills exactly one level under `.claude/skills/`).
 
-## Quick Reference
+## The Review Pipeline — Two Skills, Opposite Directions
+
+| Skill | Direction | Purpose | Usage |
+|-------|-----------|---------|-------|
+| **ai-review-report** | *generates* | Chunked AI review of a PR diff — runs as the CI gate (`.github/workflows/pipeline-code-review-report.yml`) or locally via `scripts/local-review.sh`, and posts a structured review to the PR | invoked by the gate / `scripts/local-review.sh` |
+| **ai-review** | *consumes* | Parse a posted AI review, apply fix/skip decisions, and finalize review processing on the PR (GitHub or Azure DevOps) | `/ai-review analyse 123` |
+
+Do not conflate the two or merge their scripts: `ai-review-report` produces the review that `ai-review` later acts on.
+
+### ai-review-report
+
+The repo's deliverable. Pipeline internals — provider selection (`OPENCODE_REVIEW_REPORT_PROVIDER`), chunking, the two-tier model chain, false-positive rules, and the LADR history — live in `ai-review-report/SKILL.md` (runtime contract) and `ai-review-report/AGENTS.md` (decision history). Key layout:
+
+| Path | Role |
+|------|------|
+| `ai-review-report/SKILL.md` | Runtime contract — source of truth for pipeline behavior |
+| `ai-review-report/scripts/` | Scripts invoked by the workflow **by hardcoded path** — move/rename only together with the workflow YAML |
+| `ai-review-report/assets/` | Runtime config: `opencode.json` (env-injected credentials only), `review-config.json` |
+| `ai-review-report/references/` | Edit-time docs: `CHANGELOG.md`, AGENTS.md quality standards — not read during a review |
+
+### ai-review
+
+Consumes a posted review. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description.
+
+## Supporting Skill
 
 | Skill | Purpose | Usage |
 |-------|---------|-------|
-| **agile-github-task-from-diff** | Create a GitHub Task (sub-issue) from the current git diff vs main | `/agile-github-task-from-diff` |
-| **ai-brain-dump** | Listen-first capture session; synthesize on request | `/ai-brain-dump [--oktoask] [--thinking] [--oktoreaddocs] [--oktowebsearch]` |
-| **ai-mansplain** | Reformat this turn's reply into terse, high-density output with a TL;DR | `/ai-mansplain` |
-| **ai-review** | Analyze/execute AI review feedback | `/ai-review analyse 123` |
-| **ai-template-sync** | UPSERT smooth-devex-template scaffold into an existing repo | `/ai-template-sync` |
-| **context-load-agents-context** | Load ancestor AGENTS.md context for a file | `/context-load-agents-context` |
-| **context-load-context** | Load domain context before implementation | `/context-load-context auth` |
-| **git-commit** | Commit with conventional format | `/git-commit` |
-| **git-commit-push** | Commit and push to remote | `/git-commit-push` |
-| **git-commit-push-pr** | Commit, push, and create/update PR | `/git-commit-push-pr` |
-| **git-sync** | Sync with main (optionally auto-resolve conflicts) | `/git-sync` |
-| **manage-rule-system** | Create/update rule files in `.agents/rules/` | `/manage-rule-system` |
-
-### ai-brain-dump switches
-
-Default (no switch) is pure silent listen-first — no questions, no tools — until you ask it to synthesize.
-Opt-in switches relax that, at different token costs (see `ai-brain-dump/README.md` for the full breakdown):
-
-| Switch | Effect | Cost |
-|--------|--------|------|
-| _(none)_ | Capture silently; never ask, never browse | baseline |
-| `--oktoask` | Ask sparse, non-blocking, tool-free clarifying questions on genuine blockers | small |
-| `--thinking` | Make questioning liberal (ask on any unclear/detail gap); implies `--oktoask` | moderate |
-| `--oktoreaddocs` | May read local code/docs to ground a question; implies `--oktoask` | large |
-| `--oktowebsearch` | May web-search to ground a question; implies `--oktoask` | large |
-
-The tool switches (`--oktoreaddocs`, `--oktowebsearch`) re-enable the file/web payload bloat the
-listen-first default avoids — use deliberately.
+| **git-commit-review-push** | Commit with conventional format (logical chunks), append the `/ai-review` full-review trigger to the final commit, and push to remote | `/git-commit-review-push` |
 
 ## Model Selection
 
-Skills are classified by complexity tier. Each SKILL.md carries a `models` frontmatter block with the recommended model per tool. When a skill is invoked as a sub-agent, use the model from its `models` block.
-
-| Complexity | Claude Code | GitHub Copilot | OpenAI Codex |
-|-----------|-------------|----------------|--------------|
-| **low** | `haiku` | `gpt-5.4-mini` | `gpt-5.4-mini` |
-| **medium** | `sonnet` | `auto` | `gpt-5.4` |
-| **high** | `opus` | `auto` | `gpt-5.5` |
-
-### Skill complexity classification
+Each SKILL.md carries a `models` frontmatter block with the recommended model per tool. When a skill is invoked as a sub-agent, use the model from its `models` block.
 
 | Skill | Complexity | Rationale |
 |-------|-----------|-----------|
-| **context-load-context** | low | File discovery and loading; no deep reasoning |
-| **context-load-agents-context** | low | Script-driven file traversal; no deep reasoning |
-| **git-commit** | low | Diff review + conventional commit; straightforward |
-| **git-sync** | low | Fetch + merge; straightforward git operations |
-| **git-commit-push** | medium | Branch rename logic + upstream tracking |
-| **git-commit-push-pr** | medium | PR template authoring + state management |
 | **ai-review** | medium | Review analysis + multi-file code fixes |
-| **agile-github-task-from-diff** | medium | Diff classification + issue authoring |
-| **manage-rule-system** | medium | Cross-tool frontmatter authoring |
-| **ai-mansplain** | low | Single-turn reply reformatting; no tools or deep reasoning |
-| **ai-brain-dump** | high | Multi-turn synthesis + deep requirement reasoning |
-| **ai-template-sync** | high | Interactive multi-turn Q&A + conditional file sync across tools |
+| **git-commit-review-push** | medium | Chunked commits + branch rename logic + upstream tracking |
 
-### Sub-skill invocation model guidance
-
-When a skill invokes another skill as a sub-agent, use the sub-skill's model tier:
-
-- **git-commit-push** → invokes **git-commit** (low): use `haiku` / `gpt-5.4-mini` / `gpt-5.4-mini`
-- **git-commit-push-pr** → invokes **git-commit-push** (medium): use `sonnet` / `auto` / `gpt-5.4`
-
-## Naming & Ordering
-
-Skills are flat under `.agents/skills/`; the category lives in the folder-name prefix so a sorted listing groups by category:
-
-| Prefix | Skills |
-|--------|--------|
-| `agile-` | `agile-github-task-from-diff` |
-| `ai-` | `ai-brain-dump`, `ai-mansplain`, `ai-review`, `ai-template-sync` |
-| `context-` | `context-load-agents-context`, `context-load-context` |
-| `git-` | `git-commit`, `git-commit-push`, `git-commit-push-pr`, `git-sync` |
-| _(none)_ | `manage-rule-system` |
-
-A skill's folder name MUST equal its `name:` frontmatter (this is the slash-command name). When adding a skill, pick the prefix of its category and keep the folder one level under `.agents/skills/`.
+`ai-review-report` pins its own model chain per provider via the gate's GitHub Variables (`OPENCODE_REVIEW_REPORT_MODEL_*`), not the `models` frontmatter.
 
 ## About Skills
 
 Each skill is a directory containing:
 - **SKILL.md** — The skill definition with workflow steps and `models` frontmatter
-- **agents/openai.yaml** — OpenAI Codex agent registration with model specification
 - **scripts/** — Helper scripts (if applicable)
+- **assets/** — Runtime config (if applicable)
 - **references/** — Reference documentation (if applicable)
 
 Skills are tool-agnostic and work across Claude Code, GitHub Copilot, and OpenAI Codex.
