@@ -10,7 +10,55 @@ Two skills back it:
 
 Implementation details and decisions live in [`.agents/skills/ai-review-report/SKILL.md`](.agents/skills/ai-review-report/SKILL.md).
 
+## Three ways to consume this repo
+
+| Channel | What you get | Best for |
+|---|---|---|
+| [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~40-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
+| [Claude Code plugin](#install-as-a-claude-code-plugin) | The three skills (`ai-review-report`, `ai-review`, `git-commit-review-push`) inside Claude Code — **not** the CI gate | Developers who want `/ai-review` and the local review tooling without touching the repo |
+| [Copy-installer](#install-into-another-repo-ai-agent-driven) | Workflow + skills copied into the repo; everything editable in place | Repos that customize the gate or vendor everything |
+
+The channels coexist: a repo can use the reusable workflow for CI while developers install the plugin for `/ai-review`.
+
+## Use as a reusable workflow
+
+Instead of copy-installing the 1,400-line gate, call it as a [reusable workflow](https://docs.github.com/en/actions/using-workflows/reusing-workflows). Copy [`examples/code-review-caller.yml`](examples/code-review-caller.yml) into your repo as `.github/workflows/pipeline-code-review-report.yml` — it carries the triggers, permissions, concurrency, and the `model_preset` dispatch dropdown, and delegates the job:
+
+```yaml
+jobs:
+  review:
+    uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
+    with:
+      pr_number: ${{ inputs.pr_number || '' }}
+      model: ${{ inputs.model || '' }}
+      model_preset: ${{ inputs.model_preset || '(repository default)' }}
+    secrets: inherit
+```
+
+How it works:
+- **Scripts are fetched, not installed.** The called workflow detects that your repo has no `ai-review-report` skill and checks out this repo into a `.smooth-ai-review-tools/` side path, locked to the same ref the workflow was called at (override with the `tools_ref` input). If your repo *does* have the skill installed (copy-install), the local copy wins — no fetch.
+- **Secrets**: pass `secrets: inherit`. The gate reads the canonical `OPENCODE_*_API_KEY` names and only uses the selected provider's key.
+- **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Step 2 and Step 3 of the installer section apply unchanged.
+- **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
+- **Versioning**: pin `@v1` (floating major) or an exact tag/SHA. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
+
+## Install as a Claude Code plugin
+
+The three skills — `ai-review-report` (review generator + local driver), `ai-review` (`/ai-review` fix/skip executor), and `git-commit-review-push` — are packaged as the Claude Code plugin **`smooth-ai-review`**, with this repo doubling as its marketplace:
+
+```
+/plugin marketplace add generic-automation-and-it/smooth-ai-report-review
+/plugin install smooth-ai-review@smooth-ai-report-review
+```
+
+Notes:
+- The plugin installs **skills only** — it does **not** install the CI gate. Pair it with the [reusable workflow](#use-as-a-reusable-workflow) (or the copy-installer) for PR-gate coverage.
+- When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
+- The plugin's `skills` directory is a git symlink to `.agents/skills` (the canonical location); cloning on Windows requires symlink support (`git config core.symlinks true` + Developer Mode).
+
 ## Install into another repo (AI-agent driven)
+
+This is the vendor-everything channel — prefer the [reusable workflow](#use-as-a-reusable-workflow) + [plugin](#install-as-a-claude-code-plugin) unless the target repo needs to edit the gate or skills in place; all channels coexist.
 
 These steps are written for an **AI coding agent running in the _target_ repo**. Point it at this README — best via the **raw** URL (`https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/README.md`), which returns clean Markdown; a `blob/…#install-into-another-repo-ai-agent-driven` link also works but serves HTML. No marketplace, no template engine — it copies the gate plus its two skills out of this repo and then wires up provider credentials.
 
@@ -90,8 +138,11 @@ rm -rf "$DEST/skills/ai-review-report/scripts/eval"
 #    (.agents/rules/…, .docs/…, code-review-standards) are left untouched.
 if [ "$DEST" != ".agents" ]; then
   command -v perl >/dev/null || { echo "✗ perl needed to repoint paths for $DEST/skills"; exit 1; }
+  # The 'unless' guard skips the workflow's reusable-mode lines (the
+  # .smooth-ai-review-tools side-checkout path) — dead code in a copy-install,
+  # and rewriting them would corrupt the fetched-tooling path.
   find "$WF" "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" -type f \
-    -exec perl -i -pe "s{\.agents/skills/ai-review}{$DEST/skills/ai-review}g" {} +
+    -exec perl -i -pe "s{\.agents/skills/ai-review}{$DEST/skills/ai-review}g unless m{\.smooth-ai-review-tools}" {} +
 fi
 
 # 4) update only: carry over the previous gate's runs-on (e.g. self-hosted) and show the delta

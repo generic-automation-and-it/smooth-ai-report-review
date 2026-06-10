@@ -1,0 +1,83 @@
+# Thin caller for the smooth-ai-report-review reusable workflow.
+#
+# Copy this file into your repo as .github/workflows/pipeline-code-review-report.yml
+# (any name works). It is the only workflow file you need — the review job, its
+# scripts, and its config are fetched from generic-automation-and-it/smooth-ai-report-review
+# at the ref you pin below.
+#
+# Configuration (set in YOUR repo/org):
+#   Secrets   — the selected provider's API key, canonical names:
+#               OPENCODE_GEMINI_API_KEY / OPENCODE_COPILOT_API_KEY /
+#               OPENCODE_OPENAI_API_KEY / OPENCODE_GO_OPENAI_API_KEY /
+#               OPENCODE_GO_ANTHROPIC_API_KEY. Passed via `secrets: inherit`.
+#   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
+#               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
+#               These resolve against the CALLER repo/org automatically.
+#
+# Versioning: pin @v1 (floating major) or an exact tag/SHA for stricter supply-chain
+# control. The review scripts are fetched at the same ref as the workflow by default.
+
+name: PR Code Review Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      model:
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER.'
+        required: false
+        type: string
+        default: ''
+      model_preset:
+        # COUPLED to the reusable workflow's preset→provider/model env mapping —
+        # this dropdown only names the presets; the mapping lives in the callee.
+        # When the callee adds a preset option, extend this list to expose it.
+        description: 'Model preset (optional). Selecting one overrides the provider AND all three model tiers — takes precedence over "model" and the repo OPENCODE_REVIEW_REPORT_* Variables.'
+        required: false
+        type: choice
+        default: '(repository default)'
+        options:
+          - '(repository default)'
+          - 'OpenAI GPT-5.5'
+          - 'OpenCode DeepSeek V4 Pro'
+          - 'OpenCode GLM-5.1'
+          - 'OpenCode MiniMax m3'
+          - 'OpenCode Qwen3.7 Plus'
+
+# The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+# Same selective concurrency as the callee: shared group per PR for pull_request
+# events (latest commit wins), unique group for manual/comment triggers.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ai-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
+      (github.event_name == 'workflow_dispatch')
+    uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
+    with:
+      pr_number: ${{ inputs.pr_number || '' }}
+      model: ${{ inputs.model || '' }}
+      model_preset: ${{ inputs.model_preset || '(repository default)' }}
+      # runner: self-hosted          # uncomment for private-network gateways
+      # tools_ref: main              # override which ref the review scripts come from
+      # mandatory_context_files: >-  # override the context files resolved in YOUR repo
+      #   AGENTS.md
+      #   .docs/nfr/PROJECT_SETUP_AGENTS.md
+      # agents_md_exempt_paths: '.docs/release-notes'
+    secrets: inherit
