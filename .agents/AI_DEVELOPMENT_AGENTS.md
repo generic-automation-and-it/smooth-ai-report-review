@@ -1,18 +1,18 @@
 # AGENTS.md - AI Development Experience
 
-🤖 AI Context: Unified AI development folder structure and best practices. Updated: 2026-04-03 Maintainer: Engineering Team
+🤖 AI Context: Unified AI development folder structure and best practices. Updated: 2026-06-10 Maintainer: Engineering Team
 
 ## 🎯 TL;DR
 
-The `.agents` folder provides a tool-agnostic structure for AI-assisted development, with symbolic links (`.claude`, `.cursor`, `.codex`) ensuring compatibility across multiple AI coding tools without duplication or vendor lock-in.
+The `.agents` folder provides a tool-agnostic structure for AI-assisted development, with symbolic links (`.claude`, `.cursor`, `.codex`) ensuring compatibility across multiple AI coding tools without duplication or vendor lock-in. In this repo it is deliberately minimal: it carries only the AI PR review pipeline skills and their supporting configuration — the generic devex scaffolding (rule system, hooks, prompt/role/document templates, auxiliary skills) was removed in the 2026-06-10 cleanup (#34).
 
 ## 📋 Overview
 
-This is a unified AI development experience folder that centralizes skills, prompts, and configuration for AI-assisted coding tools.
+This is a unified AI development experience folder that centralizes skills and configuration for AI-assisted coding tools.
 
 **Scope:**
-- In: Skill definitions, prompt templates, tool permissions, AI workflow orchestration
-- Out: Tool-specific internal state (handled by individual tools), model weights, API credentials
+- In: Skill definitions, tool permissions, AI review pipeline tooling
+- Out: Tool-specific internal state (handled by individual tools), model weights, API credentials, generic devex rules/hooks/templates (removed — see #34)
 - Depends: Git (for version control), bash/shell (for scripts), symbolic link support (Unix-like systems)
 
 ## 🏗️ Architecture
@@ -22,37 +22,25 @@ This is a unified AI development experience folder that centralizes skills, prom
 | Path | Purpose |
 | :---- | :---- |
 | `.agents/` | Root folder for all AI development tooling |
-| `.agents/prompts/` | Reusable prompt templates (code review, architecture analysis) |
-| `.agents/roles/` | Multi-agent role instructions (PO, Architect, QA, Backend/Frontend Engineer, Heimdall Reviewer) |
-| `.agents/rules/` | Enforced AI development rules (workflow rules, coding standards) |
 | `.agents/settings.json` | Tool permissions, compile/test commands |
-| `.agents/skills/` | Executable skills (multi-file workflows) — flat dirs, category-prefixed folder names |
-| `.agents/skills/agile-github-task-from-diff/` | Create a GitHub Task (sub-issue) from the current git diff vs main |
-| `.agents/skills/ai-brain-dump/` | Listen-first capture session; synthesize on request |
-| `.agents/skills/ai-mansplain/` | Reformat this turn's reply into terse, high-density output with a TL;DR |
+| `.agents/hooks.json` | Hook configuration (currently empty — all hook scripts were removed in #34) |
+| `.agents/setup/scripts/` | `agents-setup.sh` / `agents-setup.ps1` — recreate the symlink aliases if needed |
+| `.agents/skills/` | Executable skills (multi-file workflows) — flat dirs, one level deep |
 | `.agents/skills/ai-review/` | Analyze and execute AI PR review decisions |
-| `.agents/skills/ai-template-sync/` | UPSERT the smooth-devex-template agentic scaffold into an existing repo |
-| `.agents/skills/context-load-context/` | Load or create functional `*_AGENTS.md` context files |
-| `.agents/skills/context-load-agents-context/` | Load ancestor AGENTS.md context for a target file |
-| `.agents/skills/git-commit/` | Commit with conventional format |
-| `.agents/skills/git-commit-push/` | Commit and push to remote |
-| `.agents/skills/git-commit-push-pr/` | Commit, push, and create/update PRs |
-| `.agents/skills/git-sync/` | Sync with main (optionally auto-resolve conflicts) |
-| `.agents/skills/manage-rule-system/` | Create/update rule files in `.agents/rules/` |
-| `.agents/templates/` | Document templates (AGENTS.md, README.md, work task promote templates) |
+| `.agents/skills/ai-review-report/` | Chunked AI PR review pipeline (CI gate + local runner) |
+| `.agents/skills/git-commit-review-push/` | Commit (with `/ai-review` trigger on the final commit) and push to remote |
 | `.claude` → `.agents` | Symbolic link for Claude Code compatibility |
 | `.codex` → `.agents` | Symbolic link for OpenAI Codex compatibility |
 | `.cursor` → `.agents` | Symbolic link for Cursor AI compatibility |
 | `CLAUDE.md` → `AGENTS.md` | Symbolic link alias for Claude-compatible root context discovery |
 | `GEMINI.md` → `AGENTS.md` | Symbolic link alias for Gemini-compatible root context discovery |
-| `.github/instructions` → `../.agents/rules` | Symbolic link exposing rule files at `.github/instructions/**.instructions.md` for GitHub Copilot path-specific instructions |
 
 ### Tool Compatibility Matrix
 
 | Tool | Access Method | Status |
 | :---- | :---- | :---- |
 | **Claude Code** | Via `.claude` symlink | ✅ Active |
-| **GitHub Copilot** | Reads `.github/instructions/` directly — a **real directory** (path-specific `*.instructions.md`); root `AGENTS.md` for repo-wide context | ✅ Active |
+| **GitHub Copilot** | `.github/copilot-instructions.md` pointing at root `AGENTS.md` for repo-wide context | ✅ Active |
 | **Cursor AI** | Via `.cursor` symlink | ✅ Active |
 | **OpenAI Codex** | Via `.codex` symlink | ✅ Active |
 | **Gemini** | Via `GEMINI.md` symlink | ✅ Compatible |
@@ -99,19 +87,23 @@ This is a unified AI development experience folder that centralizes skills, prom
 ### LADR-004: Rule Files Physically Located in `.github/instructions` (Symlink Inversion)
 
 - **Date**: 2026-06-06
+- **Status**: ~~Accepted~~ **Retired 2026-06-10** — the rule system was removed entirely in the devex cleanup (#34): `.github/instructions/` and the `.agents/rules` symlink no longer exist. Retained for history only.
+- **Context**: GitHub Copilot's Coding Agent / Code Review runs on github.com against a server-side checkout and did not reliably traverse a symlinked rules directory, so the rule files were inverted to physically live in `.github/instructions/` with `.agents/rules` as a symlink back to it.
+- **Outcome**: Superseded by removal. Copilot guidance now comes solely from `.github/copilot-instructions.md` + root `AGENTS.md`. Note: `ai-review-report`'s gate still warn-and-skips `MANDATORY_CONTEXT_FILES` rule paths that exist only in *consuming* repos — that cross-repo contract is unaffected by this repo dropping its own rule tree.
+
+### LADR-005: Devex Cleanup — `.agents` Reduced to the Review Pipeline
+
+- **Date**: 2026-06-10
 - **Status**: Accepted
-- **Context**: GitHub Copilot's Coding Agent / Code Review runs on github.com against a server-side checkout. With the rule files living in `.agents/rules` and `.github/instructions` as a symlink → `../.agents/rules`, Copilot did not load the path-scoped instructions — its instruction loader does not reliably traverse a symlinked directory server-side. Claude Code, Codex, and Cursor run locally where symlink resolution is never a problem.
-- **Decision**: Invert the symlink. The rule files now physically live in `.github/instructions/` (a real, committed directory Copilot reads natively). `.agents/rules`, `.claude/rules`, and `.cursor/rules` are symlinks resolving back to it (`.agents/rules → ../.github/instructions`; the others reach it via `.claude`/`.cursor` → `.agents`).
+- **Context**: This repo's deliverable is the AI PR review pipeline, but `.agents/` still carried the full devex template scaffolding it was seeded from: a rule system, 7 hook scripts, document templates, and 10 auxiliary skills unrelated to the deliverable.
+- **Decision**: Remove the templating (#34): delete `.agents/hooks/`, `.agents/rules` + `.github/instructions/`, `.agents/templates/`, `.agents/config.toml`, `.agents/launch.json`, `agents-terminals.*`, and all skills except `ai-review`, `ai-review-report`, and `git-commit-review-push` (renamed from `git-commit-push`, with the commit logic inlined and the `/ai-review` full-review trigger appended to the final chunk commit).
 - **Consequences**:
-  - Copilot reads rules with no server-side symlink resolution required.
-  - Local agents resolve the same files through a two-hop symlink (`.claude/rules → .agents/rules → .github/instructions`) — fine on local filesystems.
-  - `.agents/` remains the conceptual hub for skills/hooks/AGENTS.md, but the rule *content* now lives under `.github/`; every path reference to `.agents/rules/...` still resolves via the symlink, so hooks and skill docs did not need path edits.
-  - `ai-template-sync` provisions new repos with the inverted topology (real `.github/instructions` + `.agents/rules` symlink).
-  - **Open item**: this fixes *delivery* (Copilot can now see the rules), not *enforcement* (Copilot still treats them as soft guidance with no phase-gate hooks) and assumes Copilot does not recurse symlinked dirs — verify Copilot now honours subfolder rules (`backend/`, `git/`, `meta/`) on a live run.
+  - `.agents/` now contains only the review-pipeline skills, `settings.json`, an empty `hooks.json`, and the symlink setup scripts.
+  - **Open item**: the LLM eval harness (`scripts/eval/run-evals.sh`, `.github/workflows/llm-eval-harness.yml`) still expects `.github/instructions/code-review-standards.instructions.md` as the DR-standards fixture source — relocate the standards or update the harness (tracked on #34).
 
 ## 📊 Setup Instructions
 
-**The rule files physically live in `.github/instructions/` (a real, committed directory). Symlinks (`.claude`, `.codex`, `.cursor`, `CLAUDE.md`, `GEMINI.md`, and `.agents/rules → ../.github/instructions`) are committed to git and available immediately after clone. GitHub Copilot reads path-specific rules natively from `.github/instructions/**.instructions.md` (no symlink resolution required) and repo-wide context from root `AGENTS.md`, so no setup script is required.**
+**Symlinks (`.claude`, `.codex`, `.cursor`, `CLAUDE.md`, `GEMINI.md`) are committed to git and available immediately after clone, so no setup script is required.**
 
 ```bash
 # Verify links are present after clone
@@ -136,3 +128,4 @@ ls -la | grep -E '(\.claude|\.codex|\.cursor)'
 | Date | Change | Reason |
 | :---- | :---- | :---- |
 | 2026-05-30 | Initial version. | |
+| 2026-06-10 | Devex cleanup: removed rules/hooks/templates/auxiliary skills; kept only the review-pipeline skills; retired LADR-004; added LADR-005. | #34 |
