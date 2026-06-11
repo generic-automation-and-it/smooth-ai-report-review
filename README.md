@@ -10,12 +10,13 @@ Two skills back it:
 
 Implementation details and decisions live in [`.agents/skills/ai-review-report/SKILL.md`](.agents/skills/ai-review-report/SKILL.md).
 
-## Three ways to consume this repo
+## Four ways to consume this repo
 
 | Channel | What you get | Best for |
 |---|---|---|
 | [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~40-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
 | [Claude Code plugin](#install-as-a-claude-code-plugin) | The three skills (`ai-review-report`, `ai-review`, `git-commit-review-push`) inside Claude Code — **not** the CI gate | Developers who want `/ai-review` and the local review tooling without touching the repo |
+| [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same three skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored | Repos/developers driving the skills from opencode instead of Claude Code |
 | [Copy-install](#copy-install-vendor-everything) | Workflow + skills copied into the repo; everything editable in place | Repos that customize the gate or vendor everything |
 
 The channels coexist: a repo can use the reusable workflow for CI while developers install the plugin for `/ai-review`. To set up a repo end-to-end (gate + skills + credentials), follow [Install into another repo (AI-agent driven)](#install-into-another-repo-ai-agent-driven) — its default path is the reusable workflow + the plugin at project scope.
@@ -57,6 +58,24 @@ Notes:
 - The plugin installs **skills only** — it does **not** install the CI gate. Pair it with the [reusable workflow](#use-as-a-reusable-workflow) (or the copy-installer) for PR-gate coverage.
 - When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
 - The plugin's `skills` directory is a git symlink to `.agents/skills` (the canonical location); cloning on Windows requires symlink support (`git config core.symlinks true` + Developer Mode) — or run `.agents/setup/scripts/agents-setup.ps1` as Administrator after cloning to recreate the links.
+
+## Install as an opencode plugin (npm)
+
+opencode has no skill marketplace — it discovers skills only from fixed directories (`.agents/skills/`, `.claude/skills/`, `.opencode/skills/`) — but it auto-installs npm plugins. The package **`@generic-automation-and-it/smooth-ai-review`** uses that: at every opencode startup it links the three skills into your repo's `.agents/skills/`, so opencode's native discovery (and every `.agents/skills/...` path the skill docs reference) just works, with nothing vendored.
+
+Add one line to the consuming repo's `opencode.json`:
+
+```json
+{ "plugin": ["@generic-automation-and-it/smooth-ai-review"] }
+```
+
+How it works:
+- opencode `bun install`s the package at startup (cached in `~/.cache/opencode/`); the plugin then creates `.agents/skills/{ai-review-report,ai-review,git-commit-review-push}` as directory links into that cache (junction links — no admin rights needed on Windows).
+- **Vendored copies always win**: if a skill already exists as a real directory (copy-install), the plugin never touches it. Stale links (e.g. after a package update moved the cache) are re-pointed automatically.
+- Your `git status` stays clean: the link paths are appended to `.git/info/exclude` (local-only — your `.gitignore` is never edited).
+- The package ships the skills **without** the eval harness (`scripts/eval/` is excluded).
+- Like the Claude Code plugin, this installs **skills only** — pair it with the [reusable workflow](#use-as-a-reusable-workflow) for the CI gate (the gate itself never needs this plugin; in reusable mode it fetches its own scripts).
+- If the skills don't appear in the very first session after install, restart opencode once — the links are created at session init.
 
 ## Install into another repo (AI-agent driven)
 
