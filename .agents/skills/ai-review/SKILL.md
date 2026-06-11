@@ -3,7 +3,7 @@ name: ai-review
 description: Analyze and execute AI PR review feedback with fix/skip decisions. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description.
 allowed-tools:
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)
-  - Bash(${CLAUDE_PLUGIN_ROOT}/skills/ai-review/scripts/copilot-review.sh:*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh:*)
 models:
   claude: sonnet      # medium-complexity; review analysis + code fixes across multiple files
   copilot: auto
@@ -14,7 +14,7 @@ models:
 
 Analyze AI PR review feedback and execute fix/skip decisions.
 
-> **Script location.** Every `.agents/skills/ai-review/...` path in this document assumes the skill is installed in the repository (copy-install or this repo itself). When this skill runs from the **Claude Code plugin** (`smooth-ai-review`), the repository has no `.agents/skills/ai-review` tree — substitute `${CLAUDE_PLUGIN_ROOT}/skills/ai-review` for `.agents/skills/ai-review` in every script invocation (e.g. `"${CLAUDE_PLUGIN_ROOT}/skills/ai-review/scripts/copilot-review.sh" detect <pr>`).
+> **Script location.** Every `.agents/skills/ai-review/...` path in this document assumes the skill is installed in the repository (copy-install or this repo itself). When this skill runs from the **Claude Code plugin** (`smooth-ai-review`), the repository has no `.agents/skills/ai-review` tree — substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review` for `.agents/skills/ai-review` in every script invocation (e.g. `"${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh" detect <pr>`).
 
 ## Invocation
 

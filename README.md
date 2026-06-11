@@ -56,8 +56,8 @@ That installs at **user scope** (your machine, all repos). To tie the skills to 
 
 Notes:
 - The plugin installs **skills only** — it does **not** install the CI gate. Pair it with the [reusable workflow](#use-as-a-reusable-workflow) (or the copy-installer) for PR-gate coverage.
-- When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
-- The plugin's `skills` directory is a git symlink to `.agents/skills` (the canonical location); cloning on Windows requires symlink support (`git config core.symlinks true` + Developer Mode) — or run `.agents/setup/scripts/agents-setup.ps1` as Administrator after cloning to recreate the links.
+- When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
+- The plugin loads skills straight from `.agents/skills/` (the canonical location) via the `skills` field in `.claude-plugin/plugin.json` — no `skills/` symlink involved, so the plugin install works on Windows without symlink support.
 
 ## Install as an opencode plugin (npm)
 

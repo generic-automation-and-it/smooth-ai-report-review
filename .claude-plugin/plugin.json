@@ -6,6 +6,7 @@
     "name": "generic-automation-and-it"
   },
   "repository": "https://github.com/generic-automation-and-it/smooth-ai-report-review",
+  "skills": ["./.agents/skills/"],
   "license": "MIT",
   "keywords": ["code-review", "pull-request", "ci", "opencode"]
 }
