@@ -36,7 +36,7 @@ on:
           - 'OpenCode Qwen3.7 Plus'
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
-  # instead of copy-installing it (see examples/code-review-caller.yml and the
+  # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
   # README "Use as a reusable workflow" section). Notes:
   # - Pass `secrets: inherit` in the caller — the gate reads the canonical
   #   OPENCODE_*_API_KEY Secret names and only the selected provider's pair is used.
