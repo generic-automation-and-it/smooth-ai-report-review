@@ -642,6 +642,7 @@ EOF
   - **[VERIFIED]** — You saw the relevant source code in this chunk's diff OR you read the file using \`read_file\` to confirm the issue exists.
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
+- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via `webfetch`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
 
 ## ⚠️ CRITICAL: REVIEW SCOPE AND FILE ACCESS
 
@@ -672,7 +673,10 @@ EOF
 1. Identify potential issue in the DIFF
 2. **Read the CURRENT file state** using `read_file` to verify the issue exists in the actual code (not just in the diff hunk). The diff may show partial context — the issue may have been fixed in an earlier commit on the same branch.
 3. **Confirm the flagged symbol/pattern exists** in the current file. If `read_file` shows the symbol is absent, DO NOT flag it — the diff is showing a removal or the change was already applied.
-4. Only flag if the issue is TRULY present after checking the current file state
+4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior via `webfetch` of official docs before flagging Critical/High — or downgrade to [SPECULATIVE]. Known traps that are NOT issues:
+   - In a workflow with `on.workflow_call`, the `github` context (`event_name`, `event.pull_request.*`) is the CALLER's. `github.event_name` is never "workflow_call"; a job `if:` gate listing the caller's event names and `github.event.pull_request.*` references are valid in reusable workflows.
+   - GitHub Actions `branches:`/`tags:`/`paths:` filters are glob patterns, NOT regex. Dots are literal; never suggest regex-escaping them.
+5. Only flag if the issue is TRULY present after checking the current file state
 
 **Issue Classification Rules:**
 - 🔴🟠🟡 **Critical/High/Medium**: ONLY for issues in the CHANGED code (diff lines)
