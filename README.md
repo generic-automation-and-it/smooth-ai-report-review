@@ -259,13 +259,55 @@ Applies to both the default install and the copy-install. **Ask the operator whi
 The agent must state these rules when emitting the config:
 - **API keys are Secrets; everything else is a Variable.** Never store a key as a Variable (Variables are plaintext and printable in logs).
 - **Any non-Gemini provider MUST set all three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables.** The defaults are Gemini model IDs and the run **fails fast** if a `gemini*` model is left on another provider.
-- Offer the equivalent `gh` commands rather than only describing the UI, e.g.:
+- Offer the equivalent `gh` commands rather than only describing the UI — copy-paste blocks per provider below (run inside the target repo, or add `--repo <owner>/<repo>`; `gh secret set` without a value prompts for it).
+
+  **Gemini** _(default)_
   ```bash
-  gh secret set OPENCODE_OPENAI_API_KEY                          # prompts for the value
+  gh secret set OPENCODE_GEMINI_API_KEY
+  # optional — only when overriding the default gateway URL:
+  # gh variable set OPENCODE_REVIEW_REPORT_GEMINI_URL --body "https://generativelanguage.googleapis.com/v1beta/openai"
+  ```
+
+  **OpenAI**
+  ```bash
+  gh secret set OPENCODE_OPENAI_API_KEY
   gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body OPENAI
   gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body gpt-5.5
   gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body gpt-5.4
   gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body gpt-5.4-mini
+  # optional — only when overriding the default gateway URL:
+  # gh variable set OPENCODE_REVIEW_REPORT_OPENAI_URL --body "https://api.openai.com/v1"
+  ```
+
+  **GitHub Copilot**
+  ```bash
+  gh secret set OPENCODE_COPILOT_API_KEY
+  gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body COPILOT
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body gpt-5.5
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body gpt-5.4
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body gpt-5.4-mini
+  # optional — only when overriding the default gateway URL:
+  # gh variable set OPENCODE_REVIEW_REPORT_COPILOT_URL --body "https://api.githubcopilot.com"
+  ```
+
+  **OpenCode Go — OpenAI**
+  ```bash
+  gh secret set OPENCODE_GO_OPENAI_API_KEY
+  gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body OPENCODE-GO-OPENAI
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body deepseek-v4-pro
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body deepseek-v4-flash
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body glm-5.1
+  # no URL Variable — the Zen base URL is hardcoded
+  ```
+
+  **OpenCode Go — Anthropic**
+  ```bash
+  gh secret set OPENCODE_GO_ANTHROPIC_API_KEY
+  gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body OPENCODE-GO-ANTHROPIC
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body qwen3.7-plus
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body minimax-m2.7
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body minimax-m3
+  # no URL Variable — the Zen base URL is hardcoded
   ```
 
 ### Step 4 — repo settings (one-time)
