@@ -14,7 +14,7 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 
 | Channel | What you get | Best for |
 |---|---|---|
-| [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~40-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
+| [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~80-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
 | [Claude Code plugin](#install-as-a-claude-code-plugin) | The three skills (`ai-review-report`, `ai-review`, `git-commit-review-push`) inside Claude Code — **not** the CI gate | Developers who want `/ai-review` and the local review tooling without touching the repo |
 | [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same three skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
 | [Copy-install](#copy-install-vendor-everything) | Workflow + skills copied into the repo; everything editable in place | Repos that customize the gate or vendor everything |

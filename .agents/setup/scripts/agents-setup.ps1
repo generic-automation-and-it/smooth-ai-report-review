@@ -62,11 +62,6 @@ Write-Host "Creating directory symlinks for AI agent tools..." -ForegroundColor 
 $allSuccess = (Create-Symlink ".claude" ".agents" $true) -and $allSuccess
 $allSuccess = (Create-Symlink ".codex" ".agents" $true) -and $allSuccess
 
-# Recreate the committed Claude Code plugin skills symlink (skills -> .agents/skills).
-# A clone made without core.symlinks=true checks it out as a plain text file
-# containing the target path; replace it with a real directory symlink.
-$allSuccess = (Create-Symlink "skills" ".agents\skills" $true) -and $allSuccess
-
 # Create file symlinks for context files
 Write-Host "`nCreating file symlinks for context files..." -ForegroundColor Cyan
 $allSuccess = (Create-Symlink "CLAUDE.md" "AGENTS.md") -and $allSuccess
