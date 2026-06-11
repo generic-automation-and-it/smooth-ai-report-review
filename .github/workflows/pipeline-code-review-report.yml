@@ -34,6 +34,54 @@ on:
           - 'OpenCode GLM-5.1'
           - 'OpenCode MiniMax m3'
           - 'OpenCode Qwen3.7 Plus'
+  # Reusable-workflow entry point: consuming repos call this workflow with
+  #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
+  # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
+  # README "Use as a reusable workflow" section). Notes:
+  # - Pass `secrets: inherit` in the caller — the gate reads the canonical
+  #   OPENCODE_*_API_KEY Secret names and only the selected provider's pair is used.
+  # - GitHub Variables (vars.OPENCODE_REVIEW_REPORT_*) resolve against the CALLER
+  #   repo/org, so the existing Variables contract transfers unchanged.
+  # - workflow_call does not support `type: choice`; model_preset is a plain string
+  #   here and the caller template provides the dropdown. Keep its accepted values
+  #   in sync with the workflow_dispatch options list above.
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review (only needed for manual/comment-style invocations; PR events carry their own number)'
+        required: false
+        type: string
+        default: ''
+      model:
+        description: 'Primary review model ID (optional). Same semantics as the workflow_dispatch input.'
+        required: false
+        type: string
+        default: ''
+      model_preset:
+        description: 'Model preset (optional). Same accepted values as the workflow_dispatch dropdown; anything other than "(repository default)" pins provider + all three model tiers.'
+        required: false
+        type: string
+        default: '(repository default)'
+      runner:
+        description: 'Runner label for the review job (e.g. self-hosted for private-network gateways).'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      tools_ref:
+        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from. Default: the same ref this reusable workflow was called at.'
+        required: false
+        type: string
+        default: ''
+      mandatory_context_files:
+        description: 'Override for MANDATORY_CONTEXT_FILES (space-separated paths resolved in the repo under review). Blank → the built-in default list.'
+        required: false
+        type: string
+        default: ''
+      agents_md_exempt_paths:
+        description: 'Override for AGENTS_MD_EXEMPT_PATHS (pipe-separated). Blank → the built-in default.'
+        required: false
+        type: string
+        default: ''
 permissions:
   pull-requests: write
   contents: read
@@ -54,7 +102,7 @@ env:
 
 jobs:
   open-code-review-report:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
@@ -73,11 +121,11 @@ jobs:
       # the Variable: each preset pins the provider its model belongs to.
       OPENCODE_REVIEW_REPORT_PROVIDER: >-
         ${{
-        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'OPENAI') ||
-        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'OPENCODE-GO-OPENAI') ||
-        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'OPENCODE-GO-OPENAI') ||
-        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'OPENCODE-GO-ANTHROPIC') ||
-        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenAI GPT-5.5' && 'OPENAI') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode GLM-5.1' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode MiniMax m3' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
         vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
       # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
@@ -88,9 +136,9 @@ jobs:
       # selector above; otherwise derived from the Variable as before.
       OPENCODE_REVIEW_REPORT_PROVIDER_ID: >-
         ${{
-        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
-        ((github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || github.event.inputs.model_preset == 'OpenCode GLM-5.1') && 'go-openai') ||
-        ((github.event.inputs.model_preset == 'OpenCode MiniMax m3' || github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus') && 'go-anthropic') ||
+        (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
+        ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode GLM-5.1') && 'go-openai') ||
+        ((inputs.model_preset == 'OpenCode MiniMax m3' || inputs.model_preset == 'OpenCode Qwen3.7 Plus') && 'go-anthropic') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
@@ -141,27 +189,27 @@ jobs:
       # collapses all of them onto the same model; keep the five options in sync.
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: >-
         ${{
-        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
-        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
-        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
-        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
-        github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+        (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: >-
         ${{
-        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
-        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
-        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
-        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
         vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: >-
         ${{
-        (github.event.inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
-        (github.event.inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
-        (github.event.inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (github.event.inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
-        (github.event.inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
         vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
@@ -174,18 +222,21 @@ jobs:
       # The repo-root AGENTS.md must be listed here explicitly: find-context-files.sh's
       # per-chunk directory walk terminates before reaching the repo root, so a root-level
       # AGENTS.md/CLAUDE.md is NOT auto-discovered and is loaded only via this list.
+      # Reusable-mode callers can override the list via the mandatory_context_files
+      # input; copy-installs edit the literal below instead.
       MANDATORY_CONTEXT_FILES: >-
-        AGENTS.md
+        ${{ inputs.mandatory_context_files ||
+        'AGENTS.md
         .docs/nfr/PROJECT_SETUP_AGENTS.md
         .agents/skills/code-review-standards/SKILL.md
         .docs/nfr/TOOL_SETUP_AGENTS.md
         .agents/rules-scoped/backend/testing-standards.instructions.md
-        .agents/rules-scoped/backend/dotnet-standards.instructions.md
+        .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
       # Paths exempt from AGENTS.md validation requirement (pipe-separated)
       # Files in these paths do not require an accompanying *_AGENTS.md file
       # These are typically documentation-only paths that don't need AI context files
       AGENTS_MD_EXEMPT_PATHS: >-
-        .docs/release-notes
+        ${{ inputs.agents_md_exempt_paths || '.docs/release-notes' }}
       # Disable Claude Code (.claude) support to avoid conflicts between
       # opencode and Claude Code's .claude directory features.
       # Override via the OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE Variable (default 1).
@@ -248,8 +299,9 @@ jobs:
           echo "✓ Gateway credentials present for provider ${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI} (${U:+${U}, }${K})"
           # opencode is installed AFTER actions/checkout (see "Install opencode +
           # config + warm DB" step) because its provider config source lives in
-          # the repo at .agents/skills/ai-review-report/assets/opencode.json and
-          # must be in place before any `opencode` command touches the DB.
+          # the skill tree at ${REVIEW_SKILL_DIR}/assets/opencode.json (resolved by
+          # the "Locate review skill scripts" step) and must be in place before any
+          # `opencode` command touches the DB.
           # Here we only install repo-independent binaries (ripgrep); the opencode
           # health check runs after opencode is installed.
 
@@ -289,7 +341,7 @@ jobs:
           set -eo pipefail
           
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PR_NUMBER="${{ github.event.inputs.pr_number }}"
+            PR_NUMBER="${{ inputs.pr_number }}"
             echo "Manual trigger for PR #${PR_NUMBER}..."
           else
             PR_NUMBER="${{ github.event.issue.number }}"
@@ -343,6 +395,47 @@ jobs:
           # no pull_request context, so fall back to the head_repo captured above (NOT
           # github.repository, which would check out the wrong repo for fork re-runs).
           repository: ${{ github.event.pull_request.head.repo.full_name || steps.pr_details.outputs.head_repo || github.repository }}
+
+      # ── Review-script resolution ─────────────────────────────────────────────
+      # Every script invocation below goes through $REVIEW_SKILL_DIR. Two sources:
+      # 1. Copy-installed / in-repo mode: the checked-out repo carries the skill at
+      #    .agents/skills/ai-review-report (the README installer rewrites that
+      #    literal when it targets a different skills dir — keep it literal here).
+      # 2. Reusable-workflow mode: the caller repo has no skill installed, so fetch
+      #    the tooling repo as a side checkout, version-locked to the same ref this
+      #    workflow was called at (github.workflow_sha — the SHA of the workflow file
+      #    that defines this job), overridable via the tools_ref input.
+      - name: Locate review skill scripts
+        id: locate_skill
+        run: |
+          set -e
+          if [ -f ".agents/skills/ai-review-report/scripts/review-in-chunks.sh" ]; then
+            echo "REVIEW_SKILL_DIR=.agents/skills/ai-review-report" >> "$GITHUB_ENV"
+            echo "fetch_tools=false" >> "$GITHUB_OUTPUT"
+            echo "✓ Using review skill from the repository under review"
+          else
+            echo "fetch_tools=true" >> "$GITHUB_OUTPUT"
+            echo "Review skill not present in this repository — fetching tooling repo"
+          fi
+
+      - name: Fetch review tooling
+        if: steps.locate_skill.outputs.fetch_tools == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: generic-automation-and-it/smooth-ai-report-review
+          ref: ${{ inputs.tools_ref || github.workflow_sha || 'main' }}
+          path: .smooth-ai-review-tools
+
+      - name: Register fetched review tooling
+        if: steps.locate_skill.outputs.fetch_tools == 'true'
+        run: |
+          set -e
+          if [ ! -f ".smooth-ai-review-tools/.agents/skills/ai-review-report/scripts/review-in-chunks.sh" ]; then
+            echo "::error::Fetched tooling checkout is missing the review scripts" >&2
+            exit 1
+          fi
+          echo "REVIEW_SKILL_DIR=.smooth-ai-review-tools/.agents/skills/ai-review-report" >> "$GITHUB_ENV"
+          echo "✓ Using review skill from .smooth-ai-review-tools side checkout"
 
       - name: Resolve OPENCODE version
         id: opencode_version
@@ -460,16 +553,16 @@ jobs:
           echo "opencode_install_performed=${install_performed}" >> "$GITHUB_OUTPUT"
 
           echo "Installing opencode provider config..."
-          bash .agents/skills/ai-review-report/scripts/lib/setup-opencode-config.sh
+          bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
 
           echo "Warming opencode SQLite store..."
           opencode stats >/dev/null || true
           echo "✓ opencode DB initialised"
           echo "Running OPENCODE health check..."
-          bash .agents/skills/ai-review-report/scripts/lib/opencode-health.sh || true
+          bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || true
 
           echo "Resolving provider/model chain..."
-          bash .agents/skills/ai-review-report/scripts/lib/resolve-provider.sh
+          bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
 
           echo "Testing the two-tier review chain via opencode (LADR-002)..."
           echo ""
@@ -810,7 +903,7 @@ jobs:
 
           # Filter excluded files (lock files, auto-generated, etc.)
           if [ -s ci_temp/changed_files.txt ]; then
-            bash .agents/skills/ai-review-report/scripts/filter-excluded-files.sh || true
+            bash "${REVIEW_SKILL_DIR}/scripts/filter-excluded-files.sh" || true
           fi
 
           # Generate diff only for the filtered files
@@ -1058,7 +1151,7 @@ jobs:
 
       - name: Find Relevant Context Files
         id: find_context
-        run: bash .agents/skills/ai-review-report/scripts/find-context-files.sh
+        run: bash "${REVIEW_SKILL_DIR}/scripts/find-context-files.sh"
 
       - name: Validate AGENTS.md Requirements
         id: validate_agents
@@ -1066,7 +1159,7 @@ jobs:
         env:
           BASE_REF: ${{ steps.pr_info.outputs.base_ref || 'main' }}
         run: |
-          bash .agents/skills/ai-review-report/scripts/validate-agents-md.sh "${{ steps.determine_review.outputs.review_type }}"
+          bash "${REVIEW_SKILL_DIR}/scripts/validate-agents-md.sh" "${{ steps.determine_review.outputs.review_type }}"
 
       - name: Block PR if AGENTS.md Validation Failed
         if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
@@ -1166,7 +1259,7 @@ jobs:
           steps.file_count_gate.outputs.exceeded != 'true'
         continue-on-error: true
         run: |
-          bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+          bash "${REVIEW_SKILL_DIR}/scripts/review-in-chunks.sh" \
             "${{ steps.determine_review.outputs.from_sha }}" \
             "${{ steps.determine_review.outputs.current_sha }}" \
             "${{ steps.initialize_opencode.outputs.selected_model }}" \
@@ -1183,7 +1276,7 @@ jobs:
           steps.file_count_gate.outputs.exceeded != 'true'
         continue-on-error: true
         run: |
-          bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh \
+          bash "${REVIEW_SKILL_DIR}/scripts/aggregate-reviews.sh" \
             "${{ steps.chunked_review.outputs.total_chunks }}" \
             "${{ steps.initialize_opencode.outputs.selected_model }}" \
             "${{ steps.determine_review.outputs.review_type }}" \
@@ -1200,7 +1293,7 @@ jobs:
         if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           # Minimize BEFORE posting new review to avoid race condition where new review gets minimized
-          bash .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh \
+          bash "${REVIEW_SKILL_DIR}/scripts/minimize-previous-reviews.sh" \
             "${{ steps.pr_info.outputs.pr_number }}" \
             "${{ steps.determine_review.outputs.review_type }}" \
             "${{ github.repository }}" \

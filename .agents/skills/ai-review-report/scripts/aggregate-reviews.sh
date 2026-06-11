@@ -30,6 +30,12 @@ fi
 
 echo "Last full review status: $LAST_FULL_REVIEW_STATUS"
 
+# Fence hygiene: model output may contain nested/unbalanced code fences, which
+# flip GFM fence parity and can swallow the <details> wrapper of the posted
+# review into a literal code block (PR #36, review 4474042824). Every
+# model-generated piece is balanced in place before being embedded.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/balance-fences.sh"
+
 # Convert model ID to display name
 get_model_display_name() {
   local model_id="$1"
@@ -90,6 +96,9 @@ for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
     fi
     echo "### Chunk #${i}" >> ci_temp/combined_reviews.md
     echo "" >> ci_temp/combined_reviews.md
+    # Balanced per chunk so one chunk's open fence cannot corrupt the next
+    # chunk, the aggregation prompt, or the posted <details> section.
+    balance_fences ci_temp/reviews/chunk_${i}.md
     cat ci_temp/reviews/chunk_${i}.md >> ci_temp/combined_reviews.md
     echo "" >> ci_temp/combined_reviews.md
   else
@@ -504,6 +513,12 @@ else
   echo "## 🔄 Holistic Cross-Chunk Analysis" > ci_temp/pr_summary_detailed.md
   echo "No holistic analysis section found." >> ci_temp/pr_summary_detailed.md
 fi
+
+# An open fence at the end of the main summary swallows the <details> tag that
+# is appended right after it; one at the end of the detailed section swallows
+# the chunk reviews. Balance both halves (the PR #36 breakage was main-side).
+balance_fences ci_temp/pr_summary_main.md
+balance_fences ci_temp/pr_summary_detailed.md
 
 # Build final review comment with proper structure
 # Format SHAs to 7 characters

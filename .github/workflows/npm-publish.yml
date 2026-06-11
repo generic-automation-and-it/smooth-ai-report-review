@@ -1,0 +1,55 @@
+name: Publish npm package
+
+# Publishes the opencode plugin @generic-automation-and-it/smooth-ai-review to
+# the GitHub Packages npm registry (npm.pkg.github.com) on semver tags only
+# (vX.Y.Z). The floating `v1` tag used to pin the reusable review workflow
+# deliberately does NOT match this pattern, so re-pointing it never
+# re-publishes. One vX.Y.Z tag releases both channels.
+#
+# Auth: the run-scoped GITHUB_TOKEN with `packages: write` — no PAT or npm.com
+# token needed. Note GitHub Packages requires consumers to authenticate with a
+# read:packages PAT even for public packages (documented in the README).
+#
+# One-time after the FIRST publish: the package starts private — flip it to
+# public under the org's Packages → package settings → Danger Zone.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: "@generic-automation-and-it"
+
+      # package.json, .claude-plugin/plugin.json and the release tag must agree —
+      # the npm package and the Claude Code plugin are versioned in lockstep.
+      - name: Assert version lockstep with tag
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          plugin_version="$(node -p "require('./.claude-plugin/plugin.json').version")"
+          echo "tag=${tag_version} package.json=${pkg_version} plugin.json=${plugin_version}"
+          if [ "${tag_version}" != "${pkg_version}" ] || [ "${tag_version}" != "${plugin_version}" ]; then
+            echo "::error::Version mismatch: tag v${tag_version} requires package.json and .claude-plugin/plugin.json to both be ${tag_version}." >&2
+            exit 1
+          fi
+
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish

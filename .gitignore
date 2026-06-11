@@ -430,3 +430,6 @@ FodyWeavers.xsd
 
 # Conductor workspace-local settings (not part of the repo)
 .conductor/
+
+# AI review gate working directory (created at run time)
+ci_temp/
