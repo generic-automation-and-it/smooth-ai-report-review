@@ -54,7 +54,7 @@ The three skills — `ai-review-report` (review generator + local driver), `ai-r
 Notes:
 - The plugin installs **skills only** — it does **not** install the CI gate. Pair it with the [reusable workflow](#use-as-a-reusable-workflow) (or the copy-installer) for PR-gate coverage.
 - When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
-- The plugin's `skills` directory is a git symlink to `.agents/skills` (the canonical location); cloning on Windows requires symlink support (`git config core.symlinks true` + Developer Mode).
+- The plugin's `skills` directory is a git symlink to `.agents/skills` (the canonical location); cloning on Windows requires symlink support (`git config core.symlinks true` + Developer Mode) — or run `.agents/setup/scripts/agents-setup.ps1` as Administrator after cloning to recreate the links.
 
 ## Install into another repo (AI-agent driven)
 

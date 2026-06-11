@@ -19,9 +19,24 @@ function Create-Symlink {
         [bool]$IsDirectory = $false
     )
 
-    # Remove existing symlink/file if it exists
-    if (Test-Path $LinkPath) {
-        Remove-Item $LinkPath -Force -ErrorAction SilentlyContinue
+    # Remove existing symlink/file if it exists. A directory symlink needs rmdir
+    # (Remove-Item without -Recurse fails on it, and -Recurse would delete the
+    # link TARGET's contents); a real directory is never deleted — bail instead.
+    if (Test-Path -LiteralPath $LinkPath) {
+        $existing = Get-Item -LiteralPath $LinkPath -Force
+        if ($existing.LinkType) {
+            if ($existing.PSIsContainer) {
+                cmd /c rmdir "$LinkPath" | Out-Null
+            } else {
+                Remove-Item -LiteralPath $LinkPath -Force
+            }
+        } elseif ($existing.PSIsContainer) {
+            Write-Error "Refusing to replace real directory '$LinkPath' with a symlink - remove it manually first."
+            return $false
+        } else {
+            # Plain file (e.g. a symlink checked out with core.symlinks=false)
+            Remove-Item -LiteralPath $LinkPath -Force
+        }
     }
 
     # Create symlink
@@ -46,6 +61,11 @@ $allSuccess = $true
 Write-Host "Creating directory symlinks for AI agent tools..." -ForegroundColor Cyan
 $allSuccess = (Create-Symlink ".claude" ".agents" $true) -and $allSuccess
 $allSuccess = (Create-Symlink ".codex" ".agents" $true) -and $allSuccess
+
+# Recreate the committed Claude Code plugin skills symlink (skills -> .agents/skills).
+# A clone made without core.symlinks=true checks it out as a plain text file
+# containing the target path; replace it with a real directory symlink.
+$allSuccess = (Create-Symlink "skills" ".agents\skills" $true) -and $allSuccess
 
 # Create file symlinks for context files
 Write-Host "`nCreating file symlinks for context files..." -ForegroundColor Cyan

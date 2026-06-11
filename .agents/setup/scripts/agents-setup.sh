@@ -33,6 +33,10 @@ echo "Creating directory symlinks for AI agent tools..."
 create_symlink ".claude" ".agents" || all_success=false
 create_symlink ".codex" ".agents" || all_success=false
 
+# Recreate the committed Claude Code plugin skills symlink (skills → .agents/skills)
+# in case the clone materialized it as a plain file (core.symlinks=false).
+create_symlink "skills" ".agents/skills" || all_success=false
+
 # Create file symlinks for context files
 echo ""
 echo "Creating file symlinks for context files..."
