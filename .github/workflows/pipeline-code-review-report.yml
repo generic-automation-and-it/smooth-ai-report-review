@@ -403,7 +403,7 @@ jobs:
       #    literal when it targets a different skills dir — keep it literal here).
       # 2. Reusable-workflow mode: the caller repo has no skill installed, so fetch
       #    the tooling repo as a side checkout, version-locked to the same ref this
-      #    workflow was called at (job.workflow_sha — the SHA of the workflow file
+      #    workflow was called at (github.workflow_sha — the SHA of the workflow file
       #    that defines this job), overridable via the tools_ref input.
       - name: Locate review skill scripts
         id: locate_skill
@@ -423,7 +423,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ inputs.tools_ref || job.workflow_sha || 'main' }}
+          ref: ${{ inputs.tools_ref || github.workflow_sha || 'main' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched review tooling
