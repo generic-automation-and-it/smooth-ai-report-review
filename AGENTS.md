@@ -39,6 +39,7 @@ C4Context
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-06-11 | Review gate hardened against platform-semantics hallucinations (PR #36 review 4473891333 — new FP class): two prompt edits in `review-in-chunks.sh` (platform-behavior claims must be verified via `webfetch` or tagged `[SPECULATIVE]`; new MANDATORY WORKFLOW step 4 listing the `workflow_call` context + glob-filter traps), new **DR-015** rule + must-not-flag fixture, LADR-015 narrative extended (claim-correctness in scope). | — |
 | 2026-06-01 | Seeded repo with the `ai-review-report` + `ai-review` skills and the review gate; origin used `.ai/`, this repo standardizes on `.agents/`. | — |
 | 2026-06-06 | Health check is provider-agnostic via `opencode serve` + `/global/health`; per-provider gateway probes and `OPENCODE_API_HEALTH_OVERRIDE` removed. | LADR-028 |
 | 2026-06-06 | OpenCode Go added as **two** providers split by SDK surface (`go-openai`/`go-anthropic`); Zen base hardcoded (no URL Variable), keys stay Secrets. | LADR-027 |

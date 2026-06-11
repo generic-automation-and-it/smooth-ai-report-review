@@ -1,0 +1,6 @@
+{
+  "id": "DR-015-gha-workflow-call-context",
+  "kind": "must-not-flag",
+  "label": "DR-015",
+  "note": "Reusable workflows inherit the caller's github context — event_name is never 'workflow_call' and github.event.pull_request.* is populated for PR-triggered callers; reviewer must NOT flag if-gates or event-payload references as broken for workflow_call."
+}

@@ -1,4 +1,4 @@
-# Code Review Standards — Supplement (DR-012 … DR-014)
+# Code Review Standards — Supplement (DR-012 … DR-015)
 
 > **Eval-corpus context file.** The eval harness places this at the production
 > path `.agents/skills/code-review-standards/SKILL.md` inside each fixture
@@ -70,3 +70,21 @@ Confirmed false positives: PR #5258 (BNKI-1190) — High×14 on `Secondary.Enabl
 true` because the original AI Review Notes said "off in prod" (superseded by a
 later commit); plus a Critical "missing type-name discriminator" despite the LADR
 explicitly choosing connection-string discrimination.
+
+### DR-015: GitHub Actions reusable-workflow context is the caller's
+
+In a workflow with `on.workflow_call`, the `github` context inside the called (reusable)
+workflow is inherited from the CALLER: `github.event_name` is the caller's triggering
+event (`pull_request`, `workflow_dispatch`, ...) — it is never `"workflow_call"` — and
+`github.event.pull_request.*` is fully populated when the caller was PR-triggered.
+
+Do NOT flag as bugs:
+- A job `if:` gate that lists caller event names without a `workflow_call` clause.
+- `github.event.pull_request.*` references "unavailable in workflow_call context".
+- A caller not forwarding the PR number as an input when the callee reads it from the event.
+
+Related glob trap: `on.push.branches/tags/paths` filters are glob patterns, not regex —
+dots are literal; do not suggest regex-escaping.
+
+Confirmed recurring false positive: PR #36 (review 4473891333) — two hallucinated
+Criticals + one High produced a wrong REQUEST_CHANGES.
