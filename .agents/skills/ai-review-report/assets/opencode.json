@@ -72,7 +72,7 @@
   "agent": {
     "review": {
       "mode": "primary",
-      "description": "Locked-down PR-review agent (LADR-029): no skill/task/edit/write/bash; read + web (fetch/search) enabled. Disabling skill/task stops the review model self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure mode); bash is denied so a prompt-injected diff cannot run arbitrary commands on the runner, while webfetch/websearch stay on so the model can verify references during review.",
+      "description": "Locked-down PR-review agent (LADR-029): no skill/task/edit/bash; read + web (fetch/search) enabled. Disabling skill/task stops the review model self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure mode); bash is denied so a prompt-injected diff cannot run arbitrary commands on the runner, while webfetch/websearch stay on so the model can verify references during review.",
       "tools": {
         "skill": false,
         "task": false,

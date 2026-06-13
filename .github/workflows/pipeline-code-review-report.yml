@@ -98,7 +98,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Force GHA runner to use Node24 (unofficial community mechanism).
+  # Force GHA runner to use Node24 (official opt-in flag, runner PR #3948).
   # This opts into Node24 early to ensure deterministic behavior across
   # runner updates and surface incompatibilities before the hard migration.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
