@@ -39,7 +39,7 @@ C4Context
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
-| 2026-06-13 | Self-review remediation for reusable/copy template install: validator uses resolved base/head SHAs for new-file detection; provider footer/action parsing, chunk portability, local credential harvest, Copilot thread pagination, fence/prompt tests, and review-guidance drift fixed. | — |
+| 2026-06-13 | Self-review remediation for reusable/copy template install: validator uses resolved base/head SHAs for new-file detection; provider footer/action parsing, chunk portability, local credential harvest, Copilot thread pagination, fence/prompt tests, and guidance drift fixed for skill `switches`, root `AGENTS.md` path coupling, and LADR-019 aggregation read abstention. | — |
 | 2026-06-11 | Review gate hardened against platform-semantics hallucinations (PR #36 review 4473891333 — new FP class): two prompt edits in `review-in-chunks.sh` (platform-behavior claims must be verified via `webfetch` or tagged `[SPECULATIVE]`; new MANDATORY WORKFLOW step 4 listing the `workflow_call` context + glob-filter traps), new **DR-015** rule + must-not-flag fixture, LADR-015 narrative extended (claim-correctness in scope). | — |
 | 2026-06-01 | Seeded repo with the `ai-review-report` + `ai-review` skills and the review gate; origin used `.ai/`, this repo standardizes on `.agents/`. | — |
 | 2026-06-06 | Health check is provider-agnostic via `opencode serve` + `/global/health`; per-provider gateway probes and `OPENCODE_API_HEALTH_OVERRIDE` removed. | LADR-028 |
