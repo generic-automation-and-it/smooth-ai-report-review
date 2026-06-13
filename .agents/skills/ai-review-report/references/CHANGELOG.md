@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-06-13 | Added skill `AGENTS.md` "Self-Review — Known Intentional Patterns (do NOT flag)" registry so self-review false positives (downstream `PR #<n>` provenance refs, `cmd_threads` EXIT trap, `MACHINE_READABLE_ACTION` `tail -1` parse, compressed one-line changelog rows) are durably skipped on any machine, not just via per-PR `/ai-review skip`; root `AGENTS.md` changelog pointer notes LADRs are not re-inlined. From PR #44 review 4491689018. | NO-TICKET |
 | 2026-06-13 | Self-review remediation from PR #149 review: validator SHA resolution, provider-agnostic footer/parsing, portable chunk scripts, Copilot pagination, guidance drift fixes (switches, LADR-019, root-doc path). | NO-TICKET |
 | 2026-06-11 | Platform-semantics hallucination guard: prompt edits for claim verification / `[SPECULATIVE]` downgrade; DR-015 rule + fixture; LADR-015 extended. | NO-TICKET |
 | 2026-06-11 | Fence balancing for posted review bodies (`lib/balance-fences.sh`); GFM parity fix for nested code fences. | NO-TICKET |

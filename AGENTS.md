@@ -35,4 +35,4 @@ C4Context
 
 ## Changelog
 
-Full dated audit trail: `.agents/skills/ai-review-report/references/CHANGELOG.md`.
+Full dated audit trail: `.agents/skills/ai-review-report/references/CHANGELOG.md`. LADR narratives live in `.agents/skills/ai-review-report/AGENTS.md` — do not re-inline them here.

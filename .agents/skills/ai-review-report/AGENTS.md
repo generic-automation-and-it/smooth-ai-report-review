@@ -489,6 +489,19 @@ Skill-specific non-functional requirements that go beyond the project-wide basel
 - **`.github/instructions/code-review-standards.instructions.md`** — the DR list the chunk-review model follows. DR-001…DR-014 are the "must-NOT-flag" golden set for the eval harness (LADR-033).
 - **`.github/workflows/llm-eval-harness.yml`** — the workflow that runs the eval harness. `workflow_dispatch`-only; post-merge canary on `push` to `main` path-filtered to the review-pipeline files. Never on `pull_request`.
 
+## Self-Review — Known Intentional Patterns (do NOT flag)
+
+> **AI review note: this section IS review context, not loading-skippable.** This file is loaded into the chunk prompt whenever a PR touches `.agents/skills/ai-review-report/` (the per-chunk `*AGENTS.md` walk discovers it). When this repo's own gate self-reviews, the rows below are **confirmed-intentional design decisions** of the gate itself — do NOT raise them as findings at any priority (Critical/High/Medium/Low). They are the durable, machine-independent equivalent of a `/ai-review` `skip` decision: recording them here makes the self-review verdict reproducible on any clone, not just via per-PR `skip` args. The DR-001…DR-015 "must-NOT-flag" set ([references above]) generalises across all reviewed repos; this set is specific to **this gate's own source**. Each row cites the review that raised the false positive.
+
+| Pattern (do NOT flag) | Where | Why it is intentional | Confirmed FP |
+|:--|:--|:--|:--|
+| Bare `PR #<n>` / `PR #<n> review <id>` provenance references whose number ≠ the local PR | `references/CHANGELOG.md` rows | Cross-repo reference to the **downstream consuming repo** where the template was copy-installed and self-reviewed — NOT a mistyped local PR number. The 2026-06-13 row's "PR #149" is downstream PR #149 review `4491592670`; rewriting it to the local PR number would corrupt the audit trail. | PR #44 review 4491689018 |
+| `trap '... rm -f "$tmp" "$next_tmp"' EXIT` over `local` vars in `cmd_threads` | `.agents/skills/ai-review/scripts/copilot-review.sh` | Deliberate early-exit temp cleanup (commit 089b85b). The explicit `rm` also runs on the normal path; if the trap fires after the function returns, `rm -f ""` is a harmless no-op (two empty-string args is **not** `missing operand`, which needs zero args). Removing the trap reintroduces a temp-file leak on early exit. | PR #44 review 4491689018 |
+| `tail -1` + `^`-anchored `grep`/`sed` parse of `**MACHINE_READABLE_ACTION:**` | `scripts/aggregate-reviews.sh` | Pragmatic decision parse: the aggregation prompt emits the decision as a single end-of-output line; `^` anchor + `tail -1` is sufficient. An out-of-band flag file (cf. LADR-031) is a noted future option, not a required change. The `^.*` greediness in the `sed` is irrelevant on these short strings. | PR #44 review 4491689018 |
+| One-line changelog rows that omit run numbers / review IDs / per-incident narrative | root `AGENTS.md`, this file, `references/CHANGELOG.md` summary rows | Intentional layering (and the 2026-06-13 "minimal token footprint" pass): operational provenance lives in the dated `references/CHANGELOG.md` body and the LADRs, deliberately not re-inlined into one-line summary rows. | PR #44 review 4491689018 |
+
+When `/ai-review` skips a finding that is a genuine, recurring design decision of this gate (not a one-off), add a row here in the same commit so future self-reviews on any machine inherit the decision.
+
 ## Changelog
 
 > AI loading note: Skip this section during routine task execution. Use it only when updating this file.
