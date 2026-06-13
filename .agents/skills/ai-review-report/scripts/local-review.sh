@@ -299,7 +299,9 @@ export PATH="${REPO_ROOT}/${WORK_DIR}/bin:$PATH"
 export GITHUB_OUTPUT="${WORK_DIR}/github_output.txt"
 touch "$GITHUB_OUTPUT"
 
-# Set mandatory context files (same as workflow env)
+# Set mandatory context files (same as workflow env).
+# These paths are resolved against the repo being reviewed, not this skill's repo.
+# Paths that don't exist in the target repo warn-and-skip (cross-repo contract).
 export MANDATORY_CONTEXT_FILES=".docs/nfr/PROJECT_SETUP_AGENTS.md .agents/skills/code-review-standards/SKILL.md .docs/nfr/TOOL_SETUP_AGENTS.md .agents/rules-scoped/backend/testing-standards.instructions.md .agents/rules-scoped/backend/dotnet-standards.instructions.md"
 
 # Model chain (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
@@ -351,7 +353,6 @@ echo "  HEAD: ${TO_SHA:0:7}"
 # Check for uncommitted changes and create a temporary commit if needed
 # (review-in-chunks.sh requires commit SHAs for git diff FROM..TO)
 TEMP_COMMIT=false
-STASHED=false
 
 # Check if there are uncommitted changes (staged + unstaged + untracked, excluding ci_temp)
 if [ -n "$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp' -e '^?? \.context/')" ]; then
@@ -366,6 +367,8 @@ if [ -n "$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp'
     TEMP_COMMIT=true
     TO_SHA="$(git rev-parse HEAD)"
     echo "  Temp commit: ${TO_SHA:0:7}"
+  else
+    echo "  ⚠️  Uncommitted changes exist but won't be reviewed (only committed diffs are used). Consider committing or stashing first."
   fi
 fi
 
@@ -453,6 +456,7 @@ EXPERTISE_MAP[GO]="an expert Go code reviewer"
 EXPERTISE_MAP[YML]="an expert DevOps and CI/CD reviewer"
 EXPERTISE_MAP[PY]="an expert Python code reviewer"
 EXPERTISE_MAP[SQL]="an expert database and SQL reviewer"
+EXPERTISE_MAP[JAVA]="an expert Java code reviewer"
 EXPERTISE_MAP[DOCKER]="an expert Docker and containerization reviewer"
 
 declare -A DETECTED_EXPERTISE

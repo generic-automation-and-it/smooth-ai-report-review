@@ -443,6 +443,13 @@ echo "  Quality warnings (modified files, advisory): $QUALITY_WARNING_COUNT"
 echo ""
 
 # Build validation message for review comment
+# NOTE: This function reads global arrays and their companion count variables.
+# The arrays (INVALID_NAMES, INVALID_TEMPLATE, QUALITY_ERRORS_NEW,
+# QUALITY_WARNINGS_MODIFIED) must be populated BEFORE calling this function,
+# and their count variables (INVALID_NAME_COUNT, INVALID_TEMPLATE_COUNT,
+# QUALITY_ERROR_COUNT, QUALITY_WARNING_COUNT) must be kept in sync.
+# Adding a new array requires adding both the array population, the count
+# increment, and the corresponding branch in this function.
 build_validation_message() {
   local message=""
 

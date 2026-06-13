@@ -35,10 +35,13 @@ echo ""
 echo "Test 3: Full review type (will test logic up to API call)"
 OUTPUT=$(bash .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh "123" "full" "0north/bunker-procurement" "999999" 2>&1 || true)
 
-if echo "$OUTPUT" | grep -q "Minimizing Previous Gemini Reviews"; then
-  echo "✅ Test 3 passed: Full review minimization logic triggered"
+if echo "$OUTPUT" | grep -q "Minimizing Previous AI Reviews"; then
+  echo "✅ Test 3 passed: Full review minimization logic triggered (reached script entry with correct args)"
+elif echo "$OUTPUT" | grep -qi "not found\|command not found\|no such file"; then
+  echo "⚠️  Test 3: Dependency missing — cannot verify logic"
+  echo "$OUTPUT"
 else
-  echo "⚠️  Test 3: Logic may need verification"
+  echo "⚠️  Test 3: Unexpected output — review the script logic"
   echo "$OUTPUT"
 fi
 echo ""

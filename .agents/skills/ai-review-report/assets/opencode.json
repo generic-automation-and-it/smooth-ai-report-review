@@ -77,7 +77,6 @@
         "skill": false,
         "task": false,
         "edit": false,
-        "write": false,
         "bash": false,
         "webfetch": true,
         "websearch": true

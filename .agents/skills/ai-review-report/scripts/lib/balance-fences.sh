@@ -63,3 +63,8 @@ balance_fences() {
     }
   ' "$f" > "${f}.fencebal.tmp" && mv "${f}.fencebal.tmp" "$f"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "This script is meant to be sourced, not executed directly." >&2
+  exit 1
+fi

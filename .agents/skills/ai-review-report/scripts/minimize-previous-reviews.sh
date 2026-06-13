@@ -23,7 +23,7 @@ if [ "$REVIEW_TYPE" != "full" ]; then
 fi
 
 echo "=========================================="
-echo "Minimizing Previous Gemini Reviews"
+echo "Minimizing Previous AI Reviews"
 echo "=========================================="
 echo "PR: #${PR_NUMBER}"
 echo "Review Type: ${REVIEW_TYPE}"

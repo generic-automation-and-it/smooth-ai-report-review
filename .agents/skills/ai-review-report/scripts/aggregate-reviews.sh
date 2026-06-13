@@ -529,8 +529,12 @@ if grep -q "DETAILED_SECTION_MARKER" ci_temp/pr_summary.md; then
   # Extract main summary (before marker)
   sed '/DETAILED_SECTION_MARKER/,$d' ci_temp/pr_summary.md > ci_temp/pr_summary_main.md
 
-  # Extract detailed holistic analysis (after marker)
-  sed -n '/DETAILED_SECTION_MARKER/,$p' ci_temp/pr_summary.md | sed '1,3d' > ci_temp/pr_summary_detailed.md
+  # Extract detailed holistic analysis (after marker).
+  # Strip the marker line, then strip leading blank lines only (model may emit
+  # variable preamble; keep all content from the first non-blank line onward).
+  sed -n '/DETAILED_SECTION_MARKER/,$p' ci_temp/pr_summary.md \
+    | sed '/DETAILED_SECTION_MARKER/d' \
+    | sed '/./,$!d' > ci_temp/pr_summary_detailed.md
 else
   # Fallback if marker not found (backward compatibility)
   cp ci_temp/pr_summary.md ci_temp/pr_summary_main.md

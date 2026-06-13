@@ -51,7 +51,7 @@ DEADLINE=$((SECONDS + TIMEOUT))
 # Wait for the "listening on <url>" line (or the process to die early).
 BASE=""
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
-  BASE="$(grep -oE 'http://[^[:space:]]+' "$LOG" 2>/dev/null | head -1)"
+  BASE="$(grep -oE 'https?://[^[:space:]]+' "$LOG" 2>/dev/null | head -1)"
   [ -n "$BASE" ] && break
   kill -0 "$_serve_pid" 2>/dev/null || { echo "❌ opencode serve exited before reporting a URL:" >&2; tail -n 20 "$LOG" >&2 2>/dev/null || true; exit 1; }
   sleep 1
