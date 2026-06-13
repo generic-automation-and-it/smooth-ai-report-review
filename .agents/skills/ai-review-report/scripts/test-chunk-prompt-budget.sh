@@ -20,6 +20,7 @@ echo ""
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../" && pwd)"
 SOURCE_CHUNKS_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
 SOURCE_AGG_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/aggregate-reviews.sh"
+SOURCE_BALANCE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/balance-fences.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -35,6 +36,7 @@ setup_repo() {
 
   cp "${SOURCE_CHUNKS_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
   cp "${SOURCE_AGG_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/aggregate-reviews.sh"
+  cp "${SOURCE_BALANCE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/balance-fences.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
@@ -67,7 +69,7 @@ None found
 **Decision:** APPROVE
 **Rationale:** Following policy: 0 critical and 0 high priority issues found - approving
 
-**MACHINE_READABLE_ACTION:** APPROVE
+**MACHINE_READABLE_ACTION:** approve
 
 ---
 DETAILED_SECTION_MARKER
@@ -165,7 +167,15 @@ run_budget_case() {
 
   # 3. Hard ceiling: no chunk prompt may exceed 250,000 bytes.
   local oversized=0 prompt size
-  for prompt in ci_temp/chunk_*_prompt.txt; do
+  local prompts=()
+  shopt -s nullglob
+  prompts=(ci_temp/chunk_*_prompt.txt)
+  shopt -u nullglob
+  if [ "${#prompts[@]}" -eq 0 ]; then
+    fail "expected chunk prompt files to be generated"
+    return
+  fi
+  for prompt in "${prompts[@]}"; do
     size="$(wc -c < "${prompt}" | tr -d ' ')"
     if [ "${size}" -gt 250000 ]; then
       echo "   oversized prompt: ${prompt} (${size} bytes)"

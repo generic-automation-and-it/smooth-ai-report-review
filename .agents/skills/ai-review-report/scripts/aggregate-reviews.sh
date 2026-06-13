@@ -64,10 +64,34 @@ get_model_display_name() {
   esac
 }
 
+get_provider_display_name() {
+  case "${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}" in
+    GEMINI)
+      echo "Google Gemini"
+      ;;
+    COPILOT)
+      echo "GitHub Copilot"
+      ;;
+    OPENAI)
+      echo "OpenAI"
+      ;;
+    OPENCODE-GO-OPENAI)
+      echo "OpenCode Go (OpenAI surface)"
+      ;;
+    OPENCODE-GO-ANTHROPIC)
+      echo "OpenCode Go (Anthropic surface)"
+      ;;
+    *)
+      echo "${OPENCODE_REVIEW_REPORT_PROVIDER}"
+      ;;
+  esac
+}
+
 # $OPENCODE_MODEL_ID is the resolved review model (the chunk-review chain's
 # winner). The posted `**Model:**` field shows it — chunk reviews drive the
 # substantive findings, so that is the model users care about.
 OPENCODE_MODEL_DISPLAY_NAME=$(get_model_display_name "$OPENCODE_MODEL_ID")
+OPENCODE_PROVIDER_DISPLAY_NAME=$(get_provider_display_name)
 
 # LADR-022: aggregation / summarisation is not deep analysis — run it on the
 # cheap ORCHESTRATOR model, falling back to the resolved review model if the
@@ -637,7 +661,7 @@ cat >> ci_temp/final_review.md << EOF
 </details>
 
 ---
-*Automated review by [opencode](https://opencode.ai) using Google Gemini*
+*Automated review by [opencode](https://opencode.ai) using ${OPENCODE_PROVIDER_DISPLAY_NAME}*
 *Model: ${OPENCODE_MODEL_DISPLAY_NAME} | Reviewed in $TOTAL_CHUNKS chunks*
 EOF
 
@@ -646,7 +670,11 @@ echo "✅ Final review comment prepared"
 
 # Determine review action from summary
 # First try to parse the machine-readable action field (more reliable)
-REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md | sed 's/.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\?\([A-Z_]*\)\]\?.*/\1/' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
+  | tail -1 \
+  | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
+  | tr '[:upper:]' '[:lower:]' \
+  | tr -d '[:space:]')
 
 # Fail-closed safety net: if ANY chunk failed to review, never APPROVE regardless
 # of the summarizer's verdict — a failed chunk means part of the PR was not

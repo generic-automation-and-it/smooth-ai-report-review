@@ -62,14 +62,20 @@ printf '```\ncontent\n```yaml\n' > "$f"
 balance_fences "$f"
 check "Test 4: info-string fence does not close a block" "$(printf '```\ncontent\n```yaml\n```')" "$(cat "$f")"
 
-# Test 5: inline code like ```foo``` never opens a block (backtick info string)
+# Test 5a: mid-line inline code like ```foo``` never opens a block
 f="$TMP_DIR/t5.md"
 printf 'see ```inline``` usage\n' > "$f"
-# put the inline-ish fence at line start where it could be mistaken for a fence
+before="$(cat "$f")"
+balance_fences "$f"
+check "Test 5a: inline backtick run is not a fence opener" "$before" "$(cat "$f")"
+
+# Test 5b: a line-start backtick run with backticks in the info string is not a
+# fence opener under GFM.
+f="$TMP_DIR/t5b.md"
 printf '```inline```\ntext\n' > "$f"
 before="$(cat "$f")"
 balance_fences "$f"
-check "Test 5: inline backtick run is not a fence opener" "$before" "$(cat "$f")"
+check "Test 5b: line-start backtick info string is not a fence opener" "$before" "$(cat "$f")"
 
 # Test 6: tilde fences supported; longer closing fence closes a shorter opener
 f="$TMP_DIR/t6.md"

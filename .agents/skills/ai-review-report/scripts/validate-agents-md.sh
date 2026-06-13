@@ -80,7 +80,11 @@ if [ -n "$AGENTS_MD_EXEMPT_PATHS" ]; then
   is_in_exempt_path() {
     local file="$1"
     for exempt_path in "${EXEMPT_PATHS[@]}"; do
-      if [[ "$file" == "$exempt_path"* ]]; then
+      if [[ "$exempt_path" == */ ]]; then
+        if [[ "$file" == "$exempt_path"* ]]; then
+          return 0
+        fi
+      elif [[ "$file" == "$exempt_path" || "$file" == "$exempt_path/"* ]]; then
         return 0
       fi
     done
@@ -108,33 +112,65 @@ if [ -n "$AGENTS_MD_EXEMPT_PATHS" ]; then
   fi
 fi
 
-# Get list of NEW (added) files only - for naming validation
-# Use git status to identify which files are new vs modified
+# Get list of NEW (added) files only - for naming validation.
 echo "Identifying new vs modified files..."
 NEW_FILES=()
-if git diff --cached --name-only --diff-filter=A 2>/dev/null | grep -q .; then
+
+# In CI the workflow has already resolved the correct comparison range
+# (merge-base/base SHA -> head SHA). Use that first so this script does not
+# depend on a particular remote ref being present as origin/<base>.
+BASE_SHA="${BASE_SHA:-}"
+HEAD_SHA="${HEAD_SHA:-}"
+BASE_REF="${BASE_REF:-main}"
+
+if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
+  && git rev-parse --verify "$BASE_SHA^{commit}" >/dev/null 2>&1 \
+  && git rev-parse --verify "$HEAD_SHA^{commit}" >/dev/null 2>&1; then
+  git diff --name-only -z --diff-filter=A "${BASE_SHA}..${HEAD_SHA}" -- > ci_temp/new_files_from_range.txt
+  while IFS= read -r -d '' file; do
+    NEW_FILES+=("$file")
+  done < ci_temp/new_files_from_range.txt
+elif git diff --cached --name-only --diff-filter=A 2>/dev/null | grep -q .; then
+  # Local/testing path where the caller explicitly staged new files.
+  git diff --cached --name-only --diff-filter=A 2>/dev/null > ci_temp/new_files_cached.txt
   while IFS= read -r file; do
     NEW_FILES+=("$file")
-  done < <(git diff --cached --name-only --diff-filter=A 2>/dev/null)
-fi
-
-# For PR context, identify files that don't exist in the PR's BASE branch.
-# BASE_REF is the PR target branch, passed from the workflow
-# (steps.pr_info.outputs.base_ref); defaults to main for local/standalone runs.
-# Hardcoding origin/main mis-flagged files as "new" on PRs targeting
-# release/hotfix branches.
-BASE_REF="${BASE_REF:-main}"
-if [ -f ci_temp/feature_branch_files.txt ]; then
-  # Get files that are new in this branch (don't exist in base)
+  done < ci_temp/new_files_cached.txt
+elif [ -f ci_temp/feature_branch_files.txt ]; then
+  # Last-resort compatibility path for old callers that provide changed-file
+  # artifacts but not BASE_SHA/HEAD_SHA. This requires a fetched base ref; if it
+  # is absent we warn instead of treating every changed file as new.
+  if git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null 2>&1; then
+    while IFS= read -r -d '' file; do
+      if ! git cat-file -e "origin/${BASE_REF}:$file" 2>/dev/null; then
+        NEW_FILES+=("$file")
+      fi
+    done < ci_temp/changed_files.txt
+  else
+    echo "⚠️ Base ref origin/${BASE_REF} not available and BASE_SHA/HEAD_SHA not provided; treating AGENTS.md files as modified for naming/template checks."
+  fi
+elif git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null 2>&1; then
   while IFS= read -r -d '' file; do
     if ! git cat-file -e "origin/${BASE_REF}:$file" 2>/dev/null; then
       NEW_FILES+=("$file")
     fi
   done < ci_temp/changed_files.txt
+else
+  while IFS= read -r -d '' file; do
+    if ! git cat-file -e "HEAD~1:$file" 2>/dev/null; then
+      NEW_FILES+=("$file")
+    fi
+  done < ci_temp/changed_files.txt
 fi
 
-# Remove duplicates from NEW_FILES
-NEW_FILES=($(printf '%s\n' "${NEW_FILES[@]}" | sort -u))
+# Remove duplicates from NEW_FILES without splitting paths that contain spaces.
+if [ "${#NEW_FILES[@]}" -gt 0 ]; then
+  printf '%s\n' "${NEW_FILES[@]}" | sort -u > ci_temp/new_files_unique.txt
+  NEW_FILES=()
+  while IFS= read -r file; do
+    NEW_FILES+=("$file")
+  done < ci_temp/new_files_unique.txt
+fi
 
 echo "New files detected: ${#NEW_FILES[@]}"
 for f in "${NEW_FILES[@]}"; do
@@ -549,7 +585,7 @@ if [ "$DOC_COUNT" -eq 0 ]; then
   VALIDATION_MESSAGE=$(build_validation_message)
 
   # Save message to file for workflow to use
-  echo "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
+  printf '%s\n' "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
 
   echo "validation_passed=false" >> "$GITHUB_OUTPUT"
   exit 0
@@ -562,7 +598,7 @@ elif [ "$INVALID_NAME_COUNT" -gt 0 ]; then
   VALIDATION_MESSAGE=$(build_validation_message)
 
   # Save message to file for workflow to use
-  echo "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
+  printf '%s\n' "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
 
   echo "validation_passed=false" >> "$GITHUB_OUTPUT"
   exit 0
@@ -576,7 +612,7 @@ elif [ "$INVALID_TEMPLATE_COUNT" -gt 0 ]; then
   VALIDATION_MESSAGE=$(build_validation_message)
 
   # Save message to file for workflow to use
-  echo "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
+  printf '%s\n' "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
 
   echo "validation_passed=false" >> "$GITHUB_OUTPUT"
   exit 0
@@ -589,7 +625,7 @@ elif [ "$QUALITY_ERROR_COUNT" -gt 0 ]; then
   VALIDATION_MESSAGE=$(build_validation_message)
 
   # Save message to file for workflow to use
-  echo "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
+  printf '%s\n' "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
 
   echo "validation_passed=false" >> "$GITHUB_OUTPUT"
   exit 0
@@ -604,7 +640,7 @@ else
     echo ""
     echo "⚠️  Advisory: $QUALITY_WARNING_COUNT quality warning(s) on modified files (non-blocking)"
     VALIDATION_MESSAGE=$(build_validation_message)
-    echo "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
+    printf '%s\n' "$VALIDATION_MESSAGE" > ci_temp/agents_validation_message.md
   fi
 
   echo "validation_passed=true" >> "$GITHUB_OUTPUT"

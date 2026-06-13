@@ -173,7 +173,7 @@ SEMANTIC_PROMPT_EOF
     # Extract only valid group::file lines, strip whitespace and backticks
     grep '::' ci_temp/semantic_grouping_raw.txt \
       | sed 's/^[[:space:]`]*//;s/[[:space:]`]*$//' \
-      | grep -v '^#\|^$\|^EXAMPLE\|^FILES\|^group-name' \
+      | grep -E -v '^#|^$|^EXAMPLE|^FILES|^group-name' \
       > ci_temp/semantic_grouping_result.txt 2>/dev/null || true
 
     # Validate: every changed file must appear exactly once
@@ -231,7 +231,13 @@ if [ "$FORCE_SINGLE_CHUNK" = false ] && [ "$SEMANTIC_GROUPING_SUCCESS" = false ]
   echo "Using directory-based grouping..."
   tr '\0' '\n' < ci_temp/changed_files.txt | while IFS= read -r file; do
     # Check if this is a test file with a mapped code file
-    mapped_code_file=$(grep "^${file}::" ci_temp/file_mapping.txt | cut -d':' -f3- || echo "")
+    mapped_code_file=""
+    while IFS= read -r mapping_line; do
+      if [ "${mapping_line%%::*}" = "$file" ]; then
+        mapped_code_file="${mapping_line#*::}"
+        break
+      fi
+    done < ci_temp/file_mapping.txt
 
     if [ -n "$mapped_code_file" ]; then
       # Use the code file's directory for grouping test files
@@ -642,7 +648,7 @@ EOF
   - **[VERIFIED]** — You saw the relevant source code in this chunk's diff OR you read the file using \`read_file\` to confirm the issue exists.
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
-- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via `webfetch`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
+- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via \`webfetch\`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
 
 ## ⚠️ CRITICAL: REVIEW SCOPE AND FILE ACCESS
 
@@ -723,7 +729,8 @@ EOF
       echo "⚠️ Could not generate diff for: $f" >> ci_temp/chunk_${chunk_num}_prompt.txt
       continue
     }
-    local file_diff_size=${#file_diff}
+    local file_diff_size
+    file_diff_size=$(printf '%s' "$file_diff" | wc -c | tr -d ' ')
 
     # Budget exhausted: append NO diff for this file — read_file on demand only.
     if [ "$prompt_diff_total" -ge "$MAX_PROMPT_DIFF_SIZE" ]; then
@@ -749,7 +756,8 @@ EOF
       echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
       echo "⚠️ **DIFF INTEGRITY WARNING for \`$f\`**: This file's diff is very large (${file_diff_size} bytes) and has been TRUNCATED to the first ${effective_cap} bytes below. **Do NOT raise Critical or High issues for this file without first using \`read_file\` to verify the current file state.**" >> ci_temp/chunk_${chunk_num}_prompt.txt
       echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-      printf '%s\n' "${file_diff:0:$effective_cap}" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      printf '%s' "$file_diff" | head -c "$effective_cap" >> ci_temp/chunk_${chunk_num}_prompt.txt
+      printf '\n' >> ci_temp/chunk_${chunk_num}_prompt.txt
       echo "[... diff truncated: ${omitted_bytes} bytes omitted — use \`read_file\` to see the full file ...]" >> ci_temp/chunk_${chunk_num}_prompt.txt
       prompt_diff_total=$((prompt_diff_total + effective_cap))
     else

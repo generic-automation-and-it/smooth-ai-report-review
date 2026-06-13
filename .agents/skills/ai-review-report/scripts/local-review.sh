@@ -112,7 +112,7 @@ done
 # ~/.zshenv there) — so credentials a developer exported in .zshrc are invisible.
 # Rather than require manual setup, harvest the specific credential export lines
 # from the usual shell rc files when they aren't already in the environment. Only
-# allowlisted `export VAR=...` lines are eval'd (never whole rc files), so this is
+# allowlisted `export VAR=...` lines are parsed (never whole rc files), so this is
 # safe regardless of zsh-specific syntax elsewhere in those files.
 harvest_var() {
   local var="$1" rc raw val
@@ -133,7 +133,8 @@ harvest_var() {
       \"*)   val="${val#\"}"; val="${val%%\"*}" ;;
       \'*)   val="${val#\'}"; val="${val%%\'*}" ;;
     esac
-    export "$var=$val"
+    printf -v "$var" '%s' "$val"
+    export "$var"
     return 0
   done
   return 1
@@ -231,7 +232,8 @@ if ! sed --version &>/dev/null 2>&1; then
     # Create a wrapper that translates GNU sed -i to BSD sed -i ''
     cat > "$WORK_DIR/bin/sed" << 'SHIM_EOF'
 #!/bin/bash
-# BSD sed compatibility shim: translates GNU `sed -i 'pattern'` to `sed -i '' 'pattern'`
+# BSD sed compatibility shim: translates GNU `sed -i 'pattern'` to `sed -i '' 'pattern'`.
+# Cuddled backup suffixes (`-i.bak`) are already accepted by BSD sed and pass through unchanged.
 args=()
 i_flag=false
 for arg in "$@"; do
