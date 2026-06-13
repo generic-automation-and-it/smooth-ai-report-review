@@ -2,5 +2,5 @@
   "id": "DR-011-opencode-permission-keys",
   "kind": "must-not-flag",
   "label": "DR-011",
-  "note": "The review agent permission block correctly omits a write key because opencode PermissionConfig has no write key; write protection is already two-layer via tools.write:false + permission.edit:deny, and reviewer must NOT suggest adding permission.write:deny."
+  "note": "The review agent permission block correctly omits a write key because opencode PermissionConfig has no write key; write protection is enforced via permission.edit:deny (and permission.bash:deny for command execution), and reviewer must NOT suggest adding permission.write:deny."
 }
