@@ -7,13 +7,13 @@ name: Publish npm package
 # pattern, so re-pointing it never re-publishes. Semver tags still assert that
 # the tag and package metadata agree.
 #
-# Trigger keys on VERSION, not changed paths. npm is immutable, so the run is
-# gated by the "Check published version" step: it is a fast no-op on every main
-# push UNTIL package.json/.claude-plugin/plugin.json are bumped, then it ships.
-# Deliberately NO `paths:` filter — it would miss release commits whose only
-# change is the version bump outside .agents/skills/**. Version-gating makes a
-# path filter redundant anyway, including for semver tag pushes where GitHub
-# does not evaluate path filters.
+# Trigger keys on VERSION, not changed paths. npm is immutable, so non-tag runs
+# patch package.json/.claude-plugin/plugin.json at workflow runtime to
+# major.minor.${GITHUB_RUN_NUMBER}; semver tag runs keep the checked-in/tagged
+# version exactly. Deliberately NO `paths:` filter — it would miss release
+# commits whose only change is the version bump outside .agents/skills/**.
+# Runtime run-number patching makes a path filter redundant anyway, including
+# for semver tag pushes where GitHub does not evaluate path filters.
 #
 # Auth: the run-scoped GITHUB_TOKEN with `packages: write` — no PAT or npm.com
 # token needed. Note GitHub Packages requires consumers to authenticate with a
@@ -68,6 +68,24 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Patch non-tag publish version
+        run: |
+          set -euo pipefail
+          base_version="$(node -p "require('./package.json').version")"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            publish_version="${base_version}"
+            echo "Semver tag publish: keeping ${publish_version}."
+          else
+            if [[ ! "${base_version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "::error::Non-tag publishes require package.json version to be plain semver X.Y.Z; found ${base_version}." >&2
+              exit 1
+            fi
+            publish_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${GITHUB_RUN_NUMBER}"
+            echo "Non-tag publish: patching ${base_version} -> ${publish_version} using GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}."
+            PUBLISH_VERSION="${publish_version}" node -e 'const fs = require("fs"); const version = process.env.PUBLISH_VERSION; for (const path of ["package.json", ".claude-plugin/plugin.json"]) { const data = JSON.parse(fs.readFileSync(path, "utf8")); data.version = version; fs.writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`); }'
+          fi
+          echo "publish_version=${publish_version}" >> "$GITHUB_ENV"
 
       - name: Check published version
         id: published
