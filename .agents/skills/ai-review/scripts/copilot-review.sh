@@ -25,7 +25,7 @@
 #   cat summary.md | .../copilot-review.sh summary 48
 set -euo pipefail
 
-COPILOT_LOGINS_RE='^(Copilot|copilot|copilot\[bot\]|copilot-pull-request-reviewer\[bot\])$'
+COPILOT_LOGINS_RE='^(copilot|copilot\[bot\]|copilot-pull-request-reviewer\[bot\])$'
 
 repo_owner() { gh repo view --json owner -q .owner.login; }
 repo_name()  { gh repo view --json name  -q .name; }
@@ -45,22 +45,64 @@ cmd_detect() {
 
 cmd_threads() {
   local pr="$1"
-  gh api graphql \
-    -f owner="$(repo_owner)" -f repo="$(repo_name)" -F pr="$pr" \
-    -f query='
-      query($owner:String!,$repo:String!,$pr:Int!){
+  local owner repo after page nodes has_next end_cursor tmp next_tmp truncated_comments
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq is required for paginated review thread fetching." >&2
+    exit 1
+  fi
+  owner="$(repo_owner)"
+  repo="$(repo_name)"
+  after=""
+  tmp="$(mktemp)"
+  next_tmp="$(mktemp)"
+  trap 'rm -f "$tmp" "$next_tmp"' EXIT
+  printf '[]\n' > "$tmp"
+
+  while :; do
+    page=$(gh api graphql \
+      -f owner="$owner" -f repo="$repo" -F pr="$pr" -f after="$after" \
+      -f query='
+      query($owner:String!,$repo:String!,$pr:Int!,$after:String){
         repository(owner:$owner,name:$repo){
           pullRequest(number:$pr){
-            reviewThreads(first:100){
+            reviewThreads(first:100, after:$after){
+              pageInfo{ hasNextPage endCursor }
               nodes{
                 id isResolved
-                comments(first:50){ nodes{ databaseId path author{ login } body } }
+                comments(first:100){
+                  pageInfo{ hasNextPage }
+                  nodes{ databaseId path author{ login } body }
+                }
               }
             }
           }
         }
-      }' \
-    -q '.data.repository.pullRequest.reviewThreads.nodes'
+      }')
+
+    nodes="$(printf '%s' "$page" | jq -c '.data.repository.pullRequest.reviewThreads.nodes')"
+    jq -c --argjson nodes "$nodes" '. + $nodes' "$tmp" > "$next_tmp"
+    mv "$next_tmp" "$tmp"
+    next_tmp="$(mktemp)"
+
+    truncated_comments="$(printf '%s' "$page" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.comments.pageInfo.hasNextPage == true)] | length')"
+    if [ "${truncated_comments:-0}" -gt 0 ]; then
+      echo "WARN: ${truncated_comments} review thread(s) have more than 100 comments; extra replies are omitted from thread JSON." >&2
+    fi
+
+    has_next="$(printf '%s' "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')"
+    if [ "$has_next" != "true" ]; then
+      break
+    fi
+    end_cursor="$(printf '%s' "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor // ""')"
+    if [ -z "$end_cursor" ]; then
+      echo "WARN: GitHub reported additional reviewThreads but no endCursor; stopping pagination." >&2
+      break
+    fi
+    after="$end_cursor"
+  done
+
+  cat "$tmp"
+  rm -f "$tmp" "$next_tmp"
 }
 
 cmd_reply() {

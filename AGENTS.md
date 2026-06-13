@@ -35,29 +35,4 @@ C4Context
 
 ## Changelog
 
-> One-line rows only. Full narratives (root causes, wiring lists, run/review provenance) live in `.agents/skills/ai-review-report/references/CHANGELOG.md` (dated audit trail) and the skill `AGENTS.md` LADRs — do not re-inline them here.
-
-| Date | Change | Ref |
-|:-----|:-------|:----|
-| 2026-06-11 | Review gate hardened against platform-semantics hallucinations (PR #36 review 4473891333 — new FP class): two prompt edits in `review-in-chunks.sh` (platform-behavior claims must be verified via `webfetch` or tagged `[SPECULATIVE]`; new MANDATORY WORKFLOW step 4 listing the `workflow_call` context + glob-filter traps), new **DR-015** rule + must-not-flag fixture, LADR-015 narrative extended (claim-correctness in scope). | — |
-| 2026-06-01 | Seeded repo with the `ai-review-report` + `ai-review` skills and the review gate; origin used `.ai/`, this repo standardizes on `.agents/`. | — |
-| 2026-06-06 | Health check is provider-agnostic via `opencode serve` + `/global/health`; per-provider gateway probes and `OPENCODE_API_HEALTH_OVERRIDE` removed. | LADR-028 |
-| 2026-06-06 | OpenCode Go added as **two** providers split by SDK surface (`go-openai`/`go-anthropic`); Zen base hardcoded (no URL Variable), keys stay Secrets. | LADR-027 |
-| 2026-06-07 | Chunk-failure signal moved out-of-band to `chunk_<n>.failed` flag files — never grep review text (quoted markers false-matched on PR #15). | LADR-031 |
-| 2026-06-07 | Holistic aggregation runs for every PR, incl. single-chunk (supersedes LADR-017's short-circuit). | LADR-030 |
-| 2026-06-07 | Chunk review runs on the locked-down `review` agent (no pinned model, skill/task/edit/write denied) — stops skill self-activation; exit-0-but-empty output now advances the fallback chain. | LADR-029 |
-| 2026-06-07 | Max-file-count gate + env prefix rename `OPENCODE_*` → `OPENCODE_REVIEW_REPORT_*`; API-key Secrets keep their names, repo/org GitHub Variables must be renamed to match. | LADR-032, #6 |
-| 2026-06-07 | Opt-in LLM eval harness (`scripts/eval/`): precision vs DR-001…014 + recall vs seeded defects, driving the real `review-in-chunks.sh`; follow-up added the `EVAL_ARTIFACT_DIR` triage archive, DR-001/006 fixture hygiene, and the post-merge path-filtered canary. | LADR-033 |
-| 2026-06-07 | `workflow_dispatch` `model_preset` dropdown — a preset wins over the `model` input and Variables; the options list and the five `env:` expressions are coupled (edit together). | — |
-| 2026-06-08 | Installer targets one skills dir by priority (no per-agent symlinks); gate renamed `pipline-…` → `pipeline-code-review-report.yml` (DR-010 deleted) — installer migrates legacy-named installs and carries over `runs-on`. | — |
-| 2026-06-09 | Per-provider gateway `baseURL` injected at install time from `OPENCODE_REVIEW_REPORT_<P>_URL`; committed `opencode.json` stays `baseURL`-free by design. | LADR-034 |
-| 2026-06-09 | `review` agent `bash` denied (prompt-injection hardening); `OPENCODE_GATEWAY_API_KEY` no longer written to `$GITHUB_ENV`; `actions/cache` SHA-pinned. | LADR-029 |
-| 2026-06-09 | SKILL.md trimmed to the runtime contract — LADR history, supersede chains, and FP provenance live only in the skill `AGENTS.md`. | — |
-| 2026-06-10 | Hard chunk-prompt bounding (single-directory halving, 100KB per-file truncation, 200KB prompt diff budget) + coverage gaps never block at aggregation + visible fail-closed banner; new `test-chunk-prompt-budget.sh`. | LADR-035/036 |
-| 2026-06-10 | Gate callable as a reusable workflow (`workflow_call` + `$REVIEW_SKILL_DIR` indirection + `.smooth-ai-review-tools/` fetch); caller template in `examples/`; installer perl gains the side-checkout guard. | LADR-037 |
-| 2026-06-10 | Claude Code plugin `smooth-ai-review` (all three skills) — `.claude-plugin/` manifests + root `skills` symlink; repo doubles as its marketplace. | — |
-| 2026-06-11 | README install runbook defaults to the new channels: Step 1 fetches the reusable-workflow caller, Step 2 enables the plugin at **project scope** (`.claude/settings.json` `extraKnownMarketplaces`/`enabledPlugins`); the copy-installer moved to a "Copy-install (vendor everything)" alternative, Steps 3–4 (provider config, repo settings) shared by both paths. | — |
-| 2026-06-11 | npm opencode plugin `@generic-automation-and-it/smooth-ai-review` (root `package.json` + `opencode-plugin.js`) links skills into the consumer's `.agents/skills/` at startup; `npm-publish.yml` has a version-lockstep guard and publishes to GitHub Packages via `GITHUB_TOKEN` (consumers need a `read:packages` PAT). | LADR-038 |
-| 2026-06-11 | Root `skills` symlink removed — the Claude Code plugin loads skills via `plugin.json` `"skills": ["./.agents/skills/"]`; plugin-mode script paths are `${CLAUDE_PLUGIN_ROOT}/.agents/skills/<skill>`. | — |
-| 2026-06-11 | Posted review bodies fence-balanced (`lib/balance-fences.sh` + `test-balance-fences.sh`): model-nested code fences flipped GFM parity and swallowed the `<details>` section (PR #36 review 4474042824); every model-generated piece is balanced before assembly. | — |
-| 2026-06-13 | `npm-publish.yml` publishes on every push to `main`, manual dispatch, and semver tags; non-tag runs patch the runtime version to `major.minor.${GITHUB_RUN_NUMBER}` so repeated `1.0.0` publishes become unique, while tags keep the exact semver. | LADR-038 |
+Full dated audit trail: `.agents/skills/ai-review-report/references/CHANGELOG.md`. LADR narratives live in `.agents/skills/ai-review-report/AGENTS.md` — do not re-inline them here.

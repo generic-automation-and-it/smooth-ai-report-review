@@ -1158,6 +1158,8 @@ jobs:
         if: steps.pr_diff.outputs.has_changes == 'true' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         env:
           BASE_REF: ${{ steps.pr_info.outputs.base_ref || 'main' }}
+          BASE_SHA: ${{ steps.determine_review.outputs.from_sha }}
+          HEAD_SHA: ${{ steps.determine_review.outputs.current_sha }}
         run: |
           bash "${REVIEW_SKILL_DIR}/scripts/validate-agents-md.sh" "${{ steps.determine_review.outputs.review_type }}"
 
