@@ -55,6 +55,7 @@ cmd_threads() {
   after=""
   tmp="$(mktemp)"
   next_tmp="$(mktemp)"
+  trap 'rm -f "$tmp" "$next_tmp"' EXIT
   printf '[]\n' > "$tmp"
 
   while :; do
