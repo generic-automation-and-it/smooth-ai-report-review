@@ -98,9 +98,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Force GHA runner to use Node24. This is an unofficial community mechanism
-  # to pin the Node version for javascript actions; it avoids the Node20→24
-  # migration which can break actions that haven't updated their runtime pin.
+  # Force GHA runner to use Node24 (unofficial community mechanism).
+  # This opts into Node24 early to ensure deterministic behavior across
+  # runner updates and surface incompatibilities before the hard migration.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
