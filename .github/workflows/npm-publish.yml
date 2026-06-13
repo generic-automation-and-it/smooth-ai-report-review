@@ -10,11 +10,10 @@ name: Publish npm package
 # Trigger keys on VERSION, not changed paths. npm is immutable, so the run is
 # gated by the "Check published version" step: it is a fast no-op on every main
 # push UNTIL package.json/.claude-plugin/plugin.json are bumped, then it ships.
-# Deliberately NO `paths:` filter — a `paths` filter applies to the whole push
-# event (tags included) and would (a) miss release commits whose only change is
-# the version bump outside .agents/skills/**, and (b) silently skip tag pushes
-# whose diff doesn't touch .agents/skills/**. Version-gating makes a path filter
-# redundant anyway.
+# Deliberately NO `paths:` filter — it would miss release commits whose only
+# change is the version bump outside .agents/skills/**. Version-gating makes a
+# path filter redundant anyway, including for semver tag pushes where GitHub
+# does not evaluate path filters.
 #
 # Auth: the run-scoped GITHUB_TOKEN with `packages: write` — no PAT or npm.com
 # token needed. Note GitHub Packages requires consumers to authenticate with a

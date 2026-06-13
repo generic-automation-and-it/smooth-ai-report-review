@@ -87,7 +87,7 @@ while [[ $# -gt 0 ]]; do
       echo "Prerequisites:"
       echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
       echo "  - The selected provider's gateway creds exported (the gateway host"
-      echo "    must be reachable from where you run this — see CLAUDE.md):"
+      echo "    must be reachable from where you run this — see AGENTS.md):"
       echo "      GEMINI                → OPENCODE_REVIEW_REPORT_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
       echo "      COPILOT               → OPENCODE_REVIEW_REPORT_COPILOT_URL + OPENCODE_COPILOT_API_KEY"
       echo "      OPENAI                → OPENCODE_REVIEW_REPORT_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
