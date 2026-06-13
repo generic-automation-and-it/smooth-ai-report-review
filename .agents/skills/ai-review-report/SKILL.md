@@ -1,6 +1,7 @@
 ---
 name: ai-review-report
 switches:
+  - "`--local` - skill-level switch to run `scripts/local-review.sh` for a local PR review; requires `--pr NUMBER` and provider credentials."
   - "`workflow_dispatch` - run the GitHub review gate manually, including `model` and `model_preset` inputs."
   - "`--pr NUMBER` - local review of a GitHub PR via `scripts/local-review.sh`; required when using `--post`."
   - "`--base BRANCH` - local diff base branch for `scripts/local-review.sh` (default: `main`)."
@@ -43,7 +44,7 @@ opencode reads these from the process environment via the `{env:…}` placeholde
 
 **Non-GEMINI fail-fast**: the model-chain defaults are Gemini IDs. For any non-GEMINI provider you MUST set the three `OPENCODE_REVIEW_REPORT_MODEL_*` to that provider's models — `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` (Copilot/OpenAI), `deepseek-v4-pro` / `deepseek-v4-flash` / `glm-5.1` (`OPENCODE-GO-OPENAI`), or `qwen3.7-plus` / `minimax-m2.7` (`OPENCODE-GO-ANTHROPIC`); `lib/resolve-provider.sh` aborts the run if a `gemini*` model leaks through or the selected provider's creds are missing. (Also do not mix surfaces: an OpenAI-surface model id won't resolve on `go-anthropic` and vice-versa.)
 
-**Local runs** use the same provider mechanism as CI. `local-review.sh` accepts `--provider`/`OPENCODE_REVIEW_REPORT_PROVIDER`, harvests every provider's credentials from the shell rc files (URL + key for Gemini/Copilot/OpenAI; API key only for the two OpenCode Go surfaces, whose base URL is hardcoded) (so the non-interactive skill subagent sees them), sources `lib/resolve-provider.sh` to pick + validate the selected pair, and runs the provider-agnostic opencode health check (`lib/opencode-health.sh`: `opencode serve` + `/global/health`). GHA Variables are CI-only; locally the primary review model is the `--model` arg and the secondary/orchestrator fall back to script defaults (which must be overridden for non-GEMINI providers).
+**Local runs** use the same provider mechanism as CI. The skill-level `--local` switch selects this path and maps to `local-review.sh`; do not pass `--local` through to the script. `local-review.sh` accepts `--provider`/`OPENCODE_REVIEW_REPORT_PROVIDER`, harvests every provider's credentials from the shell rc files (URL + key for Gemini/Copilot/OpenAI; API key only for the two OpenCode Go surfaces, whose base URL is hardcoded) (so the non-interactive skill subagent sees them), sources `lib/resolve-provider.sh` to pick + validate the selected pair, and runs the provider-agnostic opencode health check (`lib/opencode-health.sh`: `opencode serve` + `/global/health`). GHA Variables are CI-only; locally the primary review model is the `--model` arg and the secondary/orchestrator fall back to script defaults (which must be overridden for non-GEMINI providers).
 
 ## TL;DR
 
