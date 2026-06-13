@@ -1,5 +1,11 @@
 ---
 name: ai-review
+switches:
+  - "`analyse` - fetch the PR review and recommend fix/skip decisions; default when no `N=fix` or `N=skip` argument is present."
+  - "`execute` - apply the requested fix/skip decisions and route results back to the right PR location."
+  - "`N=fix` / `N=skip` - per-issue execute decisions, for example `1=fix 2=skip`; presence auto-selects execute mode."
+  - "`--source=copilot` - force GitHub Copilot agent review parsing and thread reply/resolve behavior."
+  - "`--source=other` - force non-Copilot review routing through PR description AI review notes."
 description: Analyze and execute AI PR review feedback with fix/skip decisions. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description.
 allowed-tools:
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)

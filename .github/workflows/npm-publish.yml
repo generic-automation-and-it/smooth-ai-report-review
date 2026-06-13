@@ -1,11 +1,20 @@
 name: Publish npm package
 
 # Publishes the opencode plugin @generic-automation-and-it/smooth-ai-review to
-# the GitHub Packages npm registry (npm.pkg.github.com) when skill changes land
-# on main, when run manually, or on semver release tags (vX.Y.Z). The floating
-# `v1` tag used to pin the reusable review workflow deliberately does NOT match
-# this pattern, so re-pointing it never re-publishes. Semver tags still assert
-# that the tag and package metadata agree.
+# the GitHub Packages npm registry (npm.pkg.github.com) on every push to main,
+# when run manually, or on semver release tags (vX.Y.Z). The floating `v1` tag
+# used to pin the reusable review workflow deliberately does NOT match this
+# pattern, so re-pointing it never re-publishes. Semver tags still assert that
+# the tag and package metadata agree.
+#
+# Trigger keys on VERSION, not changed paths. npm is immutable, so the run is
+# gated by the "Check published version" step: it is a fast no-op on every main
+# push UNTIL package.json/.claude-plugin/plugin.json are bumped, then it ships.
+# Deliberately NO `paths:` filter — a `paths` filter applies to the whole push
+# event (tags included) and would (a) miss release commits whose only change is
+# the version bump outside .agents/skills/**, and (b) silently skip tag pushes
+# whose diff doesn't touch .agents/skills/**. Version-gating makes a path filter
+# redundant anyway.
 #
 # Auth: the run-scoped GITHUB_TOKEN with `packages: write` — no PAT or npm.com
 # token needed. Note GitHub Packages requires consumers to authenticate with a
@@ -18,8 +27,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - ".agents/skills/**"
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
