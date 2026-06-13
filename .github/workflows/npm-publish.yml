@@ -1,10 +1,11 @@
 name: Publish npm package
 
 # Publishes the opencode plugin @generic-automation-and-it/smooth-ai-review to
-# the GitHub Packages npm registry (npm.pkg.github.com) on semver tags only
-# (vX.Y.Z). The floating `v1` tag used to pin the reusable review workflow
-# deliberately does NOT match this pattern, so re-pointing it never
-# re-publishes. One vX.Y.Z tag releases both channels.
+# the GitHub Packages npm registry (npm.pkg.github.com) when skill changes land
+# on main, when run manually, or on semver release tags (vX.Y.Z). The floating
+# `v1` tag used to pin the reusable review workflow deliberately does NOT match
+# this pattern, so re-pointing it never re-publishes. Semver tags still assert
+# that the tag and package metadata agree.
 #
 # Auth: the run-scoped GITHUB_TOKEN with `packages: write` — no PAT or npm.com
 # token needed. Note GitHub Packages requires consumers to authenticate with a
@@ -13,7 +14,12 @@ name: Publish npm package
 # One-time after the FIRST publish: the package starts private — flip it to
 # public under the org's Packages → package settings → Danger Zone.
 on:
+  workflow_dispatch:
   push:
+    branches:
+      - main
+    paths:
+      - ".agents/skills/**"
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
@@ -35,21 +41,45 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@generic-automation-and-it"
 
-      # package.json, .claude-plugin/plugin.json and the release tag must agree —
-      # the npm package and the Claude Code plugin are versioned in lockstep.
-      - name: Assert version lockstep with tag
+      # package.json and .claude-plugin/plugin.json must agree — the npm package
+      # and the Claude Code plugin are versioned in lockstep. Semver tag releases
+      # additionally assert that the tag carries the same version.
+      - name: Assert package metadata version lockstep
         run: |
           set -euo pipefail
-          tag_version="${GITHUB_REF_NAME#v}"
           pkg_version="$(node -p "require('./package.json').version")"
           plugin_version="$(node -p "require('./.claude-plugin/plugin.json').version")"
-          echo "tag=${tag_version} package.json=${pkg_version} plugin.json=${plugin_version}"
-          if [ "${tag_version}" != "${pkg_version}" ] || [ "${tag_version}" != "${plugin_version}" ]; then
-            echo "::error::Version mismatch: tag v${tag_version} requires package.json and .claude-plugin/plugin.json to both be ${tag_version}." >&2
+          echo "package.json=${pkg_version} plugin.json=${plugin_version}"
+          if [ "${pkg_version}" != "${plugin_version}" ]; then
+            echo "::error::Version mismatch: package.json and .claude-plugin/plugin.json must both be ${pkg_version}." >&2
             exit 1
+          fi
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            echo "tag=${tag_version}"
+            if [ "${tag_version}" != "${pkg_version}" ]; then
+              echo "::error::Version mismatch: tag v${tag_version} requires package.json and .claude-plugin/plugin.json to both be ${tag_version}." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Check published version
+        id: published
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pkg_name="$(node -p "require('./package.json').name")"
+          pkg_version="$(node -p "require('./package.json').version")"
+          if npm view "${pkg_name}@${pkg_version}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${pkg_name}@${pkg_version} is already published; skipping npm publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish to GitHub Packages
+        if: steps.published.outputs.exists != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm publish
