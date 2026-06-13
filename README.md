@@ -98,8 +98,8 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 **Source repo:** `generic-automation-and-it/smooth-ai-report-review` (branch `main`).
 
 **What gets installed:**
-1. A ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (review scripts are fetched at run time — no skill trees land in the repo).
-2. The `smooth-ai-review` plugin (all three skills: `ai-review-report`, `ai-review`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
+1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (review scripts are fetched at run time — no skill trees land in the repo).
+2. **Local report tooling**: the `smooth-ai-review` plugin (all three skills: `ai-review-report`, `ai-review`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 
 ### Step 1 — install the review gate (reusable-workflow caller)
 
@@ -158,6 +158,40 @@ Notes:
 - Interactive equivalent (from inside Claude Code in the repo): `/plugin marketplace add generic-automation-and-it/smooth-ai-report-review`, then `claude plugin install smooth-ai-review@smooth-ai-report-review --scope project`.
 - For a **global** (all-repos, single-developer) install use user scope instead — see [Install as a Claude Code plugin](#install-as-a-claude-code-plugin). Project scope is the default here because the review skills belong with the repo.
 - Commit both artifacts: the caller workflow and `.claude/settings.json`.
+
+### Step 2b — local report behavior for AI agents
+
+This is the local counterpart to the remote CI report. The generator is **`ai-review-report`**, not `/ai-review` (which consumes an already-posted review).
+
+If the operator asks for a local/localized report, invoke:
+
+```text
+ai-review-report --local
+```
+
+Bare `--local` is fully specified. Do **not** ask for a PR number, provider, post mode, or base branch unless the operator explicitly asks for a non-default. It means:
+- review HEAD/current branch against `main`
+- do not post back to GitHub
+- use `OPENCODE_REVIEW_REPORT_PROVIDER` from the shell if set, otherwise `GEMINI`
+- use the local runner's model defaults unless `--model` or model env vars are supplied
+
+For direct shell execution in a copy-installed repo, the equivalent is:
+
+```bash
+.agents/skills/ai-review-report/scripts/local-review.sh
+```
+
+Local reports need local credentials and tools. At minimum for the default Gemini provider:
+
+```bash
+export OPENCODE_GEMINI_API_KEY="..."
+# optional — only when overriding the default gateway URL:
+# export OPENCODE_REVIEW_REPORT_GEMINI_URL="https://generativelanguage.googleapis.com/v1beta/openai"
+```
+
+Also ensure `opencode` and `jq` are installed locally. `gh` is only needed for local `--pr NUMBER` metadata fetches or `--post`.
+
+For a non-Gemini local provider, export the same provider selector, API-key, optional gateway URL, and three model variables listed in [Step 3](#step-3--ask-which-provider-then-output-the-config-to-add), but as shell environment variables instead of GitHub Secrets/Variables.
 
 ### Copy-install (vendor everything)
 
@@ -435,6 +469,28 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_REVIEW_REPORT_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the credential presence check. (Health is checked separately and provider-agnostically via the opencode server — `lib/opencode-health.sh` — so there is no derived per-provider health URL.) |
 | `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` | GitHub **Variable** (default `1`) | Controls whether `.claude` support is disabled in opencode. If unset or empty, defaults to `1` (disabled). Set to `0` to re-enable Claude Code integration. |
 | `OPENCODE_DISABLE_CLAUDE_CODE` | **Derived** from `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` | Disables all `.claude` support in opencode to prevent conflicts with Claude Code's `.claude` directory features. |
+
+## Using Local Report
+
+Use **`ai-review-report --local`** to generate a review report locally. This is the same review generator as the CI gate, wrapped for local execution.
+
+Bare `--local` reviews HEAD/current branch against `main`, does not post to GitHub, uses `OPENCODE_REVIEW_REPORT_PROVIDER` from your shell if set (otherwise `GEMINI`), and uses local runner model defaults unless you pass overrides. It should not prompt for PR number, provider, post mode, or base branch.
+
+If the skill is copy-installed and you want to run the script directly:
+
+```bash
+.agents/skills/ai-review-report/scripts/local-review.sh
+```
+
+Optional local overrides:
+
+```bash
+.agents/skills/ai-review-report/scripts/local-review.sh --base develop
+.agents/skills/ai-review-report/scripts/local-review.sh --provider OPENAI --model gpt-5.5
+.agents/skills/ai-review-report/scripts/local-review.sh --pr 48 --post
+```
+
+Local prerequisites: `opencode`, `jq`, and shell-exported provider credentials. `gh` is required only for `--pr` or `--post`.
 
 ## Using `/ai-review`
 
