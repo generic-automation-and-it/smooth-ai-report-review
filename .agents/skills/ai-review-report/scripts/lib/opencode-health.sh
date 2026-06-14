@@ -5,7 +5,7 @@
 # /v1beta/models, or /health endpoint, each with its own auth header). The
 # single health signal now is opencode ITSELF, identically for every
 # OPENCODE_REVIEW_REPORT_PROVIDER: start `opencode serve` on localhost, read the URL it prints
-#   opencode server listening on http://127.0.0.1:4096
+#   opencode server listening on http(s)://127.0.0.1:4096
 # hit that server's /global/health, then tear the server down. No per-provider
 # URL/auth derivation, so it works the same for gemini / copilot / openai /
 # go-openai / go-anthropic.
