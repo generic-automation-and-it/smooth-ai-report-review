@@ -17,7 +17,7 @@ public sealed class UserSearchRepository
     public async Task<List<User>> FindByNameAsync(string name, CancellationToken ct = default)
     {
         // Caller-controlled 'name' is interpolated directly into the SQL string.
-        // ExecuteSqlRaw does NOT treat an interpolated string as parameterized —
+        // FromSqlRaw does NOT treat an interpolated string as parameterized —
         // it receives the fully-expanded string, so a value like
         //   ' OR '1'='1
         // will cause the query to return every row, and more complex payloads

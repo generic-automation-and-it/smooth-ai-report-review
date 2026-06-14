@@ -60,17 +60,23 @@ if [ -z "$PATTERN" ]; then
   exit 1
 fi
 
-REAL='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`'
-QUOTED='> ## 🤖 OpenCode CLI Code Review (quoted by a human in a follow-up comment)'
-REAL_MATCH=$(printf '%s' "$REAL"   | jq -Rs --arg re "$PATTERN" 'test($re)')
-QUOTE_MATCH=$(printf '%s' "$QUOTED" | jq -Rs --arg re "$PATTERN" 'test($re)')
-
-if [ "$REAL_MATCH" = "true" ] && [ "$QUOTE_MATCH" = "false" ]; then
-  echo "✅ Test 4 passed: matches a real review header, ignores a quoted copy (pattern: $PATTERN)"
+# jq powers the regex-semantics assertion below; skip (not fail) when it is absent
+# so this test degrades gracefully on a runner without jq.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "⚠️  Test 4 skipped: jq not available — cannot verify regex match semantics (pattern extracted: $PATTERN)"
 else
-  echo "❌ Test 4 failed: real-header match=$REAL_MATCH (want true), quoted-copy match=$QUOTE_MATCH (want false)"
-  echo "   pattern: $PATTERN"
-  exit 1
+  REAL='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`'
+  QUOTED='> ## 🤖 OpenCode CLI Code Review (quoted by a human in a follow-up comment)'
+  REAL_MATCH=$(printf '%s' "$REAL"   | jq -Rs --arg re "$PATTERN" 'test($re)')
+  QUOTE_MATCH=$(printf '%s' "$QUOTED" | jq -Rs --arg re "$PATTERN" 'test($re)')
+
+  if [ "$REAL_MATCH" = "true" ] && [ "$QUOTE_MATCH" = "false" ]; then
+    echo "✅ Test 4 passed: matches a real review header, ignores a quoted copy (pattern: $PATTERN)"
+  else
+    echo "❌ Test 4 failed: real-header match=$REAL_MATCH (want true), quoted-copy match=$QUOTE_MATCH (want false)"
+    echo "   pattern: $PATTERN"
+    exit 1
+  fi
 fi
 echo ""
 
@@ -79,6 +85,6 @@ echo "All basic tests passed!"
 echo "=========================================="
 echo ""
 echo "Note: Full integration testing requires:"
-echo "  1. A real PR with existing Gemini reviews"
+echo "  1. A real PR with existing AI reviews"
 echo "  2. Valid GITHUB_TOKEN"
 echo "  3. Running in GitHub Actions or with gh CLI configured"

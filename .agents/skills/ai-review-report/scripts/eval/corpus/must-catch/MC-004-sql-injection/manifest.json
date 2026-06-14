@@ -3,5 +3,5 @@
   "kind": "must-catch",
   "label": "MC-004",
   "min_severity": "CRITICAL",
-  "note": "SQL injection via string interpolation passed to ExecuteSqlRaw: untrusted caller-supplied name is embedded directly in the SQL string instead of using a parameterized overload or FromSqlInterpolated, allowing arbitrary SQL execution."
+  "note": "SQL injection via string interpolation passed to FromSqlRaw: untrusted caller-supplied name is embedded directly in the SQL string instead of using a parameterized overload or FromSqlInterpolated, allowing arbitrary SQL execution."
 }
