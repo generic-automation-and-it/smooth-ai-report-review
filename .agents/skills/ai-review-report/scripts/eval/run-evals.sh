@@ -26,7 +26,8 @@
 # Environment (provider/model — the SAME designed-model config the gate uses,
 # resolved exactly like CI via lib/resolve-provider.sh, LADR-026/027):
 #   OPENCODE_REVIEW_REPORT_PROVIDER          GEMINI (default) | COPILOT | OPENAI |
-#                                            OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
+#                                            OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC |
+#                                            OPEN_ROUTER
 #   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY     required — the chunk-review model under eval
 #   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY / OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
 #                                            fallback / non-analytical model (default: the

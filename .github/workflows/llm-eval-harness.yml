@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       provider:
-        description: "Provider: GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC (blank = repo Variable / GEMINI)"
+        description: "Provider: GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER (blank = repo Variable / GEMINI)"
         required: false
         type: string
       model:
@@ -74,8 +74,8 @@ jobs:
       # All provider credential pairs at job scope so opencode.json's
       # {env:OPENCODE_*} substitution resolves for whichever provider is selected.
       # API keys = Secrets (un-prefixed); gateway URLs = OPENCODE_REVIEW_REPORT_*
-      # Variables (retunable). The two OpenCode Go surfaces have no URL var (fixed
-      # public Zen base).
+      # Variables (retunable). The two OpenCode Go surfaces and OpenRouter have no
+      # URL var (fixed public base).
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
@@ -84,6 +84,7 @@ jobs:
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
       OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
       OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
+      OPENCODE_OPENROUTER_API_KEY: ${{ secrets.OPENCODE_OPENROUTER_API_KEY }}
       # Model chain — dispatch input overrides PRIMARY. SECONDARY/ORCHESTRATOR are
       # optional; run-evals.sh defaults blanks to PRIMARY so non-GEMINI dispatches
       # do not inherit Gemini literals from the review gate.

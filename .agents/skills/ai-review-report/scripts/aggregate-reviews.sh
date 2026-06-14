@@ -81,6 +81,9 @@ get_provider_display_name() {
     OPENCODE-GO-ANTHROPIC)
       echo "OpenCode Go (Anthropic surface)"
       ;;
+    OPEN_ROUTER)
+      echo "OpenRouter"
+      ;;
     *)
       echo "${OPENCODE_REVIEW_REPORT_PROVIDER}"
       ;;
