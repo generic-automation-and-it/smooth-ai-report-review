@@ -714,9 +714,16 @@ else
     echo "review_action=request_changes" >> "$GITHUB_OUTPUT"
     echo "📋 Recommendation: REQUEST CHANGES (from text parsing)"
   else
-    # Check if there are ACTUAL critical/high issues (not just "None found" placeholders)
-    CRITICAL_ISSUES=$(grep -A2 "### 🔴 Critical Issues" ci_temp/pr_summary.md 2>/dev/null | grep -vi "None found" | grep -vi "^### " | grep -vi "^--$" | grep -v "^$" || true)
-    HIGH_ISSUES=$(grep -A2 "### 🟠 High Priority Issues" ci_temp/pr_summary.md 2>/dev/null | grep -vi "None found" | grep -vi "^### " | grep -vi "^--$" | grep -v "^$" || true)
+    # Check if there are ACTUAL critical/high issues (not just "None found" placeholders).
+    # Extract the FULL body of each severity section (heading → next markdown heading),
+    # not just the 2 trailing lines `grep -A2` would catch: a section can list several
+    # multi-line issues separated by blank lines, which -A2 would silently undercount.
+    # Tertiary fallback only — the machine-readable field and "REQUEST CHANGES" text
+    # parse run first; issue/content lines never start with '#', so a '#'-prefixed line
+    # is unambiguously the next heading and terminates the section.
+    _section_body() { awk -v h="$1" 'index($0,h){g=1;next} g&&/^#/{g=0} g' ci_temp/pr_summary.md 2>/dev/null; }
+    CRITICAL_ISSUES=$(_section_body "### 🔴 Critical Issues" | grep -vi "None found" | grep -v "^[[:space:]]*$" || true)
+    HIGH_ISSUES=$(_section_body "### 🟠 High Priority Issues" | grep -vi "None found" | grep -v "^[[:space:]]*$" || true)
     if [ -n "$CRITICAL_ISSUES" ] || [ -n "$HIGH_ISSUES" ]; then
       echo "review_action=request_changes" >> "$GITHUB_OUTPUT"
       echo "📋 Recommendation: REQUEST CHANGES (critical/high issues found via content parsing)"
