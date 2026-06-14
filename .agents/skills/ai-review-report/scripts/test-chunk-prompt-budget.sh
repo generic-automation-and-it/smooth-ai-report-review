@@ -189,7 +189,7 @@ run_budget_case() {
   fi
 
   # 4. The giant single-file diff must have been truncated, not appended whole.
-  if grep -l "has been TRUNCATED" ci_temp/chunk_*_prompt.txt > /dev/null 2>&1; then
+  if grep -l "has been TRUNCATED" "${prompts[@]}" > /dev/null 2>&1; then
     pass "truncation marker present in at least one prompt"
   else
     fail "no prompt contains the truncation marker"
