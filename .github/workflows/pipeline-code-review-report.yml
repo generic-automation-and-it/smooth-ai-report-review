@@ -741,7 +741,7 @@ jobs:
         id: determine_review
         run: |
           set -e
-          echo "Looking for previous Gemini reviews..."
+          echo "Looking for previous AI reviews..."
 
           # Force full review if triggered by comment, manual dispatch, review re-request, or review trigger in commit
           FORCE_FULL_FROM_FLAG="${{ steps.pr_info.outputs.force_full_review }}"
