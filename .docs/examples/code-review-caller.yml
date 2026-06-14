@@ -9,7 +9,8 @@
 #   Secrets   — the selected provider's API key, canonical names:
 #               OPENCODE_GEMINI_API_KEY / OPENCODE_COPILOT_API_KEY /
 #               OPENCODE_OPENAI_API_KEY / OPENCODE_GO_OPENAI_API_KEY /
-#               OPENCODE_GO_ANTHROPIC_API_KEY. Passed via `secrets: inherit`.
+#               OPENCODE_GO_ANTHROPIC_API_KEY / OPENCODE_OPENROUTER_API_KEY.
+#               Passed via `secrets: inherit`.
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
 #               These resolve against the CALLER repo/org automatically.
@@ -50,6 +51,10 @@ on:
           - 'OpenCode GLM-5.1'
           - 'OpenCode MiniMax m3'
           - 'OpenCode Qwen3.7 Plus'
+          - 'OpenRouter DeepSeek V4 Pro'
+          - 'OpenRouter Qwen3.7 Plus'
+          - 'OpenRouter GLM-5.1'
+          - 'OpenRouter MiniMax M3'
 
 # The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
 permissions:

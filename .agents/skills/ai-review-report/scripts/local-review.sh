@@ -32,7 +32,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 PR_NUMBER=""
 BASE_BRANCH="main"
 OPENCODE_MODEL="gemini-2.5-pro"
-# Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC).
+# Provider selector (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER).
 # Default GEMINI; override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. For non-GEMINI providers you must
 # also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
 # OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
@@ -78,7 +78,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --base BRANCH        Base branch to diff against (default: main)"
       echo "  --model MODEL        Primary review model ID (default: gemini-2.5-pro). Must"
       echo "                       be a model of the selected provider (e.g. gpt-5.5 for OPENAI)."
-      echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC"
+      echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI |"
+      echo "                       OPENCODE-GO-ANTHROPIC | OPEN_ROUTER"
       echo "                       (default: GEMINI; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
       echo "  --post               Post review to PR (requires --pr)"
       echo "  --open               Open final review in \$EDITOR after completion"
@@ -93,6 +94,7 @@ while [[ $# -gt 0 ]]; do
       echo "      OPENAI                → OPENCODE_REVIEW_REPORT_OPENAI_URL  + OPENCODE_OPENAI_API_KEY"
       echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
+      echo "      OPEN_ROUTER           → OPENCODE_OPENROUTER_API_KEY    (URL is the fixed OpenRouter base)"
       echo "  - For any non-GEMINI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY"
       echo "    and OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
@@ -145,7 +147,8 @@ for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
          OPENCODE_REVIEW_REPORT_COPILOT_URL OPENCODE_COPILOT_API_KEY \
          OPENCODE_REVIEW_REPORT_OPENAI_URL OPENCODE_OPENAI_API_KEY \
          OPENCODE_GO_OPENAI_API_KEY \
-         OPENCODE_GO_ANTHROPIC_API_KEY; do
+         OPENCODE_GO_ANTHROPIC_API_KEY \
+         OPENCODE_OPENROUTER_API_KEY; do
   harvest_var "$v" || true
 done
 

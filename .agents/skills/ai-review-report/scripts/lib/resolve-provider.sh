@@ -2,7 +2,7 @@
 # resolve-provider.sh — central provider selector for the OpenCode review pipeline.
 #
 # Single source of truth that maps the user-facing OPENCODE_REVIEW_REPORT_PROVIDER selector
-# (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC,
+# (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER,
 # default GEMINI) onto:
 #   - OPENCODE_REVIEW_REPORT_PROVIDER_ID         the provider KEY in assets/opencode.json that
 #                                  opencode-with-fallback.sh prefixes onto the
@@ -12,6 +12,7 @@
 #                                    OPENAI                → openai
 #                                    OPENCODE-GO-OPENAI    → go-openai
 #                                    OPENCODE-GO-ANTHROPIC → go-anthropic
+#                                    OPEN_ROUTER           → openrouter
 #                                  OpenCode Go is split into two providers because
 #                                  it serves two SDK surfaces under one Zen gateway:
 #                                  OpenAI-compatible (deepseek/kimi) and
@@ -55,7 +56,10 @@ OPENCODE_REVIEW_REPORT_PROVIDER="$(printf '%s' "$OPENCODE_REVIEW_REPORT_PROVIDER
 # OpenCode Go's gateway is a fixed public endpoint (the OpenCode Zen base
 # https://opencode.ai/zen/go/v1, hardcoded in opencode.json too), so its
 # providers carry no URL env var — _rp_url_fixed supplies the value the health
-# probe needs. The other providers read their gateway URL from an env var.
+# probe needs. OpenRouter is the same shape: a single public aggregator
+# (https://openrouter.ai/api/v1, hardcoded in opencode.json) with no
+# per-deployment URL to retune (LADR-039). The other providers read their
+# gateway URL from an env var.
 _rp_url_fixed=""
 case "$OPENCODE_REVIEW_REPORT_PROVIDER" in
   GEMINI)                _rp_id="gemini";         _rp_url_var="OPENCODE_REVIEW_REPORT_GEMINI_URL";        _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
@@ -63,7 +67,8 @@ case "$OPENCODE_REVIEW_REPORT_PROVIDER" in
   OPENAI)                _rp_id="openai";         _rp_url_var="OPENCODE_REVIEW_REPORT_OPENAI_URL";         _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
   OPENCODE-GO-OPENAI)    _rp_id="go-openai";      _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
   OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;
-  *) _rp_die "Unknown OPENCODE_REVIEW_REPORT_PROVIDER='$OPENCODE_REVIEW_REPORT_PROVIDER' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)." ;;
+  OPEN_ROUTER)           _rp_id="openrouter";     _rp_url_var="";  _rp_url_fixed="https://openrouter.ai/api/v1";   _rp_key_var="OPENCODE_OPENROUTER_API_KEY" ;;
+  *) _rp_die "Unknown OPENCODE_REVIEW_REPORT_PROVIDER='$OPENCODE_REVIEW_REPORT_PROVIDER' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, or OPEN_ROUTER)." ;;
 esac
 
 OPENCODE_REVIEW_REPORT_PROVIDER_ID="$_rp_id"
@@ -74,9 +79,9 @@ else
 fi
 OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 
-# Selected provider's credentials must be present. (For OpenCode Go the URL is
-# the fixed Zen base so this check is a no-op for them; the error message
-# fallback "its gateway URL" is unreachable for the go-* providers.)
+# Selected provider's credentials must be present. (For OpenCode Go and
+# OpenRouter the URL is a fixed public base so this check is a no-op for them;
+# the error message fallback "its gateway URL" is unreachable for those.)
 [ -n "$OPENCODE_REVIEW_REPORT_GATEWAY_URL" ]     || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but ${_rp_url_var:-its gateway URL} is empty/unset. Set it (GitHub Variable / shell export)."
 [ -n "$OPENCODE_GATEWAY_API_KEY" ] || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_key_var is empty/unset. Set it (GitHub Secret / shell export)."
 

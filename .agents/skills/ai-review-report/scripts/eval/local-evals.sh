@@ -16,7 +16,7 @@
 #   ./local-evals.sh [--provider P] [--model M] [--samples N] [--recall-threshold N] [--filter SUBSTR]
 #
 #   --provider P           GEMINI (default) | COPILOT | OPENAI |
-#                          OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
+#                          OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER
 #                          (or set OPENCODE_REVIEW_REPORT_PROVIDER)
 #   --model M              chunk-review model under eval (default: the
 #                          OPENCODE_REVIEW_REPORT_MODEL_PRIMARY env/Variable, else
@@ -77,7 +77,8 @@ for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
          OPENCODE_REVIEW_REPORT_COPILOT_URL OPENCODE_COPILOT_API_KEY \
          OPENCODE_REVIEW_REPORT_OPENAI_URL OPENCODE_OPENAI_API_KEY \
          OPENCODE_GO_OPENAI_API_KEY \
-         OPENCODE_GO_ANTHROPIC_API_KEY; do
+         OPENCODE_GO_ANTHROPIC_API_KEY \
+         OPENCODE_OPENROUTER_API_KEY; do
   harvest_var "$v" || true
 done
 

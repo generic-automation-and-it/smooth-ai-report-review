@@ -64,6 +64,29 @@
         "qwen3.7-plus": { "name": "Qwen3.7 Plus" },
         "qwen3.6-pro":  { "name": "Qwen3.6 Pro" }
       }
+    },
+    "openrouter": {
+      "npm": "@openrouter/ai-sdk-provider",
+      "name": "OpenRouter",
+      "options": {
+        "baseURL": "https://openrouter.ai/api/v1",
+        "apiKey": "{env:OPENCODE_OPENROUTER_API_KEY}"
+      },
+      "models": {
+        "deepseek/deepseek-v4-pro":          { "name": "DeepSeek V4 Pro" },
+        "deepseek/deepseek-v4-flash":        { "name": "DeepSeek V4 Flash" },
+        "deepseek/deepseek-v3.2":            { "name": "DeepSeek V3.2" },
+        "qwen/qwen3.7-plus":                 { "name": "Qwen3.7 Plus" },
+        "qwen/qwen3.7-max":                  { "name": "Qwen3.7 Max" },
+        "qwen/qwen3.6-max-preview":          { "name": "Qwen3.6 Max (preview)" },
+        "z-ai/glm-5.1":                      { "name": "GLM-5.1" },
+        "minimax/minimax-m3":                { "name": "MiniMax M3" },
+        "minimax/minimax-m2.7":              { "name": "MiniMax M2.7" },
+        "xiaomi/mimo-v2.5":                  { "name": "MiMo v2.5" },
+        "tencent/hy3-preview":               { "name": "Hunyuan 3 (preview)" },
+        "stepfun/step-3.7-flash":            { "name": "Step 3.7 Flash" },
+        "nvidia/nemotron-3-ultra-550b-a55b": { "name": "Nemotron 3 Ultra" }
+      }
     }
   },
   "permission": {

@@ -8,7 +8,7 @@
 #   opencode server listening on http(s)://127.0.0.1:4096
 # hit that server's /global/health, then tear the server down. No per-provider
 # URL/auth derivation, so it works the same for gemini / copilot / openai /
-# go-openai / go-anthropic.
+# go-openai / go-anthropic / openrouter.
 #
 # NOTE: /global/health reports that opencode itself is up — it does NOT prove the
 # upstream model gateway is reachable or the API key valid. The real functional

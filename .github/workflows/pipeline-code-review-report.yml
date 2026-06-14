@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC).'
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
         required: false
         type: string
         default: ''
@@ -34,6 +34,10 @@ on:
           - 'OpenCode GLM-5.1'
           - 'OpenCode MiniMax m3'
           - 'OpenCode Qwen3.7 Plus'
+          - 'OpenRouter DeepSeek V4 Pro'
+          - 'OpenRouter Qwen3.7 Plus'
+          - 'OpenRouter GLM-5.1'
+          - 'OpenRouter MiniMax M3'
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
@@ -113,11 +117,12 @@ jobs:
     
     env:
       # Provider selector, default GEMINI. Allowed:
-      #   GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC
+      #   GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER
       # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
       # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
-      # one opencode.json provider block can pin only one npm. Set the repo/org
-      # Variable OPENCODE_REVIEW_REPORT_PROVIDER to switch which provider the review routes to.
+      # one opencode.json provider block can pin only one npm. OPEN_ROUTER routes to
+      # the OpenRouter aggregator (fixed public base, no URL var — LADR-039). Set the
+      # repo/org Variable OPENCODE_REVIEW_REPORT_PROVIDER to switch which provider the review routes to.
       # lib/resolve-provider.sh maps this to the gateway credentials + provider-id
       # and fails fast on a mismatched model chain.
       # The workflow_dispatch "model_preset" input (when not the default) wins over
@@ -129,12 +134,16 @@ jobs:
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'OPENCODE-GO-OPENAI') ||
         (inputs.model_preset == 'OpenCode MiniMax m3' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'OPEN_ROUTER') ||
+        (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'OPEN_ROUTER') ||
+        (inputs.model_preset == 'OpenRouter GLM-5.1' && 'OPEN_ROUTER') ||
+        (inputs.model_preset == 'OpenRouter MiniMax M3' && 'OPEN_ROUTER') ||
         vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
       # Provider-id = the provider KEY in opencode.json that the model is prefixed
-      # with (gemini / github-copilot / openai / go-openai / go-anthropic). Computed
-      # here (string literals, no empty-secret hazard) so every step — including the
-      # pre-checkout ones — can read it. lib/resolve-provider.sh derives the same
-      # value for local runs.
+      # with (gemini / github-copilot / openai / go-openai / go-anthropic / openrouter).
+      # Computed here (string literals, no empty-secret hazard) so every step —
+      # including the pre-checkout ones — can read it. lib/resolve-provider.sh derives
+      # the same value for local runs.
       # Preset (when set) pins the provider-id too, in lockstep with the provider
       # selector above; otherwise derived from the Variable as before.
       OPENCODE_REVIEW_REPORT_PROVIDER_ID: >-
@@ -142,12 +151,14 @@ jobs:
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
         ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode GLM-5.1') && 'go-openai') ||
         ((inputs.model_preset == 'OpenCode MiniMax m3' || inputs.model_preset == 'OpenCode Qwen3.7 Plus') && 'go-anthropic') ||
+        ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'openrouter') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
         'gemini' }}
-      # All five provider credential pairs are exported at job scope so opencode's
+      # All six providers' credentials are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to. Without the active pair the provider sends an
@@ -171,6 +182,10 @@ jobs:
       # opencode.json and in the resolver/health-probe (no OPENCODE_GO_*_URL var).
       OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
       OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
+      # OpenRouter: like OpenCode Go, only the API key is configurable — the base
+      # URL is the fixed public aggregator endpoint (https://openrouter.ai/api/v1),
+      # hardcoded in opencode.json and in the resolver (no OPENCODE_*_URL var).
+      OPENCODE_OPENROUTER_API_KEY: ${{ secrets.OPENCODE_OPENROUTER_API_KEY }}
       # Models sourced from repo/org GitHub Variables so they can be retuned
       # without editing this workflow; each falls back to a literal default if the
       # Variable is unset (an undefined ${{ vars.X }} resolves to an empty string,
@@ -182,14 +197,16 @@ jobs:
       #   Gemini model IDs — correct for the default provider. For any non-GEMINI
       #   provider you MUST set these Variables (or pick a model_preset) to that
       #   provider's models: gpt-5.5 (COPILOT/OPENAI), deepseek-v4-pro/glm-5.1
-      #   (OPENCODE-GO-OPENAI), or qwen3.7-plus/minimax-m3 (OPENCODE-GO-ANTHROPIC).
+      #   (OPENCODE-GO-OPENAI), qwen3.7-plus/minimax-m3 (OPENCODE-GO-ANTHROPIC), or
+      #   deepseek/deepseek-v4-pro, qwen/qwen3.7-plus, z-ai/glm-5.1 (OPEN_ROUTER —
+      #   note OpenRouter slugs carry a vendor/ prefix).
       #   lib/resolve-provider.sh fails the run fast if a gemini* model leaks
       #   through to a non-GEMINI provider.
       #   - PRIMARY/SECONDARY_REVIEW: two-tier deep chunk-review chain (LADR-002).
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
       # The model_preset map is repeated across the three tiers because a preset
-      # collapses all of them onto the same model; keep the five options in sync.
+      # collapses all of them onto the same model; keep the nine options in sync.
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: >-
         ${{
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
@@ -197,6 +214,10 @@ jobs:
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
         (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
+        (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
         inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: >-
         ${{
@@ -205,6 +226,10 @@ jobs:
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
         (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
+        (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
         vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: >-
         ${{
@@ -213,6 +238,10 @@ jobs:
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
         (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
+        (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
         vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
@@ -260,16 +289,18 @@ jobs:
           # isn't available until after actions/checkout.
           # U = name of the provider's URL env var (read via indirection). GW_URL =
           # a fixed literal URL for providers whose endpoint is not env-configurable
-          # (the two OpenCode Go surfaces share the public Zen base). When GW_URL is
-          # set it wins; otherwise the URL comes from ${!U}.
+          # (the two OpenCode Go surfaces share the public Zen base; OpenRouter has
+          # its own fixed aggregator base). When GW_URL is set it wins; otherwise the
+          # URL comes from ${!U}.
           U=""; GW_URL=""
           case "${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}" in
             COPILOT)               U=OPENCODE_REVIEW_REPORT_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
             OPENAI)                U=OPENCODE_REVIEW_REPORT_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
             OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
             OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
+            OPEN_ROUTER)           GW_URL="https://openrouter.ai/api/v1";  K=OPENCODE_OPENROUTER_API_KEY ;;
             GEMINI)                U=OPENCODE_REVIEW_REPORT_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
-            *) echo "❌ Unknown OPENCODE_REVIEW_REPORT_PROVIDER='${OPENCODE_REVIEW_REPORT_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, or OPENCODE-GO-ANTHROPIC)."; exit 1 ;;
+            *) echo "❌ Unknown OPENCODE_REVIEW_REPORT_PROVIDER='${OPENCODE_REVIEW_REPORT_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, or OPEN_ROUTER)."; exit 1 ;;
           esac
           OPENCODE_REVIEW_REPORT_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
           OPENCODE_GATEWAY_API_KEY="${!K}"
@@ -685,7 +716,7 @@ jobs:
           CURRENT_SHA="${{ steps.pr_info.outputs.head_sha }}"
           LOGS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           # Name the active provider in the message instead of hardcoding "Gemini" —
-          # OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC) is set at job scope.
+          # OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER) is set at job scope.
           PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
 
           {
