@@ -5,7 +5,7 @@
 # /v1beta/models, or /health endpoint, each with its own auth header). The
 # single health signal now is opencode ITSELF, identically for every
 # OPENCODE_REVIEW_REPORT_PROVIDER: start `opencode serve` on localhost, read the URL it prints
-#   opencode server listening on http://127.0.0.1:4096
+#   opencode server listening on http(s)://127.0.0.1:4096
 # hit that server's /global/health, then tear the server down. No per-provider
 # URL/auth derivation, so it works the same for gemini / copilot / openai /
 # go-openai / go-anthropic.
@@ -51,7 +51,7 @@ DEADLINE=$((SECONDS + TIMEOUT))
 # Wait for the "listening on <url>" line (or the process to die early).
 BASE=""
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
-  BASE="$(grep -oE 'http://[^[:space:]]+' "$LOG" 2>/dev/null | head -1)"
+  BASE="$(grep -oE 'https?://[^[:space:]]+' "$LOG" 2>/dev/null | head -1)"
   [ -n "$BASE" ] && break
   kill -0 "$_serve_pid" 2>/dev/null || { echo "❌ opencode serve exited before reporting a URL:" >&2; tail -n 20 "$LOG" >&2 2>/dev/null || true; exit 1; }
   sleep 1

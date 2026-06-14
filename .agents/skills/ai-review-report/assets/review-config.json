@@ -1,4 +1,5 @@
 {
+  "_comment": "Patterns are matched against file basename (via case glob in filter-excluded-files.sh), not full path. So 'package-lock.json' matches at any directory depth.",
   "excludePatterns": [
     "package-lock.json",
     "yarn.lock",

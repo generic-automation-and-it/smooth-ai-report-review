@@ -33,6 +33,9 @@ if [ -z "$prompt_file" ] || [ ! -f "$prompt_file" ]; then
   exit 64
 fi
 
+# Default fallback "gemini" must match the GEMINI provider id declared in
+# lib/resolve-provider.sh. The resolver normally sets this env var; the
+# fallback is a safety net for bare invocation without sourcing the resolver.
 PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 
 run_opencode() {

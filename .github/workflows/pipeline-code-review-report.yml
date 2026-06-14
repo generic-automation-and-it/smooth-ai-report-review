@@ -98,6 +98,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Force GHA runner to use Node24 (official opt-in flag, runner PR #3948).
+  # This opts into Node24 early to ensure deterministic behavior across
+  # runner updates and surface incompatibilities before the hard migration.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -232,9 +235,9 @@ jobs:
         .docs/nfr/TOOL_SETUP_AGENTS.md
         .agents/rules-scoped/backend/testing-standards.instructions.md
         .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
-      # Paths exempt from AGENTS.md validation requirement (pipe-separated)
-      # Files in these paths do not require an accompanying *_AGENTS.md file
-      # These are typically documentation-only paths that don't need AI context files
+      # Paths exempt from AGENTS.md validation requirement (pipe-separated).
+      # Files in these paths do not require an accompanying *_AGENTS.md file.
+      # The default resolves against the repo under review — it warn-and-skips if absent.
       AGENTS_MD_EXEMPT_PATHS: >-
         ${{ inputs.agents_md_exempt_paths || '.docs/release-notes' }}
       # Disable Claude Code (.claude) support to avoid conflicts between
@@ -1290,7 +1293,7 @@ jobs:
         env:
           REVIEW_MODE: ${{ steps.file_types.outputs.review_mode }}
 
-      - name: Minimize Previous Gemini Reviews
+      - name: Minimize Previous AI Reviews
         # Only minimize when: has changes, full review, AND validation passed (to avoid minimizing the validation failure review)
         if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |

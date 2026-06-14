@@ -17,7 +17,6 @@ if [ ! -f ci_temp/changed_files.txt ] || [ ! -s ci_temp/changed_files.txt ]; the
 fi
 
 # Extract unique directory paths from changed files
-> ci_temp/changed_dirs.txt
 tr '\0' '\n' < ci_temp/changed_files.txt | while IFS= read -r file; do
   dirname "$file"
 done | sort -u > ci_temp/changed_dirs.txt

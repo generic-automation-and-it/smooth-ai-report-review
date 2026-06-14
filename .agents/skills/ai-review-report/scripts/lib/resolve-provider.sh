@@ -75,7 +75,8 @@ fi
 OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 
 # Selected provider's credentials must be present. (For OpenCode Go the URL is
-# the fixed Zen base above, so this only ever trips for an env-driven provider.)
+# the fixed Zen base so this check is a no-op for them; the error message
+# fallback "its gateway URL" is unreachable for the go-* providers.)
 [ -n "$OPENCODE_REVIEW_REPORT_GATEWAY_URL" ]     || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but ${_rp_url_var:-its gateway URL} is empty/unset. Set it (GitHub Variable / shell export)."
 [ -n "$OPENCODE_GATEWAY_API_KEY" ] || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_key_var is empty/unset. Set it (GitHub Secret / shell export)."
 
