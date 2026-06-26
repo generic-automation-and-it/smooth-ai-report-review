@@ -2,7 +2,7 @@
 # resolve-provider.sh — central provider selector for the OpenCode review pipeline.
 #
 # Single source of truth that maps the user-facing OPENCODE_REVIEW_REPORT_PROVIDER selector
-# (GEMINI | COPILOT | OPENAI | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER,
+# (GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER,
 # default GEMINI) onto:
 #   - OPENCODE_REVIEW_REPORT_PROVIDER_ID         the provider KEY in assets/opencode.json that
 #                                  opencode-with-fallback.sh prefixes onto the
@@ -10,6 +10,7 @@
 #                                    GEMINI                → gemini
 #                                    COPILOT               → github-copilot
 #                                    OPENAI                → openai
+#                                    ANTHROPIC             → anthropic
 #                                    OPENCODE-GO-OPENAI    → go-openai
 #                                    OPENCODE-GO-ANTHROPIC → go-anthropic
 #                                    OPEN_ROUTER           → openrouter
@@ -58,17 +59,20 @@ OPENCODE_REVIEW_REPORT_PROVIDER="$(printf '%s' "$OPENCODE_REVIEW_REPORT_PROVIDER
 # providers carry no URL env var — _rp_url_fixed supplies the value the health
 # probe needs. OpenRouter is the same shape: a single public aggregator
 # (https://openrouter.ai/api/v1, hardcoded in opencode.json) with no
-# per-deployment URL to retune (LADR-039). The other providers read their
-# gateway URL from an env var.
+# per-deployment URL to retune (LADR-039). Anthropic is likewise a single
+# public API (https://api.anthropic.com, hardcoded in opencode.json) with no
+# per-deployment URL to retune. The other providers read their gateway URL
+# from an env var.
 _rp_url_fixed=""
 case "$OPENCODE_REVIEW_REPORT_PROVIDER" in
   GEMINI)                _rp_id="gemini";         _rp_url_var="OPENCODE_REVIEW_REPORT_GEMINI_URL";        _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
   COPILOT)               _rp_id="github-copilot"; _rp_url_var="OPENCODE_REVIEW_REPORT_COPILOT_URL";        _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
   OPENAI)                _rp_id="openai";         _rp_url_var="OPENCODE_REVIEW_REPORT_OPENAI_URL";         _rp_key_var="OPENCODE_OPENAI_API_KEY" ;;
+  ANTHROPIC)             _rp_id="anthropic";      _rp_url_var="";  _rp_url_fixed="https://api.anthropic.com"; _rp_key_var="OPENCODE_ANTHROPIC_API_KEY" ;;
   OPENCODE-GO-OPENAI)    _rp_id="go-openai";      _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
   OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var="";  _rp_url_fixed="https://opencode.ai/zen/go/v1"; _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;
   OPEN_ROUTER)           _rp_id="openrouter";     _rp_url_var="";  _rp_url_fixed="https://openrouter.ai/api/v1";   _rp_key_var="OPENCODE_OPENROUTER_API_KEY" ;;
-  *) _rp_die "Unknown OPENCODE_REVIEW_REPORT_PROVIDER='$OPENCODE_REVIEW_REPORT_PROVIDER' (expected GEMINI, COPILOT, OPENAI, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, or OPEN_ROUTER)." ;;
+  *) _rp_die "Unknown OPENCODE_REVIEW_REPORT_PROVIDER='$OPENCODE_REVIEW_REPORT_PROVIDER' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, or OPEN_ROUTER)." ;;
 esac
 
 OPENCODE_REVIEW_REPORT_PROVIDER_ID="$_rp_id"
@@ -87,24 +91,35 @@ OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 
 # Every provider requires an explicit model chain. We don't enumerate every valid
 # id — non-Gemini gateways serve many families (gpt-*, o*, claude-*, …) and an
-# allow-list would block future ones. Instead fail fast HERE only on the mismatch
-# guaranteed to break: a GEMINI gateway needs gemini-* ids, and a non-GEMINI
-# gateway must NOT carry a leftover gemini-* id (it won't resolve on Copilot/OpenAI).
+# allow-list would block future ones. Instead fail fast HERE on the mismatch
+# guaranteed to break: a GEMINI gateway needs gemini-* ids, ANTHROPIC needs
+# claude-* ids, and any other gateway must NOT carry a leftover gemini-* or
+# claude-* id (it won't resolve on Copilot/OpenAI/Go-OpenAI/Go-Anthropic/OpenRouter).
 for _rp_mv in OPENCODE_REVIEW_REPORT_MODEL_PRIMARY OPENCODE_REVIEW_REPORT_MODEL_SECONDARY OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR; do
   _rp_val="${!_rp_mv}"
   [ -n "$_rp_val" ] || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv is unset. Set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models."
   _rp_lc="$(printf '%s' "$_rp_val" | tr '[:upper:]' '[:lower:]')"
-  if [ "$OPENCODE_REVIEW_REPORT_PROVIDER" = "GEMINI" ]; then
-    case "$_rp_lc" in
-      gemini*) ;;
-      *) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=GEMINI selected but $_rp_mv='$_rp_val' is not a Gemini model (expected an id starting with 'gemini'). It won't resolve on the Gemini gateway." ;;
-    esac
-  else
-    case "$_rp_lc" in
-      gemini*) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv='$_rp_val' is a Gemini model. It won't resolve on the $OPENCODE_REVIEW_REPORT_PROVIDER gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
-      *) ;;
-    esac
-  fi
+  case "$OPENCODE_REVIEW_REPORT_PROVIDER" in
+    GEMINI)
+      case "$_rp_lc" in
+        gemini*) ;;
+        *) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=GEMINI selected but $_rp_mv='$_rp_val' is not a Gemini model (expected an id starting with 'gemini'). It won't resolve on the Gemini gateway." ;;
+      esac
+      ;;
+    ANTHROPIC)
+      case "$_rp_lc" in
+        claude*) ;;
+        *) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=ANTHROPIC selected but $_rp_mv='$_rp_val' is not a Claude model (expected an id starting with 'claude'). It won't resolve on the Anthropic gateway." ;;
+      esac
+      ;;
+    *)
+      case "$_rp_lc" in
+        gemini*) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv='$_rp_val' is a Gemini model. It won't resolve on the $OPENCODE_REVIEW_REPORT_PROVIDER gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
+        claude*) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv='$_rp_val' is a Claude model. It won't resolve on the $OPENCODE_REVIEW_REPORT_PROVIDER gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
+        *) ;;
+      esac
+      ;;
+  esac
 done
 
 # Health checking is no longer per-provider. The single health signal is opencode

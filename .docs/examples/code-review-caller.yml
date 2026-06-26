@@ -8,8 +8,9 @@
 # Configuration (set in YOUR repo/org):
 #   Secrets   — the selected provider's API key, canonical names:
 #               OPENCODE_GEMINI_API_KEY / OPENCODE_COPILOT_API_KEY /
-#               OPENCODE_OPENAI_API_KEY / OPENCODE_GO_OPENAI_API_KEY /
-#               OPENCODE_GO_ANTHROPIC_API_KEY / OPENCODE_OPENROUTER_API_KEY.
+#               OPENCODE_OPENAI_API_KEY / OPENCODE_ANTHROPIC_API_KEY /
+#               OPENCODE_GO_OPENAI_API_KEY / OPENCODE_GO_ANTHROPIC_API_KEY /
+#               OPENCODE_OPENROUTER_API_KEY.
 #               Passed via `secrets: inherit`.
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
@@ -46,6 +47,9 @@ on:
         default: '(repository default)'
         options:
           - '(repository default)'
+          - 'Anthropic Claude Opus 4.8'
+          - 'Anthropic Claude Sonnet 4.6'
+          - 'Anthropic Claude Haiku 4.5'
           - 'OpenAI GPT-5.5'
           - 'OpenCode DeepSeek V4 Pro'
           - 'OpenCode GLM-5.1'
