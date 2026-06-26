@@ -38,6 +38,19 @@
         "gpt-5.4-mini": { "name": "GPT-5.4 mini" }
       }
     },
+    "anthropic": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "Anthropic",
+      "options": {
+        "baseURL": "https://api.anthropic.com",
+        "apiKey": "{env:OPENCODE_ANTHROPIC_API_KEY}"
+      },
+      "models": {
+        "claude-opus-4-8":   { "name": "Claude Opus 4.8" },
+        "claude-sonnet-4-6": { "name": "Claude Sonnet 4.6" },
+        "claude-haiku-4-5":  { "name": "Claude Haiku 4.5" }
+      }
+    },
     "go-openai": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "OpenCode Go (OpenAI-compatible)",

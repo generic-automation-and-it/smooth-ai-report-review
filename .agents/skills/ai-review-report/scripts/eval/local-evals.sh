@@ -15,7 +15,7 @@
 # Usage:
 #   ./local-evals.sh [--provider P] [--model M] [--samples N] [--recall-threshold N] [--filter SUBSTR]
 #
-#   --provider P           GEMINI (default) | COPILOT | OPENAI |
+#   --provider P           GEMINI (default) | COPILOT | OPENAI | ANTHROPIC |
 #                          OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER
 #                          (or set OPENCODE_REVIEW_REPORT_PROVIDER)
 #   --model M              chunk-review model under eval (default: the

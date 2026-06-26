@@ -31,9 +31,10 @@
 # An empty/unset URL var → no baseURL added (native base kept), which is why the
 # baseURL is injected dynamically rather than as a static {env:…} placeholder:
 # an unset placeholder would substitute to an empty-string baseURL and break the
-# SDK. The two OpenCode Go providers and OpenRouter are never injected — their
-# base is a fixed public endpoint hardcoded in opencode.json (no URL var):
-# https://opencode.ai/zen/go/v1 and https://openrouter.ai/api/v1 respectively.
+# SDK. The two OpenCode Go providers, OpenRouter, and the direct Anthropic
+# provider are never injected — their base is a fixed public endpoint hardcoded
+# in opencode.json (no URL var): https://opencode.ai/zen/go/v1,
+# https://openrouter.ai/api/v1, and https://api.anthropic.com respectively.
 #
 # Must run AFTER actions/checkout — see LADR-023.
 
@@ -70,8 +71,9 @@ _inject_base_urls() {
     echo "ℹ️  jq not found — skipping baseURL injection (providers use native SDK base)."
     return 0
   }
-  # OpenCode Go and OpenRouter are intentionally absent — their base is a fixed
-  # public endpoint hardcoded in opencode.json, never injected (LADR-027/039).
+  # OpenCode Go, OpenRouter, and Anthropic are intentionally absent — their base
+  # is a fixed public endpoint hardcoded in opencode.json, never injected
+  # (LADR-027/039/LADR-040).
   for pair in "gemini:OPENCODE_REVIEW_REPORT_GEMINI_URL" \
               "github-copilot:OPENCODE_REVIEW_REPORT_COPILOT_URL" \
               "openai:OPENCODE_REVIEW_REPORT_OPENAI_URL"; do
@@ -118,13 +120,14 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   # injected by _inject_base_urls (LADR-034) from OPENCODE_REVIEW_REPORT_<P>_URL —
   # all three keep this recognized as our managed config so self-heal still runs.
   # NOTE: jq's `keys` sorts alphabetically, so the committed provider set
-  # compares as: gemini, github-copilot, go-anthropic, go-openai, openai, openrouter.
+  # compares as: anthropic, gemini, github-copilot, go-anthropic, go-openai,
+  # openai, openrouter.
   is_ours="false"
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
     jq -e '
       ((keys - ["$schema","provider","permission","agent"]) == [])
-      and ((.provider // {} | keys) == ["gemini","github-copilot","go-anthropic","go-openai","openai","openrouter"])
+      and ((.provider // {} | keys) == ["anthropic","gemini","github-copilot","go-anthropic","go-openai","openai","openrouter"])
       and ((.agent // {} | keys) | (. == [] or . == ["review"]))
       and (all((.provider // {})[]?;
             ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
@@ -153,7 +156,9 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
     echo "    NOT overwriting your personal config. Sync the provider blocks you use"
     echo "    (gemini → {env:OPENCODE_GEMINI_*}, github-copilot →"
     echo "    {env:OPENCODE_COPILOT_*}, openai → {env:OPENCODE_OPENAI_*},"
-    echo "    go-openai → {env:OPENCODE_GO_OPENAI_API_KEY}, go-anthropic →"
+    echo "    anthropic → {env:OPENCODE_ANTHROPIC_API_KEY} with the hardcoded"
+    echo "    https://api.anthropic.com baseURL; go-openai →"
+    echo "    {env:OPENCODE_GO_OPENAI_API_KEY}, go-anthropic →"
     echo "    {env:OPENCODE_GO_ANTHROPIC_API_KEY} — both with the hardcoded"
     echo "    https://opencode.ai/zen/go/v1 baseURL; openrouter →"
     echo "    {env:OPENCODE_OPENROUTER_API_KEY} with the hardcoded"
@@ -164,7 +169,7 @@ else
   echo "⚠️  $DEST exists but has no 'gemini' provider — leaving your personal config untouched."
   echo "    If the review fails with a provider/model-not-found error, merge the"
   echo "    provider block for the provider you use (gemini / github-copilot"
-  echo "    / openai / go-openai / go-anthropic / openrouter) from:"
+  echo "    / openai / anthropic / go-openai / go-anthropic / openrouter) from:"
   echo "      $SRC"
   echo "    into your config at:"
   echo "      $DEST"

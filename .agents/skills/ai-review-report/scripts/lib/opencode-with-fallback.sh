@@ -8,7 +8,7 @@
 #   - orchestrator:  ORCHESTRATOR     <resolved review model>   ""
 # An empty model slot is skipped, so a two-tier chain just leaves fb2 empty.
 #
-# The provider is selected by OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI|COPILOT|OPENAI|
+# The provider is selected by OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI|COPILOT|OPENAI|ANTHROPIC|
 # OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC|OPEN_ROUTER) and resolved to its opencode
 # provider-id by lib/resolve-provider.sh, which exports OPENCODE_REVIEW_REPORT_PROVIDER_ID
 # (gemini / github-copilot / openai / go-openai / go-anthropic / openrouter). This script
