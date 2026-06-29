@@ -41,7 +41,7 @@ How it works:
 - **Secrets**: pass `secrets: inherit`. The gate reads the canonical `OPENCODE_*_API_KEY` names and only uses the selected provider's key.
 - **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Steps 3–4 of the installer section apply unchanged.
 - **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
-- **Versioning**: pin `@v1` (floating major) or an exact tag/SHA. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
+- **Versioning**: pin `@v1` (floating major) or an exact tag/SHA. The source repo maintains the floating `v1` tag via `.github/workflows/update-v1-tag.yml` on every merge to `main` (and via manual dispatch when a repair/repoint is needed). The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
 
 ## Install as a Claude Code plugin
 
@@ -98,7 +98,7 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 **Source repo:** `generic-automation-and-it/smooth-ai-report-review` (branch `main`).
 
 **What gets installed:**
-1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (review scripts are fetched at run time — no skill trees land in the repo).
+1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (the floating major tag is maintained from this repo's `main` branch; review scripts are fetched at run time — no skill trees land in the repo).
 2. **Local report tooling**: the `smooth-ai-review` plugin (all three skills: `ai-review-report`, `ai-review`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 
 ### Step 1 — install the review gate (reusable-workflow caller)

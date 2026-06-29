@@ -1,0 +1,52 @@
+name: Update reusable workflow tag
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-v1-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve default branch head
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          default_branch="$(gh api repos/${{ github.repository }} --jq .default_branch)"
+          sha="$(gh api repos/${{ github.repository }}/git/ref/heads/${default_branch} --jq .object.sha)"
+          echo "default_branch=${default_branch}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Will point v1 at ${default_branch} (${sha})."
+
+      - name: Create or update v1 tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          sha="${{ steps.target.outputs.sha }}"
+
+          if gh api "repos/${repo}/git/ref/tags/v1" >/dev/null 2>&1; then
+            gh api \
+              --method PATCH \
+              "repos/${repo}/git/refs/tags/v1" \
+              -f sha="${sha}" \
+              -F force=true \
+              >/dev/null
+            echo "Updated v1 -> ${sha}"
+          else
+            gh api \
+              --method POST \
+              "repos/${repo}/git/refs" \
+              -f ref="refs/tags/v1" \
+              -f sha="${sha}" \
+              >/dev/null
+            echo "Created v1 -> ${sha}"
+          fi
