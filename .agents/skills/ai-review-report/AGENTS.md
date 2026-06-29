@@ -431,6 +431,15 @@ The LADRs are the **decisions an AI coder would plausibly re-litigate if they di
 - **Consequences**: A direct path to real Claude models without a proxy or aggregator in the middle. The "fixed public base hardcoded in `opencode.json`" exception list grows from two (OpenCode Go + OpenRouter) to three — the root `AGENTS.md` Non-Negotiable and the SKILL.md opencode-transport LADR list were updated. The model-family fail-fast gains a `claude*` dimension: non-ANTHROPIC providers now reject both `gemini*` and `claude*` ids, preventing a leftover Claude model from silently routing to a gateway that can't serve it. As with every non-GEMINI provider, the Gemini-default model chain means a run that forgets to set the three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables (or pick a preset) fails fast in `resolve-provider.sh`.
 - **See also**: LADR-027 (OpenCode Go, the first hardcoded-base provider), LADR-039 (OpenRouter, the second; also `@ai-sdk/anthropic` surface but for non-Claude models), LADR-034 (why Anthropic is excluded from baseURL injection), LADR-026 (the env-selected-provider mechanism it extends).
 
+### LADR-041: Disable opencode session sharing — `"share": "disabled"` in `opencode.json`
+
+- **Date**: 2026-06-29
+- **Status**: Accepted
+- **Context**: opencode's `share` feature allows sessions (including the full conversation and diff content reviewed) to be shared via a public URL. The default behaviour is `"manual"`, but there was no explicit opt-out in the committed config, leaving the gate one accidental keypress (or a future default change) away from leaking PR diff content to a public URL.
+- **Decision**: Add `"share": "disabled"` at the root of `assets/opencode.json`. The opencode config schema accepts three values — `"manual"`, `"auto"`, `"disabled"` — and `"disabled"` blocks both manual and automatic sharing. `setup-opencode-config.sh`'s `is_ours` predicate (which governs whether a local `~/.config/opencode/opencode.json` is recognised as our managed config and eligible for self-heal) was updated to add `"share"` to the allowed top-level key set: `["$schema","provider","permission","agent","share"]`.
+- **Consequences**: Session sharing is unconditionally off for every runner (CI and local) that installs the managed config. Developers who maintain a personal `opencode.json` that we do not overwrite (the hand-rolled path) should manually add `"share": "disabled"` to their config. No workflow, environment-variable, or caller-template changes are needed — this is a one-line config-file change.
+- **See also**: LADR-029 (locked-down `review` agent, the broader prompt-injection / data-leakage hardening this builds on).
+
 ## Key Behaviors
 
 These are the "I would have gotten this wrong" warnings — the things an AI coder editing this skill must know to avoid breaking the gate. They are the editing-time counterpart to SKILL.md's runtime Key Behaviors.

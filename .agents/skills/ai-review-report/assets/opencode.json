@@ -102,6 +102,7 @@
       }
     }
   },
+  "share": "disabled",
   "permission": {
     "external_directory": "allow"
   },
