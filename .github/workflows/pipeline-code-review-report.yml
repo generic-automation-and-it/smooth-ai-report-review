@@ -41,12 +41,23 @@ on:
           - 'OpenRouter Qwen3.7 Plus'
           - 'OpenRouter GLM-5.1'
           - 'OpenRouter MiniMax M3'
+      disable_claude_code:
+        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Avoids conflicts between opencode and Claude Code directories.'
+        required: false
+        type: choice
+        default: '1'
+        options:
+          - '1'
+          - '0'
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
   # README "Use as a reusable workflow" section). Notes:
-  # - Pass `secrets: inherit` in the caller — the gate reads the canonical
-  #   OPENCODE_*_API_KEY Secret names and only the selected provider's pair is used.
+  # - Secrets: the gate reads the canonical OPENCODE_*_API_KEY Secret names and uses
+  #   only the selected provider's key. SAME-ORG callers may use `secrets: inherit`;
+  #   CROSS-ORG callers must map the keys explicitly under `secrets:` (inherit is
+  #   same-org/enterprise only). The workflow_call.secrets block below declares them
+  #   so either form works — see .docs/examples/code-review-caller.yml.
   # - GitHub Variables (vars.OPENCODE_REVIEW_REPORT_*) resolve against the CALLER
   #   repo/org, so the existing Variables contract transfers unchanged.
   # - workflow_call does not support `type: choice`; model_preset is a plain string
@@ -89,6 +100,32 @@ on:
         required: false
         type: string
         default: ''
+      disable_claude_code:
+        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Default: 1.'
+        required: false
+        type: string
+        default: '1'
+    # Provider API keys, declared so out-of-org callers can pass them EXPLICITLY.
+    # `secrets: inherit` only works when caller and this workflow live in the same
+    # organization/enterprise; a caller in a different org must map each key (see the
+    # caller template). All are `required: false` — only the selected provider's key
+    # is read at runtime; the unused ones resolve empty and are never routed to. The
+    # job-level env: block reads these via secrets.* regardless of how they were passed.
+    secrets:
+      OPENCODE_GEMINI_API_KEY:
+        required: false
+      OPENCODE_COPILOT_API_KEY:
+        required: false
+      OPENCODE_OPENAI_API_KEY:
+        required: false
+      OPENCODE_ANTHROPIC_API_KEY:
+        required: false
+      OPENCODE_GO_OPENAI_API_KEY:
+        required: false
+      OPENCODE_GO_ANTHROPIC_API_KEY:
+        required: false
+      OPENCODE_OPENROUTER_API_KEY:
+        required: false
 permissions:
   pull-requests: write
   contents: read
@@ -295,9 +332,9 @@ jobs:
         ${{ inputs.agents_md_exempt_paths || '.docs/release-notes' }}
       # Disable Claude Code (.claude) support to avoid conflicts between
       # opencode and Claude Code's .claude directory features.
-      # Override via the OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE Variable (default 1).
-      OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
-      OPENCODE_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+      # Precedence: disable_claude_code input → OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE Variable → 1.
+      OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+      OPENCODE_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
     
     steps:
       - name: Install Dependencies

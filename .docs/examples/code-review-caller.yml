@@ -11,7 +11,10 @@
 #               OPENCODE_OPENAI_API_KEY / OPENCODE_ANTHROPIC_API_KEY /
 #               OPENCODE_GO_OPENAI_API_KEY / OPENCODE_GO_ANTHROPIC_API_KEY /
 #               OPENCODE_OPENROUTER_API_KEY.
-#               Passed via `secrets: inherit`.
+#               The explicit `secrets:` mapping below works whether your repo is in
+#               the SAME org as the gate or a DIFFERENT one. `secrets: inherit` is a
+#               shortcut but only works SAME-org/enterprise — cross-org callers MUST
+#               map the keys explicitly (GitHub rejects cross-org inherit at startup).
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
 #               These resolve against the CALLER repo/org automatically.
@@ -65,6 +68,14 @@ on:
           - 'OpenRouter Qwen3.7 Plus'
           - 'OpenRouter GLM-5.1'
           - 'OpenRouter MiniMax M3'
+      disable_claude_code:
+        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Avoids conflicts between opencode and Claude Code directories.'
+        required: false
+        type: choice
+        default: '1'
+        options:
+          - '1'
+          - '0'
 
 # The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
 permissions:
@@ -89,10 +100,22 @@ jobs:
       pr_number: ${{ inputs.pr_number || '' }}
       model: ${{ inputs.model || '' }}
       model_preset: ${{ inputs.model_preset || '(repository default)' }}
+      disable_claude_code: ${{ inputs.disable_claude_code || '1' }}
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from
       # mandatory_context_files: >-  # override the context files resolved in YOUR repo
       #   AGENTS.md
       #   .docs/nfr/PROJECT_SETUP_AGENTS.md
       # agents_md_exempt_paths: '.docs/release-notes'
-    secrets: inherit
+    # Explicit mapping works for same-org AND cross-org callers. Only the selected
+    # provider's key needs to exist in your repo/org; unset ones resolve empty and
+    # are never used. (Same-org callers may replace this whole block with
+    # `secrets: inherit` — but that fails at startup if the gate is in another org.)
+    secrets:
+      OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+      OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
+      OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
+      OPENCODE_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_ANTHROPIC_API_KEY }}
+      OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
+      OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
+      OPENCODE_OPENROUTER_API_KEY: ${{ secrets.OPENCODE_OPENROUTER_API_KEY }}
