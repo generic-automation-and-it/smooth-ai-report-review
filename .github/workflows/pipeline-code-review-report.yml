@@ -114,9 +114,11 @@ jobs:
   open-code-review-report:
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
-      (github.event_name == 'workflow_dispatch')
+      github.actor != 'dependabot[bot]' && (
+        (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
+        (github.event_name == 'workflow_dispatch')
+      )
     
     env:
       # Provider selector, default GEMINI. Allowed:
@@ -1212,7 +1214,7 @@ jobs:
 
       - name: Validate AGENTS.md Requirements
         id: validate_agents
-        if: steps.pr_diff.outputs.has_changes == 'true' && steps.initialize_opencode.outputs.all_models_failed != 'true'
+        if: github.actor != 'dependabot[bot]' && steps.pr_diff.outputs.has_changes == 'true' && steps.initialize_opencode.outputs.all_models_failed != 'true'
         env:
           BASE_REF: ${{ steps.pr_info.outputs.base_ref || 'main' }}
           BASE_SHA: ${{ steps.determine_review.outputs.from_sha }}
@@ -1221,7 +1223,7 @@ jobs:
           bash "${REVIEW_SKILL_DIR}/scripts/validate-agents-md.sh" "${{ steps.determine_review.outputs.review_type }}"
 
       - name: Block PR if AGENTS.md Validation Failed
-        if: steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
+        if: github.actor != 'dependabot[bot]' && steps.validate_agents.outputs.validation_passed == 'false' && steps.determine_review.outputs.review_type == 'full' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           set -e
           PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
