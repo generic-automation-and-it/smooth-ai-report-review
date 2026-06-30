@@ -11,7 +11,10 @@ permissions:
   issues: write
 
 concurrency:
-  group: ai-analyse-${{ github.event.workflow_run.id }}
+  # Serialize per-PR so two gate completions can't drive overlapping analyse runs
+  # that race on `git push` (non-fast-forward). Same-repo PR events populate
+  # pull_requests[0]; the run-id fallback covers any payload that doesn't.
+  group: ai-analyse-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
   cancel-in-progress: false
 
 env:
@@ -20,6 +23,11 @@ env:
 jobs:
   guard:
     runs-on: ubuntu-latest
+    # Only act on a gate run that actually completed successfully. A run cancelled
+    # by the gate's own concurrency (newer synchronize) or a failed run never posted
+    # a fresh review, so acting on it would operate on stale scope. A request_changes
+    # review is still a successful job, so the critical/high-present case is unaffected.
+    if: github.event.workflow_run.conclusion == 'success'
     outputs:
       act: ${{ steps.guard.outputs.act }}
       pr_number: ${{ steps.guard.outputs.pr_number }}
@@ -66,7 +74,6 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
-          HEAD_COMMIT_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
           PAYLOAD_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           MAX_INCREMENTAL: ${{ vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
         run: |
@@ -89,10 +96,11 @@ jobs:
             echo "Skip: ${reason}"
           }
 
-          if printf '%s' "${HEAD_COMMIT_MESSAGE:-}" | grep -Fq '[ai-analyse]'; then
-            skip "head commit is an ai-analyse fix commit"
-            exit 0
-          fi
+          # NOTE: the loop is bounded by the incremental-cycle cap below
+          # (OPENCODE_ANALYSE_MAX_INCREMENTAL), not by a head-commit sentinel. A
+          # sentinel on the `[ai-analyse]` commit would stop after a single cycle and
+          # make the cap unreachable; the cap is what allows up to N auto-fix cycles
+          # and a no-edit cycle ends the loop early (no push → no new review).
 
           PR_NUMBER="${PAYLOAD_PR_NUMBER:-}"
           if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then

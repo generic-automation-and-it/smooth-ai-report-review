@@ -9,7 +9,7 @@ Autonomous counterpart to `/ai-review`: consumes the OpenCode Review Report's lo
 - Touch only 🟡 Medium and 🔵 Low findings from the trusted gate-authored review body.
 - Never edit for 🔴 Critical or 🟠 High findings, even if their suggested fixes appear nearby.
 - Headless CI runs edit-only: no `git`, no commit, no push. The workflow owns those side effects.
-- Never emit or create a `/ai-review` trigger. The workflow commit uses `[ai-analyse]` as the loop-breaker sentinel.
+- Never emit or create a `/ai-review` trigger. The workflow commit carries an `[ai-analyse]` marker for traceability only — the loop is bounded by the incremental-cycle cap (`OPENCODE_ANALYSE_MAX_INCREMENTAL`), not by a head-commit sentinel. A no-edit cycle (all SKIP) ends the loop early because nothing is pushed.
 
 ## Key Behaviors
 

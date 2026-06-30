@@ -37,7 +37,7 @@ C4Context
 ## Key Behaviors
 
 - `pipeline-code-review-report.yml` has four entry paths: automatic PR review, `/ai-review` issue comments, manual dispatch, and reusable `workflow_call`. Manual/comment paths fetch PR metadata first because the event payload is not a PR payload.
-- `pipeline-ai-analyse.yml` runs after the gate via `workflow_run`. Its guard skips fork PRs, skips `[ai-analyse]` loop commits, acts only when the latest gate-authored review has medium/low findings, and caps autonomous incremental cycles with `OPENCODE_ANALYSE_MAX_INCREMENTAL` (default `3`).
+- `pipeline-ai-analyse.yml` runs after the gate via `workflow_run` (only when the gate run's `conclusion == 'success'`). Its guard skips fork PRs, acts only when the latest gate-authored review has medium/low findings, and bounds the autonomous loop with `OPENCODE_ANALYSE_MAX_INCREMENTAL` (default `3`) consecutive incremental cycles since the last full review — there is no head-commit sentinel; a no-edit cycle ends the loop early.
 - Review script resolution is two-mode: use the in-repo skill when present; otherwise fetch `generic-automation-and-it/smooth-ai-report-review` at `inputs.tools_ref || github.workflow_sha || 'main'`.
 - `MANDATORY_CONTEXT_FILES` and `AGENTS_MD_EXEMPT_PATHS` resolve against the repository being reviewed, not necessarily this repository.
 - Full reviews may approve or request changes; incremental reviews must only comment. Missing aggregate output or missing `review_action` fails closed instead of approving.
