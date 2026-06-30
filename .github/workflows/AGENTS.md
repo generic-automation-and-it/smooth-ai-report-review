@@ -38,6 +38,7 @@ C4Context
 - Review script resolution is two-mode: use the in-repo skill when present; otherwise fetch `generic-automation-and-it/smooth-ai-report-review` at `inputs.tools_ref || github.workflow_sha || 'main'`.
 - `MANDATORY_CONTEXT_FILES` and `AGENTS_MD_EXEMPT_PATHS` resolve against the repository being reviewed, not necessarily this repository.
 - Full reviews may approve or request changes; incremental reviews must only comment. Missing aggregate output or missing `review_action` fails closed instead of approving.
+- `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` are always set from the same expression and must stay in sync. The `disable_claude_code` workflow input (default `'1'`) takes precedence over the `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` GitHub Variable; both fall back to `'1'`. Do not set them independently.
 - The eval harness defaults secondary and orchestrator models to blank so non-Gemini dispatches do not inherit Gemini literals; `run-evals.sh` maps blanks to the primary model.
 - npm package and Claude plugin versions are lockstep. Non-tag publishes patch both manifests at runtime to `major.minor.${GITHUB_RUN_NUMBER}`; semver tag publishes require the tag, `package.json`, and `.claude-plugin/plugin.json` to match.
 
@@ -46,3 +47,4 @@ C4Context
 | Date | Change | Ref |
 |------|--------|-----|
 | 2026-06-30 | Added minimal workflow context for AI coding agents. | local |
+| 2026-06-30 | Added `disable_claude_code` input (default `'1'`); both `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` now derive from the same expression. | PR #54 |
