@@ -126,7 +126,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
   jq_available="true"
   if command -v jq >/dev/null 2>&1; then
     jq -e '
-      ((keys - ["$schema","provider","permission","agent"]) == [])
+      ((keys - ["$schema","provider","permission","agent","share"]) == [])
       and ((.provider // {} | keys) == ["anthropic","gemini","github-copilot","go-anthropic","go-openai","openai","openrouter"])
       and ((.agent // {} | keys) | (. == [] or . == ["review"]))
       and (all((.provider // {})[]?;
