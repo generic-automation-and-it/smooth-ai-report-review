@@ -1,7 +1,7 @@
 {
   "name": "@generic-automation-and-it/smooth-ai-review",
-  "version": "1.0.0",
-  "description": "opencode plugin that materializes the smooth-ai-review skills (chunked ai-review-report pipeline, /ai-review fix/skip executor, git-commit-review-push) into the consuming repo's .agents/skills/ at startup.",
+  "version": "1.0.1",
+  "description": "opencode plugin that materializes the smooth-ai-review skills (chunked ai-review-report pipeline, /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, git-commit-review-push) into the consuming repo's .agents/skills/ at startup.",
   "type": "module",
   "main": "./opencode-plugin.js",
   "exports": "./opencode-plugin.js",

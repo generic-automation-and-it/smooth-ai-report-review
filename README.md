@@ -4,9 +4,10 @@
 
 Automated, AI-driven pull-request code review. A GitHub Actions gate diffs each PR, splits the changes into context-aware chunks, and runs them through the [OpenCode](https://opencode.ai/) CLI — the provider-agnostic model transport — which calls the configured LLM at whatever endpoint the selected provider points to: a LiteLLM proxy, a provider's native API (Google Gemini, OpenAI, GitHub Copilot, Anthropic), or OpenCode's own gateway (OpenCode Go). The gate then posts one consolidated review back to the PR — an executive summary plus collapsible per-chunk detail, with findings categorized by priority (Critical / High / Medium / Low). Runs automatically on PRs and on demand via `/ai-review`.
 
-Two skills back it:
+Three review skills back it:
 - **`ai-review-report`** — generates the review (the CI gate; also runnable locally).
 - **`ai-review`** — consumes a posted review and applies fix/skip decisions (`/ai-review`).
+- **`ai-analyse`** — autonomous CI fixer for gate-authored low/medium findings (`/ai-analyse` when used interactively).
 
 Implementation details and decisions live in [`.agents/skills/ai-review-report/SKILL.md`](.agents/skills/ai-review-report/SKILL.md).
 
@@ -15,8 +16,8 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 | Channel | What you get | Best for |
 |---|---|---|
 | [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~80-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
-| [Claude Code plugin](#install-as-a-claude-code-plugin) | The three skills (`ai-review-report`, `ai-review`, `git-commit-review-push`) inside Claude Code — **not** the CI gate | Developers who want `/ai-review` and the local review tooling without touching the repo |
-| [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same three skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
+| [Claude Code plugin](#install-as-a-claude-code-plugin) | The four skills (`ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) inside Claude Code — **not** the CI gate | Developers who want `/ai-review`, `/ai-analyse`, and the local review tooling without touching the repo |
+| [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same four skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
 | [Copy-install](#copy-install-vendor-everything) | Workflow + skills copied into the repo; everything editable in place | Repos that customize the gate or vendor everything |
 
 The channels coexist: a repo can use the reusable workflow for CI while developers install the plugin for `/ai-review`. To set up a repo end-to-end (gate + skills + credentials), follow [Install into another repo (AI-agent driven)](#install-into-another-repo-ai-agent-driven) — its default path is the reusable workflow + the plugin at project scope.
@@ -44,13 +45,13 @@ jobs:
 How it works:
 - **Scripts are fetched, not installed.** The called workflow detects that your repo has no `ai-review-report` skill and checks out this repo into a `.smooth-ai-review-tools/` side path, locked to the same ref the workflow was called at (override with the `tools_ref` input). If your repo *does* have the skill installed (copy-install), the local copy wins — no fetch.
 - **Secrets**: map the provider keys explicitly under `secrets:` (the [caller template](.docs/examples/code-review-caller.yml) lists all seven `OPENCODE_*_API_KEY` names; only the selected provider's must exist). The explicit form works whether your repo is in the **same** org as the gate or a **different** one. `secrets: inherit` is a shorter shortcut but GitHub only honors it **same-org/enterprise** — a cross-org caller using `inherit` fails immediately with a "workflow file issue" startup error.
-- **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Steps 3–4 of the installer section apply unchanged.
+- **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Steps 3–4 of the installer section apply unchanged. If you also copy in the optional autonomous analyse workflow, it reads `OPENCODE_ANALYSE_MODEL` and `OPENCODE_ANALYSE_MAX_INCREMENTAL` from the consuming repo too.
 - **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
 - **Versioning**: pin `@v1` (floating major) or an exact tag/SHA. The source repo maintains the floating major tag (e.g. `v1`, `v2`) via `.github/workflows/update-major-tag.yml` on every merge to `main` (and via manual dispatch when a repair/repoint is needed) — the tag name is derived automatically from the major component of `package.json`'s version, so bumping the major version produces a new floating tag on the next merge. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
 
 ## Install as a Claude Code plugin
 
-The three skills — `ai-review-report` (review generator + local driver), `ai-review` (`/ai-review` fix/skip executor), and `git-commit-review-push` — are packaged as the Claude Code plugin **`smooth-ai-review`**, with this repo doubling as its marketplace:
+The four skills — `ai-review-report` (review generator + local driver), `ai-review` (`/ai-review` fix/skip executor), `ai-analyse` (`/ai-analyse` low/medium fixer), and `git-commit-review-push` — are packaged as the Claude Code plugin **`smooth-ai-review`**, with this repo doubling as its marketplace:
 
 ```
 /plugin marketplace add generic-automation-and-it/smooth-ai-report-review
@@ -66,7 +67,7 @@ Notes:
 
 ## Install as an opencode plugin (npm)
 
-opencode has no skill marketplace — it discovers skills only from fixed directories (`.agents/skills/`, `.claude/skills/`, `.opencode/skills/`) — but it auto-installs npm plugins. The package **`@generic-automation-and-it/smooth-ai-review`** uses that: at every opencode startup it links the three skills into your repo's `.agents/skills/`, so opencode's native discovery (and every `.agents/skills/...` path the skill docs reference) just works, with nothing vendored.
+opencode has no skill marketplace — it discovers skills only from fixed directories (`.agents/skills/`, `.claude/skills/`, `.opencode/skills/`) — but it auto-installs npm plugins. The package **`@generic-automation-and-it/smooth-ai-review`** uses that: at every opencode startup it links the four skills into your repo's `.agents/skills/`, so opencode's native discovery (and every `.agents/skills/...` path the skill docs reference) just works, with nothing vendored.
 
 The package is hosted on the **GitHub Packages npm registry**, which [requires authentication even for public packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry) — each developer needs a one-time setup:
 
@@ -85,7 +86,7 @@ Then add one line to the consuming repo's `opencode.json`:
 ```
 
 How it works:
-- opencode `bun install`s the package at startup (cached in `~/.cache/opencode/`) — Bun honors the `~/.npmrc` registry + token mapping. The plugin then creates `.agents/skills/{ai-review-report,ai-review,git-commit-review-push}` as directory links into that cache (junction links — no admin rights needed on Windows).
+- opencode `bun install`s the package at startup (cached in `~/.cache/opencode/`) — Bun honors the `~/.npmrc` registry + token mapping. The plugin then creates `.agents/skills/{ai-review-report,ai-review,ai-analyse,git-commit-review-push}` as directory links into that cache (junction links — no admin rights needed on Windows).
 - **Vendored copies always win**: if a skill already exists as a real directory (copy-install), the plugin never touches it. Stale links (e.g. after a package update moved the cache) are re-pointed automatically.
 - Your `git status` stays clean: the link paths are appended to `.git/info/exclude` (local-only — your `.gitignore` is never edited).
 - The package ships the skills **without** the eval harness (`scripts/eval/` is excluded).
@@ -103,8 +104,10 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 **Source repo:** `generic-automation-and-it/smooth-ai-report-review` (branch `main`).
 
 **What gets installed:**
+1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (review scripts are fetched at run time — no skill trees land in the repo).
+2. **Local report tooling**: the `smooth-ai-review` plugin (all four skills: `ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (the floating major tag is maintained from this repo's `main` branch; review scripts are fetched at run time — no skill trees land in the repo).
-2. **Local report tooling**: the `smooth-ai-review` plugin (all three skills: `ai-review-report`, `ai-review`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
+2. **Local report tooling**: the `smooth-ai-review` plugin (all four skills: `ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 
 ### Step 1 — install the review gate (reusable-workflow caller)
 
@@ -200,14 +203,16 @@ For a non-Gemini local provider, export the same provider selector, API-key, opt
 
 ### Copy-install (vendor everything)
 
-Use this **instead of Steps 1–2** only when the target repo must edit the gate or skills in place. It copies the full workflow plus the two review skills out of this repo; Steps 3–4 below apply afterwards exactly the same.
+Use this **instead of Steps 1–2** only when the target repo must edit the gate or skills in place. It copies the full workflows plus the three review skills out of this repo; Steps 3–4 below apply afterwards exactly the same.
 
 **What gets installed:**
 1. The gate workflow → `.github/workflows/pipeline-code-review-report.yml`.
-2. The `ai-review-report` skill → `<skills-dir>/ai-review-report/`, **excluding `scripts/eval/`** (the eval harness is for developing this skill, not for running the gate).
-3. The `ai-review` skill → `<skills-dir>/ai-review/` (the local `/ai-review` companion that **consumes** a posted review and applies fix/skip decisions; not invoked by the CI gate, but installs the command developers run in their AI tool).
+2. The autonomous analyse workflow → `.github/workflows/pipeline-ai-analyse.yml`.
+3. The `ai-review-report` skill → `<skills-dir>/ai-review-report/`, **excluding `scripts/eval/`** (the eval harness is for developing this skill, not for running the gate).
+4. The `ai-review` skill → `<skills-dir>/ai-review/` (the local `/ai-review` companion that **consumes** a posted review and applies fix/skip decisions).
+5. The `ai-analyse` skill → `<skills-dir>/ai-analyse/` (the autonomous low/medium fixer used by the analyse workflow and discoverable as `/ai-analyse`).
 
-> **One skills dir, no per-agent copies or symlinks.** Both skills install into a single `<skills-dir>`, chosen by priority — the first existing of `.agents/skills`, `.ai/skills`, `.claude/skills`, `.codex/skills`; if none exist, `.agents/skills`. Because the gate calls its scripts by path, when `<skills-dir>` is **not** `.agents/skills` the script repoints the workflow's (and `setup-opencode-config.sh`'s) hardcoded `.agents/skills/ai-review…` references to the chosen dir; target-repo context paths (`.agents/rules/…`, `.docs/…`, `code-review-standards`) are left untouched. The scripts find their own siblings by relative path, so they work unchanged from any of these dirs.
+> **One skills dir, no per-agent copies or symlinks.** All review skills install into a single `<skills-dir>`, chosen by priority — the first existing of `.agents/skills`, `.ai/skills`, `.claude/skills`, `.codex/skills`; if none exist, `.agents/skills`. Because the workflows call scripts by path, when `<skills-dir>` is **not** `.agents/skills` the script repoints hardcoded `.agents/skills/ai-review…` and `.agents/skills/ai-analyse…` references to the chosen dir; target-repo context paths (`.agents/rules/…`, `.docs/…`, `code-review-standards`) are left untouched. The scripts find their own siblings by relative path, so they work unchanged from any of these dirs.
 
 Run this **from the target repo's root**. It refuses to run anywhere else, detects whether the gate already exists (→ `update`) or not (→ `install`), copies the files, and verifies the result — failing loudly on a partial copy. On **update** it finds a prior gate under either the canonical `pipeline-…` or the legacy `pipline-…` filename, carries over your existing `runs-on`, replaces the legacy name with the canonical one, and prints the old→new workflow diff for review.
 
@@ -219,7 +224,8 @@ command -v git >/dev/null || { echo "✗ git not found"; exit 1; }
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "✗ run this inside the target git repository"; exit 1; }
 cd "$ROOT"
 
-WF=".github/workflows/pipeline-code-review-report.yml"    # canonical name
+WF=".github/workflows/pipeline-code-review-report.yml"    # canonical gate name
+ANALYSE_WF=".github/workflows/pipeline-ai-analyse.yml"    # autonomous low/medium fixer
 WF_OLD=".github/workflows/pipline-code-review-report.yml" # legacy typo'd name from older installs
 
 # Pick the ONE skills dir to install into, by priority: the first that already
@@ -237,7 +243,7 @@ PREV_SAVE="$(git rev-parse --git-dir)/ci-prev-workflow.yml"
 [ -n "$PREV" ] && cp "$PREV" "$PREV_SAVE"
 
 # Detect install vs update: update if a prior gate OR skill tree exists.
-if [ -n "$PREV" ] || [ -d "$DEST/skills/ai-review-report" ] || [ -d "$DEST/skills/ai-review" ]; then
+if [ -n "$PREV" ] || [ -d "$DEST/skills/ai-review-report" ] || [ -d "$DEST/skills/ai-review" ] || [ -d "$DEST/skills/ai-analyse" ]; then
   MODE="update"
 else
   MODE="install"
@@ -250,18 +256,20 @@ git clone --depth 1 https://github.com/generic-automation-and-it/smooth-ai-repor
 
 # On update, remove existing skill trees first so files deleted upstream don't linger.
 if [ "$MODE" = update ]; then
-  rm -rf "$DEST/skills/ai-review-report" "$DEST/skills/ai-review"
+  rm -rf "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" "$DEST/skills/ai-analyse"
 fi
 
-# 1) gate workflow → canonical name; drop any legacy typo'd copy so there's exactly one gate.
+# 1) workflows → canonical names; drop any legacy typo'd gate so there's exactly one gate.
 mkdir -p .github/workflows
 cp "$SRC/$WF" "$WF"
+cp "$SRC/$ANALYSE_WF" "$ANALYSE_WF"
 [ -f "$WF_OLD" ] && rm -f "$WF_OLD"
 
-# 2) the two skills — into the chosen dir
+# 2) the three review skills — into the chosen dir
 mkdir -p "$DEST/skills"
 cp -R "$SRC/.agents/skills/ai-review-report" "$DEST/skills/"
 cp -R "$SRC/.agents/skills/ai-review"        "$DEST/skills/"
+cp -R "$SRC/.agents/skills/ai-analyse"       "$DEST/skills/"
 
 # exclude the eval harness — not needed to run the gate
 rm -rf "$DEST/skills/ai-review-report/scripts/eval"
@@ -275,8 +283,8 @@ if [ "$DEST" != ".agents" ]; then
   # The 'unless' guard skips the workflow's reusable-mode lines (the
   # .smooth-ai-review-tools side-checkout path) — dead code in a copy-install,
   # and rewriting them would corrupt the fetched-tooling path.
-  find "$WF" "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" -type f \
-    -exec perl -i -pe "s{\.agents/skills/ai-review}{$DEST/skills/ai-review}g unless m{\.smooth-ai-review-tools}" {} +
+  find "$WF" "$ANALYSE_WF" "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" "$DEST/skills/ai-analyse" -type f \
+    -exec perl -i -pe "unless (m{\.smooth-ai-review-tools}) { s{\.agents/skills/ai-review}{$DEST/skills/ai-review}g; s{\.agents/skills/ai-analyse}{$DEST/skills/ai-analyse}g; }" {} +
 fi
 
 # 4) update only: carry over the previous gate's runs-on (e.g. self-hosted) and show the delta
@@ -299,15 +307,17 @@ rm -rf "$SRC"
 # Assert a deep runtime script too (not just SKILL.md): the gate's first call is
 # setup-opencode-config.sh, so a truncated copy must fail HERE, not on the runner.
 test -f "$WF" \
+ && test -f "$ANALYSE_WF" \
  && test -f "$DEST/skills/ai-review-report/SKILL.md" \
  && test -f "$DEST/skills/ai-review/SKILL.md" \
+ && test -f "$DEST/skills/ai-analyse/SKILL.md" \
  && test -f "$DEST/skills/ai-review-report/scripts/lib/setup-opencode-config.sh" \
  && test ! -e "$DEST/skills/ai-review-report/scripts/eval" \
  && echo "✓ $MODE complete ($DEST/skills)" || { echo "✗ install incomplete — check output above"; exit 1; }
 ```
 
 **Then message the operator using `$MODE`:**
-- `install` → "**Installed** the AI review gate (workflow + `ai-review-report` + `ai-review` under `$DEST/skills`)."
+- `install` → "**Installed** the AI review gate and analyse workflow (`ai-review-report`, `ai-review`, and `ai-analyse` under `$DEST/skills`)."
 - `update` → "**Updated** the existing AI review gate." The block printed an old→new workflow **diff** and already carried over your previous `runs-on`. **Present that diff to the operator as a table** — columns `id | change` — and **ask which of the remaining old customizations to re-introduce** into the new workflow before committing (the freshly-copied file is canonical otherwise; a legacy `pipline-…` gate is replaced by the canonical `pipeline-…` name). Then have them review `git diff` before committing — an update can change workflow steps, scripts, or the `opencode.json` provider config.
 
 > The workflow's `MANDATORY_CONTEXT_FILES` list points at product-repo paths (e.g. `.docs/nfr/…`, `.agents/rules-scoped/backend/…`). Any that don't exist in the target **warn-and-skip** — the gate still runs. Trim that `env:` list in the workflow to the target repo's real context files when convenient.
@@ -497,6 +507,8 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
+| `OPENCODE_ANALYSE_MODEL` | GitHub **Variable** (default = `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY`) | Model used by `pipeline-ai-analyse.yml` for autonomous low/medium fixes. Must belong to the selected provider family. |
+| `OPENCODE_ANALYSE_MAX_INCREMENTAL` | GitHub **Variable** (default `3`) | Max consecutive incremental gate reviews since the latest full review before autonomous fixes stop and a limit comment is posted. |
 | `OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING` | GitHub **Variable** / shell (default `10`) | If changed file count is this value or lower, review as a single chunk. Above it, the standard chunking flow runs. |
 | `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT` | GitHub **Variable** / shell (default `100`) | Max changed files the gate will review. If a PR exceeds it, the gate blocks the PR with REQUEST_CHANGES instead of attempting a low-quality review of an oversized changeset. |
 | `MANDATORY_CONTEXT_FILES` | Workflow `env:` (space-separated) | Context files loaded into every review (coding standards, language/tool setup, review guidelines). |

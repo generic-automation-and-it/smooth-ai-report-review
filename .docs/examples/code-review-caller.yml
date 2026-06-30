@@ -21,6 +21,12 @@
 #
 # Versioning: pin @v1 (floating major) or an exact tag/SHA for stricter supply-chain
 # control. The review scripts are fetched at the same ref as the workflow by default.
+#
+# Optional autonomous low/medium fixing: copy
+# .github/workflows/pipeline-ai-analyse.yml into the consuming repo too. It cannot be
+# a reusable workflow caller because workflow_run must live in the repo whose gate
+# run it observes. The workflow name-couples to "OpenCode Review Report" and reads
+# OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL Variables when set.
 
 name: PR Code Review Report
 

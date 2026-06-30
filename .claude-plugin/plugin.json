@@ -1,7 +1,7 @@
 {
   "name": "smooth-ai-review",
-  "version": "1.0.0",
-  "description": "AI PR code-review skills: the chunked ai-review-report pipeline (local driver + CI gate internals), the /ai-review fix/skip executor, and git-commit-review-push.",
+  "version": "1.0.1",
+  "description": "AI PR code-review skills: the chunked ai-review-report pipeline (local driver + CI gate internals), the /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, and git-commit-review-push.",
   "author": {
     "name": "generic-automation-and-it"
   },

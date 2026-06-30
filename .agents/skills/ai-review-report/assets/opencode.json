@@ -107,6 +107,31 @@
     "external_directory": "allow"
   },
   "agent": {
+    "analyse": {
+      "mode": "primary",
+      "description": "Edit-only autonomous low/medium review-fix agent (LADR-042): no skill/task/bash/web access. The workflow supplies only gate-authored medium/low findings and performs git operations itself.",
+      "tools": {
+        "skill": false,
+        "task": false,
+        "edit": true,
+        "bash": false,
+        "webfetch": false,
+        "websearch": false
+      },
+      "permission": {
+        "skill": "deny",
+        "task": "deny",
+        "edit": "allow",
+        "bash": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "external_directory": "allow"
+      }
+    },
     "review": {
       "mode": "primary",
       "description": "Locked-down PR-review agent (LADR-029): no skill/task/edit/bash; read + web (fetch/search) enabled. Disabling skill/task stops the review model self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure mode); bash is denied so a prompt-injected diff cannot run arbitrary commands on the runner, while webfetch/websearch stay on so the model can verify references during review.",
