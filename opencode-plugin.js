@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SKILLS = ["ai-review-report", "ai-review", "git-commit-review-push"];
+const SKILLS = ["ai-review-report", "ai-review", "ai-analyse", "git-commit-review-push"];
 const EXCLUDE_MARKER = "# smooth-ai-review plugin (auto-managed skill links)";
 
 export const SmoothAiReviewSkills = async ({ worktree, directory }) => {
