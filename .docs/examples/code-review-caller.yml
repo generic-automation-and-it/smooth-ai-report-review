@@ -11,7 +11,10 @@
 #               OPENCODE_OPENAI_API_KEY / OPENCODE_ANTHROPIC_API_KEY /
 #               OPENCODE_GO_OPENAI_API_KEY / OPENCODE_GO_ANTHROPIC_API_KEY /
 #               OPENCODE_OPENROUTER_API_KEY.
-#               Passed via `secrets: inherit`.
+#               The explicit `secrets:` mapping below works whether your repo is in
+#               the SAME org as the gate or a DIFFERENT one. `secrets: inherit` is a
+#               shortcut but only works SAME-org/enterprise — cross-org callers MUST
+#               map the keys explicitly (GitHub rejects cross-org inherit at startup).
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
 #               These resolve against the CALLER repo/org automatically.
@@ -98,4 +101,15 @@ jobs:
       #   AGENTS.md
       #   .docs/nfr/PROJECT_SETUP_AGENTS.md
       # agents_md_exempt_paths: '.docs/release-notes'
-    secrets: inherit
+    # Explicit mapping works for same-org AND cross-org callers. Only the selected
+    # provider's key needs to exist in your repo/org; unset ones resolve empty and
+    # are never used. (Same-org callers may replace this whole block with
+    # `secrets: inherit` — but that fails at startup if the gate is in another org.)
+    secrets:
+      OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+      OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
+      OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
+      OPENCODE_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_ANTHROPIC_API_KEY }}
+      OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
+      OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
+      OPENCODE_OPENROUTER_API_KEY: ${{ secrets.OPENCODE_OPENROUTER_API_KEY }}
