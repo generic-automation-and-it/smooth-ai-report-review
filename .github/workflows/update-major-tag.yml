@@ -1,0 +1,59 @@
+name: Update floating major tag
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-major-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Resolve major version and default branch head
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          major="$(node -p "require('./package.json').version.split('.')[0]")"
+          floating_tag="v${major}"
+          default_branch="$(gh api repos/${{ github.repository }} --jq .default_branch)"
+          sha="$(gh api repos/${{ github.repository }}/git/ref/heads/${default_branch} --jq .object.sha)"
+          echo "floating_tag=${floating_tag}" >> "$GITHUB_OUTPUT"
+          echo "default_branch=${default_branch}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Will point ${floating_tag} at ${default_branch} (${sha})."
+
+      - name: Create or update floating major tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          sha="${{ steps.target.outputs.sha }}"
+          floating_tag="${{ steps.target.outputs.floating_tag }}"
+
+          if gh api "repos/${repo}/git/ref/tags/${floating_tag}" >/dev/null 2>&1; then
+            gh api \
+              --method PATCH \
+              "repos/${repo}/git/refs/tags/${floating_tag}" \
+              -f sha="${sha}" \
+              -F force=true \
+              >/dev/null
+            echo "Updated ${floating_tag} -> ${sha}"
+          else
+            gh api \
+              --method POST \
+              "repos/${repo}/git/refs" \
+              -f ref="refs/tags/${floating_tag}" \
+              -f sha="${sha}" \
+              >/dev/null
+            echo "Created ${floating_tag} -> ${sha}"
+          fi
