@@ -33,6 +33,7 @@ jobs:
       pr_number: ${{ inputs.pr_number || '' }}
       model: ${{ inputs.model || '' }}
       model_preset: ${{ inputs.model_preset || '(repository default)' }}
+      disable_agents_md_check: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
     # Explicit mapping works same-org AND cross-org. The template lists all seven keys;
     # only the selected provider's needs to exist. Same-org callers may instead use
     # `secrets: inherit`, but that fails at startup when the gate is in another org.
@@ -45,7 +46,7 @@ How it works:
 - **Scripts are fetched, not installed.** The called workflow detects that your repo has no `ai-review-report` skill and checks out this repo into a `.smooth-ai-review-tools/` side path, locked to the same ref the workflow was called at (override with the `tools_ref` input). If your repo *does* have the skill installed (copy-install), the local copy wins — no fetch.
 - **Secrets**: map the provider keys explicitly under `secrets:` (the [caller template](.docs/examples/code-review-caller.yml) lists all seven `OPENCODE_*_API_KEY` names; only the selected provider's must exist). The explicit form works whether your repo is in the **same** org as the gate or a **different** one. `secrets: inherit` is a shorter shortcut but GitHub only honors it **same-org/enterprise** — a cross-org caller using `inherit` fails immediately with a "workflow file issue" startup error.
 - **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Steps 3–4 of the installer section apply unchanged.
-- **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
+- **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), `disable_agents_md_check`, plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
 - **Versioning**: pin `@v1` (floating major) or an exact tag/SHA. The source repo maintains the floating major tag (e.g. `v1`, `v2`) via `.github/workflows/update-major-tag.yml` on every merge to `main` (and via manual dispatch when a repair/repoint is needed) — the tag name is derived automatically from the major component of `package.json`'s version, so bumping the major version produces a new floating tag on the next merge. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
 
 ## Install as a Claude Code plugin
@@ -140,7 +141,7 @@ case "$OLD_RO" in
 esac
 ```
 
-**If `$PREV_SAVE` was created**, the repo is migrating from a copy-install: show the operator `diff -u "$PREV_SAVE" "$WF"`, re-express any prior workflow customizations as caller inputs (`runner`, `tools_ref`, `mandatory_context_files`, `agents_md_exempt_paths`), and offer to delete the now-redundant vendored skill trees (`<skills-dir>/ai-review-report` and `<skills-dir>/ai-review`) — the reusable gate fetches its own scripts. Leaving them in place also works: the gate always prefers a local skill tree over the fetched one.
+**If `$PREV_SAVE` was created**, the repo is migrating from a copy-install: show the operator `diff -u "$PREV_SAVE" "$WF"`, re-express any prior workflow customizations as caller inputs (`runner`, `tools_ref`, `mandatory_context_files`, `agents_md_exempt_paths`, `disable_agents_md_check`), and offer to delete the now-redundant vendored skill trees (`<skills-dir>/ai-review-report` and `<skills-dir>/ai-review`) — the reusable gate fetches its own scripts. Leaving them in place also works: the gate always prefers a local skill tree over the fetched one.
 
 ### Step 2 — enable the skills repo-locally (plugin, project scope)
 
@@ -501,6 +502,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT` | GitHub **Variable** / shell (default `100`) | Max changed files the gate will review. If a PR exceeds it, the gate blocks the PR with REQUEST_CHANGES instead of attempting a low-quality review of an oversized changeset. |
 | `MANDATORY_CONTEXT_FILES` | Workflow `env:` (space-separated) | Context files loaded into every review (coding standards, language/tool setup, review guidelines). |
 | `AGENTS_MD_EXEMPT_PATHS` | Workflow `env:` (pipe-separated) | Paths exempt from the `*_AGENTS.md` validation requirement. |
+| `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` | GitHub **Variable** (default `0`) / workflow input | Disables the full-review AGENTS.md / README.md / SKILL.md documentation validation when set to `1`. Leave unset or `0` to keep the gate enabled. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
 | `OPENCODE_REVIEW_REPORT_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `gemini` / `github-copilot` / `openai` / `anthropic` / `go-openai` / `go-anthropic` / `openrouter`. |
 | `OPENCODE_REVIEW_REPORT_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the credential presence check. (Health is checked separately and provider-agnostically via the opencode server — `lib/opencode-health.sh` — so there is no derived per-provider health URL.) |

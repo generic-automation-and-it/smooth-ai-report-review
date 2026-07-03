@@ -9,7 +9,7 @@ GitHub Actions here are the product surface for the review gate, eval canary, an
 - Route review-gate script calls through `REVIEW_SKILL_DIR`. The literal `.agents/skills/ai-review-report` path is the copy-install rewrite anchor; reusable workflow mode must keep the `.smooth-ai-review-tools` side checkout path intact.
 - Do not add `workflow_call` as a runtime `github.event_name` branch. In called workflows, the `github` context is the caller event context, so PR-triggered callers still see `pull_request`.
 - Keep `model_preset` changes atomic across provider selection, provider-id selection, all three model-tier expressions, and the reusable caller template.
-- API keys stay GitHub Secrets; provider selector, model ids, and configurable gateway URLs stay GitHub Variables. OpenCode Go and OpenRouter use fixed public base URLs and only expose API keys.
+- API keys stay GitHub Secrets; provider selector, model ids, configurable gateway URLs, and review-gate behavior toggles stay GitHub Variables. OpenCode Go and OpenRouter use fixed public base URLs and only expose API keys.
 - The eval harness makes real paid model calls. Keep it off `pull_request`; only manual dispatch and the path-filtered post-merge canary should run it.
 - The npm publish workflow must not gain a `paths:` filter. Non-tag publishes depend on `GITHUB_RUN_NUMBER`; semver tag publishes must keep checked-in package metadata unchanged.
 
@@ -37,6 +37,7 @@ C4Context
 - `pipeline-code-review-report.yml` has four entry paths: automatic PR review, `/ai-review` issue comments, manual dispatch, and reusable `workflow_call`. Manual/comment paths fetch PR metadata first because the event payload is not a PR payload.
 - Review script resolution is two-mode: use the in-repo skill when present; otherwise fetch `generic-automation-and-it/smooth-ai-report-review` at `inputs.tools_ref || github.workflow_sha || 'main'`.
 - `MANDATORY_CONTEXT_FILES` and `AGENTS_MD_EXEMPT_PATHS` resolve against the repository being reviewed, not necessarily this repository.
+- `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` is a default-off global bypass for the full-review documentation validation gate; prefer `AGENTS_MD_EXEMPT_PATHS` for path-scoped exceptions.
 - Full reviews may approve or request changes; incremental reviews must only comment. Missing aggregate output or missing `review_action` fails closed instead of approving.
 - `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` are always set from the same expression and must stay in sync. The `disable_claude_code` workflow input (default `'1'`) takes precedence over the `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` GitHub Variable; both fall back to `'1'`. Do not set them independently.
 - The eval harness defaults secondary and orchestrator models to blank so non-Gemini dispatches do not inherit Gemini literals; `run-evals.sh` maps blanks to the primary model.
@@ -46,5 +47,6 @@ C4Context
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-07-03 | Added `disable_agents_md_check` input and `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` Variable for opt-out AGENTS.md documentation validation. | local |
 | 2026-06-30 | Added minimal workflow context for AI coding agents. | local |
 | 2026-06-30 | Added `disable_claude_code` input (default `'1'`); both `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` now derive from the same expression. | PR #54 |
