@@ -43,8 +43,9 @@ echo "Review Type: ${REVIEW_TYPE^^}"
 echo "=========================================="
 echo ""
 
-case "${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}" in
-  1|true|TRUE|yes|YES)
+DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
+case "${DISABLE_AGENTS_MD_CHECK,,}" in
+  1|true|yes)
     echo "Skipping validation - OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK is enabled"
     echo "validation_passed=true" >> "$GITHUB_OUTPUT"
     echo "validation_message=" >> "$GITHUB_OUTPUT"
