@@ -37,7 +37,7 @@ C4Context
 ## Key Behaviors
 
 - `pipeline-code-review-report.yml` has four entry paths: automatic PR review, `/ai-review` issue comments, manual dispatch, and reusable `workflow_call`. Manual/comment paths fetch PR metadata first because the event payload is not a PR payload.
-- `pipeline-ai-analyse.yml` runs after the gate via `workflow_run` (only when the gate run's `conclusion == 'success'`). Its guard skips fork PRs, acts only when the latest gate-authored review has medium/low findings, and bounds the autonomous loop with `OPENCODE_ANALYSE_MAX_INCREMENTAL` (default `3`) consecutive incremental cycles since the last full review — there is no head-commit sentinel; a no-edit cycle ends the loop early.
+- `pipeline-ai-analyse.yml` has two entry paths: automatic (`workflow_run` after the gate, only when that run's `conclusion == 'success'`) and manual (`workflow_dispatch` with a required `pr_number` and optional `max_incremental` override). Both go through the same guard, which derives the PR (dispatch input → `workflow_run` payload → head-SHA/branch lookup), skips fork PRs, acts only when the latest gate-authored review has medium/low findings, and bounds the autonomous loop with `OPENCODE_ANALYSE_MAX_INCREMENTAL` (default `3`) consecutive incremental cycles since the last full review — there is no head-commit sentinel; a no-edit cycle ends the loop early.
 - Review script resolution is two-mode: use the in-repo skill when present; otherwise fetch `generic-automation-and-it/smooth-ai-report-review` at `inputs.tools_ref || github.workflow_sha || 'main'`.
 - `MANDATORY_CONTEXT_FILES` and `AGENTS_MD_EXEMPT_PATHS` resolve against the repository being reviewed, not necessarily this repository.
 - `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` is a default-off global bypass for the full-review documentation validation gate; prefer `AGENTS_MD_EXEMPT_PATHS` for path-scoped exceptions.
@@ -50,6 +50,7 @@ C4Context
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-07-03 | Added a `workflow_dispatch` manual entry path to `pipeline-ai-analyse.yml` (`pr_number` required, `max_incremental` optional); guard derives the PR from the input and the job `if:`/concurrency handle the dispatch event. | local |
 | 2026-07-03 | Added `disable_agents_md_check` input and `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` Variable for opt-out AGENTS.md documentation validation. | local |
 | 2026-06-30 | Added minimal workflow context for AI coding agents. | local |
 | 2026-06-30 | Added autonomous `pipeline-ai-analyse.yml` workflow context and name-coupling guidance. | ai-analyse |

@@ -4,6 +4,22 @@ on:
   workflow_run:
     workflows: ["OpenCode Review Report"]
     types: [completed]
+  # Manual entry point: run the autonomous low/medium auto-fix on demand for a
+  # specific PR (e.g. to re-run after fixing quota, or to push past the cycle cap).
+  # The guard treats a manual dispatch as an explicit human override — it still
+  # skips forks and requires an existing gate review, but derives the PR from the
+  # input instead of the workflow_run payload.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to auto-fix. Must be an open, same-repo (non-fork) PR that already has an OpenCode Review Report review with 🟡 Medium / 🔵 Low findings.'
+        required: true
+        type: string
+      max_incremental:
+        description: 'Override the incremental-cycle cap for this run (blank → OPENCODE_ANALYSE_MAX_INCREMENTAL Variable / default 3). Set higher to intentionally run past the cap.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -11,10 +27,11 @@ permissions:
   issues: write
 
 concurrency:
-  # Serialize per-PR so two gate completions can't drive overlapping analyse runs
-  # that race on `git push` (non-fast-forward). Same-repo PR events populate
-  # pull_requests[0]; the run-id fallback covers any payload that doesn't.
-  group: ai-analyse-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
+  # Serialize per-PR so a gate completion and a manual dispatch (or two gate
+  # completions) can't drive overlapping analyse runs that race on `git push`
+  # (non-fast-forward). Same-repo PR events populate pull_requests[0]; manual
+  # dispatch uses the pr_number input; run-id is the last-resort fallback.
+  group: ai-analyse-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || github.event.workflow_run.id || github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -23,11 +40,15 @@ env:
 jobs:
   guard:
     runs-on: ubuntu-latest
-    # Only act on a gate run that actually completed successfully. A run cancelled
-    # by the gate's own concurrency (newer synchronize) or a failed run never posted
-    # a fresh review, so acting on it would operate on stale scope. A request_changes
-    # review is still a successful job, so the critical/high-present case is unaffected.
-    if: github.event.workflow_run.conclusion == 'success'
+    # workflow_run path: only act on a gate run that completed successfully. A run
+    # cancelled by the gate's own concurrency (newer synchronize) or a failed run
+    # never posted a fresh review, so acting on it would operate on stale scope. A
+    # request_changes review is still a successful job, so the critical/high-present
+    # case is unaffected. workflow_dispatch is an explicit human override and always
+    # runs the guard (it still enforces fork / gate-review / cap checks below).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     outputs:
       act: ${{ steps.guard.outputs.act }}
       pr_number: ${{ steps.guard.outputs.pr_number }}
@@ -75,7 +96,8 @@ jobs:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
           PAYLOAD_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-          MAX_INCREMENTAL: ${{ vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
+          DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
+          MAX_INCREMENTAL: ${{ inputs.max_incremental || vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
         run: |
           set -euo pipefail
 
@@ -102,7 +124,9 @@ jobs:
           # make the cap unreachable; the cap is what allows up to N auto-fix cycles
           # and a no-edit cycle ends the loop early (no push → no new review).
 
-          PR_NUMBER="${PAYLOAD_PR_NUMBER:-}"
+          # Manual dispatch supplies the PR number directly; the workflow_run path
+          # falls back to payload → head-SHA lookup → head-branch lookup.
+          PR_NUMBER="${DISPATCH_PR_NUMBER:-${PAYLOAD_PR_NUMBER:-}}"
           if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             PR_NUMBER="$(gh api -H "Accept: application/vnd.github+json" \
               "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" \
