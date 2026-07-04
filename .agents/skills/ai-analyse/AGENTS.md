@@ -16,3 +16,9 @@ Autonomous counterpart to `/ai-review`: consumes the OpenCode Review Report's lo
 - The workflow inlines `SKILL.md` into the prompt because opencode headless `run` does not auto-activate project skills and the `analyse` agent has the `skill` tool disabled.
 - The agent is intentionally edit-only in `.agents/skills/ai-review-report/assets/opencode.json`: read/list/grep/glob/edit allowed; bash, skill, task, webfetch, and websearch denied.
 - Summary comments are posted by the existing `.agents/skills/ai-review/scripts/copilot-review.sh summary` helper so GitHub plumbing stays centralized.
+
+## Changelog
+
+| Date | Change | Ref |
+|------|--------|-----|
+| 2026-06-30 | Initial AGENTS.md for the `ai-analyse` skill: autonomous low/medium fixer, edit-only in CI, `[ai-analyse]` traceability marker, incremental-cycle cap. | ai-analyse |
