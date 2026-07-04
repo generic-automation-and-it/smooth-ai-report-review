@@ -186,15 +186,18 @@ jobs:
             ) | .count
           ')"
           echo "Incremental reviews since latest FULL: ${incremental_count}/${max_incremental}"
-          if [ "$incremental_count" -ge "$max_incremental" ]; then
+          # `-gt` (not `-ge`): OPENCODE_ANALYSE_MAX_INCREMENTAL is the number of auto-fix
+          # cycles allowed per full-review epoch, so the first `max_incremental` incremental
+          # reviews act and only the NEXT one is skipped (default 3 → 3 acting cycles).
+          if [ "$incremental_count" -gt "$max_incremental" ]; then
             {
-              echo "## ai-analyse auto-fix limit reached"
+              echo "## ai-analyse auto-fix limit exceeded"
               echo ""
-              echo "The autonomous low/medium fix loop has reached ${incremental_count} incremental review cycle(s) since the latest full review. The limit is ${max_incremental}."
+              echo "The autonomous low/medium fix loop has run ${max_incremental} incremental cycle(s) since the latest full review (now ${incremental_count}), reaching the configured limit."
               echo ""
               echo "A human should review the remaining findings or trigger a fresh full review when ready."
             } | gh pr comment "$PR_NUMBER" --body-file -
-            skip "incremental cycle cap reached"
+            skip "incremental cycle cap exceeded"
             exit 0
           fi
 

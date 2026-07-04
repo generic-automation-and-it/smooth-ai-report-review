@@ -105,8 +105,6 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 **Source repo:** `generic-automation-and-it/smooth-ai-report-review` (branch `main`).
 
 **What gets installed:**
-1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (review scripts are fetched at run time — no skill trees land in the repo).
-2. **Local report tooling**: the `smooth-ai-review` plugin (all four skills: `ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (the floating major tag is maintained from this repo's `main` branch; review scripts are fetched at run time — no skill trees land in the repo).
 2. **Local report tooling**: the `smooth-ai-review` plugin (all four skills: `ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 
@@ -508,7 +506,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
-| `OPENCODE_ANALYSE_MODEL` | GitHub **Variable** (default = `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY`) | Model used by `pipeline-ai-analyse.yml` for autonomous low/medium fixes. Must belong to the selected provider family. |
+| `OPENCODE_ANALYSE_MODEL` | GitHub **Variable** (default: `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` if set, else the literal `gemini-3.1-pro-preview`) | Model used by `pipeline-ai-analyse.yml` for autonomous low/medium fixes. Must belong to the selected provider family — validated by `resolve-provider.sh` like the other model tiers. |
 | `OPENCODE_ANALYSE_MAX_INCREMENTAL` | GitHub **Variable** (default `3`) | Max consecutive incremental gate reviews since the latest full review before autonomous fixes stop and a limit comment is posted. |
 | `OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING` | GitHub **Variable** / shell (default `10`) | If changed file count is this value or lower, review as a single chunk. Above it, the standard chunking flow runs. |
 | `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT` | GitHub **Variable** / shell (default `100`) | Max changed files the gate will review. If a PR exceeds it, the gate blocks the PR with REQUEST_CHANGES instead of attempting a low-quality review of an oversized changeset. |

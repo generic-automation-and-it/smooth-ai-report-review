@@ -95,9 +95,19 @@ OPENCODE_GATEWAY_API_KEY="${!_rp_key_var}"
 # guaranteed to break: a GEMINI gateway needs gemini-* ids, ANTHROPIC needs
 # claude-* ids, and any other gateway must NOT carry a leftover gemini-* or
 # claude-* id (it won't resolve on Copilot/OpenAI/Go-OpenAI/Go-Anthropic/OpenRouter).
-for _rp_mv in OPENCODE_REVIEW_REPORT_MODEL_PRIMARY OPENCODE_REVIEW_REPORT_MODEL_SECONDARY OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR; do
+# OPENCODE_ANALYSE_MODEL is the autonomous-fix model (pipeline-ai-analyse.yml) and is
+# subject to the same family fail-fast — otherwise a mismatched analyse model (e.g. the
+# Gemini default left in place under an ANTHROPIC provider) would silently degrade
+# through the fallback chain to a different model. Unlike the three review tiers it is
+# OPTIONAL: the review gate never sets it, so an empty value is skipped, not fatal.
+for _rp_mv in OPENCODE_REVIEW_REPORT_MODEL_PRIMARY OPENCODE_REVIEW_REPORT_MODEL_SECONDARY OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR OPENCODE_ANALYSE_MODEL; do
   _rp_val="${!_rp_mv}"
-  [ -n "$_rp_val" ] || _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv is unset. Set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models."
+  if [ -z "$_rp_val" ]; then
+    case "$_rp_mv" in
+      OPENCODE_ANALYSE_MODEL) continue ;;  # optional: analyse pipeline only, gate leaves it unset
+      *) _rp_die "OPENCODE_REVIEW_REPORT_PROVIDER=$OPENCODE_REVIEW_REPORT_PROVIDER selected but $_rp_mv is unset. Set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
+    esac
+  fi
   _rp_lc="$(printf '%s' "$_rp_val" | tr '[:upper:]' '[:lower:]')"
   case "$OPENCODE_REVIEW_REPORT_PROVIDER" in
     GEMINI)
