@@ -29,6 +29,7 @@
 # reads the OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL Variables,
 # falling back to literal defaults (gemini-3.1-pro-preview / 3) when they are unset.
 
+# name: "OpenCode Review Report" — must match pipeline-ai-analyse.yml's workflow_run.workflows
 name: OpenCode Review Report
 
 on:
