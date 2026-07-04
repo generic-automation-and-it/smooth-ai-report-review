@@ -4,13 +4,13 @@
     "name": "generic-automation-and-it"
   },
   "metadata": {
-    "description": "Marketplace for the smooth-ai-review plugin: AI PR code-review skills (chunked review-report pipeline, /ai-review fix/skip executor, git-commit-review-push)."
+    "description": "Marketplace for the smooth-ai-review plugin: AI PR code-review skills (chunked review-report pipeline, /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, git-commit-review-push)."
   },
   "plugins": [
     {
       "name": "smooth-ai-review",
       "source": "./",
-      "description": "AI PR code-review skills: chunked review-report pipeline, /ai-review fix/skip executor, and git-commit-review-push."
+      "description": "AI PR code-review skills: chunked review-report pipeline, /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, and git-commit-review-push."
     }
   ]
 }

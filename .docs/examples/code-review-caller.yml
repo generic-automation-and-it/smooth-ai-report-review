@@ -25,8 +25,9 @@
 # Optional autonomous low/medium fixing: copy
 # .github/workflows/pipeline-ai-analyse.yml into the consuming repo too. It cannot be
 # a reusable workflow caller because workflow_run must live in the repo whose gate
-# run it observes. The workflow name-couples to "OpenCode Review Report" and reads
-# OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL Variables when set.
+# run it observes. The workflow name-couples to "OpenCode Review Report" and always
+# reads the OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL Variables,
+# falling back to literal defaults (gemini-3.1-pro-preview / 3) when they are unset.
 
 name: PR Code Review Report
 

@@ -10,6 +10,11 @@ allowed-tools:
   - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-analyse/scripts/*)
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)
   - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh:*)
+  # The three git entries below are for LOCAL /ai-analyse --execute invocations
+  # only (e.g. from Claude Code). In headless CI they are NON-BINDING: the
+  # `analyse` opencode agent in ai-review-report/assets/opencode.json denies bash,
+  # and the pipeline-ai-analyse.yml workflow owns commit/push/PR-comment (see the
+  # CI Contract below). Do not rely on these for the autonomous loop.
   - Bash(git add:*)
   - Bash(git commit:*)
   - Bash(git push:*)
