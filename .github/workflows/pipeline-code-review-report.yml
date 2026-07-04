@@ -844,18 +844,20 @@ jobs:
         id: check_commit_trigger
         run: |
           set -eo pipefail
-          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          HEAD_SHA="${{ steps.pr_info.outputs.head_sha }}"
 
-          echo "Checking commit messages for review trigger (/ai-review)..."
+          echo "Checking head commit message for review trigger (/ai-review)..."
 
-          # Query all commits in the PR
-          COMMITS=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits --jq '.[].commit.message')
+          # Only the current head commit can request a fresh full review. Older
+          # trigger commits may already have produced a full review; keeping them
+          # active would make follow-up ai-analyse commits run full reviews too.
+          COMMIT_MESSAGE=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}" --jq '.commit.message')
 
-          if echo "$COMMITS" | grep -qiE "/ai-review"; then
-            echo "✓ Found review trigger in commit message"
+          if echo "$COMMIT_MESSAGE" | grep -qiE "/ai-review"; then
+            echo "✓ Found review trigger in head commit message"
             echo "force_full_review_from_commit=true" >> $GITHUB_OUTPUT
           else
-            echo "✓ No review trigger found in commit messages"
+            echo "✓ No review trigger found in head commit message"
             echo "force_full_review_from_commit=false" >> $GITHUB_OUTPUT
           fi
         env:
