@@ -260,7 +260,30 @@ jobs:
           repository: ${{ steps.pr.outputs.head_repo }}
           persist-credentials: false
 
+      - name: Locate analyse tooling
+        id: locate_tooling
+        env:
+          HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
+        run: |
+          set -euo pipefail
+          if [ "$HEAD_REPO" != "${{ github.repository }}" ]; then
+            echo "fetch_tools=true" >> "$GITHUB_OUTPUT"
+            echo "Fork PR or reusable caller detected — using pinned review tooling instead of scripts from the PR head"
+          elif [ -f ".agents/skills/ai-analyse/SKILL.md" ] && \
+               [ -f ".agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" ] && \
+               [ -f ".agents/skills/ai-review/scripts/copilot-review.sh" ]; then
+            echo "REVIEW_SKILL_DIR=.agents/skills/ai-review-report" >> "$GITHUB_ENV"
+            echo "ANALYSE_SKILL_DIR=.agents/skills/ai-analyse" >> "$GITHUB_ENV"
+            echo "AI_REVIEW_DIR=.agents/skills/ai-review" >> "$GITHUB_ENV"
+            echo "fetch_tools=false" >> "$GITHUB_OUTPUT"
+            echo "✓ Using analyse skill from the repository under review"
+          else
+            echo "fetch_tools=true" >> "$GITHUB_OUTPUT"
+            echo "Analyse skill not present in this repository — fetching tooling repo"
+          fi
+
       - name: Fetch analyse tooling
+        if: steps.locate_tooling.outputs.fetch_tools == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
@@ -268,6 +291,7 @@ jobs:
           path: .smooth-ai-review-tools
 
       - name: Register fetched analyse tooling
+        if: steps.locate_tooling.outputs.fetch_tools == 'true'
         run: |
           set -euo pipefail
           test -f ".smooth-ai-review-tools/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"

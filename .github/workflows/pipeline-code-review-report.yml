@@ -550,7 +550,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ inputs.tools_ref || github.workflow_sha || 'main' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.workflow_sha || 'v1' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched review tooling
