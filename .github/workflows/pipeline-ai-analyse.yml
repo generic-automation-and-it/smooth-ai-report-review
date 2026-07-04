@@ -78,7 +78,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'main' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'v1' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched review tooling
@@ -258,33 +258,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.pr.outputs.head_ref }}
           repository: ${{ steps.pr.outputs.head_repo }}
-          persist-credentials: true
-
-      - name: Locate analyse tooling
-        id: locate_tooling
-        run: |
-          set -euo pipefail
-          if [ -f ".agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" ] && \
-             [ -f ".agents/skills/ai-analyse/SKILL.md" ] && \
-             [ -f ".agents/skills/ai-review/scripts/copilot-review.sh" ]; then
-            echo "REVIEW_SKILL_DIR=.agents/skills/ai-review-report" >> "$GITHUB_ENV"
-            echo "ANALYSE_SKILL_DIR=.agents/skills/ai-analyse" >> "$GITHUB_ENV"
-            echo "AI_REVIEW_DIR=.agents/skills/ai-review" >> "$GITHUB_ENV"
-            echo "fetch_tools=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "fetch_tools=true" >> "$GITHUB_OUTPUT"
-          fi
+          persist-credentials: false
 
       - name: Fetch analyse tooling
-        if: steps.locate_tooling.outputs.fetch_tools == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'main' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'v1' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched analyse tooling
-        if: steps.locate_tooling.outputs.fetch_tools == 'true'
         run: |
           set -euo pipefail
           test -f ".smooth-ai-review-tools/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
@@ -350,6 +333,10 @@ jobs:
 
       - name: Commit fixes
         id: commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
         run: |
           set -euo pipefail
           if [ -z "$(git status --porcelain)" ]; then
@@ -361,7 +348,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "fix: apply AI review low/medium auto-fixes [ai-analyse]"
-          git push
+          echo "::add-mask::${GH_TOKEN}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${HEAD_REPO}.git" "HEAD:${HEAD_REF}"
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 

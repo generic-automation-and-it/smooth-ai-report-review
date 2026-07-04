@@ -166,7 +166,16 @@ jobs:
     if: |
       github.actor != 'dependabot[bot]' && (
         (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
-        (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          contains(github.event.comment.body, '/ai-review') &&
+          (
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
+        ) ||
         (github.event_name == 'workflow_dispatch')
       )
     
@@ -519,9 +528,15 @@ jobs:
       #    that defines this job), overridable via the tools_ref input.
       - name: Locate review skill scripts
         id: locate_skill
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || steps.pr_details.outputs.head_repo || github.repository }}
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name || steps.pr_details.outputs.base_repo || github.repository }}
         run: |
           set -e
-          if [ -f ".agents/skills/ai-review-report/scripts/review-in-chunks.sh" ]; then
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "fetch_tools=true" >> "$GITHUB_OUTPUT"
+            echo "Fork PR detected — using pinned review tooling instead of scripts from the PR head"
+          elif [ -f ".agents/skills/ai-review-report/scripts/review-in-chunks.sh" ]; then
             echo "REVIEW_SKILL_DIR=.agents/skills/ai-review-report" >> "$GITHUB_ENV"
             echo "fetch_tools=false" >> "$GITHUB_OUTPUT"
             echo "✓ Using review skill from the repository under review"

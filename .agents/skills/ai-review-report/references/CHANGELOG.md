@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-07-04 | Hardened privileged triggers: only `OWNER`/`MEMBER`/`COLLABORATOR` `/ai-review` comments can start a run; fork PR reviews force pinned `.smooth-ai-review-tools` instead of executing `.agents/skills/ai-review-report` from the PR head; and `pipeline-ai-analyse.yml` now always uses fetched tooling after PR checkout with persisted checkout credentials disabled and an explicit masked-token push. Caller template updated with the same trusted-comment guard. | LADR-043 |
 | 2026-07-03 | Added a `workflow_dispatch` manual entry path to `pipeline-ai-analyse.yml` (`pr_number` required, `max_incremental` optional cap override). Guard `if:` now also allows the dispatch event, derives the PR from the input, and the concurrency group keys on `inputs.pr_number` too. | LADR-042 |
 | 2026-07-03 | Follow-up from PR #57 review: normalized `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` matching to be case-insensitive, documented that behavior, aligned the caller-template description with the main workflow, and added a focused validator disable test. | PR #57 review 4626304325 |
 | 2026-07-03 | Added `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` and `disable_agents_md_check` workflow/caller inputs to globally bypass the full-review AGENTS.md / README.md / SKILL.md documentation validation when explicitly set. Default remains enabled. | NO-TICKET |
