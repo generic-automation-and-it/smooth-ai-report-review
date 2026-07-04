@@ -7,6 +7,8 @@ GitHub Actions here are the product surface for the review gate, eval canary, an
 ## Non-Negotiables
 
 - Route review-gate script calls through `REVIEW_SKILL_DIR`. The literal `.agents/skills/ai-review-report` path is the copy-install rewrite anchor; reusable workflow mode must keep the `.smooth-ai-review-tools` side checkout path intact.
+- Route analyse workflow calls through resolved skill dirs too: `REVIEW_SKILL_DIR` for shared opencode libs, `ANALYSE_SKILL_DIR` for `ai-analyse/SKILL.md`, and `AI_REVIEW_DIR` for `copilot-review.sh summary`.
+- `pipeline-ai-analyse.yml` is name-coupled to `pipeline-code-review-report.yml`: `workflow_run.workflows` must equal the gate's `name: OpenCode Review Report`. A gate rename requires an analyse workflow edit and an actionlint pass in the same commit.
 - Do not add `workflow_call` as a runtime `github.event_name` branch. In called workflows, the `github` context is the caller event context, so PR-triggered callers still see `pull_request`.
 - Keep `model_preset` changes atomic across provider selection, provider-id selection, all three model-tier expressions, and the reusable caller template.
 - API keys stay GitHub Secrets; provider selector, model ids, configurable gateway URLs, and review-gate behavior toggles stay GitHub Variables. OpenCode Go and OpenRouter use fixed public base URLs and only expose API keys.
@@ -35,6 +37,7 @@ C4Context
 ## Key Behaviors
 
 - `pipeline-code-review-report.yml` has four entry paths: automatic PR review, `/ai-review` issue comments, manual dispatch, and reusable `workflow_call`. Manual/comment paths fetch PR metadata first because the event payload is not a PR payload.
+- `pipeline-ai-analyse.yml` has two entry paths: automatic (`workflow_run` after the gate, only when that run's `conclusion == 'success'`) and manual (`workflow_dispatch` with a required `pr_number` and optional `max_incremental` override). Both go through the same guard, which derives the PR (dispatch input → `workflow_run` payload → head-SHA/branch lookup), skips fork PRs, acts only when the latest gate-authored review has medium/low findings, and bounds the autonomous loop with `OPENCODE_ANALYSE_MAX_INCREMENTAL` (default `3`) consecutive incremental cycles since the last full review — there is no head-commit sentinel; a no-edit cycle ends the loop early.
 - Review script resolution is two-mode: use the in-repo skill when present; otherwise fetch `generic-automation-and-it/smooth-ai-report-review` at `inputs.tools_ref || github.workflow_sha || 'main'`.
 - `MANDATORY_CONTEXT_FILES` and `AGENTS_MD_EXEMPT_PATHS` resolve against the repository being reviewed, not necessarily this repository.
 - `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` is a default-off global bypass for the full-review documentation validation gate; prefer `AGENTS_MD_EXEMPT_PATHS` for path-scoped exceptions.
@@ -47,6 +50,8 @@ C4Context
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-07-03 | Added a `workflow_dispatch` manual entry path to `pipeline-ai-analyse.yml` (`pr_number` required, `max_incremental` optional); guard derives the PR from the input and the job `if:`/concurrency handle the dispatch event. | local |
 | 2026-07-03 | Added `disable_agents_md_check` input and `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` Variable for opt-out AGENTS.md documentation validation. | local |
 | 2026-06-30 | Added minimal workflow context for AI coding agents. | local |
+| 2026-06-30 | Added autonomous `pipeline-ai-analyse.yml` workflow context and name-coupling guidance. | ai-analyse |
 | 2026-06-30 | Added `disable_claude_code` input (default `'1'`); both `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` now derive from the same expression. | PR #54 |

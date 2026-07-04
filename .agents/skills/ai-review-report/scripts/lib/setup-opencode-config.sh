@@ -128,7 +128,7 @@ elif grep -q '"gemini"' "$DEST" 2>/dev/null; then
     jq -e '
       ((keys - ["$schema","provider","permission","agent","share"]) == [])
       and ((.provider // {} | keys) == ["anthropic","gemini","github-copilot","go-anthropic","go-openai","openai","openrouter"])
-      and ((.agent // {} | keys) | (. == [] or . == ["review"]))
+      and ((.agent // {} | keys) | (. == [] or . == ["review"] or . == ["analyse","review"]))
       and (all((.provider // {})[]?;
             ((.options.apiKey // "") | test("^\\{env:OPENCODE_"))
             and ((.options.baseURL // "{env:OPENCODE_}") | test("^(\\{env:OPENCODE_|https?://)"))))

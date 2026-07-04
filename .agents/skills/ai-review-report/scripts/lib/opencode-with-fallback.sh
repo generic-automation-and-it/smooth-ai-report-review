@@ -16,7 +16,11 @@
 # invocation keeps the historical Gemini behavior. Credentials are read by
 # opencode itself via the {env:OPENCODE_<P>_*} placeholders in opencode.json.
 #
-# Stdout: opencode review output. Stderr: passthrough.
+# Optional env:
+#   OPENCODE_AGENT            Agent name to run (default: review).
+#   OPENCODE_MIN_OUTPUT_BYTES Minimum stdout bytes for success (default: 200).
+#
+# Stdout: opencode output. Stderr: passthrough.
 
 set -e
 
@@ -37,6 +41,8 @@ fi
 # lib/resolve-provider.sh. The resolver normally sets this env var; the
 # fallback is a safety net for bare invocation without sourcing the resolver.
 PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
+OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
+OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
 
 run_opencode() {
   # --agent review (LADR-029): pin the locked-down `review` agent from
@@ -66,12 +72,12 @@ run_opencode() {
   #   for diagnostics. Reviews are a few KB, so buffering in a var is safe.
   local _out
   _out=$(opencode run \
-    --agent review \
+    --agent "${OPENCODE_AGENT}" \
     --model "${PROVIDER}/$1" \
     --format default \
     --log-level WARN \
     < "$prompt_file") || return 1
-  if [ "${#_out}" -lt 200 ]; then
+  if [ "${#_out}" -lt "${OPENCODE_MIN_OUTPUT_BYTES}" ]; then
     printf '%s' "$_out" >&2
     return 1
   fi
