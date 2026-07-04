@@ -166,7 +166,16 @@ jobs:
     if: |
       github.actor != 'dependabot[bot]' && (
         (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
-        (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/ai-review')) ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          contains(github.event.comment.body, '/ai-review') &&
+          (
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
+        ) ||
         (github.event_name == 'workflow_dispatch')
       )
     
@@ -519,9 +528,15 @@ jobs:
       #    that defines this job), overridable via the tools_ref input.
       - name: Locate review skill scripts
         id: locate_skill
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || steps.pr_details.outputs.head_repo || github.repository }}
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name || steps.pr_details.outputs.base_repo || github.repository }}
         run: |
           set -e
-          if [ -f ".agents/skills/ai-review-report/scripts/review-in-chunks.sh" ]; then
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "fetch_tools=true" >> "$GITHUB_OUTPUT"
+            echo "Fork PR detected — using pinned review tooling instead of scripts from the PR head"
+          elif [ -f ".agents/skills/ai-review-report/scripts/review-in-chunks.sh" ]; then
             echo "REVIEW_SKILL_DIR=.agents/skills/ai-review-report" >> "$GITHUB_ENV"
             echo "fetch_tools=false" >> "$GITHUB_OUTPUT"
             echo "✓ Using review skill from the repository under review"
@@ -535,7 +550,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ inputs.tools_ref || github.workflow_sha || 'main' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.workflow_sha || 'v1' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched review tooling
@@ -829,18 +844,20 @@ jobs:
         id: check_commit_trigger
         run: |
           set -eo pipefail
-          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          HEAD_SHA="${{ steps.pr_info.outputs.head_sha }}"
 
-          echo "Checking commit messages for review trigger (/ai-review)..."
+          echo "Checking head commit message for review trigger (/ai-review)..."
 
-          # Query all commits in the PR
-          COMMITS=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits --jq '.[].commit.message')
+          # Only the current head commit can request a fresh full review. Older
+          # trigger commits may already have produced a full review; keeping them
+          # active would make follow-up ai-analyse commits run full reviews too.
+          COMMIT_MESSAGE=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}" --jq '.commit.message')
 
-          if echo "$COMMITS" | grep -qiE "/ai-review"; then
-            echo "✓ Found review trigger in commit message"
+          if echo "$COMMIT_MESSAGE" | grep -qiE "/ai-review"; then
+            echo "✓ Found review trigger in head commit message"
             echo "force_full_review_from_commit=true" >> $GITHUB_OUTPUT
           else
-            echo "✓ No review trigger found in commit messages"
+            echo "✓ No review trigger found in head commit message"
             echo "force_full_review_from_commit=false" >> $GITHUB_OUTPUT
           fi
         env:
