@@ -11,13 +11,14 @@ Three review skills back it:
 
 Implementation details and decisions live in [`.agents/skills/ai-review-report/SKILL.md`](.agents/skills/ai-review-report/SKILL.md).
 
-## Four ways to consume this repo
+## Five ways to consume this repo
 
 | Channel | What you get | Best for |
 |---|---|---|
 | [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~80-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
-| [Claude Code plugin](#install-as-a-claude-code-plugin) | The four skills (`ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) inside Claude Code — **not** the CI gate | Developers who want `/ai-review`, `/ai-analyse`, and the local review tooling without touching the repo |
+| [Claude Code plugins](#install-as-a-claude-code-plugin) | A core plugin (`ai-review`, `git-commit-review-push`) plus optional plugins for `ai-review-report` and `ai-analyse` — **not** the CI gate | Developers who want the follow-up workflows by default and can opt into the heavier report/analyse skills only when needed |
 | [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same four skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
+| [npm package in GitHub Actions](#use-in-github-actions-via-npm) | The **same npm package**, but `npm install`ed in a GHA job and run straight from `node_modules/` (no vendoring, no side checkout) | Repos that want to run the review generator in CI pinned via a package manager / lockfile |
 | [Copy-install](#copy-install-vendor-everything) | Workflow + skills copied into the repo; everything editable in place | Repos that customize the gate or vendor everything |
 
 The channels coexist: a repo can use the reusable workflow for CI while developers install the plugin for `/ai-review`. To set up a repo end-to-end (gate + skills + credentials), follow [Install into another repo (AI-agent driven)](#install-into-another-repo-ai-agent-driven) — its default path is the reusable workflow + the plugin at project scope.
@@ -52,19 +53,31 @@ How it works:
 
 ## Install as a Claude Code plugin
 
-The four skills — `ai-review-report` (review generator + local driver), `ai-review` (`/ai-review` fix/skip executor), `ai-analyse` (`/ai-analyse` low/medium fixer), and `git-commit-review-push` — are packaged as the Claude Code plugin **`smooth-ai-review`**, with this repo doubling as its marketplace:
+This repo's Claude marketplace is intentionally split:
+- **`smooth-ai-review`** is the default/core plugin and includes `ai-review` plus `git-commit-review-push`.
+- **`smooth-ai-review-report`** is an optional add-on for the review generator / local driver.
+- **`smooth-ai-analyse`** is an optional add-on for the autonomous low/medium fixer.
+
+Install the marketplace, then install the core plugin:
 
 ```
 /plugin marketplace add generic-automation-and-it/smooth-ai-report-review
 /plugin install smooth-ai-review@smooth-ai-report-review
 ```
 
-That installs at **user scope** (your machine, all repos). To tie the skills to one repo for every collaborator instead, enable the plugin at **project scope** in that repo's `.claude/settings.json` — see [Step 2 of the installer](#step-2--enable-the-skills-repo-locally-plugin-project-scope).
+Optional installs when you want the heavier review-generator skills inside Claude Code too:
+
+```bash
+/plugin install smooth-ai-review-report@smooth-ai-report-review
+/plugin install smooth-ai-analyse@smooth-ai-report-review
+```
+
+That installs at **user scope** (your machine, all repos). To tie the default follow-up skills to one repo for every collaborator instead, enable the core plugin at **project scope** in that repo's `.claude/settings.json` — see [Step 2 of the installer](#step-2--enable-the-skills-repo-locally-plugin-project-scope). Add the optional plugins there too only if that repo wants local report generation and/or `/ai-analyse`.
 
 Notes:
 - The plugin installs **skills only** — it does **not** install the CI gate. Pair it with the [reusable workflow](#use-as-a-reusable-workflow) (or the copy-installer) for PR-gate coverage.
 - When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
-- The plugin loads skills straight from `.agents/skills/` (the canonical location) via the `skills` field in `.claude-plugin/plugin.json` — no `skills/` symlink involved, so the plugin install works on Windows without symlink support.
+- The marketplace entries load skills straight from `.agents/skills/` (the canonical location) via explicit `skills` paths in `.claude-plugin/marketplace.json` — no `skills/` symlink involved, so the plugin install works on Windows without symlink support.
 
 ## Install as an opencode plugin (npm)
 
@@ -94,6 +107,20 @@ How it works:
 - Like the Claude Code plugin, this installs **skills only** — pair it with the [reusable workflow](#use-as-a-reusable-workflow) for the CI gate (the gate itself never needs this plugin; in reusable mode it fetches its own scripts).
 - If the skills don't appear in the very first session after install, restart opencode once — the links are created at session init.
 
+## Use in GitHub Actions via npm
+
+The [opencode plugin package](#install-as-an-opencode-plugin-npm) `@generic-automation-and-it/smooth-ai-review` ships the full skill trees (`.agents/skills/…`, minus the eval harness) in its tarball — not just the opencode startup hook. That means you can `npm install` it in a GitHub Actions job and run the review scripts straight out of `node_modules/`, with **nothing vendored** into your repo and **no side checkout**. This is a distinct consumption path from the [reusable workflow](#use-as-a-reusable-workflow) (which fetches scripts into `.smooth-ai-review-tools/` at run time); the reusable workflow stays the recommended default and needs no registry auth.
+
+Ready-to-copy workflow: [`.docs/examples/npm-review-report-gha.yml`](.docs/examples/npm-review-report-gha.yml). It installs the package + the opencode CLI, then runs the `ai-review-report` generator (`local-review.sh --pr <n> --post`) against the PR.
+
+Key points specific to the npm-in-CI path:
+- **Registry auth.** The package lives on the GitHub Packages npm registry, which requires a token even though it's public. Same-org runs can use the run-scoped `GITHUB_TOKEN` (grant `packages: read` in the workflow's `permissions:`). Cross-org runs must supply a classic PAT with the `read:packages` scope as a secret — the example reads `PACKAGES_READ_TOKEN` and falls back to `GITHUB_TOKEN`.
+- **Repo-root override.** The scripts normally derive the repo under review from their own location. Run from `node_modules/`, that would point at the package, so set **`OPENCODE_REVIEW_REPORT_REPO_ROOT: ${{ github.workspace }}`** (see the [Environment variables](#environment-variables) table). The example does this.
+- **Prerequisites** match [Using Local Report](#using-local-report): the opencode CLI (`curl -fsSL https://opencode.ai/install | bash`), `jq` and `gh` (both preinstalled on `ubuntu-latest`), and the selected provider's credentials/model vars — configure them exactly as for the gate.
+- **Versioning.** Pin an exact version (`npm i @generic-automation-and-it/smooth-ai-review@1.2.3`) for reproducible reviews; the runtime publish numbering makes every published version immutable.
+- **`ai-analyse`** ships in the same tarball (its `SKILL.md`/`AGENTS.md` plus the shared `ai-review-report/scripts/lib/` helpers it reuses — it has no standalone scripts of its own). Its autonomous fix loop is orchestrated by `.github/workflows/pipeline-ai-analyse.yml`, so consume it by copy-installing that workflow rather than a single CLI entrypoint.
+- Like the plugins, this installs **review tooling only** — it does not register the `/ai-review` or `/ai-analyse` skills into Claude Code/opencode; use the plugin channels for that.
+
 ## Install into another repo (AI-agent driven)
 
 These steps are written for an **AI coding agent running in the _target_ repo**. Point it at this README — best via the **raw** URL (`https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/README.md`), which returns clean Markdown; a `blob/…#install-into-another-repo-ai-agent-driven` link also works but serves HTML.
@@ -106,7 +133,8 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 
 **What gets installed:**
 1. **Remote report**: a ~80-line caller workflow → `.github/workflows/pipeline-code-review-report.yml`, delegating to this repo's reusable gate at `@v1` (the floating major tag is maintained from this repo's `main` branch; review scripts are fetched at run time — no skill trees land in the repo).
-2. **Local report tooling**: the `smooth-ai-review` plugin (all four skills: `ai-review-report`, `ai-review`, `ai-analyse`, `git-commit-review-push`) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
+2. **Local follow-up tooling**: the `smooth-ai-review` plugin (the core `ai-review` + `git-commit-review-push` skills) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
+3. **Optional local extras**: if the repo also wants the local review generator and/or autonomous fixer in Claude Code, enable `smooth-ai-review-report` and/or `smooth-ai-analyse` from the same marketplace.
 
 ### Step 1 — install the review gate (reusable-workflow caller)
 
@@ -163,6 +191,7 @@ echo "✓ smooth-ai-review plugin enabled at project scope ($SETTINGS)"
 
 Notes:
 - Interactive equivalent (from inside Claude Code in the repo): `/plugin marketplace add generic-automation-and-it/smooth-ai-report-review`, then `claude plugin install smooth-ai-review@smooth-ai-report-review --scope project`.
+- Optional project-scope add-ons: `claude plugin install smooth-ai-review-report@smooth-ai-report-review --scope project` and `claude plugin install smooth-ai-analyse@smooth-ai-report-review --scope project`.
 - For a **global** (all-repos, single-developer) install use user scope instead — see [Install as a Claude Code plugin](#install-as-a-claude-code-plugin). Project scope is the default here because the review skills belong with the repo.
 - Commit both artifacts: the caller workflow and `.claude/settings.json`.
 
@@ -514,6 +543,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `AGENTS_MD_EXEMPT_PATHS` | Workflow `env:` (pipe-separated) | Paths exempt from the `*_AGENTS.md` validation requirement. |
 | `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` | GitHub **Variable** (default `0`) / workflow input | Disables the full-review AGENTS.md / README.md / SKILL.md documentation validation when set to `1`. Leave unset or `0` to keep the gate enabled. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
+| `OPENCODE_REVIEW_REPORT_REPO_ROOT` | shell / workflow `env:` (default: derived from script location) | Overrides the repo `local-review.sh` reviews. Only needed when the script runs from outside its skill tree — e.g. the [npm-in-GitHub-Actions](#use-in-github-actions-via-npm) path, where you set it to `${{ github.workspace }}`. |
 | `OPENCODE_REVIEW_REPORT_PROVIDER_ID` | **Derived** | The opencode.json provider KEY the model is prefixed with: `gemini` / `github-copilot` / `openai` / `anthropic` / `go-openai` / `go-anthropic` / `openrouter`. |
 | `OPENCODE_REVIEW_REPORT_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the credential presence check. (Health is checked separately and provider-agnostically via the opencode server — `lib/opencode-health.sh` — so there is no derived per-provider health URL.) |
 | `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` | GitHub **Variable** (default `1`) | Controls whether `.claude` support is disabled in opencode. If unset or empty, defaults to `1` (disabled). Set to `0` to re-enable Claude Code integration. |

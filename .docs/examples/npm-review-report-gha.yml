@@ -1,0 +1,101 @@
+# Example: run the ai-review-report generator in GitHub Actions via the npm package.
+#
+# This is the "npm-install consumption path" — an alternative to the reusable
+# workflow (which fetches scripts via a side checkout). Here the review scripts
+# arrive as the published package @generic-automation-and-it/smooth-ai-review and
+# are run straight out of node_modules/. Nothing is vendored into your repo.
+#
+# When to prefer this over the reusable workflow:
+#   - You want the report driven by the local `local-review.sh` entrypoint
+#     (same generator as the CI gate) rather than the full gate workflow.
+#   - You already pin tool versions with a package manager / lockfile and want
+#     the review tooling version-pinned the same way (`npm i pkg@1.2.3`).
+# The reusable workflow (.docs/examples/code-review-caller.yml) remains the
+# recommended path for most consumers — it needs no npm registry auth.
+#
+# Copy this to .github/workflows/ in your repo and adjust the provider block.
+name: AI Review Report (npm)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  # Lets the automatic GITHUB_TOKEN read the package when your repo is in the
+  # SAME org as generic-automation-and-it. Cross-org consumers cannot use
+  # GITHUB_TOKEN for GitHub Packages — supply a read:packages PAT instead
+  # (see the "Configure npm auth" step below).
+  packages: read
+
+jobs:
+  review-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          # local-review.sh diffs the current branch against --base (default: main),
+          # so fetch full history and check out the PR head, not the merge ref.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure npm auth for GitHub Packages
+        env:
+          # Same-org: the run-scoped GITHUB_TOKEN (with `packages: read` above) works.
+          # Cross-org: set a repo/org secret PACKAGES_READ_TOKEN to a classic PAT with
+          # the read:packages scope, and it takes precedence here.
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "@generic-automation-and-it:registry=https://npm.pkg.github.com"
+            echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
+          } >> "$HOME/.npmrc"
+
+      - name: Install review tooling (npm) + opencode CLI
+        run: |
+          set -eo pipefail
+          # Pin an exact version in real use, e.g. @1.2.3, so reviews are reproducible.
+          npm install --no-save @generic-automation-and-it/smooth-ai-review
+          # opencode is the model transport the scripts drive. Installs to ~/.opencode/bin.
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Run review report
+        env:
+          # Point the vendored-into-node_modules script at the repo under review.
+          # Without this it would resolve REPO_ROOT to the package dir. See
+          # local-review.sh (OPENCODE_REVIEW_REPORT_REPO_ROOT override).
+          OPENCODE_REVIEW_REPORT_REPO_ROOT: ${{ github.workspace }}
+          # gh CLI (preinstalled on ubuntu-latest) auth for --pr / --post.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── Provider selection + credentials ──────────────────────────────
+          # Default provider is GEMINI. To use another, set OPENCODE_REVIEW_REPORT_PROVIDER
+          # and pass a matching --model plus the SECONDARY/ORCHESTRATOR model ids.
+          # Only the selected provider's key/url below must be set. See the repo
+          # README "Environment variables" table for the full matrix.
+          OPENCODE_REVIEW_REPORT_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_PROVIDER }}
+          OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
+          OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+          # … add the other providers' *_URL vars / *_API_KEY secrets as needed
+          OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}
+          OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}
+          OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR }}
+        run: |
+          set -eo pipefail
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          SCRIPTS="node_modules/@generic-automation-and-it/smooth-ai-review/.agents/skills/ai-review-report/scripts"
+          bash "${SCRIPTS}/local-review.sh" --pr "$PR" --post

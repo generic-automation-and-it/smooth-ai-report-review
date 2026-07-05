@@ -1,12 +1,11 @@
 {
   "name": "smooth-ai-review",
   "version": "1.0.1",
-  "description": "AI PR code-review skills: the chunked ai-review-report pipeline (local driver + CI gate internals), the /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, and git-commit-review-push.",
+  "description": "Marketplace backing manifest for the smooth-ai-report-review Claude Code plugins.",
   "author": {
     "name": "generic-automation-and-it"
   },
   "repository": "https://github.com/generic-automation-and-it/smooth-ai-report-review",
-  "skills": ["./.agents/skills/"],
   "license": "MIT",
   "keywords": ["code-review", "pull-request", "ci", "opencode"]
 }

@@ -20,7 +20,13 @@ fi
 #   local-review.sh --open                   # Open final review in $EDITOR after completion
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+# REPO_ROOT is the repo being reviewed. By default it is derived from the script
+# location (this script lives at .agents/skills/ai-review-report/scripts, so four
+# levels up is the repo root), which is correct for copy-installed / in-repo use.
+# When the skill is consumed as the npm package (e.g. run from node_modules/ in a
+# GitHub Actions job) that math points at the package, not the repo under review,
+# so allow an explicit override — set it to $GITHUB_WORKSPACE in CI.
+REPO_ROOT="${OPENCODE_REVIEW_REPORT_REPO_ROOT:-$(cd "$SCRIPT_DIR/../../../.." && pwd)}"
 
 # Credentials come from the shell environment. Export the selected provider's
 # OPENCODE_REVIEW_REPORT_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
