@@ -1,5 +1,13 @@
 #!/bin/bash
-set -e
+set -eo pipefail
+
+# Requires Bash >= 4 for consistent diagnostics with the sibling runtime
+# scripts. GitHub-hosted runners satisfy this; macOS local runs should use a
+# Homebrew bash via local-review.sh.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  echo "❌ Requires Bash >= 4 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/../assets/review-config.json"

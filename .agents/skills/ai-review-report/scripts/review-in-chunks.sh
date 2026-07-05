@@ -588,7 +588,7 @@ This chunk contains only documentation files. Apply a documentation-focused revi
 4. **Consistency** — Are naming conventions, formatting, and cross-references consistent with sibling files?
 5. **Clarity** — Is the documentation clear and actionable for its intended AI agent audience?
 
-**AGENTS.md Quality Standards** (from \`.agents/rules/knowledge-conventional-contexts-quality.instructions.md\`):
+**AGENTS.md Quality Standards** (from \`.agents/skills/ai-review-report/references/knowledge-conventional-contexts-quality.instructions.md\`):
 
 When reviewing \`*_AGENTS.md\` files, check for these **anti-patterns**:
 - **\`(src: path)\` annotations** — Remove; AI agents find files via glob/grep

@@ -8,6 +8,7 @@ echo ""
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../" && pwd)"
 SOURCE_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+SOURCE_COUNT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
 
 TMP_DIR="$(mktemp -d /tmp/review-chunk-threshold.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -18,6 +19,7 @@ setup_repo() {
   mkdir -p "${test_repo}/bin"
 
   cp "${SOURCE_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+  cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
