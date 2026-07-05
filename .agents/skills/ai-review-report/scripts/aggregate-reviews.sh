@@ -273,6 +273,11 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 - **NEVER count coverage gaps in the Recommendation's Step 1 issue counts.** The pipeline's fail-closed safety net (LADR-031) handles failed chunks mechanically — re-flagging them as blocking issues double-counts the failure.
 - This applies even when the PR author's AI Review Notes ask you to focus on that file or area: "I could not verify X" is 🔵 Low, never a blocking finding.
 
+**Passing Checks Are NOT Issues (MANDATORY):**
+- If a chunk review says a contract, file, setting, diagram, permission, or cross-file relationship is correct, treat it as positive context only.
+- Do NOT copy "No issue", "consistent", "verified for consistency", "flagging only because checked", or similar passing-check notes into any Issues Summary severity section.
+- Do NOT count passing checks in the Recommendation issue totals.
+
 **Required Output Format:**
 
 ## 📋 Overall Summary

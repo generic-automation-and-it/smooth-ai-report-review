@@ -640,6 +640,7 @@ EOF
 **Signal-to-noise guidelines:**
 - **Be precise, not pedantic.** Every issue should matter to a senior developer. Do not flag minor style preferences, subjective naming choices, or trivial formatting. 3 actionable findings > 15 nitpicks.
 - **When intent is ambiguous**, note it as 🔵 Low Priority with question framing (e.g., "Intentional? If X happens, Y could be null") rather than flagging as a definitive bug.
+- **Passing checks are not issues.** If you verify that a contract, convention, file shape, permission, diagram, or cross-file relationship is correct, mention it under positive highlights only if useful, or omit it. Do NOT list "No issue", "consistent", "verified", or "flagging only because checked" items under **Issues Found**, and do NOT assign them a severity.
 
 **Verification-Incomplete Suppression:**
 - If you did NOT receive a file in your review chunk (i.e., it is not listed in "Files in this chunk" above and its diff is not included below), do NOT flag test coverage, implementation concerns, or integration issues for that file at 🔴 Critical, 🟠 High, or 🟡 Medium priority. You may state that the file was not reviewed, but classify such observations at 🔵 Low Priority (informational) only.
@@ -706,6 +707,8 @@ For each file, use this structure:
 - 🟠 [VERIFIED] High Priority: [description] or "None found"
 - 🟡 [VERIFIED] Medium Priority: [description] or "None found"
 - 🔵 [VERIFIED|SPECULATIVE] Low Priority: [description] or "None found"
+
+Only include real defects, risks, or actionable documentation/maintenance issues in **Issues Found**. Passing consistency checks belong outside this section or should be omitted.
 
 **Suggested Fixes:**
 ```language
