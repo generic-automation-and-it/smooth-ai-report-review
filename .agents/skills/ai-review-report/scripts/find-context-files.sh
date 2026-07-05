@@ -39,20 +39,25 @@ done < ci_temp/changed_dirs.txt
 # should NOT be auto-included - they are only relevant when their feature area has changes
 
 # Add mandatory context files (always loaded for all reviews)
-# These are configured in the workflow via MANDATORY_CONTEXT_FILES env variable
+# These are configured in the workflow via MANDATORY_CONTEXT_FILES env variable.
+# The variable must be set; running without it drops all mandatory context and
+# violates the fail-closed invariant from LADR-025/029.
 echo "Adding mandatory context files..."
-if [ -n "$MANDATORY_CONTEXT_FILES" ]; then
-  for ctx_file in $MANDATORY_CONTEXT_FILES; do
-    if [ -f "$ctx_file" ]; then
-      echo "$ctx_file" >> ci_temp/relevant_agents_files.txt
-      echo "  - $ctx_file (mandatory)"
-    else
-      echo "  ⚠ Warning: Mandatory context file not found: $ctx_file"
-    fi
-  done
-else
-  echo "  ⚠ Warning: MANDATORY_CONTEXT_FILES env variable not set"
+if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
+  echo "  ❌ MANDATORY_CONTEXT_FILES env variable not set" >&2
+  exit 2
 fi
+
+for ctx_file in $MANDATORY_CONTEXT_FILES; do
+  if [ -f "$ctx_file" ]; then
+    echo "$ctx_file" >> ci_temp/relevant_agents_files.txt
+    echo "  - $ctx_file (mandatory)"
+  else
+    # Missing paths are warned, not fatal: the default list is intentionally
+    # reusable across repos and resolves against the repo under review.
+    echo "  ⚠ Warning: Mandatory context file not found: $ctx_file" >&2
+  fi
+done
 
 # Remove duplicates and sort
 if [ -s ci_temp/relevant_agents_files.txt ]; then

@@ -1,11 +1,12 @@
 #!/bin/bash
 set -e
 
-# Requires Bash >= 4 (mapfile, wait -n concurrency throttle). On Bash 3.2 (macOS
-# default) mapfile yields empty arrays and `wait -n || true` floods the gateway
-# with unthrottled parallel calls — fail fast instead.
-if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
-  echo "❌ Requires Bash >= 4 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
+# Requires Bash >= 4.3 (mapfile, wait -n concurrency throttle). On Bash 3.2
+# (macOS default) mapfile yields empty arrays and `wait -n` is unavailable,
+# which floods the gateway with unthrottled parallel calls — fail fast instead.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] \
+   || { [ "${BASH_VERSINFO[0]}" = "4" ] && [ "${BASH_VERSINFO[1]:-0}" -lt 3 ]; }; then
+  echo "❌ Requires Bash >= 4.3 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
   exit 1
 fi
 
@@ -121,7 +122,7 @@ if ! [[ "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" =~ ^[0-9]+$ ]]; then
   REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING=10
 fi
 
-file_count=$(tr '\0' '\n' < ci_temp/changed_files.txt | grep -c '.' || echo "0")
+file_count=$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/count-changed-files.sh" ci_temp/changed_files.txt)
 echo ""
 echo "Files to review: ${file_count}"
 echo "Single chunk threshold: ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} files (OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING)"

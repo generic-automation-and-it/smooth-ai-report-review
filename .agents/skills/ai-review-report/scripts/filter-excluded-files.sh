@@ -32,7 +32,7 @@ echo "$PATTERNS" | while IFS= read -r pattern; do
   echo "  - $pattern"
 done
 
-BEFORE_COUNT=$(tr '\0' '\n' < "$CHANGED_FILES" | grep -c . || echo 0)
+BEFORE_COUNT=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" "$CHANGED_FILES")
 
 > "$EXCLUDED_FILES"
 > ci_temp/changed_files_filtered.txt
@@ -62,7 +62,7 @@ done
 
 mv ci_temp/changed_files_filtered.txt "$CHANGED_FILES"
 
-AFTER_COUNT=$(tr '\0' '\n' < "$CHANGED_FILES" | grep -c . || echo 0)
+AFTER_COUNT=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" "$CHANGED_FILES")
 EXCLUDED_COUNT=$((BEFORE_COUNT - AFTER_COUNT))
 
 echo ""
