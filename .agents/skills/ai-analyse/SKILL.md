@@ -36,7 +36,7 @@ The skill is invoked as `/ai-analyse <args>`.
 
 Modes:
 
-- `--analyse <review-ref>`: fetch the relevant PR review, parse only `### 🟡 Medium Priority Issues` and `### 🔵 Low Priority / Nitpicks`, and emit a recommendation table. Never recommend action for `### 🔴 Critical Issues` or `### 🟠 High Priority Issues`.
+- `--analyse <review-ref>`: fetch the relevant PR review, parse only `### 🟡 Medium Priority Issues` and `### 🔵 Low Priority / Nitpicks`, and emit a recommendation table. **Omit `### 🔴 Critical Issues` and `### 🟠 High Priority Issues` findings entirely** — do not add a FIX or SKIP row for them; they must not appear in the table at all.
 - `--execute <pr>`: apply fixes for rows marked FIX, keep edits scoped to listed low/medium items, and print the final FIX/SKIP markdown table.
 
 ## CI Contract
@@ -45,13 +45,13 @@ The GitHub Actions workflow invokes this skill headlessly by inlining this `SKIL
 
 1. Edit files only for gate-authored low/medium findings supplied in the prompt.
 2. Do not run `git`, do not commit, and do not push.
-3. Print a markdown table to stdout with the exact columns:
+3. Print a markdown table to stdout with the exact columns, containing **only Medium and Low findings** (a Critical/High finding never gets a row — omit it entirely):
 
 | # | Decision | Priority | File | Summary | Reason |
 |---|----------|----------|------|---------|--------|
 
 4. Use `FIX` only when the change is mechanical, directly supported by the listed finding, and low risk.
-5. Use `SKIP` when the finding is speculative, already addressed, unclear, requires product judgment, would require broader refactoring, or touches Critical/High behavior.
+5. Use `SKIP` when a **Medium/Low** finding is speculative, already addressed, unclear, requires product judgment, would require broader refactoring, or whose fix would touch Critical/High behavior. Never use SKIP (or FIX) to represent a Critical/High finding itself — those are omitted from the table.
 
 The workflow performs deterministic commit, rebase/push, and PR comment posting after the model exits. If those git-owned steps hit a content conflict with the latest PR head, the workflow posts the summary and fails so a human can resolve it.
 
@@ -62,11 +62,11 @@ The workflow performs deterministic commit, rebase/push, and PR comment posting 
 - Genuine bug or logic error in a low/medium finding: `FIX`
 - Real simplification with no trade-off: `FIX`
 - Speculative / "consider" language: `SKIP`
-- Any Critical or High finding, even if included in suggested fixes: `SKIP`
+- A Critical or High finding itself (its own priority is 🔴/🟠), even if included in suggested fixes: **omit entirely — no row, neither FIX nor SKIP**
 
 ## Guardrails
 
-- Never touch 🔴 Critical or 🟠 High findings.
+- Never touch 🔴 Critical or 🟠 High findings, and never list them in the summary table — omit them entirely (no FIX, no SKIP row).
 - Never add a `/ai-review` marker.
 - Keep every edit scoped to the supplied low/medium review text.
 - Do not invent findings beyond the supplied review sections.

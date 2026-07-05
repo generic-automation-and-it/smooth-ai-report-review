@@ -342,6 +342,7 @@ jobs:
             echo "## Required output"
             echo ""
             echo "Edit files as needed, then print only the FIX/SKIP markdown table and a short note if no file changes were made. Do not run git."
+            echo "The table must contain only Medium and Low findings. Do not add a row (neither FIX nor SKIP) for any Critical or High finding — omit them entirely, even if they appear in Suggested Fixes."
           } > ci_temp/analyse_prompt.md
 
       - name: Run ai-analyse
