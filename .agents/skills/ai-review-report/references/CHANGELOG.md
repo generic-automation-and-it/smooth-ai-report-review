@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-07-05 | Added `OPENCODE_ANALYSE_PROVIDER` for autonomous analyse runs with a custom `OPENCODE_ANALYSE_MODEL`. The analyse workflow now leaves `OPENCODE_ANALYSE_MODEL` empty unless explicitly configured, fails fast when a custom analyse model has no analyse provider, resolves analyse/review providers separately, passes provider-qualified model targets through `opencode-with-fallback.sh`, and keeps review-provider fallbacks valid for mixed-provider chains. Added resolver and fallback-target regression tests. | LADR-042 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` now fetches + rebases onto the latest PR head before pushing auto-fixes, soft-skips transient fetch/non-fast-forward races with a posted summary, and hard-fails only real merge conflicts after posting the summary comment. | LADR-044 |
 | 2026-07-04 | `pipeline-ai-analyse.yml` now prefers the optional `OPENCODE_ANALYSE_GH_TOKEN` Secret for the auto-fix push and falls back to `GITHUB_TOKEN` only when the PAT is unset. | LADR-043 |
 | 2026-07-04 | Fixed commit-message review trigger scope: the gate now checks only the current head commit for `/ai-review`, preventing old trigger commits from forcing every later `ai-analyse` follow-up commit through a full review. | LADR-042 |

@@ -222,7 +222,8 @@ jobs:
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
-      OPENCODE_ANALYSE_MODEL: ${{ vars.OPENCODE_ANALYSE_MODEL || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+      OPENCODE_ANALYSE_PROVIDER: ${{ vars.OPENCODE_ANALYSE_PROVIDER || '' }}
+      OPENCODE_ANALYSE_MODEL: ${{ vars.OPENCODE_ANALYSE_MODEL || '' }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
@@ -314,6 +315,11 @@ jobs:
           opencode stats >/dev/null || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
+          if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
+            OPENCODE_PROVIDER_SCOPE=analyse bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
+          elif [ -n "${OPENCODE_ANALYSE_PROVIDER:-}" ]; then
+            echo "OPENCODE_ANALYSE_PROVIDER is set but OPENCODE_ANALYSE_MODEL is unset; analyse will inherit the review provider/model."
+          fi
 
       - name: Build analyse prompt
         run: |
@@ -349,10 +355,16 @@ jobs:
           set -euo pipefail
           export OPENCODE_AGENT=analyse
           export OPENCODE_MIN_OUTPUT_BYTES=1
+          primary_target="${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
+          if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
+            primary_target="${OPENCODE_ANALYSE_PROVIDER_ID}/${OPENCODE_ANALYSE_MODEL}"
+          fi
+          fallback_primary="${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
+          fallback_secondary="${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}"
           bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-with-fallback.sh" \
-            "${OPENCODE_ANALYSE_MODEL}" \
-            "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}" \
-            "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}" \
+            "${primary_target}" \
+            "${fallback_primary}" \
+            "${fallback_secondary}" \
             -- ci_temp/analyse_prompt.md | tee ci_temp/analyse_out.md
 
       - name: Commit fixes
