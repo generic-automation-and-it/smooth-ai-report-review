@@ -55,7 +55,6 @@ jobs:
       medium_section: ${{ steps.guard.outputs.medium_section }}
       low_section: ${{ steps.guard.outputs.low_section }}
       suggested_fixes: ${{ steps.guard.outputs.suggested_fixes }}
-      latest_review_id: ${{ steps.guard.outputs.latest_review_id }}
     steps:
       - name: Checkout tooling source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -165,9 +164,7 @@ jobs:
           act="$(printf '%s' "$guard_json" | jq -r '.act')"
           skip_reason="$(printf '%s' "$guard_json" | jq -r '.skip_reason // empty')"
           incremental_count="$(printf '%s' "$guard_json" | jq -r '.incremental_count')"
-          latest_review_id="$(printf '%s' "$guard_json" | jq -r '.artifact_id // empty')"
           artifact_ts="$(printf '%s' "$guard_json" | jq -r '.artifact_ts // empty')"
-          echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
           echo "Incremental cycles since latest FULL: ${incremental_count}/${max_incremental}"
 
           if [ "$act" != "true" ]; then
