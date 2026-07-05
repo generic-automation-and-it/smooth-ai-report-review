@@ -152,68 +152,51 @@ jobs:
             exit 0
           fi
 
-          REVIEWS="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" || echo "[]")"
-          GATE_REVIEWS="$(printf '%s' "$REVIEWS" | jq -c '
-            [.[] |
-              select(.user.login == "github-actions[bot]") |
-              select(.body | test("## 🔍 Issues Summary")) |
-              select(.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
-            ] | sort_by(.submitted_at) | reverse
-          ')"
-          LATEST_REVIEW="$(printf '%s' "$GATE_REVIEWS" | jq -c 'first // empty')"
-          if [ -z "$LATEST_REVIEW" ]; then
-            skip "no gate-authored OpenCode review found"
-            exit 0
-          fi
-
-          latest_review_id="$(printf '%s' "$LATEST_REVIEW" | jq -r '.id')"
-          latest_body="$(printf '%s' "$LATEST_REVIEW" | jq -r '.body')"
-
-          # The gate run that triggered us may have completed without posting a
-          # fresh review (e.g. "Skipping incremental review" because a blocking
-          # review exists, no changes since the last review, too many files, or
-          # all models failed). In those cases the latest gate-authored review
-          # predates this run, so acting on it would mean re-processing stale
-          # findings that the current run already declined to review.
-          run_created_at="${RUN_CREATED_AT:-}"
-          review_submitted_at="$(printf '%s' "$LATEST_REVIEW" | jq -r '.submitted_at')"
-          if [ -n "$run_created_at" ] && [ -n "$review_submitted_at" ] && \
-             [ "$review_submitted_at" \< "$run_created_at" ]; then
-            skip "latest gate review predates the triggering workflow run; no new review was posted"
-            exit 0
-          fi
-          echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
-
-          mkdir -p ci_temp
-          printf '%s\n' "$latest_body" > ci_temp/latest_review.md
-
           max_incremental="${MAX_INCREMENTAL:-3}"
           case "$max_incremental" in
             ''|*[!0-9]*) max_incremental=3 ;;
           esac
           [ "$max_incremental" -gt 0 ] || max_incremental=3
-          incremental_count="$(printf '%s' "$GATE_REVIEWS" | jq -r '
-            reduce .[] as $review ({count: 0, stop: false};
-              if .stop then .
-              elif ($review.body | test("\\*\\*Review Type:\\*\\*[[:space:]]*FULL")) then .stop = true
-              elif ($review.body | test("\\*\\*Review Type:\\*\\*[[:space:]]*INCREMENTAL")) then .count += 1
-              else .
-              end
-            ) | .count
-          ')"
-          echo "Incremental reviews since latest FULL: ${incremental_count}/${max_incremental}"
-          # `-gt` (not `-ge`): OPENCODE_ANALYSE_MAX_INCREMENTAL is the number of auto-fix
-          # cycles allowed per full-review epoch, so the first `max_incremental` incremental
-          # reviews act and only the NEXT one is skipped (default 3 → 3 acting cycles).
-          if [ "$incremental_count" -gt "$max_incremental" ]; then
-            {
-              echo "## ai-analyse auto-fix limit exceeded"
-              echo ""
-              echo "The autonomous low/medium fix loop has run ${max_incremental} incremental cycle(s) since the latest full review (now ${incremental_count}), reaching the configured limit."
-              echo ""
-              echo "A human should review the remaining findings or trigger a fresh full review when ready."
-            } | gh pr comment "$PR_NUMBER" --body-file -
-            skip "incremental cycle cap exceeded"
+
+          mkdir -p ci_temp
+          guard_json="$("${REVIEW_SKILL_DIR}/scripts/lib/select-ai-analyse-artifact.sh" \
+            "${GITHUB_REPOSITORY}" "${PR_NUMBER}" "${max_incremental}" \
+            "ci_temp/latest_review.md")"
+          act="$(printf '%s' "$guard_json" | jq -r '.act')"
+          skip_reason="$(printf '%s' "$guard_json" | jq -r '.skip_reason // empty')"
+          incremental_count="$(printf '%s' "$guard_json" | jq -r '.incremental_count')"
+          latest_review_id="$(printf '%s' "$guard_json" | jq -r '.artifact_id // empty')"
+          artifact_ts="$(printf '%s' "$guard_json" | jq -r '.artifact_ts // empty')"
+          echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
+          echo "Incremental cycles since latest FULL: ${incremental_count}/${max_incremental}"
+
+          if [ "$act" != "true" ]; then
+            # `-gt` (not `-ge`): OPENCODE_ANALYSE_MAX_INCREMENTAL is the number of auto-fix
+            # cycles allowed per full-review epoch, so the first `max_incremental` incremental
+            # cycles act and only the NEXT one is skipped (default 3 → 3 acting cycles).
+            if [ "$skip_reason" = "incremental cycle cap exceeded" ]; then
+              {
+                echo "## ai-analyse auto-fix limit exceeded"
+                echo ""
+                echo "The autonomous low/medium fix loop has run ${max_incremental} incremental cycle(s) since the latest full review (now ${incremental_count}), reaching the configured limit."
+                echo ""
+                echo "A human should review the remaining findings or trigger a fresh full review when ready."
+              } | gh pr comment "$PR_NUMBER" --body-file -
+            fi
+            skip "${skip_reason}"
+            exit 0
+          fi
+
+          # The gate run that triggered us may have completed without posting a
+          # fresh artifact (e.g. "Skipping incremental review" because a blocking
+          # review exists, no changes since the last review, too many files, or
+          # all models failed). In those cases the latest gate-authored artifact
+          # predates this run, so acting on it would mean re-processing stale
+          # findings that the current run already declined to review.
+          run_created_at="${RUN_CREATED_AT:-}"
+          if [ -n "$run_created_at" ] && [ -n "$artifact_ts" ] && \
+             [ "$artifact_ts" \< "$run_created_at" ]; then
+            skip "latest gate artifact predates the triggering workflow run; no new review was posted"
             exit 0
           fi
 
