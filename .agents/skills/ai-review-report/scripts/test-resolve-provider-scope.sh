@@ -53,6 +53,7 @@ run_success analyse_go_anthropic env \
   OPENCODE_GO_ANTHROPIC_API_KEY=test-key
 grep -q '^OPENCODE_ANALYSE_PROVIDER_ID=go-anthropic$' "${tmp_dir}/analyse_go_anthropic.env" || fail "analyse provider id was not go-anthropic"
 
+# OPENCODE_GO_OPENAI_API_KEY unused: missing-provider check fires before credential check
 run_failure analyse_missing_provider env \
   OPENCODE_PROVIDER_SCOPE=analyse \
   OPENCODE_ANALYSE_MODEL=kimi-k2.7-code \
@@ -65,5 +66,13 @@ run_failure analyse_wrong_go_surface env \
   OPENCODE_ANALYSE_MODEL=kimi-k2.7-code \
   OPENCODE_GO_ANTHROPIC_API_KEY=test-key
 grep -q 'OpenCode Go OpenAI-compatible surface' "${tmp_dir}/analyse_wrong_go_surface.err" || fail "wrong-surface error was not clear"
+
+# Credential-missing path: provider and URL set, model set, but API key absent.
+run_failure analyse_missing_cred env \
+  OPENCODE_PROVIDER_SCOPE=analyse \
+  OPENCODE_ANALYSE_PROVIDER=GEMINI \
+  OPENCODE_ANALYSE_MODEL=gemini-2.5-pro \
+  OPENCODE_REVIEW_REPORT_GEMINI_URL=https://example.com
+grep -q 'OPENCODE_GEMINI_API_KEY.*empty/unset' "${tmp_dir}/analyse_missing_cred.err" || fail "missing-credential error was not clear"
 
 echo "✓ resolve-provider scope tests passed"

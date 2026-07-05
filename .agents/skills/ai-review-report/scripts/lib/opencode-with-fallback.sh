@@ -45,12 +45,17 @@ fi
 # Default fallback "gemini" must match the GEMINI provider id declared in
 # lib/resolve-provider.sh. The resolver normally sets this env var; the
 # fallback is a safety net for bare invocation without sourcing the resolver.
+# Note: the analyse job pre-prefixes its model target
+# (${OPENCODE_ANALYSE_PROVIDER_ID}/${OPENCODE_ANALYSE_MODEL}) before calling this
+# helper; a bare model name would be prefixed with the REVIEW provider id.
 PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
 
 model_target() {
   case "$1" in
+    # Keep in lockstep with resolve-provider.sh:_rp_provider_fields and
+    # .github/workflows/AGENTS.md (is_ours set).
     gemini/*|github-copilot/*|openai/*|anthropic/*|go-openai/*|go-anthropic/*|openrouter/*)
       printf '%s' "$1"
       ;;

@@ -150,6 +150,7 @@ case "$_rp_scope" in
     ;;
 
   analyse)
+    unset OPENCODE_GATEWAY_API_KEY
     if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ] && [ -z "${OPENCODE_ANALYSE_PROVIDER:-}" ]; then
       _rp_die "OPENCODE_ANALYSE_MODEL is set but OPENCODE_ANALYSE_PROVIDER is unset. Set OPENCODE_ANALYSE_PROVIDER to the provider that serves OPENCODE_ANALYSE_MODEL, or unset OPENCODE_ANALYSE_MODEL to inherit the review provider/model."
     fi
