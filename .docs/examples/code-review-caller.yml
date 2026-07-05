@@ -27,7 +27,7 @@
 # a reusable workflow caller because workflow_run must live in the repo whose gate
 # run it observes. The workflow name-couples to "OpenCode Review Report" and reads
 # OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL Variables and the optional
-# OPENCODE_ANALYSE_GH_TOKEN Secret (literals: gemini-3.1-pro-preview / 3 / GITHUB_TOKEN).
+# OPENCODE_ANALYSE_GH_TOKEN Secret (Variable defaults gemini-3.1-pro-preview / 3; falls back to GITHUB_TOKEN when the optional OPENCODE_ANALYSE_GH_TOKEN Secret is unset).
 # Note: GITHUB_TOKEN cannot push to .github/workflows/**, so auto-fixes that touch
 # workflow files require OPENCODE_ANALYSE_GH_TOKEN or the run records push_skipped.
 

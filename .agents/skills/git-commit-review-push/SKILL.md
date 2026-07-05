@@ -31,7 +31,7 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    ```
 
    Earlier chunk commits must NOT carry the trigger — only the final one.
-4. After the final commit, verify that the trigger is the final non-empty line of the commit body before pushing (the regex tolerates trailing whitespace / CRLF, unlike a strict string compare):
+4. If a commit was made in step 2, verify the trigger is the final non-empty line of the commit body before pushing. Skip this check for merge commits (`git log -1 --format=%b` returns the merged-branches list, not a usable commit body) and on the no-change path (when step 5 was taken). The regex tolerates trailing whitespace / CRLF, unlike a strict string compare:
 
    ```bash
    git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*\/ai-review[[:space:]]*$") ? 0 : 1 }'
@@ -43,7 +43,11 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    git log -1 --format='%B'
    ```
 
-   then amend the final commit body before pushing.
+   then amend the final commit body before pushing, e.g.:
+
+   ```bash
+   git commit --amend -m "<subject>" -m "/ai-review"
+   ```
 5. If there are no changes to commit, skip to step 6
 6. **If `--issue <number>` was passed** — rename the local branch before pushing (see Branch Rename below)
 7. Push to remote repository using `git push` (use `git push --set-upstream origin <new-branch>` if the branch was renamed)
