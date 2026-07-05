@@ -98,6 +98,7 @@ jobs:
           PAYLOAD_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
           MAX_INCREMENTAL: ${{ inputs.max_incremental || vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
+          RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
         run: |
           set -euo pipefail
 
@@ -167,7 +168,22 @@ jobs:
 
           latest_review_id="$(printf '%s' "$LATEST_REVIEW" | jq -r '.id')"
           latest_body="$(printf '%s' "$LATEST_REVIEW" | jq -r '.body')"
+
+          # The gate run that triggered us may have completed without posting a
+          # fresh review (e.g. "Skipping incremental review" because a blocking
+          # review exists, no changes since the last review, too many files, or
+          # all models failed). In those cases the latest gate-authored review
+          # predates this run, so acting on it would mean re-processing stale
+          # findings that the current run already declined to review.
+          run_created_at="${RUN_CREATED_AT:-}"
+          review_submitted_at="$(printf '%s' "$LATEST_REVIEW" | jq -r '.submitted_at')"
+          if [ -n "$run_created_at" ] && [ -n "$review_submitted_at" ] && \
+             [ "$review_submitted_at" \< "$run_created_at" ]; then
+            skip "latest gate review predates the triggering workflow run; no new review was posted"
+            exit 0
+          fi
           echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
+
           mkdir -p ci_temp
           printf '%s\n' "$latest_body" > ci_temp/latest_review.md
 
