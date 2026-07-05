@@ -72,7 +72,7 @@ on:
           - 'OpenRouter GLM-5.1'
           - 'OpenRouter MiniMax M3'
       disable_claude_code:
-        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Default: OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE / 1.'
+        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Blank → OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE / 1.'
         required: false
         type: choice
         default: '1'

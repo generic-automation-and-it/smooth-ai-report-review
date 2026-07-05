@@ -42,7 +42,7 @@ on:
           - 'OpenRouter GLM-5.1'
           - 'OpenRouter MiniMax M3'
       disable_claude_code:
-        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Avoids conflicts between opencode and Claude Code directories.'
+        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). Avoids conflicts between opencode and Claude Code directories. Dispatch always supplies 1 or 0 (the OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE Variable is unreachable on dispatch); the reusable-call input defaults to blank and falls through to the Variable.'
         required: false
         type: choice
         default: '1'
