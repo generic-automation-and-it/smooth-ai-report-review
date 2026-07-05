@@ -50,6 +50,7 @@ C4Context
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-07-05 | Removed unused `latest_review_id` guard job output (declaration, variable assignment, and `$GITHUB_OUTPUT` write) — no downstream job ever consumed it. | local |
 | 2026-07-05 | Added `OPENCODE_ANALYSE_PROVIDER` wiring for custom analyse models; `pipeline-ai-analyse.yml` now resolves analyse and review providers separately and passes provider-qualified model targets. | ai-analyse |
 | 2026-07-05 | `pipeline-ai-analyse.yml` guard now skips when the triggering gate run did not post a fresh review (blocking skip, no changes, too many files, all models failed), preventing stale findings from being re-processed as all-SKIP auto-fix runs. | local |
 | 2026-07-04 | `pipeline-ai-analyse.yml` now prefers the optional `OPENCODE_ANALYSE_GH_TOKEN` Secret for its auto-fix push and falls back to `GITHUB_TOKEN` only when that PAT is unset. | local |
