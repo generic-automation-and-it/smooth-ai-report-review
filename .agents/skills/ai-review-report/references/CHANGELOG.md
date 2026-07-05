@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-07-05 | `pipeline-ai-analyse.yml` now detects staged `.github/workflows/**` edits and reports `push_skipped` unless a working workflow-scoped `OPENCODE_ANALYSE_GH_TOKEN` can push them, instead of retrying a guaranteed-to-fail `GITHUB_TOKEN` push. | LADR-043 |
 | 2026-07-05 | Hardened downstream integration templates after smooth-llm-imposter PR #64 review: `pipeline-ai-analyse.yml` now ignores scratch/tooling paths, requires non-trivial analyse output, rebases auto-fix commits before push, caller docs forward `disable_claude_code` from the Variable fallback, and review prompts no longer count passing consistency checks as findings. | LADR-042 |
 | 2026-07-04 | `pipeline-ai-analyse.yml` now prefers the optional `OPENCODE_ANALYSE_GH_TOKEN` Secret for the auto-fix push and falls back to `GITHUB_TOKEN` only when the PAT is unset. | LADR-043 |
 | 2026-07-04 | Fixed commit-message review trigger scope: the gate now checks only the current head commit for `/ai-review`, preventing old trigger commits from forcing every later `ai-analyse` follow-up commit through a full review. | LADR-042 |

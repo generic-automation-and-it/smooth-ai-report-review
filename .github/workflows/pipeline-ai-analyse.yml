@@ -373,11 +373,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- . ':!ci_temp' ':!.context' ':!.smooth-ai-review-tools'
+          # Belt-and-suspenders: re-check the cached diff after staging so a rename
+          # or pathspec quirk cannot produce an empty commit.
           if [ -z "$(git diff --cached --name-only)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Only ignored workflow scratch/tooling paths changed; nothing to commit."
             exit 0
           fi
+          staged_workflow_paths="$(git diff --cached --name-only -- .github/workflows)"
           git commit -m "fix: apply AI review low/medium auto-fixes [ai-analyse]"
           remote_ref="refs/remotes/origin/${HEAD_REF}"
           if ! git fetch origin "+refs/heads/${HEAD_REF}:${remote_ref}" || ! git rebase "${remote_ref}"; then
@@ -398,10 +401,28 @@ jobs:
             local token="$1"
             git push "https://x-access-token:${token}@github.com/${HEAD_REPO}.git" "${push_ref}"
           }
+          skip_push() {
+            local reason="$1" message="$2"
+            echo "::warning::${message}"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "push_skipped=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=${reason}" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if [ -z "${OPENCODE_ANALYSE_GH_TOKEN:-}" ] && [ -n "$staged_workflow_paths" ]; then
+            skip_push \
+              "workflow-paths-require-pat-with-workflow-scope" \
+              "ai-analyse staged .github/workflows/** paths and cannot push them with GITHUB_TOKEN alone"
+          fi
           if [ -n "${OPENCODE_ANALYSE_GH_TOKEN:-}" ]; then
             echo "::add-mask::${OPENCODE_ANALYSE_GH_TOKEN}"
             echo "Using OPENCODE_ANALYSE_GH_TOKEN for ai-analyse push."
             if ! push_with_token "${OPENCODE_ANALYSE_GH_TOKEN}"; then
+              if [ -n "$staged_workflow_paths" ]; then
+                skip_push \
+                  "workflow-paths-require-pat-with-workflow-scope" \
+                  "ai-analyse staged .github/workflows/** paths and the configured OPENCODE_ANALYSE_GH_TOKEN could not push them"
+              fi
               echo "OPENCODE_ANALYSE_GH_TOKEN push failed; retrying with GITHUB_TOKEN."
               push_with_token "${GITHUB_TOKEN}"
             fi
@@ -429,6 +450,9 @@ jobs:
             elif [ "${PUSH_SKIPPED:-false}" = "true" ]; then
               echo "**Status:** fixes generated but not pushed"
               echo "**Reason:** ${SKIP_REASON:-push-skipped}"
+              if [ "${SKIP_REASON:-}" = "workflow-paths-require-pat-with-workflow-scope" ]; then
+                echo "**Note:** The generated fixes touched `.github/workflows/**`, which requires a PAT with workflow scope; `GITHUB_TOKEN` cannot push those paths."
+              fi
             else
               echo "**Status:** no file changes"
             fi
