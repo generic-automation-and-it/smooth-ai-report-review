@@ -131,6 +131,15 @@ harvest_var() {
     # quotes; a lone leading quote (trailing inline comment) takes up to the
     # next matching quote.
     val="${raw#*=}"
+    # Never harvest command substitutions: `export KEY=$(cat ~/.key)` in an rc
+    # file would otherwise be exported as the literal string '$(cat ~/.key)',
+    # causing a silent 401 later. The user must pre-evaluate such values.
+    case "$val" in
+      *'$('* | *'`'*)
+        echo "⚠️  $var in $rc contains a command substitution — refusing to harvest (eval not supported)" >&2
+        continue
+        ;;
+    esac
     case "$val" in
       \"*\") val="${val#\"}"; val="${val%\"}" ;;
       \'*\') val="${val#\'}"; val="${val%\'}" ;;
@@ -305,10 +314,20 @@ export PATH="${REPO_ROOT}/${WORK_DIR}/bin:$PATH"
 export GITHUB_OUTPUT="${WORK_DIR}/github_output.txt"
 touch "$GITHUB_OUTPUT"
 
-# Set mandatory context files (same as workflow env).
-# These paths are resolved against the repo being reviewed, not this skill's repo.
-# Paths that don't exist in the target repo warn-and-skip (cross-repo contract).
-export MANDATORY_CONTEXT_FILES=".docs/nfr/PROJECT_SETUP_AGENTS.md .agents/skills/code-review-standards/SKILL.md .docs/nfr/TOOL_SETUP_AGENTS.md .agents/rules-scoped/backend/testing-standards.instructions.md .agents/rules-scoped/backend/dotnet-standards.instructions.md"
+# Set mandatory context files. These resolve against the repo being reviewed.
+# Local runs default to files that exist in this skill's source repo; consumers
+# can override via the MANDATORY_CONTEXT_FILES env variable. Missing paths are
+# warned and skipped so exploratory local runs don't fail on cross-repo defaults.
+MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-AGENTS.md .agents/skills/ai-review-report/AGENTS.md}"
+_missing_ctx=()
+for _ctx in $MANDATORY_CONTEXT_FILES; do
+  [ -f "$_ctx" ] || _missing_ctx+=("$_ctx")
+done
+if [ ${#_missing_ctx[@]} -gt 0 ]; then
+  echo "⚠️  The following mandatory context files are missing and will be skipped:" >&2
+  printf '  - %s\n' "${_missing_ctx[@]}" >&2
+fi
+export MANDATORY_CONTEXT_FILES
 
 # Model chain (OPENCODE_REVIEW_REPORT_MODEL_PRIMARY/SECONDARY/ORCHESTRATOR) + provider were
 # already exported and validated above, before sourcing lib/resolve-provider.sh,
@@ -407,7 +426,7 @@ if [ ! -s ci_temp/changed_files.txt ]; then
   exit 0
 fi
 
-FILES_CHANGED=$(tr '\0' '\n' < ci_temp/changed_files.txt | grep -c . || echo 0)
+FILES_CHANGED=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" ci_temp/changed_files.txt)
 echo "  Files changed: $FILES_CHANGED"
 echo ""
 
@@ -439,7 +458,7 @@ echo ""
 
 # Recount after filtering
 if [ -s ci_temp/changed_files.txt ]; then
-  FILES_CHANGED=$(tr '\0' '\n' < ci_temp/changed_files.txt | grep -c . || echo 0)
+  FILES_CHANGED=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" ci_temp/changed_files.txt)
 else
   echo "✅ All files were excluded. Nothing to review."
   rm -rf "$WORK_DIR" ci_temp

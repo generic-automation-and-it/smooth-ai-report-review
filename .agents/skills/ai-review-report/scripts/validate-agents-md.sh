@@ -1,5 +1,12 @@
 #!/bin/bash
-set -e
+set -eo pipefail
+
+# Requires Bash >= 4 (${VAR,,}, ${VAR^^}, arrays, and read -d loops). macOS
+# ships Bash 3.2 by default, which would fail later with less useful errors.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  echo "❌ Requires Bash >= 4 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
+  exit 1
+fi
 
 # Script: validate-agents-md.sh
 # Purpose: Validate that FULL reviews include at least one documentation file with proper naming
@@ -541,7 +548,7 @@ New AGENTS.md files must include these sections:
    - Brief summary of what this documents
    - Primary value proposition
 
-All other sections (System Context, Non-Negotiables, Key Behaviors, etc.) are optional per \`.agents/rules/knowledge-conventional-contexts-quality.instructions.md\` — include only when they add value.
+All other sections (System Context, Non-Negotiables, Key Behaviors, etc.) are optional per \`.agents/skills/ai-review-report/references/knowledge-conventional-contexts-quality.instructions.md\` — include only when they add value.
 
 ### How to fix:
 1. Copy the template from \`.agents/templates/TEMPLATE_AGENTS.md\`
@@ -553,7 +560,7 @@ All other sections (System Context, Non-Negotiables, Key Behaviors, etc.) are op
   elif [ "$QUALITY_ERROR_COUNT" -gt 0 ]; then
     message="## 📋 AGENTS.md Structural Quality Issues
 
-The following **new** AGENTS.md files have quality issues per \`.agents/rules/knowledge-conventional-contexts-quality.instructions.md\`:
+The following **new** AGENTS.md files have quality issues per \`.agents/skills/ai-review-report/references/knowledge-conventional-contexts-quality.instructions.md\`:
 
 "
     for entry in "${QUALITY_ERRORS_NEW[@]}"; do
@@ -568,7 +575,7 @@ The following **new** AGENTS.md files have quality issues per \`.agents/rules/kn
 - **No \`(src: path)\` annotations** — AI agents can find files themselves
 - **No empty sections** — Omit sections entirely instead of filling with 'N/A' or 'None'
 
-See \`.agents/rules/knowledge-conventional-contexts-quality.instructions.md\` for full details.
+See \`.agents/skills/ai-review-report/references/knowledge-conventional-contexts-quality.instructions.md\` for full details.
 "
   fi
 
@@ -637,7 +644,7 @@ elif [ "$INVALID_TEMPLATE_COUNT" -gt 0 ]; then
 elif [ "$QUALITY_ERROR_COUNT" -gt 0 ]; then
   echo "❌ VALIDATION FAILED: AGENTS.md structural quality issues in new files"
   echo ""
-  echo "New AGENTS.md files must follow quality standards in .agents/rules/knowledge-conventional-contexts-quality.instructions.md"
+  echo "New AGENTS.md files must follow quality standards in .agents/skills/ai-review-report/references/knowledge-conventional-contexts-quality.instructions.md"
 
   VALIDATION_MESSAGE=$(build_validation_message)
 

@@ -40,6 +40,9 @@ echo "Last full review status: $LAST_FULL_REVIEW_STATUS"
 get_model_display_name() {
   local model_id="$1"
   case "$model_id" in
+    gemini-3.1-pro-preview)
+      echo "Gemini 3.1 Pro Preview"
+      ;;
     gemini-3-pro)
       echo "Gemini 3 Pro"
       ;;
@@ -74,6 +77,9 @@ get_provider_display_name() {
       ;;
     OPENAI)
       echo "OpenAI"
+      ;;
+    ANTHROPIC)
+      echo "Anthropic"
       ;;
     OPENCODE-GO-OPENAI)
       echo "OpenCode Go (OpenAI surface)"

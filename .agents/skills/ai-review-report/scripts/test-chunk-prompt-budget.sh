@@ -21,6 +21,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../" && pwd)"
 SOURCE_CHUNKS_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
 SOURCE_AGG_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/aggregate-reviews.sh"
 SOURCE_BALANCE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/balance-fences.sh"
+SOURCE_COUNT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -37,6 +38,7 @@ setup_repo() {
   cp "${SOURCE_CHUNKS_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
   cp "${SOURCE_AGG_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/aggregate-reviews.sh"
   cp "${SOURCE_BALANCE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/balance-fences.sh"
+  cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review

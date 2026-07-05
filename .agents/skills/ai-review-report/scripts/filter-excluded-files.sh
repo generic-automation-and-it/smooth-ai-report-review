@@ -1,5 +1,13 @@
 #!/bin/bash
-set -e
+set -eo pipefail
+
+# Requires Bash >= 4 for consistent diagnostics with the sibling runtime
+# scripts. GitHub-hosted runners satisfy this; macOS local runs should use a
+# Homebrew bash via local-review.sh.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  echo "❌ Requires Bash >= 4 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/../assets/review-config.json"
@@ -32,7 +40,7 @@ echo "$PATTERNS" | while IFS= read -r pattern; do
   echo "  - $pattern"
 done
 
-BEFORE_COUNT=$(tr '\0' '\n' < "$CHANGED_FILES" | grep -c . || echo 0)
+BEFORE_COUNT=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" "$CHANGED_FILES")
 
 > "$EXCLUDED_FILES"
 > ci_temp/changed_files_filtered.txt
@@ -62,7 +70,7 @@ done
 
 mv ci_temp/changed_files_filtered.txt "$CHANGED_FILES"
 
-AFTER_COUNT=$(tr '\0' '\n' < "$CHANGED_FILES" | grep -c . || echo 0)
+AFTER_COUNT=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" "$CHANGED_FILES")
 EXCLUDED_COUNT=$((BEFORE_COUNT - AFTER_COUNT))
 
 echo ""
