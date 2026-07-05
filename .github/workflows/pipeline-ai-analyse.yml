@@ -168,7 +168,6 @@ jobs:
 
           latest_review_id="$(printf '%s' "$LATEST_REVIEW" | jq -r '.id')"
           latest_body="$(printf '%s' "$LATEST_REVIEW" | jq -r '.body')"
-          echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
 
           # The gate run that triggered us may have completed without posting a
           # fresh review (e.g. "Skipping incremental review" because a blocking
@@ -183,6 +182,7 @@ jobs:
             skip "latest gate review predates the triggering workflow run; no new review was posted"
             exit 0
           fi
+          echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
 
           mkdir -p ci_temp
           printf '%s\n' "$latest_body" > ci_temp/latest_review.md
