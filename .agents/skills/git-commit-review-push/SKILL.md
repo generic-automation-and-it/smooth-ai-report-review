@@ -4,6 +4,7 @@ description: Commit current changes with conventional commits format, append the
 allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
+  - Bash(git log:*)
   - Bash(git push:*)
 models:
   claude: sonnet      # medium-complexity; branch rename logic and upstream tracking require broader reasoning
@@ -30,10 +31,17 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    ```
 
    Earlier chunk commits must NOT carry the trigger — only the final one.
-4. If there are no changes to commit, skip to step 5
-5. **If `--issue <number>` was passed** — rename the local branch before pushing (see Branch Rename below)
-6. Push to remote repository using `git push` (use `git push --set-upstream origin <new-branch>` if the branch was renamed)
-7. If there's nothing to commit or push, report this to the user and continue gracefully (this is not an error)
+4. After the final commit, verify that the trigger is the final non-empty line of the commit body before pushing:
+
+   ```bash
+   git log -1 --format='%b' | awk 'NF { last=$0 } END { exit last == "/ai-review" ? 0 : 1 }'
+   ```
+
+   If the check fails, amend the final commit body before pushing.
+5. If there are no changes to commit, skip to step 6
+6. **If `--issue <number>` was passed** — rename the local branch before pushing (see Branch Rename below)
+7. Push to remote repository using `git push` (use `git push --set-upstream origin <new-branch>` if the branch was renamed)
+8. If there's nothing to commit or push, report this to the user and continue gracefully (this is not an error)
 
 **Note**: This command ONLY commits and pushes. It does not create or update PRs.
 
