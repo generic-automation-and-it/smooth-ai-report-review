@@ -8,13 +8,18 @@
 #   - orchestrator:  ORCHESTRATOR     <resolved review model>   ""
 # An empty model slot is skipped, so a two-tier chain just leaves fb2 empty.
 #
-# The provider is selected by OPENCODE_REVIEW_REPORT_PROVIDER (GEMINI|COPILOT|OPENAI|ANTHROPIC|
-# OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC|OPEN_ROUTER) and resolved to its opencode
-# provider-id by lib/resolve-provider.sh, which exports OPENCODE_REVIEW_REPORT_PROVIDER_ID
-# (gemini / github-copilot / openai / go-openai / go-anthropic / openrouter). This script
-# reads that id below; it defaults to gemini when unset so a bare
-# invocation keeps the historical Gemini behavior. Credentials are read by
-# opencode itself via the {env:OPENCODE_<P>_*} placeholders in opencode.json.
+# The default provider is selected by OPENCODE_REVIEW_REPORT_PROVIDER
+# (GEMINI|COPILOT|OPENAI|ANTHROPIC|OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC|
+# OPEN_ROUTER) and resolved to its opencode provider-id by lib/resolve-provider.sh,
+# which exports OPENCODE_REVIEW_REPORT_PROVIDER_ID (gemini / github-copilot /
+# openai / anthropic / go-openai / go-anthropic / openrouter). Each model slot can
+# also be passed as an already provider-qualified target, e.g.
+# `go-openai/kimi-k2.7-code`; known provider prefixes are used as-is and all other
+# values are prefixed with the default provider. This is intentionally stricter
+# than "contains slash" so bare OpenRouter model ids like
+# `deepseek/deepseek-v4-pro` still become `openrouter/deepseek/deepseek-v4-pro`.
+# Credentials are read by opencode itself via the {env:OPENCODE_<P>_*}
+# placeholders in opencode.json.
 #
 # Optional env:
 #   OPENCODE_AGENT            Agent name to run (default: review).
@@ -44,6 +49,17 @@ PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
 
+model_target() {
+  case "$1" in
+    gemini/*|github-copilot/*|openai/*|anthropic/*|go-openai/*|go-anthropic/*|openrouter/*)
+      printf '%s' "$1"
+      ;;
+    *)
+      printf '%s/%s' "$PROVIDER" "$1"
+      ;;
+  esac
+}
+
 run_opencode() {
   # --agent review (LADR-029): pin the locked-down `review` agent from
   #   opencode.json instead of the DEFAULT `build` agent. `review` has read/grep
@@ -70,10 +86,11 @@ run_opencode() {
   #   the next model in the chain instead of returning a hollow "success" that
   #   short-circuits the fallback. Whatever little came back is echoed to stderr
   #   for diagnostics. Reviews are a few KB, so buffering in a var is safe.
-  local _out
+  local _out _target
+  _target="$(model_target "$1")"
   _out=$(opencode run \
     --agent "${OPENCODE_AGENT}" \
-    --model "${PROVIDER}/$1" \
+    --model "${_target}" \
     --format default \
     --log-level WARN \
     < "$prompt_file") || return 1
