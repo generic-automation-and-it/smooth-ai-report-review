@@ -11,7 +11,7 @@ GitHub Actions here are the product surface for the review gate, eval canary, an
 - `pipeline-ai-analyse.yml` is name-coupled to `pipeline-code-review-report.yml`: `workflow_run.workflows` must equal the gate's `name: OpenCode Review Report`. A gate rename requires an analyse workflow edit and an actionlint pass in the same commit.
 - Do not add `workflow_call` as a runtime `github.event_name` branch. In called workflows, the `github` context is the caller event context, so PR-triggered callers still see `pull_request`.
 - Keep `model_preset` changes atomic across provider selection, provider-id selection, all three model-tier expressions, and the reusable caller template.
-- API keys stay GitHub Secrets; provider selector, model ids, configurable gateway URLs, and review-gate behavior toggles stay GitHub Variables. OpenCode Go and OpenRouter use fixed public base URLs and only expose API keys.
+- API keys stay GitHub Secrets; provider selector, model ids, configurable gateway URLs, and review-gate behavior toggles stay GitHub Variables. `OPENCODE_ANALYSE_PROVIDER` is required only when `OPENCODE_ANALYSE_MODEL` is set; otherwise analyse inherits the review provider/model. OpenCode Go and OpenRouter use fixed public base URLs and only expose API keys.
 - The eval harness makes real paid model calls. Keep it off `pull_request`; only manual dispatch and the path-filtered post-merge canary should run it.
 - The npm publish workflow must not gain a `paths:` filter. Non-tag publishes depend on `GITHUB_RUN_NUMBER`; semver tag publishes must keep checked-in package metadata unchanged.
 
