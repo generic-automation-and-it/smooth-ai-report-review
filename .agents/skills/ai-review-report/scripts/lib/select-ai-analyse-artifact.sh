@@ -27,6 +27,9 @@ pr_number="${2:-}"
 max_incremental="${3:-3}"
 body_out_path="${4:-}"
 
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
 if [ -z "$repo" ] || [ -z "$pr_number" ]; then
   echo "usage: $0 <owner/repo> <pr_number> [max_incremental] [body_out_path]" >&2
   exit 64
@@ -48,18 +51,20 @@ fetch_paginated() {
   printf '%s' "$result"
 }
 
-reviews_json="$(fetch_paginated "repos/${repo}/pulls/${pr_number}/reviews")"
-comments_json="$(fetch_paginated "repos/${repo}/issues/${pr_number}/comments")"
+reviews_file="$tmp_dir/reviews.json"
+comments_file="$tmp_dir/comments.json"
+fetch_paginated "repos/${repo}/pulls/${pr_number}/reviews" > "$reviews_file"
+fetch_paginated "repos/${repo}/issues/${pr_number}/comments" > "$comments_file"
 
 # Normalize both sources into a single timeline. Reviews use .submitted_at,
 # issue comments use .created_at. Keep only github-actions[bot] entries.
 timeline="$(jq -n \
-  --argjson reviews "$reviews_json" \
-  --argjson comments "$comments_json" \
+  --slurpfile reviews "$reviews_file" \
+  --slurpfile comments "$comments_file" \
   '
     [
-      ($reviews[]? | {ts: .submitted_at, id: (.id | tostring), source: "review", author: .user.login, body: .body}),
-      ($comments[]? | {ts: .created_at, id: (.id | tostring), source: "comment", author: .user.login, body: .body})
+      (($reviews[0] // [])[]? | {ts: .submitted_at, id: (.id | tostring), source: "review", author: .user.login, body: .body}),
+      (($comments[0] // [])[]? | {ts: .created_at, id: (.id | tostring), source: "comment", author: .user.login, body: .body})
     ]
     | map(select(.author == "github-actions[bot]" and .body != null))
     | sort_by(.ts)
@@ -71,12 +76,17 @@ timeline="$(jq -n \
 # non-actionable cycle artifacts posted by the gate's blocked-incremental path.
 classified="$(printf '%s' "$timeline" | jq '
   map(. + {
+    is_gate_report: (
+      (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
+    ),
     is_actionable: (
-      (.body | test("## 🔍 Issues Summary"))
+      (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
+      and (.body | test("## 🔍 Issues Summary"))
     ),
     is_skip_incremental: (
-      (.body | test("Skipping[^\\n]*INCREMENTAL[^\\n]*review"; "i"))
-      or (.body | test("Existing blocking review"))
+      (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
+      and (.body | test("Skipping[^\\n]*INCREMENTAL[^\\n]*review"; "i"))
+      and (.body | test("Existing blocking review"))
     )
   })
 ')"
@@ -107,7 +117,7 @@ emit() {
 }
 
 if [ -z "$latest" ]; then
-  emit false "no gate-authored OpenCode review found" "" "" 0 "$max_incremental" "" ""
+  emit false "no gate-authored OpenCode review found" "" "" 0 "" ""
   exit 0
 fi
 
@@ -135,12 +145,12 @@ count_incrementals() {
 incremental_count="$(count_incrementals)"
 
 if [ "$is_skip" = "true" ]; then
-  emit false "latest gate artifact is a skip-incremental comment" "$latest_id" "$latest_source" "$incremental_count" "$max_incremental" "" "$latest_ts"
+  emit false "latest gate artifact is a skip-incremental comment" "$latest_id" "$latest_source" "$incremental_count" "" "$latest_ts"
   exit 0
 fi
 
 if [ "$incremental_count" -gt "$max_incremental" ]; then
-  emit false "incremental cycle cap exceeded" "$latest_id" "$latest_source" "$incremental_count" "$max_incremental" "" "$latest_ts"
+  emit false "incremental cycle cap exceeded" "$latest_id" "$latest_source" "$incremental_count" "" "$latest_ts"
   exit 0
 fi
 
@@ -150,4 +160,4 @@ if [ -n "$body_out_path" ]; then
   printf '%s\n' "$latest_body" > "$body_out_path"
 fi
 
-emit true "" "$latest_id" "$latest_source" "$incremental_count" "$max_incremental" "$body_out_path" "$latest_ts"
+emit true "" "$latest_id" "$latest_source" "$incremental_count" "$body_out_path" "$latest_ts"

@@ -83,12 +83,14 @@ cat > "$TMP_DIR/reviews.json" <<'EOF'
 EOF
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 100, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
+  {"id": 100, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
 check_json "Test 3: skip-incremental comment skips" ".act" "false" "$result"
 check_json "Test 3: skip reason" ".skip_reason" "latest gate artifact is a skip-incremental comment" "$result"
+check_json "Test 3: skip artifact timestamp" ".artifact_ts" "2026-01-02T00:00:00Z" "$result"
+check_json "Test 3: skip body path empty" ".body_path // empty" "" "$result"
 
 # Test 4: multiple issue-comment artifacts count until latest full
 cat > "$TMP_DIR/reviews.json" <<'EOF'
@@ -98,9 +100,9 @@ cat > "$TMP_DIR/reviews.json" <<'EOF'
 EOF
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 103, "created_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."},
+  {"id": 103, "created_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1236`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."},
   {"id": 102, "created_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
-  {"id": 101, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
+  {"id": 101, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1235`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
@@ -119,6 +121,7 @@ echo '[]' > "$TMP_DIR/comments.json"
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "1" "$BODY_OUT")"
 check_json "Test 5: cap exceeded" ".act" "false" "$result"
 check_json "Test 5: cap reason" ".skip_reason" "incremental cycle cap exceeded" "$result"
+check_json "Test 5: cap body path empty" ".body_path // empty" "" "$result"
 
 # Test 6: pagination - multiple arrays from gh api --paginate still see newest artifact
 cat > "$TMP_DIR/reviews.json" <<'EOF'
@@ -129,6 +132,24 @@ echo '[]' > "$TMP_DIR/comments.json"
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
 check_json "Test 6: pagination sees newest artifact" ".act" "true" "$result"
 check_json "Test 6: pagination selects latest id" ".artifact_id" "2" "$result"
+
+# Test 7: non-gate bot comments with Issues Summary are ignored
+echo '[]' > "$TMP_DIR/reviews.json"
+cat > "$TMP_DIR/comments.json" <<'EOF'
+[
+  {"id": 200, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## Other automation\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- unrelated"}
+]
+EOF
+result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
+check_json "Test 7: non-gate Issues Summary ignored" ".act" "false" "$result"
+check_json "Test 7: no bogus body path" ".body_path // empty" "" "$result"
+
+# Test 8: no artifacts returns no body path
+echo '[]' > "$TMP_DIR/reviews.json"
+echo '[]' > "$TMP_DIR/comments.json"
+result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
+check_json "Test 8: no artifacts skips" ".act" "false" "$result"
+check_json "Test 8: no artifacts body path empty" ".body_path // empty" "" "$result"
 
 echo ""
 echo "=========================================="
