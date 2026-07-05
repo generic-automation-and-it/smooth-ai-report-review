@@ -4,13 +4,33 @@
     "name": "generic-automation-and-it"
   },
   "metadata": {
-    "description": "Marketplace for the smooth-ai-review plugin: AI PR code-review skills (chunked review-report pipeline, /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, git-commit-review-push)."
+    "description": "Marketplace for the smooth-ai-report-review Claude Code plugins: a core follow-up workflow plugin plus optional ai-review-report and ai-analyse installs."
   },
   "plugins": [
     {
       "name": "smooth-ai-review",
       "source": "./",
-      "description": "AI PR code-review skills: chunked review-report pipeline, /ai-review fix/skip executor, /ai-analyse autonomous low/medium fixer, and git-commit-review-push."
+      "description": "Core follow-up skills: ai-review fix/skip executor and git-commit-review-push. Install this by default; ai-review-report and ai-analyse are separate optional plugins.",
+      "skills": [
+        "./.agents/skills/ai-review",
+        "./.agents/skills/git-commit-review-push"
+      ]
+    },
+    {
+      "name": "smooth-ai-review-report",
+      "source": "./",
+      "description": "Optional ai-review-report skill: the chunked review generator and local driver for the CI gate.",
+      "skills": [
+        "./.agents/skills/ai-review-report"
+      ]
+    },
+    {
+      "name": "smooth-ai-analyse",
+      "source": "./",
+      "description": "Optional ai-analyse skill: the autonomous low/medium fixer for gate-authored findings.",
+      "skills": [
+        "./.agents/skills/ai-analyse"
+      ]
     }
   ]
 }
