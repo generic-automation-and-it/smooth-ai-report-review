@@ -43,10 +43,10 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    git log -1 --format='%B'
    ```
 
-   then amend the final commit body before pushing, e.g.:
+   then amend the final commit to add the trigger (preserves the subject line):
 
    ```bash
-   git commit --amend -m "<subject>" -m "/ai-review"
+   git commit --amend -m "$(git log -1 --format='%s')" -m "/ai-review"
    ```
 5. If there are no changes to commit, skip to step 6
 6. **If `--issue <number>` was passed** — rename the local branch before pushing (see Branch Rename below)
