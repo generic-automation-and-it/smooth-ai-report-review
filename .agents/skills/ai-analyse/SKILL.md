@@ -53,7 +53,7 @@ The GitHub Actions workflow invokes this skill headlessly by inlining this `SKIL
 4. Use `FIX` only when the change is mechanical, directly supported by the listed finding, and low risk.
 5. Use `SKIP` when the finding is speculative, already addressed, unclear, requires product judgment, would require broader refactoring, or touches Critical/High behavior.
 
-The workflow performs deterministic commit, push, and PR comment posting after the model exits.
+The workflow performs deterministic commit, rebase/push, and PR comment posting after the model exits. If those git-owned steps hit a content conflict with the latest PR head, the workflow posts the summary and fails so a human can resolve it.
 
 ## Decision Rules
 
