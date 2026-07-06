@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-07-06 | Full review minimization now also hides previous `ai-analyse` auto-fix summary and limit-exceeded issue comments, using the same `minimizeComment(... OUTDATED)` pass as old AI reviews. Added an offline marker-regex regression test and documented that the analyse-comment markers are coupled to `pipeline-ai-analyse.yml`. | LADR-042 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` now detects staged `.github/workflows/**` edits and reports `push_skipped` unless a working workflow-scoped `OPENCODE_ANALYSE_GH_TOKEN` can push them, instead of retrying a guaranteed-to-fail `GITHUB_TOKEN` push. | LADR-042, LADR-043 |
 | 2026-07-05 | Hardened downstream integration templates after smooth-llm-imposter PR #64 review: `pipeline-ai-analyse.yml` now ignores scratch/tooling paths, requires non-trivial analyse output, rebases auto-fix commits before push, caller docs forward `disable_claude_code` from the Variable fallback, and review prompts no longer count passing consistency checks as findings. | LADR-042 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` now selects analyse scope from a paginated unified descending timeline of PR reviews and issue comments, skips when the latest gate artifact is a skip-incremental comment, and counts incremental reports plus skip comments until the latest full review. Added `select-ai-analyse-artifact.sh` regression coverage. | LADR-042 |
