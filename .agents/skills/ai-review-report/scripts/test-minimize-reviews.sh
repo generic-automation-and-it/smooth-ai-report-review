@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2016
 set -e
 
 # Test script for minimize-previous-reviews.sh
@@ -75,6 +76,39 @@ else
   else
     echo "❌ Test 4 failed: real-header match=$REAL_MATCH (want true), quoted-copy match=$QUOTE_MATCH (want false)"
     echo "   pattern: $PATTERN"
+    exit 1
+  fi
+fi
+echo ""
+
+# Test 5: ai-analyse marker regex matches owned comments but not quoted copies.
+# The pattern is extracted from the script itself so this test fails if the regex
+# drifts away from the markers posted by pipeline-ai-analyse.yml.
+echo "Test 5: ai-analyse marker regex (anchored, single-source-of-truth)"
+ANALYSE_PATTERN=$(grep -oE 'test\("[^"]*ai-analyse auto-fix[^"]*"\)' \
+  .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh \
+  | head -1 | sed -E 's/^test\("//; s/"\)$//')
+
+if [ -z "$ANALYSE_PATTERN" ]; then
+  echo "❌ Test 5 failed: could not extract ai-analyse marker regex from minimize-previous-reviews.sh"
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "⚠️  Test 5 skipped: jq not available — cannot verify regex match semantics (pattern extracted: $ANALYSE_PATTERN)"
+else
+  SUMMARY='## ai-analyse auto-fix summary'
+  LIMIT_EXCEEDED='## ai-analyse auto-fix limit exceeded'
+  QUOTED='> ## ai-analyse auto-fix summary'
+  SUMMARY_MATCH=$(printf '%s' "$SUMMARY" | jq -Rs --arg re "$ANALYSE_PATTERN" 'test($re)')
+  LIMIT_MATCH=$(printf '%s' "$LIMIT_EXCEEDED" | jq -Rs --arg re "$ANALYSE_PATTERN" 'test($re)')
+  QUOTE_MATCH=$(printf '%s' "$QUOTED" | jq -Rs --arg re "$ANALYSE_PATTERN" 'test($re)')
+
+  if [ "$SUMMARY_MATCH" = "true" ] && [ "$LIMIT_MATCH" = "true" ] && [ "$QUOTE_MATCH" = "false" ]; then
+    echo "✅ Test 5 passed: matches both ai-analyse markers, ignores a quoted copy (pattern: $ANALYSE_PATTERN)"
+  else
+    echo "❌ Test 5 failed: summary match=$SUMMARY_MATCH (want true), limit match=$LIMIT_MATCH (want true), quoted-copy match=$QUOTE_MATCH (want false)"
+    echo "   pattern: $ANALYSE_PATTERN"
     exit 1
   fi
 fi

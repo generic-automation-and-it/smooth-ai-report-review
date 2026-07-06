@@ -1,8 +1,9 @@
 #!/bin/bash
+# shellcheck disable=SC2016
 set -e
 
 # Script: minimize-previous-reviews.sh
-# Purpose: Minimize (hide) previous Gemini reviews when a new full review is posted
+# Purpose: Minimize (hide) previous AI reviews and ai-analyse summaries when a new full review is posted
 # Usage: Called from pipeline-code-review-report.yml workflow after posting a full review
 # Arguments: $1=PR_NUMBER $2=REVIEW_TYPE $3=GITHUB_REPOSITORY $4=CURRENT_REVIEW_ID (optional)
 
@@ -23,7 +24,7 @@ if [ "$REVIEW_TYPE" != "full" ]; then
 fi
 
 echo "=========================================="
-echo "Minimizing Previous AI Reviews"
+echo "Minimizing Previous AI Reviews and Analyse Summaries"
 echo "=========================================="
 echo "PR: #${PR_NUMBER}"
 echo "Review Type: ${REVIEW_TYPE}"
@@ -33,59 +34,18 @@ echo ""
 REPO_OWNER=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f1)
 REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
 
-# Get all reviews for the PR via GraphQL (filtered below by review-body marker, not author)
-REVIEWS_JSON=$(gh api graphql -f query='
-  query($owner: String!, $repo: String!, $pr_number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      pullRequest(number: $pr_number) {
-        reviews(first: 100) {
-          nodes {
-            id
-            databaseId
-            body
-          }
-        }
-      }
-    }
-  }' \
-  -f owner="${REPO_OWNER}" \
-  -f repo="${REPO_NAME}" \
-  -F pr_number="$PR_NUMBER" 2>&1) || {
-    echo "⚠️ Failed to fetch PR reviews via GraphQL — skipping minimization (non-fatal)."
-    echo "$REVIEWS_JSON"
-    exit 0
-}
-
-# Extract review Node IDs for Gemini reviews, excluding the current one
-GEMINI_REVIEW_NODE_IDS=$(echo "$REVIEWS_JSON" | jq -r \
-  --arg current_id "$CURRENT_REVIEW_ID" \
-  '.data.repository.pullRequest.reviews.nodes[] |
-   select(.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) |
-   select(if $current_id != "" then (.databaseId | tostring) != $current_id else true end) |
-   .id'
-)
-
-if [ -z "$GEMINI_REVIEW_NODE_IDS" ]; then
-  echo "✅ No previous Gemini reviews found to minimize"
-  exit 0
-fi
-
-REVIEW_COUNT=$(echo "$GEMINI_REVIEW_NODE_IDS" | wc -l | tr -d ' ')
-echo "Found ${REVIEW_COUNT} previous Gemini review(s) to minimize"
-echo ""
-
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 
-# Minimize each previous Gemini review using GraphQL mutation
-while IFS= read -r NODE_ID; do
-  if [ -z "$NODE_ID" ]; then
-    continue
-  fi
+minimize_node() {
+  local node_id="$1"
+  local label="$2"
+  local mutation_result
+  local is_minimized
 
-  echo "Minimizing review ${NODE_ID}..."
+  echo "Minimizing ${label} ${node_id}..."
 
-  MUTATION_RESULT=$(gh api graphql -f query='
+  mutation_result=$(gh api graphql -f query='
     mutation($subjectId: ID!, $classifier: ReportedContentClassifiers!) {
       minimizeComment(input: {subjectId: $subjectId, classifier: $classifier}) {
         minimizedComment {
@@ -94,29 +54,155 @@ while IFS= read -r NODE_ID; do
         }
       }
     }' \
-    -f subjectId="${NODE_ID}" \
+    -f subjectId="${node_id}" \
     -f classifier="OUTDATED" 2>&1) || {
-    echo "  ❌ Failed to minimize review ${NODE_ID}"
-    echo "  Error: $MUTATION_RESULT"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    continue
+    echo "  ❌ Failed to minimize ${label} ${node_id}"
+    echo "  Error: $mutation_result"
+    return 1
   }
 
   # Check if mutation was successful
-  IS_MINIMIZED=$(echo "$MUTATION_RESULT" | jq -r '.data.minimizeComment.minimizedComment.isMinimized' 2>/dev/null || echo "false")
+  is_minimized=$(echo "$mutation_result" | jq -r '.data.minimizeComment.minimizedComment.isMinimized' 2>/dev/null || echo "false")
 
-  if [ "$IS_MINIMIZED" = "true" ]; then
-    echo "  ✅ Successfully minimized review ${NODE_ID}"
-    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-  else
-    echo "  ⚠️ Minimize mutation returned but status unclear for ${NODE_ID}"
-    echo "  Response: $MUTATION_RESULT"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
+  if [ "$is_minimized" = "true" ]; then
+    echo "  ✅ Successfully minimized ${label} ${node_id}"
+    return 0
   fi
 
-  # Small delay to avoid rate limiting
-  sleep 0.5
-done <<< "$GEMINI_REVIEW_NODE_IDS"
+  echo "  ⚠️ Minimize mutation returned but status unclear for ${node_id}"
+  echo "  Response: $mutation_result"
+  return 1
+}
+
+minimize_previous_reviews() {
+  local reviews_json
+  local review_node_ids
+  local review_count
+  local node_id
+
+  # Get all reviews for the PR via GraphQL (filtered below by review-body marker, not author)
+  reviews_json=$(gh api graphql -f query='
+    query($owner: String!, $repo: String!, $pr_number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $pr_number) {
+          reviews(first: 100) {
+            nodes {
+              id
+              databaseId
+              body
+            }
+          }
+        }
+      }
+    }' \
+    -f owner="${REPO_OWNER}" \
+    -f repo="${REPO_NAME}" \
+    -F pr_number="$PR_NUMBER" 2>&1) || {
+    echo "⚠️ Failed to fetch PR reviews via GraphQL — skipping minimization (non-fatal)."
+    echo "$reviews_json"
+    return 0
+  }
+
+  # Extract review Node IDs for AI reviews, excluding the current one
+  review_node_ids=$(echo "$reviews_json" | jq -r \
+    --arg current_id "$CURRENT_REVIEW_ID" \
+    '.data.repository.pullRequest.reviews.nodes[]? |
+     select(.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) |
+     select(if $current_id != "" then (.databaseId | tostring) != $current_id else true end) |
+     .id'
+  )
+
+  if [ -z "$review_node_ids" ]; then
+    echo "✅ No previous AI reviews found to minimize"
+    echo ""
+    return 0
+  fi
+
+  review_count=$(echo "$review_node_ids" | wc -l | tr -d ' ')
+  echo "Found ${review_count} previous AI review(s) to minimize"
+  echo ""
+
+  while IFS= read -r node_id; do
+    if [ -z "$node_id" ]; then
+      continue
+    fi
+
+    if minimize_node "$node_id" "review"; then
+      SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+
+    # Small delay to avoid rate limiting
+    sleep 0.5
+  done <<< "$review_node_ids"
+  echo ""
+}
+
+minimize_previous_analyse_comments() {
+  local comments_json
+  local comment_node_ids
+  local comment_count
+  local node_id
+
+  # These body markers are owned by .github/workflows/pipeline-ai-analyse.yml;
+  # keep the regex in sync with its posted summary and limit-exceeded comments.
+  comments_json=$(gh api graphql -f query='
+    query($owner: String!, $repo: String!, $pr_number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $pr_number) {
+          comments(first: 100) {
+            nodes {
+              id
+              body
+            }
+          }
+        }
+      }
+    }' \
+    -f owner="${REPO_OWNER}" \
+    -f repo="${REPO_NAME}" \
+    -F pr_number="$PR_NUMBER" 2>&1) || {
+    echo "⚠️ Failed to fetch PR comments via GraphQL — skipping ai-analyse comment minimization (non-fatal)."
+    echo "$comments_json"
+    return 0
+  }
+
+  comment_node_ids=$(echo "$comments_json" | jq -r \
+    '.data.repository.pullRequest.comments.nodes[]? |
+     select(.body | test("^#+ ai-analyse auto-fix (summary|limit exceeded)")) |
+     .id'
+  )
+
+  if [ -z "$comment_node_ids" ]; then
+    echo "✅ No previous ai-analyse auto-fix comments found to minimize"
+    echo ""
+    return 0
+  fi
+
+  comment_count=$(echo "$comment_node_ids" | wc -l | tr -d ' ')
+  echo "Found ${comment_count} previous ai-analyse auto-fix comment(s) to minimize"
+  echo ""
+
+  while IFS= read -r node_id; do
+    if [ -z "$node_id" ]; then
+      continue
+    fi
+
+    if minimize_node "$node_id" "ai-analyse comment"; then
+      SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+
+    # Small delay to avoid rate limiting
+    sleep 0.5
+  done <<< "$comment_node_ids"
+  echo ""
+}
+
+minimize_previous_reviews
+minimize_previous_analyse_comments
 
 echo ""
 echo "=========================================="
