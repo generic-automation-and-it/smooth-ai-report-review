@@ -22,6 +22,7 @@ on:
         default: ''
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
   issues: write
@@ -98,6 +99,7 @@ jobs:
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
           MAX_INCREMENTAL: ${{ inputs.max_incremental || vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
           RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
 
@@ -124,8 +126,27 @@ jobs:
           # make the cap unreachable; the cap is what allows up to N auto-fix cycles
           # and a no-edit cycle ends the loop early (no push → no new review).
 
+          pr_number_from_triggering_run_logs() {
+            local run_id="$1"
+            [ -n "$run_id" ] && [ "$run_id" != "null" ] || return 0
+            gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --log 2>/dev/null |
+              awk -F '\t' '
+                $2 == "Get PR Details for Comment or Manual Trigger" ||
+                $2 == "Get PR Information" ||
+                $2 == "Post Review Comment" { print }
+              ' |
+              sed -n -E \
+                -e 's/.*PR_NUMBER="?([0-9]+)"?.*/\1/p' \
+                -e 's/.*echo "pr_number=([0-9]+)".*/\1/p' \
+                -e 's/.*gh pr review ([0-9]+).*/\1/p' |
+              head -1
+          }
+
           # Manual dispatch supplies the PR number directly; the workflow_run path
-          # falls back to payload → head-SHA lookup → head-branch lookup.
+          # falls back to payload → head-SHA lookup → head-branch lookup →
+          # triggering gate logs. The log fallback covers `/ai-review` comment
+          # runs, whose workflow_run payload points at the default branch and has
+          # an empty pull_requests array even though the gate reviewed a PR.
           PR_NUMBER="${DISPATCH_PR_NUMBER:-${PAYLOAD_PR_NUMBER:-}}"
           if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             PR_NUMBER="$(gh api -H "Accept: application/vnd.github+json" \
@@ -136,6 +157,9 @@ jobs:
             head_owner="${HEAD_REPOSITORY%%/*}"
             PR_NUMBER="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${head_owner}:${HEAD_BRANCH}" \
               --jq 'first | .number // empty' 2>/dev/null || true)"
+          fi
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            PR_NUMBER="$(pr_number_from_triggering_run_logs "${TRIGGERING_RUN_ID:-}" || true)"
           fi
 
           if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
