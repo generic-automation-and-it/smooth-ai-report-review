@@ -31,7 +31,12 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    ```
 
    Earlier chunk commits must NOT carry the trigger — only the final one.
-4. If a commit was made in step 2, verify the trigger is the final non-empty line of the commit body before pushing. Skip this check for merge commits (`git log -1 --format=%b` returns the merged-branches list, not a usable commit body) and on the no-change path (when step 5 was taken). The regex tolerates trailing whitespace / CRLF, unlike a strict string compare:
+4. If a commit was made in step 2, verify the trigger is the final non-empty line of the
+   commit body before pushing. Skip this check for merge commits — detect them via
+   `git log -1 --format=%P | wc -w` > 1 (more than one parent) or by a `Merge` subject
+   prefix — because `git log -1 --format=%b` returns the merged-branches list, not a
+   usable commit body. The outer "If a commit was made in step 2" guard already excludes
+   the no-commit path. The regex tolerates trailing whitespace / CRLF, unlike a strict string compare:
 
    ```bash
     git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*/ai-review[[:space:]]*$") ? 0 : 1 }'
