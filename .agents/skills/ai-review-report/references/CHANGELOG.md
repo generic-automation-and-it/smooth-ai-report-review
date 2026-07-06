@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-07-05 | `pipeline-ai-analyse.yml` now selects analyse scope from a paginated unified descending timeline of PR reviews and issue comments, skips when the latest gate artifact is a skip-incremental comment, and counts incremental reports plus skip comments until the latest full review. Added `select-ai-analyse-artifact.sh` regression coverage. | LADR-042 |
 | 2026-07-05 | Added `OPENCODE_ANALYSE_PROVIDER` for autonomous analyse runs with a custom `OPENCODE_ANALYSE_MODEL`. The analyse workflow now leaves `OPENCODE_ANALYSE_MODEL` empty unless explicitly configured, fails fast when a custom analyse model has no analyse provider, resolves analyse/review providers separately, passes provider-qualified model targets through `opencode-with-fallback.sh`, and keeps review-provider fallbacks valid for mixed-provider chains. Added resolver and fallback-target regression tests. | LADR-042 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` now fetches + rebases onto the latest PR head before pushing auto-fixes, soft-skips transient fetch/non-fast-forward races with a posted summary, and hard-fails only real merge conflicts after posting the summary comment. | LADR-044 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` guard skips auto-fix when the triggering gate run did not post a fresh OpenCode review (blocking skip, no changes, too many files, all models failed), avoiding stale-finding re-processing. | LADR-042 |
