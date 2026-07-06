@@ -368,13 +368,14 @@ jobs:
             echo "## Required output"
             echo ""
             echo "Edit files as needed, then print only the FIX/SKIP markdown table and a short note if no file changes were made. Do not run git."
+            echo "The table must contain only Medium and Low findings. Do not add a row (neither FIX nor SKIP) for any Critical or High finding — omit them entirely, even if they appear in Suggested Fixes."
           } > ci_temp/analyse_prompt.md
 
       - name: Run ai-analyse
         run: |
           set -euo pipefail
           export OPENCODE_AGENT=analyse
-          export OPENCODE_MIN_OUTPUT_BYTES=1
+          export OPENCODE_MIN_OUTPUT_BYTES=50
           primary_target="${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
           if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
             primary_target="${OPENCODE_ANALYSE_PROVIDER_ID}/${OPENCODE_ANALYSE_MODEL}"
@@ -396,33 +397,31 @@ jobs:
           HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain)" ]; then
+          changed_paths="$(git status --porcelain -- . ':!ci_temp' ':!.context' ':!.smooth-ai-review-tools')"
+          if [ -z "$changed_paths" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "push_skipped=false" >> "$GITHUB_OUTPUT"
-            echo "hard_fail=false" >> "$GITHUB_OUTPUT"
             echo "No file changes produced by ai-analyse."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: apply AI review low/medium auto-fixes [ai-analyse]"
-          remote_ref="refs/remotes/origin/${HEAD_REF}"
-          if ! git fetch origin "+refs/heads/${HEAD_REF}:${remote_ref}"; then
-            echo "::warning::ai-analyse could not fetch origin/${HEAD_REF}; skipping push for this cycle"
+          git add -A -- . ':!ci_temp' ':!.context' ':!.smooth-ai-review-tools'
+          # Belt-and-suspenders: re-check the cached diff after staging so a rename
+          # or pathspec quirk cannot produce an empty commit.
+          if [ -z "$(git diff --cached --name-only)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "push_skipped=true" >> "$GITHUB_OUTPUT"
-            echo "skip_reason=fetch-failure" >> "$GITHUB_OUTPUT"
-            echo "hard_fail=false" >> "$GITHUB_OUTPUT"
+            echo "Only ignored workflow scratch/tooling paths changed; nothing to commit."
             exit 0
           fi
-          if ! git rebase "${remote_ref}"; then
+          staged_workflow_paths="$(git diff --cached --name-only -- .github/workflows)"
+          git commit -m "fix: apply AI review low/medium auto-fixes [ai-analyse]"
+          remote_ref="refs/remotes/origin/${HEAD_REF}"
+          if ! git fetch origin "+refs/heads/${HEAD_REF}:${remote_ref}" || ! git rebase "${remote_ref}"; then
+            echo "::warning::ai-analyse could not rebase fixes onto origin/${HEAD_REF}; skipping push to avoid a non-fast-forward update"
             git rebase --abort >/dev/null 2>&1 || true
-            echo "::warning::ai-analyse fixes conflict with origin/${HEAD_REF}; human resolution required"
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "push_skipped=true" >> "$GITHUB_OUTPUT"
-            echo "skip_reason=merge-conflict" >> "$GITHUB_OUTPUT"
-            echo "hard_fail=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=rebase-conflict-or-fetch-failure" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Prefer a user PAT when available so the follow-up PR update is not
@@ -435,105 +434,64 @@ jobs:
             local token="$1"
             git push "https://x-access-token:${token}@github.com/${HEAD_REPO}.git" "${push_ref}"
           }
-          handle_push_failure() {
-            local output="$1"
-            printf '%s\n' "$output"
-            if printf '%s' "$output" | grep -Eqi 'non-fast-forward|fetch first|failed to push some refs|stale info'; then
-              echo "::warning::ai-analyse push was rejected because ${HEAD_REF} moved again; skipping this cycle"
-              echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "push_skipped=true" >> "$GITHUB_OUTPUT"
-              echo "skip_reason=push-rejected" >> "$GITHUB_OUTPUT"
-              echo "hard_fail=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            return 1
+          skip_push() {
+            local reason="$1" message="$2"
+            echo "::warning::${message}"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "push_skipped=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=${reason}" >> "$GITHUB_OUTPUT"
+            exit 0
           }
+          if [ -z "${OPENCODE_ANALYSE_GH_TOKEN:-}" ] && [ -n "$staged_workflow_paths" ]; then
+            skip_push \
+              "workflow-paths-require-pat-with-workflow-scope" \
+              "ai-analyse staged .github/workflows/** paths and cannot push them with GITHUB_TOKEN alone"
+          fi
           if [ -n "${OPENCODE_ANALYSE_GH_TOKEN:-}" ]; then
             echo "::add-mask::${OPENCODE_ANALYSE_GH_TOKEN}"
             echo "Using OPENCODE_ANALYSE_GH_TOKEN for ai-analyse push."
-            if ! pat_push_output="$(push_with_token "${OPENCODE_ANALYSE_GH_TOKEN}" 2>&1)"; then
-              printf '%s\n' "$pat_push_output"
-              echo "OPENCODE_ANALYSE_GH_TOKEN push failed; retrying with GITHUB_TOKEN."
-              if ! github_push_output="$(push_with_token "${GITHUB_TOKEN}" 2>&1)"; then
-                handle_push_failure "$github_push_output"
-                exit 1
+            if ! push_with_token "${OPENCODE_ANALYSE_GH_TOKEN}"; then
+              if [ -n "$staged_workflow_paths" ]; then
+                skip_push \
+                  "workflow-paths-require-pat-with-workflow-scope" \
+                  "ai-analyse staged .github/workflows/** paths and the configured OPENCODE_ANALYSE_GH_TOKEN could not push them"
               fi
-              printf '%s\n' "$github_push_output"
-            else
-              printf '%s\n' "$pat_push_output"
+              echo "OPENCODE_ANALYSE_GH_TOKEN push failed; retrying with GITHUB_TOKEN."
+              push_with_token "${GITHUB_TOKEN}"
             fi
           else
             echo "Using GITHUB_TOKEN for ai-analyse push."
-            if ! github_push_output="$(push_with_token "${GITHUB_TOKEN}" 2>&1)"; then
-              handle_push_failure "$github_push_output"
-              exit 1
-            fi
-            printf '%s\n' "$github_push_output"
+            push_with_token "${GITHUB_TOKEN}"
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "push_skipped=false" >> "$GITHUB_OUTPUT"
-          echo "hard_fail=false" >> "$GITHUB_OUTPUT"
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Post ai-analyse summary
-        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANGED: ${{ steps.commit.outputs.changed }}
           COMMIT_SHA: ${{ steps.commit.outputs.commit_sha }}
           PUSH_SKIPPED: ${{ steps.commit.outputs.push_skipped }}
           SKIP_REASON: ${{ steps.commit.outputs.skip_reason }}
-          HARD_FAIL: ${{ steps.commit.outputs.hard_fail }}
         run: |
           set -euo pipefail
-          status_text="no file changes"
-          reason_text=""
-          if [ "${CHANGED:-false}" = "true" ]; then
-            status_text="pushed fixes"
-          elif [ "${HARD_FAIL:-false}" = "true" ]; then
-            status_text="merge conflict - human resolution required"
-            reason_text="The auto-fix commit conflicted with the latest PR head and was not pushed."
-          elif [ "${PUSH_SKIPPED:-false}" = "true" ]; then
-            case "${SKIP_REASON:-}" in
-              fetch-failure)
-                status_text="push skipped"
-                reason_text="Could not fetch the latest PR head. This cycle stayed green and can be retried."
-                ;;
-              push-rejected)
-                status_text="push skipped"
-                reason_text="The PR head moved again after rebase, so the auto-fix push was skipped."
-                ;;
-              *)
-                status_text="push skipped"
-                reason_text="The auto-fix commit was not pushed."
-                ;;
-            esac
-          fi
           {
             echo "## ai-analyse auto-fix summary"
             echo ""
-            echo "**Status:** ${status_text}"
+            if [ "${CHANGED:-false}" = "true" ]; then
+              echo "**Status:** pushed fixes"
+            elif [ "${PUSH_SKIPPED:-false}" = "true" ]; then
+              echo "**Status:** fixes generated but not pushed"
+              echo "**Reason:** ${SKIP_REASON:-push-skipped}"
+              if [ "${SKIP_REASON:-}" = "workflow-paths-require-pat-with-workflow-scope" ]; then
+                echo "**Note:** The generated fixes touched `.github/workflows/**`, which requires a PAT with workflow scope; `GITHUB_TOKEN` cannot push those paths."
+              fi
+            else
+              echo "**Status:** no file changes"
+            fi
             if [ -n "${COMMIT_SHA:-}" ]; then
               echo "**Commit:** \`${COMMIT_SHA}\`"
             fi
-            if [ -n "${SKIP_REASON:-}" ]; then
-              echo "**Reason:** \`${SKIP_REASON}\`"
-            fi
-            if [ -n "${reason_text}" ]; then
-              echo ""
-              echo "${reason_text}"
-            fi
             echo ""
-            if [ -f ci_temp/analyse_out.md ]; then
-              cat ci_temp/analyse_out.md
-            else
-              echo "_No ai-analyse output was captured._"
-            fi
+            cat ci_temp/analyse_out.md
           } | "${AI_REVIEW_DIR}/scripts/copilot-review.sh" summary "$PR_NUMBER"
-
-      - name: Fail on unresolved merge conflict
-        if: steps.commit.outputs.hard_fail == 'true'
-        run: |
-          set -euo pipefail
-          echo "::error::ai-analyse fixes conflicted with the latest PR head; a human must resolve the merge conflict."
-          exit 1

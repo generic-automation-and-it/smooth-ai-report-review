@@ -178,7 +178,7 @@ check_json "Test 9: cap boundary cap reason" ".skip_reason" "incremental cycle c
 echo '[]' > "$TMP_DIR/reviews.json"
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 300, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\nSkipping INCREMENTAL review - test fixture without the 'Existing blocking review' phrase.\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
+  {"id": 300, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\nSkipping INCREMENTAL review - test fixture without the blocking-review marker.\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
