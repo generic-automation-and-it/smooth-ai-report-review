@@ -151,6 +151,39 @@ result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_D
 check_json "Test 8: no artifacts skips" ".act" "false" "$result"
 check_json "Test 8: no artifacts body path empty" ".body_path // empty" "" "$result"
 
+# Test 9: cap boundary with actionable (INCREMENTAL) latest artifact.
+# 3 INCREMENTAL + 1 FULL yields count=3. With cap=3, count==cap acts (-gt is
+# false). With cap=2, count==cap+1 skips (-gt is true). This pins the -gt
+# boundary that Test 5 (cap=1, count=2) does not cover.
+cat > "$TMP_DIR/reviews.json" <<'EOF'
+[
+  {"id": 4, "submitted_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
+  {"id": 3, "submitted_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
+  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"}
+]
+EOF
+echo '[]' > "$TMP_DIR/comments.json"
+result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
+check_json "Test 9: cap boundary count==cap acts (3 cycles with cap=3)" ".act" "true"  "$result"
+check_json "Test 9: cap boundary count==cap counts 3" ".incremental_count" "3" "$result"
+result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "2" "$BODY_OUT")"
+check_json "Test 9: cap boundary count==cap+1 skips (3 cycles with cap=2)" ".act" "false" "$result"
+check_json "Test 9: cap boundary cap reason" ".skip_reason" "incremental cycle cap exceeded" "$result"
+
+# Test 10: is_skip_incremental false-positive guard. A body with the gate
+# header and "Skipping INCREMENTAL review" but WITHOUT "Existing blocking
+# review" must NOT be treated as a skip-incremental artifact — the
+# Issues Summary makes it actionable instead.
+echo '[]' > "$TMP_DIR/reviews.json"
+cat > "$TMP_DIR/comments.json" <<'EOF'
+[
+  {"id": 300, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\nSkipping INCREMENTAL review - test fixture without the 'Existing blocking review' phrase.\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
+]
+EOF
+result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
+check_json "Test 10: comment with one skip-incremental phrase acts (no false-positive skip)" ".act" "true" "$result"
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"

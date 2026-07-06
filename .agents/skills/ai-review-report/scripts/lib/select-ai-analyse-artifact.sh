@@ -80,18 +80,16 @@ classified="$(printf '%s' "$timeline" | jq '
       (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
     ),
     is_actionable: (
-      (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
-      and (.body | test("## 🔍 Issues Summary"))
+      (.body | test("## 🔍 Issues Summary"))
     ),
     is_skip_incremental: (
-      (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
-      and (.body | test("Skipping[^\\n]*INCREMENTAL[^\\n]*review"; "i"))
+      (.body | test("Skipping[^\\n]*INCREMENTAL[^\\n]*review"; "i"))
       and (.body | test("Existing blocking review"))
     )
   })
 ')"
 
-artifacts="$(printf '%s' "$classified" | jq '[.[] | select(.is_actionable or .is_skip_incremental)]')"
+artifacts="$(printf '%s' "$classified" | jq '[.[] | select(.is_gate_report and (.is_actionable or .is_skip_incremental))]')"
 latest="$(printf '%s' "$artifacts" | jq 'first // empty')"
 
 emit() {
