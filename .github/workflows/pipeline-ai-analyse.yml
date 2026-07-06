@@ -55,7 +55,6 @@ jobs:
       medium_section: ${{ steps.guard.outputs.medium_section }}
       low_section: ${{ steps.guard.outputs.low_section }}
       suggested_fixes: ${{ steps.guard.outputs.suggested_fixes }}
-      latest_review_id: ${{ steps.guard.outputs.latest_review_id }}
     steps:
       - name: Checkout tooling source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -166,7 +165,6 @@ jobs:
             exit 0
           fi
 
-          latest_review_id="$(printf '%s' "$LATEST_REVIEW" | jq -r '.id')"
           latest_body="$(printf '%s' "$LATEST_REVIEW" | jq -r '.body')"
 
           # The gate run that triggered us may have completed without posting a
@@ -182,7 +180,6 @@ jobs:
             skip "latest gate review predates the triggering workflow run; no new review was posted"
             exit 0
           fi
-          echo "latest_review_id=${latest_review_id}" >> "$GITHUB_OUTPUT"
 
           mkdir -p ci_temp
           printf '%s\n' "$latest_body" > ci_temp/latest_review.md
