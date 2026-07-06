@@ -165,7 +165,7 @@ cat > "$TMP_DIR/reviews.json" <<'EOF'
 EOF
 echo '[]' > "$TMP_DIR/comments.json"
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
-check_json "Test 9: cap boundary count==cap acts (3 cycles with cap=3)" ".act" "true"  "$result"
+check_json "Test 9: cap boundary count==cap acts (3 cycles with cap=3)" ".act" "true" "$result"
 check_json "Test 9: cap boundary count==cap counts 3" ".incremental_count" "3" "$result"
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "2" "$BODY_OUT")"
 check_json "Test 9: cap boundary count==cap+1 skips (3 cycles with cap=2)" ".act" "false" "$result"
