@@ -34,7 +34,7 @@ Commit current changes using conventional commits format, embed the `/ai-review`
 4. If a commit was made in step 2, verify the trigger is the final non-empty line of the commit body before pushing. Skip this check for merge commits (`git log -1 --format=%b` returns the merged-branches list, not a usable commit body) and on the no-change path (when step 5 was taken). The regex tolerates trailing whitespace / CRLF, unlike a strict string compare:
 
    ```bash
-   git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*\/ai-review[[:space:]]*$") ? 0 : 1 }'
+    git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*/ai-review[[:space:]]*$") ? 0 : 1 }'
    ```
 
    If the check fails, echo the full commit message (helps diagnose missing-vs-misplaced trigger — the check passes only when `/ai-review` is the last non-empty line, optionally followed by trailing whitespace):
