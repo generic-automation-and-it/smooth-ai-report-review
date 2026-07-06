@@ -1419,8 +1419,8 @@ jobs:
         env:
           REVIEW_MODE: ${{ steps.file_types.outputs.review_mode }}
 
-      - name: Minimize Previous AI Reviews
-        # Only minimize when: has changes, full review, AND validation passed (to avoid minimizing the validation failure review)
+      - name: Minimize Previous AI Reviews & Analyse Summaries
+        # Only minimize previous reviews/analyse summaries when: has changes, full review, AND validation passed (to avoid minimizing the validation failure review)
         if: steps.pr_diff.outputs.has_changes == 'true' && steps.determine_review.outputs.review_type == 'full' && steps.validate_agents.outputs.validation_passed != 'false' && steps.initialize_opencode.outputs.all_models_failed != 'true' && steps.file_count_gate.outputs.exceeded != 'true'
         run: |
           # Minimize BEFORE posting new review to avoid race condition where new review gets minimized
