@@ -39,7 +39,13 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    the no-commit path. The regex tolerates trailing whitespace / CRLF, unlike a strict string compare:
 
    ```bash
-    git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*/ai-review[[:space:]]*$") ? 0 : 1 }'
+   # Merge commits (>1 parent, or a "Merge…" subject) have no usable %b body — skip the check entirely.
+   subject="$(git log -1 --format=%s)"
+   if [ "$(git log -1 --format=%P | wc -w)" -gt 1 ] || [[ "$subject" == Merge* ]]; then
+      echo "Merge commit detected — skipping /ai-review trigger check."
+   else
+      git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*/ai-review[[:space:]]*$") ? 0 : 1 }'
+   fi
    ```
 
    If the check fails, echo the full commit message (helps diagnose missing-vs-misplaced trigger — the check passes only when `/ai-review` is the last non-empty line, optionally followed by trailing whitespace):
