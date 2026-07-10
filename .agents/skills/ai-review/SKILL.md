@@ -10,6 +10,15 @@ description: Analyze and execute AI PR review feedback with fix/skip decisions. 
 allowed-tools:
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)
   - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh:*)
+  # Execute mode also runs deterministic GitHub/git plumbing outside the helper script:
+  # fetch the review (`gh api`), route non-Copilot results to the PR description
+  # (`gh pr edit`), and commit/push applied fixes. Mirrors the ai-analyse allowlist;
+  # `/ai-review execute` is itself the user's explicit authorization for these.
+  - Bash(gh api:*)
+  - Bash(gh pr:*)
+  - Bash(git add:*)
+  - Bash(git commit:*)
+  - Bash(git push:*)
 models:
   claude: sonnet      # medium-complexity; review analysis + code fixes across multiple files
   copilot: auto
