@@ -123,7 +123,7 @@ Examples:
 2. **Process each decision** — Apply fixes or prepare skip entries
 3. **Commit and push fixes** (only if any fixes were applied)
 4. **Route results** — post the fix/skip summary table + analysis per [Result routing](#result-routing) below
-5. **Final empty commit** — ci: /ai-review — processed review responses — **only when the processed review reported at least one 🔴 Critical or 🟠 High priority issue** (the `/ai-review` marker re-triggers a full review run, which is only warranted to re-verify critical/high findings). For reviews with only medium/low findings, do NOT make this commit — the fix commits from step 3 suffice.
+5. **Final empty commit** — **MANDATORY when any 🔴 Critical or 🟠 High priority issue appears in the review (fix OR skip) — no exceptions.** Commit message: `ci: /ai-review — processed review responses`. This empty commit re-triggers a full review run to re-verify critical/high findings. Do NOT skip this step, do NOT merge it into a fix commit, do NOT omit it because all high/critical items were skipped. For reviews with **only** medium/low findings, do NOT make this commit — the fix commits from step 3 suffice.
 6. **Report completion**
 7. **Review process improvements** (only if items were skipped)
 
@@ -154,7 +154,7 @@ The detected review source decides where the fix/skip summary table and analysis
 ## Guardrails
 
 - Never auto-execute after analyse mode
-- Only make the final `ci: /ai-review …` empty marker commit when the review had critical/high findings — never for medium/low-only reviews
+- **MANDATORY:** make the final `ci: /ai-review — processed review responses` empty commit whenever the review contains at least one 🔴 Critical or 🟠 High finding — regardless of whether those findings were fixed or skipped. Never omit this commit, never fold it into a fix commit. Only omit for medium/low-only reviews.
 - Keep fixes scoped to selected items only
 - **Copilot flow:** reply to and resolve only the threads for issues actually processed in this execute run; never resolve unrelated or human-authored threads
 - **Non-Copilot flow:** preserve existing PR AI Review Notes content (append, never overwrite)
