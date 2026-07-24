@@ -70,18 +70,35 @@ while IFS= read -r -d '' p; do tracked+=( "$p" ); done < "${scratch}/tracked"
 untracked=()
 while IFS= read -r -d '' p; do untracked+=( "$p" ); done < "${scratch}/untracked"
 
+# Restore a tracked test file to HEAD, fail-closed. The common path is a plain
+# `git checkout`. If that is obstructed — e.g. the model replaced the file with
+# a directory or symlink — remove the obstruction and retry, so the model's edit
+# still cannot survive to the commit. Only a still-failing retry aborts the step
+# (the ultimate fail-closed outcome); we never "warn and continue", which would
+# let the test edit through and defeat the guard.
+revert_tracked_test() {
+  local p="$1"
+  if git checkout HEAD -- "$p" 2>/dev/null; then
+    return 0
+  fi
+  echo "warning: could not restore '$p' via git checkout (obstructed?); removing and retrying" >&2
+  rm -rf -- "$p"
+  git checkout HEAD -- "$p"
+}
+
 reverted=()
 for p in "${tracked[@]:-}"; do
   [ -n "$p" ] || continue
   if is_test_path "$p"; then
-    git checkout HEAD -- "$p"
+    revert_tracked_test "$p"
     reverted+=( "$p" )
   fi
 done
 for p in "${untracked[@]:-}"; do
   [ -n "$p" ] || continue
   if is_test_path "$p"; then
-    rm -f "$p"
+    # -rf so an untracked test *directory* is removed too (rm -f fails on a dir).
+    rm -rf -- "$p"
     reverted+=( "$p" )
   fi
 done
