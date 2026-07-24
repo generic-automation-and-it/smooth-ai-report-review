@@ -26,6 +26,8 @@ printf 'v1\n' > app/tests/handler_test.py
 printf 'v1\n' > java/WidgetTest.java
 printf 'v1\n' > src/Latest.cs          # NOT a test (lowercase "test") — must survive
 printf 'v1\n' > vitest.config.ts
+printf 'v1\n' > src/widget.test.e2e.ts # multi-dot test filename — must be matched/reverted
+printf 'v1\n' > __tests__/deleteme_test.js # tracked test file the run will DELETE
 git add -A
 git commit -qm baseline
 
@@ -38,7 +40,8 @@ printf 'v2\n' > app/tests/handler_test.py  # test edit — revert
 printf 'v2\n' > java/WidgetTest.java   # JVM test edit — revert
 printf 'v2\n' > src/Latest.cs          # non-test edit — keep
 printf 'v2\n' > vitest.config.ts       # framework config edit — revert
-rm __tests__/deleteme_test.js 2>/dev/null || true
+printf 'v2\n' > src/widget.test.e2e.ts # multi-dot test edit — revert
+rm __tests__/deleteme_test.js          # model DELETED a tracked test — must be restored
 printf 'v2\n' > src/new_source.js      # new non-test file — keep
 printf 'v2\n' > src/brand.spec.js      # new test file — revert (delete)
 
@@ -60,6 +63,8 @@ assert_content __tests__/thing.js v1
 assert_content app/tests/handler_test.py v1
 assert_content java/WidgetTest.java v1
 assert_content vitest.config.ts v1
+assert_content src/widget.test.e2e.ts v1     # multi-dot test filename matched + reverted
+assert_content __tests__/deleteme_test.js v1  # DELETED tracked test file restored to HEAD
 assert_absent src/brand.spec.js
 # Preserved:
 assert_content src/app.js v2
@@ -67,7 +72,7 @@ assert_content src/Latest.cs v2
 assert_content src/new_source.js v2
 
 # Reverted list on stdout must name each reverted path and nothing else.
-for p in src/app.test.ts __tests__/thing.js app/tests/handler_test.py java/WidgetTest.java vitest.config.ts src/brand.spec.js; do
+for p in src/app.test.ts __tests__/thing.js app/tests/handler_test.py java/WidgetTest.java vitest.config.ts src/widget.test.e2e.ts __tests__/deleteme_test.js src/brand.spec.js; do
   printf '%s\n' "$out" | grep -qx "$p" || { echo "FAIL: '$p' missing from reverted list" >&2; exit 1; }
 done
 printf '%s\n' "$out" | grep -qx src/app.js && { echo "FAIL: non-test file listed as reverted" >&2; exit 1; }

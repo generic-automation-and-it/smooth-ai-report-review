@@ -36,7 +36,7 @@ PATHSPEC=( . ':(exclude)ci_temp' ':(exclude).context' ':(exclude).smooth-ai-revi
 # Case-insensitive matcher: test directories, JS/TS/Python test-file naming, and
 # common test-framework config/setup files.
 CI_RE='(^|/)(__tests__|__mocks__|tests?|specs?|e2e|cypress|playwright|\.storybook)/'
-CI_RE+='|\.(test|spec)\.[A-Za-z0-9]+$'
+CI_RE+='|\.(test|spec)\.[A-Za-z0-9.]+$'
 CI_RE+='|(^|/)test_[A-Za-z0-9][A-Za-z0-9_]*\.py$'
 CI_RE+='|(^|/)[A-Za-z0-9][A-Za-z0-9_.-]*_test\.[A-Za-z0-9]+$'
 CI_RE+='|(^|/)(conftest\.py|pytest\.ini|tox\.ini|phpunit\.xml(\.dist)?'
