@@ -244,6 +244,10 @@ jobs:
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
       OPENCODE_ANALYSE_PROVIDER: ${{ vars.OPENCODE_ANALYSE_PROVIDER || '' }}
       OPENCODE_ANALYSE_MODEL: ${{ vars.OPENCODE_ANALYSE_MODEL || '' }}
+      # "Test in the loop": by default the autonomous fixer must NOT edit tests
+      # or the test framework, so the suite stays an independent oracle for the
+      # fix. Set to a truthy value (1/true/yes/on) to allow test self-fixes.
+      OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX: ${{ vars.OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX || '' }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
@@ -365,6 +369,19 @@ jobs:
             echo "### Suggested Fixes"
             printf '%s\n' "${SUGGESTED_FIXES}"
             echo ""
+            case "$(printf '%s' "${OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX:-}" | tr '[:upper:]' '[:lower:]')" in
+              1|true|yes|on)
+                echo "## Test edits allowed"
+                echo ""
+                echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is enabled: you may update tests and the test framework as part of a fix."
+                ;;
+              *)
+                echo "## Tests are off-limits (test in the loop)"
+                echo ""
+                echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is NOT enabled. Do NOT edit any test file (unit, component, integration, or e2e) or any test-framework/config file. The tests must stay an independent oracle that proves your fix did not break anything. If a finding's only viable fix would require changing a test, mark it SKIP with reason \"test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)\". Any test-file edits you make anyway will be reverted before commit."
+                ;;
+            esac
+            echo ""
             echo "## Required output"
             echo ""
             echo "Edit files as needed, then print only the FIX/SKIP markdown table and a short note if no file changes were made. Do not run git."
@@ -397,6 +414,21 @@ jobs:
           HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
         run: |
           set -euo pipefail
+          # Test-in-the-loop guard: unless OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is
+          # enabled, revert any test / test-framework edit the (untrusted) model
+          # made before we stage anything, so the suite stays an independent
+          # oracle for the fix. Runs even when only tests changed, which then
+          # correctly collapses to "no file changes" below.
+          reverted_tests="$("${ANALYSE_SKILL_DIR}/scripts/lib/filter-test-self-fix.sh")"
+          if [ -n "$reverted_tests" ]; then
+            reverted_count="$(printf '%s\n' "$reverted_tests" | grep -c . || true)"
+            echo "reverted_tests_count=${reverted_count}" >> "$GITHUB_OUTPUT"
+            {
+              echo "reverted_tests<<REVERTED_TESTS_EOF"
+              printf '%s\n' "$reverted_tests"
+              echo "REVERTED_TESTS_EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
           changed_paths="$(git status --porcelain -- . ':!ci_temp' ':!.context' ':!.smooth-ai-review-tools')"
           if [ -z "$changed_paths" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -473,6 +505,8 @@ jobs:
           COMMIT_SHA: ${{ steps.commit.outputs.commit_sha }}
           PUSH_SKIPPED: ${{ steps.commit.outputs.push_skipped }}
           SKIP_REASON: ${{ steps.commit.outputs.skip_reason }}
+          REVERTED_TESTS: ${{ steps.commit.outputs.reverted_tests }}
+          REVERTED_TESTS_COUNT: ${{ steps.commit.outputs.reverted_tests_count }}
         run: |
           set -euo pipefail
           {
@@ -491,6 +525,13 @@ jobs:
             fi
             if [ -n "${COMMIT_SHA:-}" ]; then
               echo "**Commit:** \`${COMMIT_SHA}\`"
+            fi
+            if [ -n "${REVERTED_TESTS:-}" ]; then
+              echo ""
+              echo "**Reverted ${REVERTED_TESTS_COUNT:-0} test/test-framework edit(s)** (test in the loop — set the \`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX\` Variable to allow):"
+              printf '%s\n' "${REVERTED_TESTS}" | while IFS= read -r p; do
+                [ -n "$p" ] && echo "- \`${p}\`"
+              done
             fi
             echo ""
             cat ci_temp/analyse_out.md

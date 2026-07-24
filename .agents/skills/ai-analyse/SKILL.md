@@ -62,10 +62,12 @@ The workflow performs deterministic commit, rebase/push, and PR comment posting 
 - Genuine bug or logic error in a low/medium finding: `FIX`
 - Real simplification with no trade-off: `FIX`
 - Speculative / "consider" language: `SKIP`
+- A finding whose only viable fix would edit a test or the test framework, while `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is off (the default): `SKIP` with reason "test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)"
 - A Critical or High finding itself (its own priority is 🔴/🟠), even if included in suggested fixes: **omit entirely — no row, neither FIX nor SKIP**
 
 ## Guardrails
 
+- **Test in the loop.** By default (`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` unset/off) never edit a test file — unit, component, integration, or e2e — or any test-framework/config file. The suite must stay an independent oracle that proves the fix did not break anything; a self-fix that also rewrites the tests can hide its own regression. Only when `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is truthy (`1`/`true`/`yes`/`on`) may a fix update tests and the test framework. The workflow enforces this deterministically — any test-file edit made while the setting is off is reverted before commit — so treat test files as read-only rather than relying on that safety net.
 - Never touch 🔴 Critical or 🟠 High findings, and never list them in the summary table — omit them entirely (no FIX, no SKIP row).
 - Never add a `/ai-review` marker.
 - Keep every edit scoped to the supplied low/medium review text.

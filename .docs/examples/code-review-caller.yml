@@ -27,9 +27,13 @@
 # a reusable workflow caller because workflow_run must live in the repo whose gate
 # run it observes. The workflow name-couples to "OpenCode Review Report" and reads
 # OPENCODE_ANALYSE_PROVIDER / OPENCODE_ANALYSE_MODEL /
-# OPENCODE_ANALYSE_MAX_INCREMENTAL Variables and the optional
-# OPENCODE_ANALYSE_GH_TOKEN Secret. A custom analyse model requires a matching
-# analyse provider; when unset, analyse inherits the review provider/model.
+# OPENCODE_ANALYSE_MAX_INCREMENTAL / OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX
+# Variables and the optional OPENCODE_ANALYSE_GH_TOKEN Secret. A custom analyse
+# model requires a matching analyse provider; when unset, analyse inherits the
+# review provider/model.
+# Test in the loop: OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is off by default, so
+# autonomous fixes never edit tests or the test framework (such edits are
+# reverted before commit); set it truthy to allow test self-fixes.
 # Note: GITHUB_TOKEN cannot push to .github/workflows/**, so auto-fixes that touch
 # workflow files require OPENCODE_ANALYSE_GH_TOKEN or the run records push_skipped.
 
