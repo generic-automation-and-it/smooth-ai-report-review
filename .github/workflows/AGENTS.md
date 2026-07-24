@@ -43,6 +43,7 @@ C4Context
   - Floors analyse output at `OPENCODE_MIN_OUTPUT_BYTES=50` bytes (analyse output is a FIX/SKIP table, not a chunk review, so the gate's chunk-review floor does not apply).
   - Prefers the optional `OPENCODE_ANALYSE_GH_TOKEN` Secret, falls back to `GITHUB_TOKEN` for ordinary paths when that PAT is absent or rejected.
   - Emits `push_skipped=workflow-paths-require-pat-with-workflow-scope` when generated fixes touch `.github/workflows/**` without a working workflow-scoped PAT.
+  - **Test in the loop (LADR-045):** before staging, runs `${ANALYSE_SKILL_DIR}/scripts/lib/filter-test-self-fix.sh`, which reverts any test / test-framework edit the model made unless the `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` Variable is truthy. Enforcement is deterministic in the workflow because the `analyse` agent is untrusted; the prompt also carries a soft off-limits instruction and the PR summary lists reverted paths.
 - Review script resolution is two-mode: use the in-repo skill when present; otherwise fetch `generic-automation-and-it/smooth-ai-report-review` at `vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.workflow_sha || 'v1'`.
 - `MANDATORY_CONTEXT_FILES` and `AGENTS_MD_EXEMPT_PATHS` resolve against the repository being reviewed, not necessarily this repository.
 - `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` is a default-off global bypass for the full-review documentation validation gate; prefer `AGENTS_MD_EXEMPT_PATHS` for path-scoped exceptions.
@@ -55,6 +56,7 @@ C4Context
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-07-24 | `pipeline-ai-analyse.yml` no longer edits tests or the test framework by default: the Commit step reverts such edits via `ai-analyse/scripts/lib/filter-test-self-fix.sh` unless the new `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` Variable is truthy; the prompt and PR summary reflect the setting. | LADR-045 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` now downgrades workflow-path auto-fixes to `push_skipped` when no working workflow-scoped PAT is available, instead of retrying a `GITHUB_TOKEN` push GitHub will reject for `.github/workflows/**`. | local |
 | 2026-07-05 | Hardened `pipeline-ai-analyse.yml` auto-fix commits: ignore scratch/tooling paths, require non-trivial analyse output, and rebase auto-fix commits onto the branch tip before pushing. | local |
 | 2026-07-05 | Aligned `disable_claude_code` input defaults: dispatch stays `choice` with default `'1'` (always wins, Variable unreachable on dispatch); the reusable call input is now `string` with default `''` so a blank value falls through to the `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE` Variable. **Behaviour change for reusable callers** that have set `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE=0` and previously omitted the input: Claude Code is now re-enabled by default for that run. | local |

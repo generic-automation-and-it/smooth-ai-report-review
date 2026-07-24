@@ -8,6 +8,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-07-24 | "Test in the loop": `pipeline-ai-analyse.yml` no longer edits tests or the test framework by default. New `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` Variable (off by default) and deterministic reverter `ai-analyse/scripts/lib/filter-test-self-fix.sh` (+ `test-filter-test-self-fix.sh`) that restores any test/test-framework edit before commit unless the switch is truthy; the analyse prompt and PR summary reflect the setting. | LADR-045 |
 | 2026-07-06 | Full review minimization now also hides previous `ai-analyse` auto-fix summary and limit-exceeded issue comments, using the same `minimizeComment(... OUTDATED)` pass as old AI reviews. Added an offline marker-regex regression test and documented that the analyse-comment markers are coupled to `pipeline-ai-analyse.yml`. | LADR-042 |
 | 2026-07-05 | `pipeline-ai-analyse.yml` now detects staged `.github/workflows/**` edits and reports `push_skipped` unless a working workflow-scoped `OPENCODE_ANALYSE_GH_TOKEN` can push them, instead of retrying a guaranteed-to-fail `GITHUB_TOKEN` push. | LADR-042, LADR-043 |
 | 2026-07-05 | Hardened downstream integration templates after smooth-llm-imposter PR #64 review: `pipeline-ai-analyse.yml` now ignores scratch/tooling paths, requires non-trivial analyse output, rebases auto-fix commits before push, caller docs forward `disable_claude_code` from the Variable fallback, and review prompts no longer count passing consistency checks as findings. | LADR-042 |
