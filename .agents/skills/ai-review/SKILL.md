@@ -120,7 +120,7 @@ Examples:
 **Workflow:**
 
 1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) per [Review source selection](#invocation) so execute routes results correctly even when run as a standalone command
-2. **Process each decision** — Apply fixes or prepare skip entries. **⛔ Non-Copilot flow — before leaving this step, every skipped finding must have a draft bullet ready for the "Skip Areas / Known Issues" section of the PR description (see [Result routing → Non-Copilot flow](#result-routing)). The bullets, not the summary table, are what the next review round reads. A skip without a bullet is a no-op.**
+2. **Process each decision** — Apply fixes or prepare skip entries. **⛔ Non-Copilot flow — before leaving this step, every skipped finding must have a draft bullet ready for the "Skip Areas / Known Issues" section of the PR description (see [Result routing → Non-Copilot flow](#result-routing)). The bullets, not the summary table, are what the next review round reads. A skip without a bullet is a no-op. If the run is fix-only (zero `skip` decisions), skip the bullet-draft step entirely and proceed to step 3; do not fabricate an empty Skip Areas section.**
 3. **Commit and push fixes** (only if any fixes were applied)
 4. **Route results** — post the fix/skip summary table + analysis per [Result routing](#result-routing) below; for the Non-Copilot flow this step also **writes the skip bullets into the PR description** and verifies they landed
 5. **Final empty commit** — **MANDATORY when any 🔴 Critical or 🟠 High priority issue appears in the review (fix OR skip) — no exceptions.** Commit message: `ci: /ai-review — processed review responses`. This empty commit re-triggers a full review run to re-verify critical/high findings. Do NOT skip this step, do NOT merge it into a fix commit, do NOT omit it because all high/critical items were skipped. For reviews with **only** medium/low findings, do NOT make this commit — the fix commits from step 3 suffice.
@@ -160,11 +160,13 @@ Do **both** of the following, in order:
    - Locate the section. Accept any of these headings (case-insensitive): `Skip Areas / Known Issues`, `Skip Areas`, `Known Issues`, `Known Skip Areas`, `Areas to Skip`. If none exists, **create** the section with heading `## Skip Areas / Known Issues` immediately above `## AI Review Notes` (or append at the end if that section is also missing).
    - For each skipped finding, add a bullet of the form: `- <file>:<line-or-range> — <one-line issue summary> — **skip reason:** <why it's intentional>`. If a bullet for the same file+line already exists with matching content, update it rather than duplicating.
    - Write the updated body back with `gh pr edit <pr> --body "$NEW_BODY"` (or pipe via `--body-file @-`). Preserve **all** other sections verbatim.
-3. **Verify the edit landed** — immediately after `gh pr edit`, re-fetch the body and grep the skip-areas section for the new bullets:
+3. **Verify the edit landed** — immediately after `gh pr edit`, re-fetch the body, extract the Skip Areas section, and grep **that section** (not the full body — the appended fix/skip summary table contains the same `<file>:<line>` anchor and would mask a missing bullet):
    ```bash
-   gh pr view <pr> --json body -q .body | grep -F "<short anchor from a new bullet>"
+   gh pr view <pr> --json body -q .body \
+     | awk 'BEGIN{f=0} /^##[[:space:]]*(Skip Areas|Known Issues|Known Skip Areas|Areas to Skip)/{f=1; next} /^## /{f=0} f' \
+     | grep -F "**skip reason:** <one-sentence reason from the bullet>"
    ```
-   If the grep comes back empty, **this is a hard failure** — the skill has reproduced the known production bug. Retry the edit (the body fetch may have raced); do not proceed to step 6 ("Report completion") until the bullets are present in the live PR description.
+   Use the `**skip reason:** …` tail (or one full bullet line quoted verbatim) as the grep anchor — that token is unique to the new bullet format and does **not** appear in the appended summary table. If the grep comes back empty, **this is a hard failure** — the skill has reproduced the known production bug. Re-fetch the body once more to rule out a transient GitHub read-path lag; if the second fetch also lacks the bullet, re-run step 2 and re-write. Do not proceed to step 6 ("Report completion") until the bullet's `**skip reason:**` substring is present in the Skip Areas section of the live PR description.
 
 ## Guardrails
 
