@@ -584,7 +584,7 @@ This chunk contains only documentation files. Apply a documentation-focused revi
 
 1. **Factual accuracy** — Do descriptions, diagrams, and referenced file paths match the actual codebase? Are changelog entries accurate?
 2. **Template compliance** — Does the file follow the project's AGENTS.md template structure? Note: all sections except Changelog are optional — omitted sections mean they don't apply. Do NOT flag missing sections as issues.
-3. **AGENTS.md drift** — If this documentation describes code behavior, verify the described behavior matches the current implementation.
+3. **AGENTS.md drift** — If this documentation describes code behavior, verify the described behavior matches the current implementation. Cap drift findings at 🟡 Medium — never 🟠 High or 🔴 Critical (LADR-046).
 4. **Consistency** — Are naming conventions, formatting, and cross-references consistent with sibling files?
 5. **Clarity** — Is the documentation clear and actionable for its intended AI agent audience?
 
@@ -610,6 +610,7 @@ Apply the **value test** — every line must pass at least ONE:
 
 **Signal-to-noise guidelines:**
 - **Documentation PRs have inherently lower risk.** Reserve 🔴 Critical and 🟠 High for factual inaccuracies that would cause AI agents to write incorrect code. Use 🔵 Low Priority for style and formatting concerns.
+- **AGENTS.md / documentation drift is capped at 🟡 Medium** — stale-context findings (behavior described in AGENTS.md that no longer matches code) must not be flagged 🟠 High or 🔴 Critical regardless of scope (LADR-046).
 - **Do NOT flag missing optional template sections** (System Context, Quality Constraints, Migration Plans) — omission is intentional per project standards.
 EOF
   else
@@ -641,6 +642,7 @@ EOF
 - **Be precise, not pedantic.** Every issue should matter to a senior developer. Do not flag minor style preferences, subjective naming choices, or trivial formatting. 3 actionable findings > 15 nitpicks.
 - **When intent is ambiguous**, note it as 🔵 Low Priority with question framing (e.g., "Intentional? If X happens, Y could be null") rather than flagging as a definitive bug.
 - **Passing checks are not issues.** If you verify that a contract, convention, file shape, permission, diagram, or cross-file relationship is correct, mention it under positive highlights only if useful, or omit it. Do NOT list "No issue", "consistent", "verified", or "flagging only because checked" items under **Issues Found**, and do NOT assign them a severity.
+- **AGENTS.md / documentation drift is capped at 🟡 Medium** — when a PR modifies behavior described in a nearby \`*_AGENTS.md\` file but does NOT update that AGENTS.md, flag the stale documentation at Medium at most; never 🟠 High or 🔴 Critical (LADR-046).
 
 **Verification-Incomplete Suppression:**
 - If you did NOT receive a file in your review chunk (i.e., it is not listed in "Files in this chunk" above and its diff is not included below), do NOT flag test coverage, implementation concerns, or integration issues for that file at 🔴 Critical, 🟠 High, or 🟡 Medium priority. You may state that the file was not reviewed, but classify such observations at 🔵 Low Priority (informational) only.
