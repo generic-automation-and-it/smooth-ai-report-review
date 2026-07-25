@@ -315,9 +315,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
@@ -330,9 +343,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
@@ -345,9 +371,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
