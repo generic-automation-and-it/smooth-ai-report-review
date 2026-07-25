@@ -6,7 +6,7 @@ switches:
   - "`N=fix` / `N=skip` - per-issue execute decisions, for example `1=fix 2=skip`; presence auto-selects execute mode."
   - "`--source=copilot` - force GitHub Copilot agent review parsing and thread reply/resolve behavior."
   - "`--source=other` - force non-Copilot review routing through PR description AI review notes."
-description: Analyze and execute AI PR review feedback with fix/skip decisions. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description.
+description: Analyze and execute AI PR review feedback with fix/skip decisions. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description **and (MANDATORY) writes every skipped finding into the PR description's "Skip Areas / Known Issues" bullets** so the next review round does not re-raise them.
 allowed-tools:
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)
   - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh:*)
@@ -119,12 +119,12 @@ Examples:
 
 **Workflow:**
 
-1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) so execute routes results correctly even when run as a standalone command
-2. **Process each decision** — Apply fixes or prepare skip entries
+1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) per [Review source selection](#invocation) so execute routes results correctly even when run as a standalone command
+2. **Process each decision** — Apply fixes or prepare skip entries. **⛔ Non-Copilot flow — before leaving this step, every skipped finding must have a draft bullet ready for the "Skip Areas / Known Issues" section of the PR description (see [Result routing → Non-Copilot flow](#result-routing)). The bullets, not the summary table, are what the next review round reads. A skip without a bullet is a no-op.**
 3. **Commit and push fixes** (only if any fixes were applied)
-4. **Route results** — post the fix/skip summary table + analysis per [Result routing](#result-routing) below
+4. **Route results** — post the fix/skip summary table + analysis per [Result routing](#result-routing) below; for the Non-Copilot flow this step also **writes the skip bullets into the PR description** and verifies they landed
 5. **Final empty commit** — **MANDATORY when any 🔴 Critical or 🟠 High priority issue appears in the review (fix OR skip) — no exceptions.** Commit message: `ci: /ai-review — processed review responses`. This empty commit re-triggers a full review run to re-verify critical/high findings. Do NOT skip this step, do NOT merge it into a fix commit, do NOT omit it because all high/critical items were skipped. For reviews with **only** medium/low findings, do NOT make this commit — the fix commits from step 3 suffice.
-6. **Report completion**
+6. **Report completion** — only after the PR description verification in step 4 succeeded
 7. **Review process improvements** (only if items were skipped)
 
 <a id="result-routing"></a>
@@ -149,7 +149,22 @@ The detected review source decides where the fix/skip summary table and analysis
 
 **Non-Copilot flow (`--source=other` or any non-Copilot review):**
 
-- Preserve existing behavior: **append** the fix/skip summary table + responses block to the PR description's **AI Review Notes** section. Do not touch review threads.
+> **⛔ MANDATORY — THIS IS THE LOAD-BEARING STEP, NOT THE TABLE.**
+> The next review round (the chunked `ai-review-report` gate) reads the PR description's **"Skip Areas / Known Issues"** bullets to know which previously-raised findings are intentional and must not be re-flagged. **A fix/skip summary table appended on its own does NOT propagate skip decisions to the next review round** — the bullets do. If a Critical/High finding is marked `skip` but no corresponding bullet is added, the gate will raise the same finding again on the next run. This has been the failure mode in production. Treat the skip-bullets update as the primary action; the table is a secondary human-facing artifact.
+
+Do **both** of the following, in order:
+
+1. **Append the fix/skip summary table + responses block** to the PR description's **AI Review Notes** section (preserve existing content — append, never overwrite).
+2. **MANDATORY — update the "Skip Areas / Known Issues" bullets in the PR description.** For **every** `skip` decision, add (or merge into) a bullet in that section so the next review round sees it:
+   - Fetch the current PR description body: `gh pr view <pr> --json body -q .body`
+   - Locate the section. Accept any of these headings (case-insensitive): `Skip Areas / Known Issues`, `Skip Areas`, `Known Issues`, `Known Skip Areas`, `Areas to Skip`. If none exists, **create** the section with heading `## Skip Areas / Known Issues` immediately above `## AI Review Notes` (or append at the end if that section is also missing).
+   - For each skipped finding, add a bullet of the form: `- <file>:<line-or-range> — <one-line issue summary> — **skip reason:** <why it's intentional>`. If a bullet for the same file+line already exists with matching content, update it rather than duplicating.
+   - Write the updated body back with `gh pr edit <pr> --body "$NEW_BODY"` (or pipe via `--body-file @-`). Preserve **all** other sections verbatim.
+3. **Verify the edit landed** — immediately after `gh pr edit`, re-fetch the body and grep the skip-areas section for the new bullets:
+   ```bash
+   gh pr view <pr> --json body -q .body | grep -F "<short anchor from a new bullet>"
+   ```
+   If the grep comes back empty, **this is a hard failure** — the skill has reproduced the known production bug. Retry the edit (the body fetch may have raced); do not proceed to step 6 ("Report completion") until the bullets are present in the live PR description.
 
 ## Guardrails
 
@@ -158,4 +173,5 @@ The detected review source decides where the fix/skip summary table and analysis
 - Keep fixes scoped to selected items only
 - **Copilot flow:** reply to and resolve only the threads for issues actually processed in this execute run; never resolve unrelated or human-authored threads
 - **Non-Copilot flow:** preserve existing PR AI Review Notes content (append, never overwrite)
+- **⛔ Non-Copilot flow — skip-bullets obligation:** appending the fix/skip summary table is **not sufficient**. Every skipped finding **must also** appear as a bullet in the PR description's **"Skip Areas / Known Issues"** section, and the skill **must verify** the bullets are present in the live PR body before reporting completion. The next review round reads those bullets, not the table; a skip without a bullet causes the same Critical/High finding to be re-raised on the next run. If any skipped item is missing from that section after the `gh pr edit`, the run is a failure — retry the edit rather than declaring success.
 - Only suggest review-process improvements, don't apply them
