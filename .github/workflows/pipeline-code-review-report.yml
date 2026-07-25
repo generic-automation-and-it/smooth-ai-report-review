@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, claude-opus-4-8 for ANTHROPIC, deepseek-v4-pro for OPENCODE-GO-OPENAI, qwen3.7-plus for OPENCODE-GO-ANTHROPIC, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, claude-opus-4-8 for ANTHROPIC, deepseek-v4-pro/grok-4.5/glm-5.2/kimi-k3 for OPENCODE-GO-OPENAI, qwen3.7-plus/qwen3.7-max/minimax-m3 for OPENCODE-GO-ANTHROPIC, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
         required: false
         type: string
         default: ''
@@ -34,9 +34,22 @@ on:
           - 'Anthropic Claude Haiku 4.5'
           - 'OpenAI GPT-5.5'
           - 'OpenCode DeepSeek V4 Pro'
+          - 'OpenCode DeepSeek V4 Flash'
+          - 'OpenCode GLM-5.2'
           - 'OpenCode GLM-5.1'
-          - 'OpenCode MiniMax m3'
+          - 'OpenCode Grok 4.5'
+          - 'OpenCode Hy3'
+          - 'OpenCode Kimi K3'
+          - 'OpenCode Kimi K2.7 Code'
+          - 'OpenCode Kimi K2.6'
+          - 'OpenCode MiMo V2.5'
+          - 'OpenCode MiMo V2.5 Pro'
+          - 'OpenCode MiniMax M3'
+          - 'OpenCode MiniMax M2.7'
+          - 'OpenCode MiniMax M2.5'
+          - 'OpenCode Qwen3.7 Max'
           - 'OpenCode Qwen3.7 Plus'
+          - 'OpenCode Qwen3.6 Plus'
           - 'OpenRouter DeepSeek V4 Pro'
           - 'OpenRouter Qwen3.7 Plus'
           - 'OpenRouter GLM-5.1'
@@ -199,9 +212,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'ANTHROPIC') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'OPENAI') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'OPENCODE-GO-OPENAI') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'OPENCODE-GO-OPENAI') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'OPENCODE-GO-OPENAI') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'OPEN_ROUTER') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'OPEN_ROUTER') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'OPEN_ROUTER') ||
@@ -218,8 +244,8 @@ jobs:
         ${{
         ((inputs.model_preset == 'Anthropic Claude Opus 4.8' || inputs.model_preset == 'Anthropic Claude Sonnet 4.6' || inputs.model_preset == 'Anthropic Claude Haiku 4.5') && 'anthropic') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
-        ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode GLM-5.1') && 'go-openai') ||
-        ((inputs.model_preset == 'OpenCode MiniMax m3' || inputs.model_preset == 'OpenCode Qwen3.7 Plus') && 'go-anthropic') ||
+        ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'go-openai') ||
+        ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'go-anthropic') ||
         ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'openrouter') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
@@ -270,8 +296,9 @@ jobs:
       #   repo Variable; then the literal default. NOTE: the literal defaults are
       #   Gemini model IDs — correct for the default provider. For any non-GEMINI
       #   provider you MUST set these Variables (or pick a model_preset) to that
-      #   provider's models: gpt-5.5 (COPILOT/OPENAI), deepseek-v4-pro/glm-5.1
-      #   (OPENCODE-GO-OPENAI), qwen3.7-plus/minimax-m3 (OPENCODE-GO-ANTHROPIC), or
+      #   provider's models: gpt-5.5 (COPILOT/OPENAI), deepseek-v4-pro/grok-4.5/glm-5.2/kimi-k3
+      #   (OPENCODE-GO-OPENAI), qwen3.7-plus/qwen3.7-max/minimax-m3
+      #   (OPENCODE-GO-ANTHROPIC), or
       #   deepseek/deepseek-v4-pro, qwen/qwen3.7-plus, z-ai/glm-5.1 (OPEN_ROUTER —
       #   note OpenRouter slugs carry a vendor/ prefix).
       #   lib/resolve-provider.sh fails the run fast if a gemini* model leaks
@@ -280,7 +307,7 @@ jobs:
       #   - ORCHESTRATOR: cheap model for semantic grouping + aggregation + summary
       #     (LADR-022); at runtime it falls back to the resolved review model.
       # The model_preset map is repeated across the three tiers because a preset
-      # collapses all of them onto the same model; keep the twelve options in sync.
+      # collapses all of them onto the same model; keep the preset options in sync.
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: >-
         ${{
         (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
@@ -288,9 +315,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
@@ -303,9 +343,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
@@ -318,9 +371,22 @@ jobs:
         (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
         (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+        (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+        (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
         (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
-        (inputs.model_preset == 'OpenCode MiniMax m3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+        (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+        (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+        (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+        (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+        (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+        (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+        (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
         (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||

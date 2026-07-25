@@ -77,7 +77,7 @@ _rp_model_family_ok() {
       case "$_rp_lc" in
         gemini*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Gemini model. It won't resolve on the $_rp_provider gateway." ;;
         claude*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Claude model. It won't resolve on the $_rp_provider gateway." ;;
-        deepseek*|glm*|kimi*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go OpenAI-compatible surface. Use OPENCODE-GO-OPENAI for deepseek/glm/kimi models." ;;
+        deepseek*|glm*|kimi*|grok*|mimo*|hy3*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go OpenAI-compatible surface. Use OPENCODE-GO-OPENAI for deepseek/glm/kimi/grok/mimo/hy3 models." ;;
         *) ;;
       esac
       ;;
