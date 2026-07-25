@@ -152,7 +152,7 @@ The detected review source decides where the fix/skip summary table and analysis
 > **⛔ MANDATORY — THIS IS THE LOAD-BEARING STEP, NOT THE TABLE.**
 > The next review round (the chunked `ai-review-report` gate) reads the PR description's **"Skip Areas / Known Issues"** bullets to know which previously-raised findings are intentional and must not be re-flagged. **A fix/skip summary table appended on its own does NOT propagate skip decisions to the next review round** — the bullets do. If a Critical/High finding is marked `skip` but no corresponding bullet is added, the gate will raise the same finding again on the next run. This has been the failure mode in production. Treat the skip-bullets update as the primary action; the table is a secondary human-facing artifact.
 
-Do **both** of the following, in order:
+Do **all** of the following, in order:
 
 1. **Append the fix/skip summary table + responses block** to the PR description's **AI Review Notes** section (preserve existing content — append, never overwrite).
 2. **MANDATORY — update the "Skip Areas / Known Issues" bullets in the PR description.** For **every** `skip` decision, add (or merge into) a bullet in that section so the next review round sees it:
@@ -163,7 +163,7 @@ Do **both** of the following, in order:
 3. **Verify the edit landed** — immediately after `gh pr edit`, re-fetch the body, extract the Skip Areas section, and grep **that section** (not the full body — the appended fix/skip summary table contains the same `<file>:<line>` anchor and would mask a missing bullet):
    ```bash
    gh pr view <pr> --json body -q .body \
-     | awk 'BEGIN{f=0} /^##[[:space:]]*(Skip Areas|Known Issues|Known Skip Areas|Areas to Skip)/{f=1; next} /^## /{f=0} f' \
+     | awk 'BEGIN{f=0; IGNORECASE=1} /^##[[:space:]]*(Skip Areas|Known Issues|Known Skip Areas|Areas to Skip)/{f=1; next} /^## /{f=0} f' \
      | grep -F "**skip reason:** <one-sentence reason from the bullet>"
    ```
    Use the `**skip reason:** …` tail (or one full bullet line quoted verbatim) as the grep anchor — that token is unique to the new bullet format and does **not** appear in the appended summary table. If the grep comes back empty, **this is a hard failure** — the skill has reproduced the known production bug. Re-fetch the body once more to rule out a transient GitHub read-path lag; if the second fetch also lacks the bullet, re-run step 2 and re-write. Do not proceed to step 6 ("Report completion") until the bullet's `**skip reason:**` substring is present in the Skip Areas section of the live PR description.
