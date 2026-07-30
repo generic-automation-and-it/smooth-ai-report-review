@@ -128,9 +128,11 @@ export MANDATORY_CONTEXT_FILES
 AGENTS_MD_EXEMPT_PATHS="${AGENTS_MD_EXEMPT_PATHS:-.docs/release-notes}"
 export AGENTS_MD_EXEMPT_PATHS
 
-# WORK_DIR — the gate's ephemeral scratch space. The downstream scripts hardcode
-# ci_temp/ paths, so this is locked to the historical name.
-WORK_DIR="${RUN_REVIEW_WORK_DIR:-ci_temp}"
+# WORK_DIR — the gate's ephemeral scratch space. The downstream scripts
+# (review-in-chunks.sh, aggregate-reviews.sh, find-context-files.sh) hardcode
+# ci_temp/ paths directly, so this is NOT an overridable contract — it is
+# locked to the historical name.
+WORK_DIR="ci_temp"
 mkdir -p "$WORK_DIR"
 
 # GITHUB_OUTPUT — the workflow uses $GITHUB_OUTPUT for inter-step state. The
