@@ -436,9 +436,9 @@ ci_temp/
 
 # Conductor code-review-graph: workspace-local cache + generated instruction
 # file. Both are runtime artifacts and must not be committed. The instruction
-# file lives under .conductor/ (matching the .conductor/ precedent above) so
-# its location documents the intent — .github/ is reserved for
-# human-curated instructions.
+# file lives under .conductor/ to mirror the
+# `.conductor/settings.local.toml` machine-local precedent above
+# (.github/ is reserved for human-curated instructions).
 .code-review-graph/
 .conductor/code-review-graph.instruction.md
 # Also ignore the legacy .github/ location in case an older tool drops the

@@ -74,7 +74,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Ignored when "model_preset" is set. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER.'
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER.'
         required: false
         type: string
         default: ''
@@ -357,7 +357,7 @@ jobs:
           # "Do not set them independently").
           OPENCODE_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
           # Explicit REVIEW_SKILL_DIR — the script's resolve_skill_dir
-          # (run-review.sh:154-170) only recognizes three locations:
+          # (run-review.sh:159-179) only recognizes three locations:
           # $REVIEW_SKILL_DIR, `.agents/...`, or `.smooth-ai-review-tools/...`
           # — NOT `.review-tools/...` directly. Without this forward, every
           # consumer's first run fails at preflight with
@@ -366,7 +366,7 @@ jobs:
         run: bash "$REVIEW_SKILL_DIR/scripts/run-review.sh"
 
       # Mirror the reusable workflow's Post Error Comment + Clean up
-      # temporary files steps (pipeline-code-review-report.yml:452-492).
+      # temporary files steps (pipeline-code-review-report.yml:455-495).
       # Without these, a consumer whose gate fails on the first
       # `resolve_skill_dir` preflight (see #1) gets a red check with
       # no PR-side explanation and a `ci_temp/` left behind. The
