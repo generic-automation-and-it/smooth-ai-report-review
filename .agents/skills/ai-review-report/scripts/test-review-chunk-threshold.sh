@@ -165,10 +165,6 @@ EOF
     echo "❌ Could not extract MAX_CHUNK_SIZE from ${SOURCE_SCRIPT} (got: '$chunker_cap')" >&2
     exit 1
   fi
-  if [ -z "$chunker_cap" ]; then
-    echo "❌ Could not extract MAX_CHUNK_SIZE from ${SOURCE_SCRIPT}" >&2
-    exit 1
-  fi
   if [ "$fixture_diff_size" -lt $(( chunker_cap * 2 )) ]; then
     echo "❌ size-cap-overrides-low-file-count fixture is too small: ${fixture_diff_size}B diff, expected >= $(( chunker_cap * 2 ))B (2× MAX_CHUNK_SIZE=${chunker_cap})" >&2
     exit 1
