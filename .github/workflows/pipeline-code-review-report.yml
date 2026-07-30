@@ -395,10 +395,11 @@ jobs:
           # `pull_request` events: head.ref resolves the PR head.
           # `issue_comment` / `workflow_dispatch`: `github.event.pull_request` is absent,
           # so the expression falls through to `github.ref` (typically the default
-          # branch). The script's Step 6 re-fetches the actual PR head from
-          # `${head_repo}@${head_ref}` (resolved via the GitHub API from the event
-          # payload), so end-to-end correctness does NOT depend on this checkout
-          # being right for non-PR events.
+          # branch). The script's re-fetch step (the "Re-checking out PR"
+          # block guarded by `EVENT_NAME != "pull_request"`) re-fetches the
+          # actual PR head from `${head_repo}@${head_ref}` (resolved via the
+          # GitHub API from the event payload), so end-to-end correctness
+          # does NOT depend on this checkout being right for non-PR events.
           # Previously this expression fell through to
           # `steps.pr_details.outputs.head_ref` for non-`pull_request` events
           # (a real value from the now-removed `pr_details` step in the
@@ -469,7 +470,7 @@ jobs:
             # ci_temp may not exist (the failure path can fire before any
             # earlier step created it). mkdir BEFORE the heredoc open()
             # so the cat doesn't fail first under `set -e` and abort
-            # before the comment can post. PR #86 review 4820157344 #1.
+            # before the comment can post.
             mkdir -p ci_temp
             cat > ci_temp/error_comment.md <<EOF
           ## ❌ OpenCode CLI Code Review Workflow Failed
