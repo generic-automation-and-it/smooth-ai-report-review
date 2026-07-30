@@ -464,6 +464,11 @@ jobs:
             PR_NUMBER="$(jq -r 'if .pull_request then .pull_request.number elif .issue then .issue.number elif .inputs then .inputs.pr_number else "" end' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")"
           fi
           if [ -n "$PR_NUMBER" ]; then
+            # ci_temp may not exist (the failure path can fire before any
+            # earlier step created it). mkdir BEFORE the heredoc open()
+            # so the cat doesn't fail first under `set -e` and abort
+            # before the comment can post. PR #86 review 4820157344 #1.
+            mkdir -p ci_temp
             cat > ci_temp/error_comment.md <<EOF
           ## ❌ OpenCode CLI Code Review Workflow Failed
 
@@ -477,7 +482,6 @@ jobs:
           ---
           *This PR is blocked until the review issue is resolved or manual review is completed.*
           EOF
-            mkdir -p ci_temp
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi
 
