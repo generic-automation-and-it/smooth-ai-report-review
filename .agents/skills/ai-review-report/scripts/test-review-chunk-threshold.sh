@@ -143,10 +143,36 @@ EOF
   echo "two" > b.txt
   git add a.txt b.txt
   git commit -q -m "base"
-  # Generate a 200KB file (exceeds MAX_CHUNK_SIZE 100KB)
+  # Generate a 200KB file (exceeds MAX_CHUNK_SIZE 100KB). 200KB raw
+  # bytes → ~267KB base64-encoded; the test asserts the resulting diff
+  # is at least 2× MAX_CHUNK_SIZE (200KB) below so the test doesn't
+  # silently start passing for the wrong reason if either knob
+  # changes. PR #86 review 4820157344 #7.
   head -c 200000 /dev/urandom | base64 > huge.txt
   git add a.txt b.txt huge.txt
   git commit -q -m "head"
+  # Sanity-check the fixture: the resulting diff must be at least 2×
+  # the chunker cap, otherwise the regression test could silently start
+  # passing (single-chunk mode would re-assert even with 3 files).
+  local from_sha to_sha
+  from_sha="$(git rev-parse HEAD~1)"
+  to_sha="$(git rev-parse HEAD)"
+  local fixture_diff_size
+  fixture_diff_size="$(git diff "${from_sha}..${to_sha}" -- huge.txt | wc -c | tr -d ' ')"
+  local chunker_cap
+  chunker_cap="$(grep -E '^MAX_CHUNK_SIZE=' "${SOURCE_SCRIPT}" | head -1 | sed -E 's/^MAX_CHUNK_SIZE=//; s/[[:space:]].*//')"
+  if [ -z "$chunker_cap" ] || ! [[ "$chunker_cap" =~ ^[0-9]+$ ]]; then
+    echo "❌ Could not extract MAX_CHUNK_SIZE from ${SOURCE_SCRIPT} (got: '$chunker_cap')" >&2
+    exit 1
+  fi
+  if [ -z "$chunker_cap" ]; then
+    echo "❌ Could not extract MAX_CHUNK_SIZE from ${SOURCE_SCRIPT}" >&2
+    exit 1
+  fi
+  if [ "$fixture_diff_size" -lt $(( chunker_cap * 2 )) ]; then
+    echo "❌ size-cap-overrides-low-file-count fixture is too small: ${fixture_diff_size}B diff, expected >= $(( chunker_cap * 2 ))B (2× MAX_CHUNK_SIZE=${chunker_cap})" >&2
+    exit 1
+  fi
   mkdir -p ci_temp
   printf 'a.txt\0b.txt\0huge.txt\0' > ci_temp/changed_files.txt
 }
