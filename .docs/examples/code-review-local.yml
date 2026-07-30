@@ -148,12 +148,19 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR head (full history for base diff)
+      - name: Checkout PR head (or default branch for non-PR events; script re-fetches)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          # `pull_request` events: head.ref resolves the PR head.
+          # `issue_comment` / `workflow_dispatch`: `github.event.pull_request` is
+          # absent, so the expression falls through to `github.ref` (typically
+          # the default branch). The script's Step 6 re-fetches the actual PR
+          # head from `${head_repo}@${head_ref}` (resolved via the GitHub API
+          # from the event payload), so end-to-end correctness does NOT depend
+          # on this checkout being right for non-PR events.
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          repository: ${{ github.repository }}
 
       - name: Checkout smooth-ai-report-review (pinned SHA)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -259,7 +266,14 @@ jobs:
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
           OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
-          MANDATORY_CONTEXT_FILES: ${{ vars.MANDATORY_CONTEXT_FILES || 'AGENTS.md' }}
+          MANDATORY_CONTEXT_FILES: >-
+            ${{ vars.MANDATORY_CONTEXT_FILES ||
+            'AGENTS.md
+            .docs/nfr/PROJECT_SETUP_AGENTS.md
+            .agents/skills/code-review-standards/SKILL.md
+            .docs/nfr/TOOL_SETUP_AGENTS.md
+            .agents/rules-scoped/backend/testing-standards.instructions.md
+            .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
           AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
           OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
           OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}

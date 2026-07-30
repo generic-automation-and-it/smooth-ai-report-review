@@ -496,7 +496,15 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
   # `git diff` against merge-base has the right base.
   echo "Re-checking out PR #${pr_number} head (${head_repo}@${head_ref})..."
   if [ -n "${GITHUB_HEAD_REF:-}" ] && [ "$head_repo" = "${GITHUB_REPOSITORY}" ]; then
-    # Same-repo PR: actions/checkout in the calling workflow already handled it.
+    # Same-repo PR: GITHUB_HEAD_REF is set (GHA populates it for pull_request
+    # events only), confirming the calling workflow's checkout resolved the
+    # PR head. For issue_comment / workflow_dispatch GITHUB_HEAD_REF is
+    # empty so this branch is skipped and the else branch always re-fetches
+    # — that branch is the load-bearing path for non-pull_request events.
+    # PR #86 review 4820072658 finding #4: previously this comment claimed
+    # "actions/checkout in the calling workflow already handled it" without
+    # the event-type precondition, which is the entire point of why the
+    # no-op is safe.
     :
   else
     # Cross-repo (fork) PR: re-checkout via gh. Persist-credentials=false
