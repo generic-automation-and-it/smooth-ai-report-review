@@ -66,7 +66,7 @@ If your org admin has refused or stalled the request to add `generic-automation-
 ```yaml
 jobs:
   review:
-    if: /* same gating as the reusable caller */
+    if: # same gating as the reusable caller
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<sha>            # the PR
@@ -75,8 +75,18 @@ jobs:
           repository: generic-automation-and-it/smooth-ai-report-review
           ref: <pinned-sha>
           path: .review-tools
-      - run: bash .review-tools/.agents/skills/ai-review-report/scripts/run-review.sh
-        env: { /* OPENCODE_REVIEW_REPORT_PROVIDER, *_API_KEY, ... */ }
+      - name: Run review gate
+        env:
+          REVIEW_SKILL_DIR: .review-tools/.agents/skills/ai-review-report
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}     # required — bare run: shells do not auto-inject
+          # OPENCODE_REVIEW_REPORT_PROVIDER, the seven OPENCODE_*_API_KEY Secrets,
+          # the per-provider URL Variables, the 24-row model_preset mapping for
+          # MODEL_PRIMARY/SECONDARY/ORCHESTRATOR, MANDATORY_CONTEXT_FILES,
+          # AGENTS_MD_EXEMPT_PATHS, OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE,
+          # OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK, MAX_FILE_COUNT,
+          # CLI_VERSION, CONFIG. See the full env: block in
+          # .docs/examples/code-review-local.yml.
+        run: bash "$REVIEW_SKILL_DIR/scripts/run-review.sh"
 ```
 
 How it works:
