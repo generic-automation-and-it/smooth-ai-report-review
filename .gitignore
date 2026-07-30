@@ -433,3 +433,6 @@ FodyWeavers.xsd
 
 # AI review gate working directory (created at run time)
 ci_temp/
+
+# Added by code-review-graph
+.github/code-review-graph.instruction.md.code-review-graph/

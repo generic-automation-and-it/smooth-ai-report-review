@@ -148,6 +148,8 @@ jobs:
       #   AGENTS.md
       #   .docs/nfr/PROJECT_SETUP_AGENTS.md
       # agents_md_exempt_paths: '.docs/release-notes'
+      # opencode_config: .github/opencode.json   # ship your OWN opencode.json (path in YOUR repo);
+      #                                           # must keep {env:OPENCODE_*} credential placeholders
     # Explicit mapping works for same-org AND cross-org callers. Only the selected
     # provider's key needs to exist in your repo/org; unset ones resolve empty and
     # are never used. (Same-org callers may replace this whole block with
