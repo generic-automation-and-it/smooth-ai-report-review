@@ -392,8 +392,11 @@ if [ -n "$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp'
 
   if [ "$COMMITTED_CHANGES" -eq 0 ]; then
     echo "  ℹ️  No committed changes — creating temporary commit for review..."
-    # Stage all changes EXCEPT ci_temp and create a temp commit
-    git add -A -- . ':!ci_temp' ':!.context'
+    # Stage all changes EXCEPT ci_temp and create a temp commit.
+    # ci_temp is gitignored, so git add -A skips it automatically; do NOT name
+    # ':!ci_temp' as a pathspec — a gitignored path that exists on disk makes
+    # git add exit 1 ("paths are ignored"), which set -e turns into a failure.
+    git add -A -- . ':!.context'
     git commit -m "temp: local-review snapshot (will be reset)" --no-verify --quiet
     TEMP_COMMIT=true
     TO_SHA="$(git rev-parse HEAD)"

@@ -429,7 +429,12 @@ jobs:
               echo "REVERTED_TESTS_EOF"
             } >> "$GITHUB_OUTPUT"
           fi
-          changed_paths="$(git status --porcelain -- . ':!ci_temp' ':!.context' ':!.smooth-ai-review-tools')"
+          # NOTE: ci_temp is committed-gitignored (.gitignore: ci_temp/), so it
+          # never appears in `git status --porcelain` and must NOT be named as a
+          # pathspec exclude here — naming a gitignored path that exists on disk
+          # makes the sibling `git add` below exit 1 ("paths are ignored"). Only
+          # exclude the non-ignored scratch/tooling dirs.
+          changed_paths="$(git status --porcelain -- . ':!.context' ':!.smooth-ai-review-tools')"
           if [ -z "$changed_paths" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No file changes produced by ai-analyse."
@@ -437,7 +442,10 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- . ':!ci_temp' ':!.context' ':!.smooth-ai-review-tools'
+          # ci_temp is committed-gitignored; git add -A skips it automatically.
+          # Do NOT list ':!ci_temp' — a gitignored path named in a pathspec that
+          # exists on disk makes git add exit 1 under set -e (see note above).
+          git add -A -- . ':!.context' ':!.smooth-ai-review-tools'
           # Belt-and-suspenders: re-check the cached diff after staging so a rename
           # or pathspec quirk cannot produce an empty commit.
           if [ -z "$(git diff --cached --name-only)" ]; then
