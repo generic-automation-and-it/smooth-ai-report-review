@@ -164,8 +164,18 @@ jobs:
           # want to consume. The reusable-workflow's `workflow_sha` reference
           # does not exist in this packaging (there is no reusable call), so
           # pin a concrete commit SHA.
+          #
+          # IMPORTANT: the SHA MUST be a commit on `main` that contains
+          # `.agents/skills/ai-review-report/scripts/run-review.sh` — the
+          # entrypoint this step then invokes. The SHA below is the tip of
+          # the PR (#86) that introduced the entrypoint. After PR #86 merges,
+          # the merge commit becomes the new tip; bump the pin to that
+          # commit (or to a tagged release). Pinning to a pre-entrypoint
+          # commit (e.g. an earlier `v1` floating tag's tip) 404s the script
+          # and the gate fails at "No such file or directory" on the next
+          # step — flagged by an AI agent on PR #86.
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: 6de63b3ec7ca9bfa9895c5e97b69f11322c1d8d6 # v1 — bump intentionally
+          ref: c72937139e53363f051b09c64f706e7df4e38a23 # PR #86 head — bump after merge
           path: .review-tools
 
       - name: Run review gate

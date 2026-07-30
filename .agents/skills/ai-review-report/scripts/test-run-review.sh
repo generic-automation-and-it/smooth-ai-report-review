@@ -510,6 +510,43 @@ HOME="$TMP_DIR" PATH="/usr/bin:/bin" bash -c '
 ' > /tmp/opencode_path_test.out 2>&1
 check "post-install PATH update makes opencode reachable" "OK" "$(cat /tmp/opencode_path_test.out)"
 
+# 7. The local-job example (.docs/examples/code-review-local.yml) pins
+# the upstream `ref:` to a commit SHA. That SHA MUST be reachable on
+# the remote AND must contain `.agents/skills/ai-review-report/scripts/run-review.sh`
+# — the entrypoint the example invokes in the very next step. A
+# pre-entrypoint SHA 404s the script at runtime with "No such file or
+# directory". Regression from PR #86 review (an AI agent flagged that
+# the original pin 6de63b3… predates run-review.sh).
+assert_example_pin_is_valid() {
+  local file="$1"
+  local ref
+  ref="$(python3 -c "
+import yaml
+data = yaml.safe_load(open('$file'))
+for step in data['jobs']['review']['steps']:
+  if step.get('name', '').startswith('Checkout smooth-ai-report-review'):
+    print((step.get('with', {}) or {}).get('ref', ''))
+    break
+")"
+  if [ -z "$ref" ]; then
+    check "$file pins a ref:" "yes" "no"
+    return
+  fi
+  # Reject anything that isn't a 40-char hex SHA — floating tags like
+  # `v1` or branches like `main` are explicitly disallowed for this
+  # packaging (the README and the example's own comment explain why).
+  if ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+    check "$file pins a 40-char hex SHA (not a tag/branch)" "yes" "no"
+    return
+  fi
+  check "$file pins a 40-char hex SHA (not a tag/branch)" "yes" "yes"
+  # Verify the ref is reachable and contains run-review.sh.
+  local has_script
+  has_script="$(git ls-tree "$ref" -- .agents/skills/ai-review-report/scripts/run-review.sh 2>/dev/null | wc -l | tr -d ' ')"
+  check "$file ref contains run-review.sh (pin is post-entrypoint)" "1" "$has_script"
+}
+assert_example_pin_is_valid ".docs/examples/code-review-local.yml"
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="
