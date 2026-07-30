@@ -95,7 +95,7 @@ This is a unified AI development experience folder that centralizes skills and c
 - **Decision**: Remove the templating (#34): delete `.agents/hooks/`, `.agents/rules` + `.github/instructions/`, `.agents/templates/`, `.agents/config.toml`, `.agents/launch.json`, `agents-terminals.*`, and all skills except `ai-review`, `ai-review-report`, and `git-commit-review-push` (renamed from `git-commit-push`, with the commit logic inlined and the `/ai-review` full-review trigger appended to the final chunk commit).
 - **Consequences**:
   - `.agents/` now contains only the review-pipeline skills, `settings.json`, an empty `hooks.json`, and the symlink setup scripts.
-  - **Open item**: the LLM eval harness (`scripts/eval/run-evals.sh`, `.github/workflows/llm-eval-harness.yml`) still expects `.github/instructions/code-review-standards.instructions.md` as the DR-standards fixture source — relocate the standards or update the harness (tracked on #34).
+  - The LLM eval harness now carries its retired DR-standards snapshot under `scripts/eval/corpus/context/` and assembles it into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox; it no longer depends on the deleted `.github/instructions/` tree.
 
 ## 📊 Setup Instructions
 
