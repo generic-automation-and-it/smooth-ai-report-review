@@ -428,8 +428,8 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Conductor workspace-local settings (not part of the repo)
-.conductor/
+# Conductor machine-local overrides (not part of the repo)
+.conductor/settings.local.toml
 
 # AI review gate working directory (created at run time)
 ci_temp/
