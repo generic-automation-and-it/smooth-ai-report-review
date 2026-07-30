@@ -66,7 +66,10 @@ If your org admin has refused or stalled the request to add `generic-automation-
 ```yaml
 jobs:
   review:
-    if: # same gating as the reusable caller
+    # See the full gating in .docs/examples/code-review-local.yml
+    # (dependabot + draft + /ai-review on PR + OWNER/MEMBER/COLLABORATOR).
+    # This inline snippet omits the `if:` block for brevity — copy the
+    # full `if:` expression from that example rather than from here.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<sha>            # the PR
@@ -81,7 +84,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}     # required — bare run: shells do not auto-inject
           # OPENCODE_REVIEW_REPORT_PROVIDER, the seven OPENCODE_*_API_KEY Secrets,
           # the per-provider URL Variables, OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,
-          # SECONDARY,ORCHESTRATOR} (with the 24-row model_preset mapping),
+          # SECONDARY,ORCHESTRATOR} — model IDs, one per tier. The reusable
+          # caller's model_preset dropdown is not available here; set the IDs
+          # directly as Variables (see Environment variables below).
           # MANDATORY_CONTEXT_FILES, AGENTS_MD_EXEMPT_PATHS,
           # OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE,
           # OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK,
@@ -96,7 +101,7 @@ How it works:
 - **Same behaviour, two packagings.** `run-review.sh` is the gate's single source of truth. The reusable workflow's job body is now a thin wrapper around it (checkout PR head → fetch review tooling into `.smooth-ai-review-tools/` → call `run-review.sh`). The local-job caller is the same wrapper minus the wrapping — both resolve the same env-var contract and post the same reviews.
 - **`uses:` level only.** The allow-list checks `uses:` references (not the git URLs a script subsequently `git clone`s, and not action inputs). The two `actions/checkout` steps pass the allow-list; the gate's own code arrives via the second `actions/checkout`'s `ref:` (the SHA you pin) — exactly the supply-chain surface the policy is meant to govern.
 - **SHA-pin everything.** The whole point of the local-job packaging is to preserve the supply-chain guarantee. Pin both `actions/checkout@<sha>` and the upstream `ref: <pinned-sha>`. The example pins the upstream ref to a specific commit; bump it in lockstep with upstream releases you want to consume. **Do not use a floating tag (`@v1`) here** — that would defeat the point.
-- **Same config as the reusable caller.** `OPENCODE_REVIEW_REPORT_PROVIDER`, the seven `OPENCODE_*_API_KEY` Secrets, the per-provider URL Variables, the `OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}` Variables, `MANDATORY_CONTEXT_FILES`, `AGENTS_MD_EXEMPT_PATHS`, `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE`, `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK`, `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT`, `OPENCODE_REVIEW_REPORT_CLI_VERSION`, and `OPENCODE_REVIEW_REPORT_CONFIG` (LADR-047) are all set in the job `env:` block the same way as the reusable-workflow caller. The reusable-workflow `runner`, `tools_ref`, `mandatory_context_files`, `agents_md_exempt_paths`, and `opencode_config` inputs map to the same names as Variables; the local-job caller has no `inputs:` contract for them.
+- **Same config as the reusable caller.** `OPENCODE_REVIEW_REPORT_PROVIDER`, the seven `OPENCODE_*_API_KEY` Secrets, the per-provider URL Variables, the `OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}` Variables, `MANDATORY_CONTEXT_FILES`, `AGENTS_MD_EXEMPT_PATHS`, `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE`, `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK`, `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT`, `OPENCODE_REVIEW_REPORT_CLI_VERSION`, and `OPENCODE_REVIEW_REPORT_CONFIG` (LADR-047) are all set in the job `env:` block the same way as the reusable-workflow caller. The reusable-workflow `runner`, `tools_ref`, `mandatory_context_files`, `agents_md_exempt_paths`, and `opencode_config` inputs map to the same names as Variables — set the corresponding GitHub Variables (see [Environment variables](#environment-variables) for the full reference, e.g. `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK`) in your repo/org; the local-job caller has no `inputs:` contract for them.
 - **Three trigger shapes still supported.** The entrypoint reads `$GITHUB_EVENT_PATH` (a JSON payload GitHub writes automatically) rather than from expression interpolation, so `pull_request`, `issue_comment` with `/ai-review`, and `workflow_dispatch` all work the same way as in the reusable workflow.
 
 ### ⚠️ Security sign-off required
