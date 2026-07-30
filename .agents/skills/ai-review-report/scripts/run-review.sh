@@ -494,29 +494,25 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
   # consumer repo's checkout (set up by the local-job packaging, or by the
   # reusable workflow's `Checkout Code` step). We re-fetch the PR head so
   # `git diff` against merge-base has the right base.
+  #
+  # GHA only populates GITHUB_HEAD_REF for `pull_request` events — for
+  # issue_comment / workflow_dispatch it's always empty. The earlier
+  # same-repo no-op short-circuit (the inner `if [ -n
+  # "${GITHUB_HEAD_REF:-}" ]` branch) was therefore dead code: the outer
+  # `EVENT_NAME != pull_request` guard already excludes the only events
+  # where GITHUB_HEAD_REF could be set. Always re-fetch. PR #86 review
+  # 4820368853 #3 — drop the dead branch; the comment matches reality.
   echo "Re-checking out PR #${pr_number} head (${head_repo}@${head_ref})..."
-  if [ -n "${GITHUB_HEAD_REF:-}" ] && [ "$head_repo" = "${GITHUB_REPOSITORY}" ]; then
-    # Same-repo PR: GITHUB_HEAD_REF is set (GHA populates it for pull_request
-    # events only), confirming the calling workflow's checkout resolved the
-    # PR head. For issue_comment / workflow_dispatch GITHUB_HEAD_REF is
-    # empty so this branch is skipped and the else branch always re-fetches
-    # — that branch is the load-bearing path for non-pull_request events.
-    # PR #86 review 4820072658 finding #4: previously this comment claimed
-    # "actions/checkout in the calling workflow already handled it" without
-    # the event-type precondition, which is the entire point of why the
-    # no-op is safe.
-    :
-  else
-    # Cross-repo (fork) PR: re-checkout via gh. Persist-credentials=false
-    # so the head's git config does not leak the workflow's GITHUB_TOKEN.
-    git remote remove upstream 2>/dev/null || true
-    git remote add upstream "${GITHUB_SERVER_URL:-https://github.com}/${head_repo}.git"
-    git fetch upstream "${head_ref}" --depth=1 || {
-      echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
-      exit 1
-    }
-    git checkout "FETCH_HEAD" || true
-  fi
+  # Cross-repo (fork) PR or non-pull_request event: re-checkout via gh.
+  # Persist-credentials=false so the head's git config does not leak the
+  # workflow's GITHUB_TOKEN.
+  git remote remove upstream 2>/dev/null || true
+  git remote add upstream "${GITHUB_SERVER_URL:-https://github.com}/${head_repo}.git"
+  git fetch upstream "${head_ref}" --depth=1 || {
+    echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
+    exit 1
+  }
+  git checkout "FETCH_HEAD" || true
 fi
 
 # --- Step 7: Prepare `upstream` remote + post the all-models-failed review ---
