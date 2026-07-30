@@ -38,7 +38,16 @@
 #               block requests `contents: read`, `pull-requests: write`,
 #               `issues: write`, and `actions: read`).
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
-#               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
+#               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
+#               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
+#                 blank → committed default; LADR-047),
+#               OPENCODE_REVIEW_REPORT_CLI_VERSION (opencode version pin, blank → latest),
+#               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
+#               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
+#                 workflow's 6-path list — override with your repo's real context files),
+#               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
+#               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
+#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`).
 #
 # Optional autonomous low/medium fixing: copy .github/workflows/pipeline-ai-analyse.yml
 # into the consuming repo too. It cannot be a reusable workflow caller because
