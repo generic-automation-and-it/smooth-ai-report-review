@@ -412,10 +412,15 @@ jobs:
           repository: ${{ github.repository }}
 
       # ── Review-script resolution ─────────────────────────────────────────────
-      # Every script invocation below goes through $REVIEW_SKILL_DIR. The job
-      # body is a thin wrapper around scripts/run-review.sh — the same
+      # The job body is a thin wrapper around scripts/run-review.sh — the same
       # entrypoint invoked by the local-job packaging in
-      # .docs/examples/code-review-local.yml. Two sources for the skill tree:
+      # .docs/examples/code-review-local.yml. NOTE: this wrapper does NOT set
+      # or read $REVIEW_SKILL_DIR — the "Run review gate" step below dispatches
+      # directly via `[ -f ... ]` against the two paths checked out here.
+      # $REVIEW_SKILL_DIR is the script's own contract (see run-review.sh's
+      # resolve_skill_dir), used by callers like the local-job packaging that
+      # invoke run-review.sh from outside this two-path checkout shape. Two
+      # sources for the skill tree:
       # 1. Copy-installed / in-repo mode: the checked-out repo carries the skill at
       #    .agents/skills/ai-review-report (the README installer rewrites that
       #    literal when it targets a different skills dir — keep it literal here).
