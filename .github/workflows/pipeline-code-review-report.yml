@@ -70,6 +70,11 @@ on:
         options:
           - '0'
           - '1'
+      opencode_config:
+        description: 'Repo-relative path to a custom opencode.json inside the repo under review (e.g. .github/opencode.json). Blank → the built-in .agents/skills/ai-review-report/assets/opencode.json. Any override MUST keep {env:OPENCODE_*} placeholders for credentials — never commit real keys.'
+        required: false
+        type: string
+        default: ''
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
@@ -128,6 +133,11 @@ on:
         default: ''
       disable_agents_md_check:
         description: 'Disable AGENTS.md documentation validation (1=disabled, 0=enabled). Blank → OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK / 0.'
+        required: false
+        type: string
+        default: ''
+      opencode_config:
+        description: 'Repo-relative path to a custom opencode.json inside the repo under review (e.g. .github/opencode.json). Blank → OPENCODE_REVIEW_REPORT_CONFIG Variable, else the built-in .agents/skills/ai-review-report/assets/opencode.json. Any override MUST keep {env:OPENCODE_*} placeholders for credentials — never commit real keys.'
         required: false
         type: string
         default: ''
@@ -392,6 +402,16 @@ jobs:
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
         (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
         vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+      # Optional custom opencode.json source. Blank → the committed
+      # ${REVIEW_SKILL_DIR}/assets/opencode.json (the source of truth). When set,
+      # setup-opencode-config.sh installs THIS file instead (LADR-047). The value
+      # is a repo-relative path resolved against the repo under review
+      # (GITHUB_WORKSPACE) — the caller's file only exists inside its own checkout,
+      # so absolute paths are not honoured. Lets reusable-workflow callers ship a
+      # customized provider block from their own repo. The override MUST still use
+      # {env:OPENCODE_*} credential placeholders — never a committed key/URL.
+      # Precedence: opencode_config input → OPENCODE_REVIEW_REPORT_CONFIG Variable → built-in.
+      OPENCODE_REVIEW_REPORT_CONFIG: ${{ inputs.opencode_config || vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
       # Optional CLI version pin. Unset/empty means "install latest".
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       # Max changed files the gate will review. A PR larger than this is too big to

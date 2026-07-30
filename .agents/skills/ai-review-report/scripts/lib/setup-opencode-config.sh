@@ -3,6 +3,12 @@
 # (.agents/skills/ai-review-report/assets/opencode.json) into opencode's global
 # config location (~/.config/opencode/opencode.json).
 #
+# A caller may override the source via OPENCODE_REVIEW_REPORT_CONFIG (LADR-047) —
+# a repo-relative path to a custom opencode.json inside the repo under review.
+# Blank keeps the committed default. Used by reusable-workflow consumers that
+# ship a customized provider block; the override must still use {env:OPENCODE_*}
+# credential placeholders.
+#
 # Global scope (precedence 2 per opencode docs) is chosen over project scope
 # so opencode finds the gemini provider regardless of which directory
 # the review scripts are invoked from. The repo source remains the single
@@ -50,6 +56,25 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
 SRC="$REPO_ROOT/.agents/skills/ai-review-report/assets/opencode.json"
 DEST_DIR="$HOME/.config/opencode"
 DEST="$DEST_DIR/opencode.json"
+
+# Optional custom opencode.json (LADR-047). OPENCODE_REVIEW_REPORT_CONFIG lets a
+# caller ship its own provider config instead of the committed one — e.g. a
+# reusable-workflow consumer that customizes the provider block in its own repo.
+# The value is ALWAYS a path relative to the repo under review (GITHUB_WORKSPACE,
+# the workflow's CWD; falls back to the current directory outside CI). Absolute
+# paths are not honoured — the caller's file only exists inside its checkout, so a
+# leading "/" is stripped and the path is still resolved inside the repo. The
+# override MUST still keep {env:OPENCODE_*} credential placeholders — never a
+# committed key/URL.
+if [ -n "${OPENCODE_REVIEW_REPORT_CONFIG:-}" ]; then
+  REL_CONFIG="${OPENCODE_REVIEW_REPORT_CONFIG#/}"   # strip any leading slash → repo-relative
+  SRC="${GITHUB_WORKSPACE:-$PWD}/$REL_CONFIG"
+  if [ ! -f "$SRC" ]; then
+    echo "❌ Custom opencode.json (OPENCODE_REVIEW_REPORT_CONFIG=${OPENCODE_REVIEW_REPORT_CONFIG}) not found at $SRC — the path must be relative to the repo under review." >&2
+    exit 1
+  fi
+  echo "ℹ️  Using custom opencode.json source: $SRC (OPENCODE_REVIEW_REPORT_CONFIG override, repo-relative)"
+fi
 
 if [ ! -f "$SRC" ]; then
   echo "❌ opencode.json source missing at $SRC" >&2
