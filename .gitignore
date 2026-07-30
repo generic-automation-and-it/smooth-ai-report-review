@@ -434,7 +434,10 @@ FodyWeavers.xsd
 # AI review gate working directory (created at run time)
 ci_temp/
 
-# Conductor code-review-graph: workspace-local cache + generated instruction file.
-# Both are runtime artifacts and must not be committed.
+# Conductor code-review-graph: workspace-local cache + generated instruction
+# file. Both are runtime artifacts and must not be committed. The instruction
+# file lives under .conductor/ (matching the .conductor/ precedent above) so
+# its location documents the intent — .github/ is reserved for
+# human-curated instructions.
 .code-review-graph/
-.github/code-review-graph.instruction.md
+.conductor/code-review-graph.instruction.md

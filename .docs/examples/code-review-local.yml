@@ -35,8 +35,10 @@
 #               GITHUB_TOKEN is auto-injected by the runner; no explicit
 #               configuration is required, but the repo must allow the
 #               default `GITHUB_TOKEN` permission (the gate's `permissions:`
-#               block requests `contents: read`, `pull-requests: write`,
-#               `issues: write`, and `actions: read`).
+#               block requests `contents: read`, `pull-requests: write`, and
+#               `issues: write`). The `actions: read` permission used by
+#               the analyse sibling is granted by `pipeline-ai-analyse.yml`,
+#               not the gate itself.
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
 #               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
