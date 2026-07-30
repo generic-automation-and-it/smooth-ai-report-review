@@ -64,10 +64,18 @@ DEST="$DEST_DIR/opencode.json"
 # the workflow's CWD; falls back to the current directory outside CI). Absolute
 # paths are not honoured — the caller's file only exists inside its checkout, so a
 # leading "/" is stripped and the path is still resolved inside the repo. The
-# override MUST still keep {env:OPENCODE_*} credential placeholders — never a
+# override MUST NOT contain ".." segments (rejected below) so a malicious or
+# malformed value cannot escape the checkout and read arbitrary host files; it
+# MUST also still keep {env:OPENCODE_*} credential placeholders — never a
 # committed key/URL.
 if [ -n "${OPENCODE_REVIEW_REPORT_CONFIG:-}" ]; then
   REL_CONFIG="${OPENCODE_REVIEW_REPORT_CONFIG#/}"   # strip any leading slash → repo-relative
+  case "$REL_CONFIG" in
+    *..*)
+      echo "❌ OPENCODE_REVIEW_REPORT_CONFIG='${OPENCODE_REVIEW_REPORT_CONFIG}' contains a '..' segment; the override must stay inside the repo under review." >&2
+      exit 1
+      ;;
+  esac
   SRC="${GITHUB_WORKSPACE:-$PWD}/$REL_CONFIG"
   if [ ! -f "$SRC" ]; then
     echo "❌ Custom opencode.json (OPENCODE_REVIEW_REPORT_CONFIG=${OPENCODE_REVIEW_REPORT_CONFIG}) not found at $SRC — the path must be relative to the repo under review." >&2
