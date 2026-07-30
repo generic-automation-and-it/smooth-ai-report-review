@@ -556,7 +556,6 @@ EOF
   gh pr review "${pr_number}" \
     --request-changes \
     --body-file "$WORK_DIR/all_models_failed_review.md"
-  # Save cache (best-effort; no-op when GITHUB_PATH is unset).
   exit 0
 fi
 
