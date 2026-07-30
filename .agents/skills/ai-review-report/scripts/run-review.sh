@@ -68,6 +68,11 @@
 #   REVIEWER_INPUT  [unset] — Optional, non-secret operator input (e.g. pr_number
 #                         for workflow_dispatch). Mirrors the reusable-workflow
 #                         `pr_number` input. Must be a positive integer.
+#                         Precedence: when set, REVIEWER_INPUT is authoritative
+#                         for `workflow_dispatch` callers. When unset (or for
+#                         `pull_request` / `issue_comment` events), the script
+#                         reads `pr_number` from the `$GITHUB_EVENT_PATH` JSON
+#                         payload's `.pull_request.number` or `.issue.number`.
 
 set -euo pipefail
 
@@ -512,7 +517,10 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
     echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
     exit 1
   }
-  git checkout "FETCH_HEAD" || true
+  git checkout "FETCH_HEAD" || {
+    echo "❌ Failed to checkout FETCH_HEAD" >&2
+    exit 1
+  }
 fi
 
 # --- Step 7: Prepare `upstream` remote + post the all-models-failed review ---
@@ -733,10 +741,8 @@ EOF
   gh pr review "${pr_number}" \
     --request-changes \
     --body-file "$WORK_DIR/too_many_files_review.md"
-  echo "file_count_exceeded=true" >> "$GITHUB_OUTPUT"
   exit 0
 fi
-echo "file_count_exceeded=false" >> "$GITHUB_OUTPUT"
 
 # --- Step 11: Skip if no changes ----------------------------------------------
 if [ "$FILES_CHANGED" -eq 0 ]; then
