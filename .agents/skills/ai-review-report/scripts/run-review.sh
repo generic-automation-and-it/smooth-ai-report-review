@@ -400,6 +400,18 @@ if [ "${install_needed:-false}" = "true" ]; then
   fi
 fi
 
+# The installer writes to $GITHUB_PATH (a GitHub Actions special: it appends
+# to PATH of SUBSEQUENT steps, not the current shell). It also appends to
+# $HOME/.bashrc, which `bash` does not re-source. The binary lives at
+# $HOME/.opencode/bin/opencode — export it explicitly so the verification
+# below (and every later `opencode` call in this script) can find it.
+# Also append to $GITHUB_PATH so a follow-up step (Post Error Comment, etc.)
+# in the same job can find opencode too.
+if [ -x "$HOME/.opencode/bin/opencode" ] && ! command -v opencode >/dev/null 2>&1; then
+  export PATH="$HOME/.opencode/bin:$PATH"
+  echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
+fi
+
 if ! command -v opencode >/dev/null 2>&1; then
   echo "❌ opencode is not on PATH after install." >&2
   exit 1

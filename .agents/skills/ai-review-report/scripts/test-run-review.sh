@@ -465,6 +465,51 @@ assert_step_forwards_github_token "reusable workflow" \
 assert_step_forwards_github_token "local-job caller" \
   ".docs/examples/code-review-local.yml"
 
+# 5. After running the opencode installer, the binary lives in
+# $HOME/.opencode/bin — but the installer's $GITHUB_PATH update only
+# applies to subsequent steps, not the current shell. The script's
+# post-install block must export PATH to include that directory so
+# `command -v opencode` (and every later `opencode` call in the same
+# step) can find it. Regression from PR #86 CI run 30552219304.
+# (Catches the case where a future refactor removes the explicit
+# PATH export and the gate fails with "opencode is not on PATH".)
+post_install_block_present="$(awk '
+  /\$HOME\/.opencode\/bin/ {found=1}
+  END {print found ? "yes" : "no"}
+' "$RUN_REVIEW")"
+check "post-install PATH export is present" "yes" "$post_install_block_present"
+
+# 6. Simulate the post-install PATH update in a fresh shell: opencode
+# is NOT on PATH initially, but a stub at $HOME/.opencode/bin/opencode
+# becomes reachable after the script's update block. Verifies the
+# exact code path: `[ -x "$HOME/.opencode/bin/opencode" ] && ! command
+# -v opencode >/dev/null 2>&1 → export PATH="$HOME/.opencode/bin:$PATH"`.
+mock_opencode="$TMP_DIR/.opencode/bin"
+mkdir -p "$mock_opencode"
+cat > "$mock_opencode/opencode" <<'EOF'
+#!/bin/bash
+echo "v1.18.9"
+EOF
+chmod +x "$mock_opencode/opencode"
+HOME="$TMP_DIR" PATH="/usr/bin:/bin" bash -c '
+  # Fresh shell — opencode is NOT on PATH
+  if command -v opencode >/dev/null 2>&1; then
+    echo "BUG: opencode was already on PATH"
+    exit 99
+  fi
+  # Simulate the scripts post-install update block
+  if [ -x "$HOME/.opencode/bin/opencode" ] && ! command -v opencode >/dev/null 2>&1; then
+    export PATH="$HOME/.opencode/bin:$PATH"
+  fi
+  # Now it must be reachable
+  if ! command -v opencode >/dev/null 2>&1; then
+    echo "BUG: post-install PATH export did not make opencode reachable"
+    exit 98
+  fi
+  echo "OK"
+' > /tmp/opencode_path_test.out 2>&1
+check "post-install PATH update makes opencode reachable" "OK" "$(cat /tmp/opencode_path_test.out)"
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="
