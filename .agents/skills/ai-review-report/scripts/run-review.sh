@@ -690,12 +690,13 @@ fi
 if [ -s "$WORK_DIR/changed_files.txt" ]; then
   case "$review_type" in
     incremental)
-      tr '\0' '\n' < "$WORK_DIR/changed_files.txt" \
-        | xargs -0 -I {} git diff "${from_sha}..${head_sha}" -- {} > "$WORK_DIR/pr_diff.txt" 2>/dev/null || true
-      # Fallback to a different xargs form when -I {} is rejected by the runner's xargs.
-      if [ ! -s "$WORK_DIR/pr_diff.txt" ]; then
-        xargs -0 -a "$WORK_DIR/changed_files.txt" git diff "${from_sha}..${head_sha}" -- > "$WORK_DIR/pr_diff.txt" 2>/dev/null || true
-      fi
+      # changed_files.txt is null-delimited. Read it via xargs -0 (which
+      # knows how to handle NUL separators) — using `tr '\0' '\n' | xargs -0`
+      # would lose the NUL boundaries because xargs -0 expects NULs on its
+      # input and tr's output is newline-delimited. The `git diff` runs in
+      # a single invocation with all files as args; xargs -0 splits the
+      # file list into argument-sized batches.
+      xargs -0 -a "$WORK_DIR/changed_files.txt" git diff "${from_sha}..${head_sha}" -- > "$WORK_DIR/pr_diff.txt" 2>/dev/null || true
       ;;
     *)
       xargs -0 -a "$WORK_DIR/changed_files.txt" git diff "${MERGE_BASE_FOR_DIFF}..${head_sha}" -- > "$WORK_DIR/pr_diff.txt" 2>/dev/null || true
