@@ -510,7 +510,30 @@ HOME="$TMP_DIR" PATH="/usr/bin:/bin" bash -c '
 ' > /tmp/opencode_path_test.out 2>&1
 check "post-install PATH update makes opencode reachable" "OK" "$(cat /tmp/opencode_path_test.out)"
 
-# 7a. Both caller templates' Checkout steps must use the simplified
+# ── YAML-level tests (PR #86 review 4820157344 #15 + #16) ─────────────────
+# Gate on python3 (needed for the YAML parser) and on non-shallow git
+# history (the `git ls-tree $ref` test needs the ref in local objects).
+# On a hardened self-hosted runner without python3 the YAML tests
+# would fail opaquely with "python3: command not found"; on a shallow
+# clone the `git ls-tree` would fail with "not a tree object" rather
+# than a clear "ref unreachable in local history" message. The
+# unit-level tests above (env-var precedence, event-payload parser,
+# GITHUB_TOKEN preflight, post-install PATH) don't need either
+# guard, so they're fine to run anywhere.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo ""
+  echo "=========================================="
+  echo "Skipping YAML-level tests (no python3)"
+  echo "=========================================="
+  echo "  ⚠️  python3 not available; YAML-level tests skipped (PR #86 #15)"
+elif ! git rev-parse --quiet --verify HEAD >/dev/null 2>&1; then
+  echo ""
+  echo "=========================================="
+  echo "Skipping YAML-level tests (not a git repo)"
+  echo "=========================================="
+  echo "  ⚠️  HEAD not a commit; YAML-level tests skipped"
+else
+  # 7a. Both caller templates' Checkout steps must use the simplified
 # ref: / repository: expression shape — drop the dead `&& head.sha`
 # clause and the head.repo fall-through (PR #86 review 4820072658
 # findings #2 and #5). The simplification also makes the two
@@ -620,12 +643,21 @@ for step in data['jobs']['review']['steps']:
     return
   fi
   check "$file pins a 40-char hex SHA (not a tag/branch)" "yes" "yes"
-  # Verify the ref is reachable and contains run-review.sh.
+  # Verify the ref is reachable and contains run-review.sh. On a shallow
+  # clone the ref may not be in local history; in that case skip with a
+  # clear message rather than fail with "not a tree object" (PR #86 #16).
+  if ! git cat-file -e "$ref" 2>/dev/null; then
+    echo "  ⚠️  $file ref $ref not in local history (shallow clone?);"
+    echo "      ref-contains-run-review.sh test skipped"
+    return
+  fi
   local has_script
   has_script="$(git ls-tree "$ref" -- .agents/skills/ai-review-report/scripts/run-review.sh 2>/dev/null | wc -l | tr -d ' ')"
   check "$file ref contains run-review.sh (pin is post-entrypoint)" "1" "$has_script"
 }
 assert_example_pin_is_valid ".docs/examples/code-review-local.yml"
+fi
+# ── End YAML-level tests gate ─────────────────────────────────────────────
 
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
