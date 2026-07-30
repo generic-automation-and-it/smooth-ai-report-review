@@ -286,4 +286,17 @@ jobs:
           AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
           OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
           OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
-        run: bash .review-tools/.agents/skills/ai-review-report/scripts/run-review.sh
+          # Mirror the reusable workflow's lockstep forward — see
+          # `pipeline-code-review-report.yml:388-389`. The two are always
+          # set to the same expression so a future maintainer can't update
+          # one without the other (workflows/AGENTS.md Non-Negotiable:
+          # "Do not set them independently").
+          OPENCODE_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+          # Explicit REVIEW_SKILL_DIR — the script's resolve_skill_dir
+          # (run-review.sh:154-170) only recognizes three locations:
+          # $REVIEW_SKILL_DIR, `.agents/...`, or `.smooth-ai-review-tools/...`
+          # — NOT `.review-tools/...` directly. Without this forward, every
+          # consumer's first run fails at preflight with
+          # `❌ Could not locate REVIEW_SKILL_DIR`. PR #86 review 4820368853 #1.
+          REVIEW_SKILL_DIR: .review-tools/.agents/skills/ai-review-report
+        run: bash "$REVIEW_SKILL_DIR/scripts/run-review.sh"
