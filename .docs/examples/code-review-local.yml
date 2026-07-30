@@ -1,0 +1,412 @@
+# Local-job packaging for smooth-ai-report-review.
+#
+# Copy this file into your repo as .github/workflows/pipeline-code-review-report.yml
+# (any name works). The job's only `uses:` entries are `actions/checkout` — already
+# allow-listed by every org using `allowed_actions: "selected"` and `github_owned_allowed: true`
+# — and it checks out the upstream tooling repo at a pinned SHA, then invokes the
+# same `run-review.sh` entrypoint that the reusable-workflow packaging uses.
+#
+# ⚠️  WHEN TO USE THIS — read the README "Local-job packaging" section first.
+#   Use this packaging ONLY when your org's `allowed_actions: "selected"` allow-list
+#   blocks a cross-org reusable-workflow call (the consumer's `generic-automation-and-it`
+#   is not on the allow-list, and the org admin has refused or stalled the request
+#   to add it). SHA pinning satisfies `sha_pinning_required: true` for both the
+#   `uses:` steps and the upstream-repo `ref:` below, so the `uses:`-level checks
+#   pass. The script payload that runs is the SAME third-party code the policy was
+#   meant to gate — technically compliant, but contrary to its intent. The consumer
+#   MUST get security sign-off from the org/enterprise admin before adopting this
+#   packaging. If the admin can add `generic-automation-and-it/smooth-ai-report-review@*`
+#   to the allow-list, prefer the reusable-workflow caller (.docs/examples/code-review-caller.yml)
+#   — it is the path the policy was designed to govern and is materially easier to
+#   audit.
+#
+# Versioning: pin BOTH the workflow actions (e.g. actions/checkout@<sha>) AND the
+# upstream ref below. The floating major tag (`@v1`) is NOT safe here — the
+# whole point of SHA-pinning the upstream checkout is to preserve the guarantee
+# the policy is after. Update the `ref:` below in lockstep with upstream
+# releases you want to consume.
+#
+# Configuration (set in YOUR repo/org):
+#   Secrets   — the selected provider's API key, canonical names:
+#               OPENCODE_GEMINI_API_KEY / OPENCODE_COPILOT_API_KEY /
+#               OPENCODE_OPENAI_API_KEY / OPENCODE_ANTHROPIC_API_KEY /
+#               OPENCODE_GO_OPENAI_API_KEY / OPENCODE_GO_ANTHROPIC_API_KEY /
+#               OPENCODE_OPENROUTER_API_KEY.
+#               GITHUB_TOKEN is auto-injected by the runner; no explicit
+#               configuration is required, but the repo must allow the
+#               default `GITHUB_TOKEN` permission (the gate's `permissions:`
+#               block requests `contents: read`, `pull-requests: write`, and
+#               `issues: write`). The `actions: read` permission used by
+#               the analyse sibling is granted by `pipeline-ai-analyse.yml`,
+#               not the gate itself.
+#   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
+#               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
+#               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
+#                 blank → committed default; LADR-047),
+#               OPENCODE_REVIEW_REPORT_CLI_VERSION (opencode version pin, blank → latest),
+#               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
+#               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
+#                 workflow's 6-path list — override with your repo's real context files),
+#               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
+#               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
+#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`).
+#
+# Optional autonomous low/medium fixing: copy .github/workflows/pipeline-ai-analyse.yml
+# into the consuming repo too. It cannot be a reusable workflow caller because
+# workflow_run must live in the repo whose gate run it observes. The workflow
+# name-couples to "OpenCode Review Report" and reads OPENCODE_ANALYSE_PROVIDER /
+# OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL /
+# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX Variables and the optional
+# OPENCODE_ANALYSE_GH_TOKEN Secret.
+
+# name: "OpenCode Review Report" — must match pipeline-ai-analyse.yml's workflow_run.workflows
+name: OpenCode Review Report
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      model:
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER.'
+        required: false
+        type: string
+        default: ''
+      model_preset:
+        # COUPLED to the run-review.sh entrypoint's preset→provider/model env
+        # resolution — this dropdown only names the presets; the mapping lives
+        # in the env: block below. When the upstream workflow adds a preset
+        # option, extend the env mapping here in the same commit.
+        description: 'Model preset (optional). Selecting one overrides the provider AND all three model tiers — takes precedence over "model" and the repo OPENCODE_REVIEW_REPORT_* Variables.'
+        required: false
+        type: choice
+        default: '(repository default)'
+        options:
+          - '(repository default)'
+          - 'Anthropic Claude Opus 4.8'
+          - 'Anthropic Claude Sonnet 4.6'
+          - 'Anthropic Claude Haiku 4.5'
+          - 'OpenAI GPT-5.5'
+          - 'OpenCode DeepSeek V4 Pro'
+          - 'OpenCode DeepSeek V4 Flash'
+          - 'OpenCode GLM-5.2'
+          - 'OpenCode GLM-5.1'
+          - 'OpenCode Grok 4.5'
+          - 'OpenCode Hy3'
+          - 'OpenCode Kimi K3'
+          - 'OpenCode Kimi K2.7 Code'
+          - 'OpenCode Kimi K2.6'
+          - 'OpenCode MiMo V2.5'
+          - 'OpenCode MiMo V2.5 Pro'
+          - 'OpenCode MiniMax M3'
+          - 'OpenCode MiniMax M2.7'
+          - 'OpenCode MiniMax M2.5'
+          - 'OpenCode Qwen3.7 Max'
+          - 'OpenCode Qwen3.7 Plus'
+          - 'OpenCode Qwen3.6 Plus'
+          - 'OpenRouter DeepSeek V4 Pro'
+          - 'OpenRouter Qwen3.7 Plus'
+          - 'OpenRouter GLM-5.1'
+          - 'OpenRouter MiniMax M3'
+      disable_claude_code:
+        description: 'Disable Claude Code (.claude) support (1=disabled, 0=enabled). This choice always wins on dispatch — the OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE Variable is unreachable from the dispatch UI (it applies only to PR/issue_comment events).'
+        required: false
+        type: choice
+        default: '1'
+        options:
+          - '1'
+          - '0'
+      disable_agents_md_check:
+        description: 'Disable AGENTS.md documentation validation (1=disabled, 0=enabled). This choice always wins on dispatch — the OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK Variable is unreachable from the dispatch UI (it applies only to PR/issue_comment events).'
+        required: false
+        type: choice
+        default: '0'
+        options:
+          - '0'
+          - '1'
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+# Same selective concurrency as the reusable workflow: shared group per PR for
+# pull_request events (latest commit wins), unique group for manual/comment triggers.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ai-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '/ai-review') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      ) ||
+      (github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head (or default branch for non-PR events; script re-fetches)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # `pull_request` events: head.ref resolves the PR head.
+          # `issue_comment` / `workflow_dispatch`: `github.event.pull_request` is
+          # absent, so the expression falls through to `github.ref` (typically
+          # the default branch). The script's Step 6 re-fetches the actual PR
+          # head from `${head_repo}@${head_ref}` (resolved via the GitHub API
+          # from the event payload), so end-to-end correctness does NOT depend
+          # on this checkout being right for non-PR events.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.repository }}
+
+      - name: Checkout smooth-ai-report-review (pinned SHA)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # SHA pin (NOT a floating tag) — the whole point of the local-job
+          # packaging is to preserve the supply-chain guarantee the allow-list
+          # policy is after. Bump this in lockstep with the upstream ref you
+          # want to consume. The reusable-workflow's `workflow_sha` reference
+          # does not exist in this packaging (there is no reusable call), so
+          # pin a concrete commit SHA.
+          #
+          # IMPORTANT: the SHA MUST be a commit on `main` that contains
+          # `.agents/skills/ai-review-report/scripts/run-review.sh` — the
+          # entrypoint this step then invokes. The SHA below is the tip of
+          # the PR (#86) that introduced the entrypoint. After PR #86 merges,
+          # the merge commit becomes the new tip; bump the pin to that
+          # commit (or to a tagged release). Pinning to a pre-entrypoint
+          # commit (e.g. an earlier `v1` floating tag's tip) 404s the script
+          # and the gate fails at "No such file or directory" on the next
+          # step — flagged by an AI agent on PR #86.
+          repository: generic-automation-and-it/smooth-ai-report-review
+          ref: c72937139e53363f051b09c64f706e7df4e38a23 # PR #86 head — bump after merge
+          path: .review-tools
+
+      - name: Run review gate
+        env:
+          # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
+          # `gh api`, all of which require GITHUB_TOKEN. Forward it explicitly;
+          # the runner does not auto-inject into bare `run:` shells.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Forward the workflow's dispatch input (the reusable-workflow
+          # packaging sets this via inputs.pr_number; the local-job packaging
+          # passes it as REVIEWER_INPUT so run-review.sh reads it from the env
+          # without any inputs.* / steps.*.outputs dependency).
+          REVIEWER_INPUT: ${{ inputs.pr_number }}
+          # Provider selector, default GEMINI. See the reusable-workflow caller
+          # for the full preset → provider/model mapping. The variables below
+          # mirror that mapping; extend them together.
+          OPENCODE_REVIEW_REPORT_PROVIDER: ${{
+            (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'ANTHROPIC') ||
+            (inputs.model_preset == 'Anthropic Claude Sonnet 4.6' && 'ANTHROPIC') ||
+            (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'ANTHROPIC') ||
+            (inputs.model_preset == 'OpenAI GPT-5.5' && 'OPENAI') ||
+            ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'OPENCODE-GO-OPENAI') ||
+            ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'OPENCODE-GO-ANTHROPIC') ||
+            ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'OPEN_ROUTER') ||
+            vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
+          OPENCODE_REVIEW_REPORT_PROVIDER_ID: ${{
+            ((inputs.model_preset == 'Anthropic Claude Opus 4.8' || inputs.model_preset == 'Anthropic Claude Sonnet 4.6' || inputs.model_preset == 'Anthropic Claude Haiku 4.5') && 'anthropic') ||
+            (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
+            ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'go-openai') ||
+            ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'go-anthropic') ||
+            ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'openrouter') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'ANTHROPIC' && 'anthropic') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
+            'gemini' }}
+          # API keys — Secrets only. URLs — Variables only.
+          OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+          OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
+          OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
+          OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
+          OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
+          OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
+          OPENCODE_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_ANTHROPIC_API_KEY }}
+          OPENCODE_GO_OPENAI_API_KEY: ${{ secrets.OPENCODE_GO_OPENAI_API_KEY }}
+          OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
+          OPENCODE_OPENROUTER_API_KEY: ${{ secrets.OPENCODE_OPENROUTER_API_KEY }}
+          # Model chain — see the reusable-workflow caller template for the
+          # full preset → model map. Defaults match that mapping.
+          OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{
+            (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
+            (inputs.model_preset == 'Anthropic Claude Sonnet 4.6' && 'claude-sonnet-4-6') ||
+            (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
+            (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+            (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+            (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+            (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
+            (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+            (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+            (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+            (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+            (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+            (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+            (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+            (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+            (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+            (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+            (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+            (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
+            (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+            (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
+            (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
+            (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
+            (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
+            (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
+            inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+          # Mirror the 24-row mapping for SECONDARY and ORCHESTRATOR
+          # (the canonical workflow pins the same model across all three
+          # tiers per preset). Without this, every non-Gemini
+          # `workflow_dispatch` would set SECONDARY=gemini-2.5-pro and
+          # ORCHESTRATOR=gemini-3-flash-preview, which would fail the
+          # provider-model-family check in `lib/resolve-provider.sh:62-90`
+          # with "ANTHROPIC selected but OPENCODE_REVIEW_REPORT_MODEL_SECONDARY='gemini-2.5-pro'
+          # is not a Claude model". PR #86 review 4820469544 #1.
+          OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: >-
+            ${{
+            (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
+            (inputs.model_preset == 'Anthropic Claude Sonnet 4.6' && 'claude-sonnet-4-6') ||
+            (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
+            (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+            (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+            (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+            (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
+            (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+            (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+            (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+            (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+            (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+            (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+            (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+            (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+            (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+            (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+            (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+            (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
+            (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+            (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
+            (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
+            (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
+            (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
+            (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
+            vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
+          OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: >-
+            ${{
+            (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
+            (inputs.model_preset == 'Anthropic Claude Sonnet 4.6' && 'claude-sonnet-4-6') ||
+            (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'claude-haiku-4-5') ||
+            (inputs.model_preset == 'OpenAI GPT-5.5' && 'gpt-5.5') ||
+            (inputs.model_preset == 'OpenCode DeepSeek V4 Pro' && 'deepseek-v4-pro') ||
+            (inputs.model_preset == 'OpenCode DeepSeek V4 Flash' && 'deepseek-v4-flash') ||
+            (inputs.model_preset == 'OpenCode GLM-5.2' && 'glm-5.2') ||
+            (inputs.model_preset == 'OpenCode GLM-5.1' && 'glm-5.1') ||
+            (inputs.model_preset == 'OpenCode Grok 4.5' && 'grok-4.5') ||
+            (inputs.model_preset == 'OpenCode Hy3' && 'hy3') ||
+            (inputs.model_preset == 'OpenCode Kimi K3' && 'kimi-k3') ||
+            (inputs.model_preset == 'OpenCode Kimi K2.7 Code' && 'kimi-k2.7-code') ||
+            (inputs.model_preset == 'OpenCode Kimi K2.6' && 'kimi-k2.6') ||
+            (inputs.model_preset == 'OpenCode MiMo V2.5' && 'mimo-v2.5') ||
+            (inputs.model_preset == 'OpenCode MiMo V2.5 Pro' && 'mimo-v2.5-pro') ||
+            (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
+            (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
+            (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+            (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
+            (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
+            (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
+            (inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' && 'deepseek/deepseek-v4-pro') ||
+            (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
+            (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
+            (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
+            vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+          OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
+          OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
+          OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          MANDATORY_CONTEXT_FILES: >-
+            ${{ vars.MANDATORY_CONTEXT_FILES ||
+            'AGENTS.md
+            .docs/nfr/PROJECT_SETUP_AGENTS.md
+            .agents/skills/code-review-standards/SKILL.md
+            .docs/nfr/TOOL_SETUP_AGENTS.md
+            .agents/rules-scoped/backend/testing-standards.instructions.md
+            .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
+          AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
+          OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
+          OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+          # Mirror the reusable workflow's lockstep forward — see
+          # `pipeline-code-review-report.yml:388-389`. The two are always
+          # set to the same expression so a future maintainer can't update
+          # one without the other (workflows/AGENTS.md Non-Negotiable:
+          # "Do not set them independently").
+          OPENCODE_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+          # Explicit REVIEW_SKILL_DIR — the script's resolve_skill_dir
+          # (run-review.sh:159-179) only recognizes three locations:
+          # $REVIEW_SKILL_DIR, `.agents/...`, or `.smooth-ai-review-tools/...`
+          # — NOT `.review-tools/...` directly. Without this forward, every
+          # consumer's first run fails at preflight with
+          # `❌ Could not locate REVIEW_SKILL_DIR`. PR #86 review 4820368853 #1.
+          REVIEW_SKILL_DIR: .review-tools/.agents/skills/ai-review-report
+        run: bash "$REVIEW_SKILL_DIR/scripts/run-review.sh"
+
+      # Mirror the reusable workflow's Post Error Comment + Clean up
+      # temporary files steps (pipeline-code-review-report.yml:455-495).
+      # Without these, a consumer whose gate fails on the first
+      # `resolve_skill_dir` preflight (see #1) gets a red check with
+      # no PR-side explanation and a `ci_temp/` left behind. The
+      # `mkdir -p ci_temp` BEFORE the heredoc is the fix from
+      # commit 7638453 — under `set -e` the heredoc `open()` would
+      # otherwise fail first and abort before the comment could post.
+      # PR #86 review 4820368853 #7.
+
+      - name: Post Error Comment
+        if: failure()
+        env:
+          LOGS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -e
+          # The failure path: ci_temp may not exist or may not contain
+          # pr_info. Read the PR number from $GITHUB_EVENT_PATH (the
+          # JSON payload GHA writes for every run).
+          PR_NUMBER=""
+          if [ -f "$GITHUB_EVENT_PATH" ]; then
+            PR_NUMBER="$(jq -r 'if .pull_request then .pull_request.number elif .issue then .issue.number elif .inputs then .inputs.pr_number else "" end' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")"
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            # mkdir BEFORE the heredoc open() — see commit 7638453.
+            mkdir -p ci_temp
+            cat > ci_temp/error_comment.md <<EOF
+          ## ❌ OpenCode CLI Code Review Workflow Failed
+
+          The automated code review workflow encountered a critical failure and could not complete.
+
+          **Next Steps:**
+          - Check the [workflow logs](${LOGS_URL}) for detailed error information
+          - You can manually trigger a review by commenting \`/ai-review\` on this PR
+          - Consider reviewing the changes manually if the issue persists
+
+          ---
+          *This PR is blocked until the review issue is resolved or manual review is completed.*
+          EOF
+            gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
+          fi
+
+      - name: Clean up temporary files
+        if: always()
+        run: rm -rf ci_temp

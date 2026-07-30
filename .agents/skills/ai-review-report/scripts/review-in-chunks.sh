@@ -127,10 +127,37 @@ echo ""
 echo "Files to review: ${file_count}"
 echo "Single chunk threshold: ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} files (OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING)"
 
+# MAX_CHUNK_SIZE is the hard upper bound on per-chunk prompt size. It is
+# referenced here so the single-chunk threshold is not the only signal —
+# a few very large files can still build a prompt that exceeds the
+# 5-minute model timeout (e.g. PR #86: 9 files but 208KB of diff →
+# exit 124). When file_count is sub-threshold but the total diff
+# exceeds the cap, fall through to adaptive splitting.
+MAX_CHUNK_SIZE=102400  # 100KB diff size limit per chunk
+
+# Compute the total diff size across all changed files. Only run the
+# per-file `git diff` loop when the size-cap override could trigger —
+# i.e. when file_count is at or below the single-chunk threshold. For
+# larger PRs we already know we'll do adaptive splitting, so the
+# size-cap is moot and the loop would just add 3-10s on a cold
+# cache. PR #86 review 4820368853 #10.
+total_diff_size=0
 if [ "$file_count" -le "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" ]; then
+  while IFS= read -r -d '' _f; do
+    [ -z "$_f" ] && continue
+    _fs=$(git diff "${FROM_SHA}..${TO_SHA}" -- "$_f" 2>/dev/null | wc -c | tr -d ' ')
+    total_diff_size=$(( total_diff_size + ${_fs:-0} ))
+  done < ci_temp/changed_files.txt
+fi
+echo "Total diff size: ${total_diff_size} bytes (MAX_CHUNK_SIZE: ${MAX_CHUNK_SIZE})"
+
+if [ "$file_count" -le "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" ] && \
+   [ "$total_diff_size" -le "$MAX_CHUNK_SIZE" ]; then
   FORCE_SINGLE_CHUNK=true
-  echo "Using single chunk review (${file_count} files <= ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} threshold)"
+  echo "Using single chunk review (${file_count} files <= ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING} threshold, ${total_diff_size} bytes <= ${MAX_CHUNK_SIZE})"
   tr '\0' '\n' < ci_temp/changed_files.txt | awk 'NF {print "all-changes::" $0}' | sort > ci_temp/file_groups_sorted.txt
+elif [ "$file_count" -le "$REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING" ]; then
+  echo "File count is below the single-chunk threshold (${file_count} <= ${REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING}) but total diff size (${total_diff_size}) exceeds MAX_CHUNK_SIZE (${MAX_CHUNK_SIZE}); falling through to adaptive splitting to keep per-chunk prompts under the cap (regression from PR #86 CI review 4819995397)."
 elif [ "$file_count" -ge "$SEMANTIC_GROUPING_THRESHOLD" ]; then
   echo "Attempting semantic business context grouping (${file_count} files >= ${SEMANTIC_GROUPING_THRESHOLD} threshold)..."
 
@@ -258,7 +285,6 @@ fi
 # --- Adaptive Chunk Splitting ---
 # Splits oversized directory groups by progressively deeper directory levels
 # to keep each chunk's diff within size limits for reliable Gemini processing
-MAX_CHUNK_SIZE=102400  # 100KB diff size limit per chunk
 # LADR-035: hard chunk-prompt size enforcement. The adaptive split alone cannot
 # bound the prompt (a single-directory group can't split deeper, and per-file
 # diffs were appended unbounded — PR #5404 built a 90MB prompt and timed out).
