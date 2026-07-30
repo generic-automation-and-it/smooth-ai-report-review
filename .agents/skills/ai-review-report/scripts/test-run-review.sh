@@ -510,6 +510,86 @@ HOME="$TMP_DIR" PATH="/usr/bin:/bin" bash -c '
 ' > /tmp/opencode_path_test.out 2>&1
 check "post-install PATH update makes opencode reachable" "OK" "$(cat /tmp/opencode_path_test.out)"
 
+# 7a. Both caller templates' Checkout steps must use the simplified
+# ref: / repository: expression shape — drop the dead `&& head.sha`
+# clause and the head.repo fall-through (PR #86 review 4820072658
+# findings #2 and #5). The simplification also makes the two
+# packagings agree on the same shape, which is part of the
+# "single source of truth" invariant from the AGENTS.md
+# Non-Negotiable. Locks against any future regression that
+# reintroduces a dead branch.
+assert_simplified_checkout_shape() {
+  local file="$1"
+  local ref_expr repo_expr
+  ref_expr="$(python3 -c "
+import yaml
+data = yaml.safe_load(open('$file'))
+for step in next(iter(data['jobs'].values()))['steps']:
+  if step.get('name', '').startswith('Checkout PR head'):
+    print((step.get('with', {}) or {}).get('ref', ''))
+    break
+")"
+  repo_expr="$(python3 -c "
+import yaml
+data = yaml.safe_load(open('$file'))
+for step in next(iter(data['jobs'].values()))['steps']:
+  if step.get('name', '').startswith('Checkout PR head'):
+    print((step.get('with', {}) or {}).get('repository', ''))
+    break
+")"
+  # Reject the dead-branch shape explicitly. Use grep -F for the
+  # `&&` literal (the shell would otherwise interpret `&&`).
+  if echo "$ref_expr" | grep -qF '&&'; then
+    check "$file ref: has no dead && clause" "yes" "no"
+  else
+    check "$file ref: has no dead && clause" "yes" "yes"
+  fi
+  # Both packagings must end the ref: with `|| github.ref` (the fall-through).
+  if echo "$ref_expr" | grep -qF '|| github.ref'; then
+    check "$file ref: falls through to github.ref" "yes" "yes"
+  else
+    check "$file ref: falls through to github.ref" "yes" "no"
+  fi
+  # repository: must be the simple `github.repository` form.
+  if [ "$repo_expr" = "\${{ github.repository }}" ]; then
+    check "$file repository: is github.repository (no head.repo fall-through)" "yes" "yes"
+  else
+    check "$file repository: is github.repository (no head.repo fall-through)" "yes" "no (got: $repo_expr)"
+  fi
+}
+assert_simplified_checkout_shape ".github/workflows/pipeline-code-review-report.yml"
+assert_simplified_checkout_shape ".docs/examples/code-review-local.yml"
+
+# 7b. Both caller templates must set MANDATORY_CONTEXT_FILES to the
+# same default value (PR #86 review 4820072658 finding #3). Drift here
+# was the entire reason the README's "Same config" claim was
+# misleading — the local-job caller shipped with 'AGENTS.md' only.
+# Test extracts the resolved default (the `vars.X || '...'` else-branch)
+# and asserts they match exactly.
+assert_mandatory_context_files_match() {
+  local file="$1"
+  python3 -c "
+import yaml, re
+data = yaml.safe_load(open('$file'))
+job = next(iter(data['jobs'].values()))
+# MANDATORY_CONTEXT_FILES may live on the job-level env (reusable workflow)
+# or on the Run review gate step's env (local-job caller). Check both.
+env = dict(job.get('env', {}) or {})
+for step in job.get('steps', []):
+  if step.get('name') == 'Run review gate':
+    env.update(step.get('env', {}) or {})
+    break
+val = env.get('MANDATORY_CONTEXT_FILES', '')
+# The expression is typically \${{ vars.X || 'fallback' }}; the fallback
+# is what we want to assert on. Use non-greedy match.
+m = re.search(r\"'([^']*)'\", str(val)) or re.search(r'\"([^\"]*)\"', str(val))
+print(m.group(1) if m else '')
+" 2>/dev/null
+}
+mc_reusable="$(assert_mandatory_context_files_match .github/workflows/pipeline-code-review-report.yml)"
+mc_local="$(assert_mandatory_context_files_match .docs/examples/code-review-local.yml)"
+check "MANDATORY_CONTEXT_FILES defaults match between packagings" "$mc_reusable" "$mc_local"
+
 # 7. The local-job example (.docs/examples/code-review-local.yml) pins
 # the upstream `ref:` to a commit SHA. That SHA MUST be reachable on
 # the remote AND must contain `.agents/skills/ai-review-report/scripts/run-review.sh`
