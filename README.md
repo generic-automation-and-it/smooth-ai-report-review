@@ -20,6 +20,7 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 | Channel | What you get | Best for |
 |---|---|---|
 | [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~80-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
+| [Local-job packaging](#local-job-packaging-allowed-actions-restricted-consumers) | A consumer-side job whose only `uses:` entries are `actions/checkout`; the gate's code is fetched at a pinned SHA. Same behavior as the reusable workflow. | Repos under `allowed_actions: "selected"` whose `generic-automation-and-it` is not on the allow-list |
 | [Claude Code plugins](#install-as-a-claude-code-plugin) | A core plugin (`ai-review`, `git-commit-review-push`) plus optional plugins for `ai-review-report` and `ai-analyse` — **not** the CI gate | Developers who want the follow-up workflows by default and can opt into the heavier report/analyse skills only when needed |
 | [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same four skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
 | [npm package in GitHub Actions](#use-in-github-actions-via-npm) | The **same npm package**, but `npm install`ed in a GHA job and run straight from `node_modules/` (no vendoring, no side checkout) | Repos that want to run the review generator in CI pinned via a package manager / lockfile |
@@ -55,6 +56,45 @@ How it works:
 - **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Steps 3–4 of the installer section apply unchanged. If you also copy in the optional autonomous analyse workflow, it reads `OPENCODE_ANALYSE_PROVIDER`, `OPENCODE_ANALYSE_MODEL`, `OPENCODE_ANALYSE_MAX_INCREMENTAL`, and `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` from the consuming repo too.
 - **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), `disable_claude_code`, `disable_agents_md_check`, plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
 - **Versioning**: pin `@v1` (floating major) or an exact tag/SHA. The source repo maintains the floating major tag (e.g. `v1`, `v2`) via `.github/workflows/update-major-tag.yml` on every merge to `main` (and via manual dispatch when a repair/repoint is needed) — the tag name is derived automatically from the major component of `package.json`'s version, so bumping the major version produces a new floating tag on the next merge. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
+
+## Local-job packaging (allowed-actions-restricted consumers)
+
+Some consumers cannot call the reusable workflow. GitHub Actions has two orthogonal third-party controls: an **allow-list** (`allowed_actions: "selected"`) that names which `actions/*`, `github/*`, composite, and reusable-workflow `uses:` refs are accepted, and **SHA pinning** (`sha_pinning_required: true`) that constrains the ref format. A cross-org reusable-workflow call must satisfy *both*. The allow-list is evaluated per owner/repo — `generic-automation-and-it/smooth-ai-report-review` is third-party by default, and an org admin must explicitly add it to the allow-list. A consumer that runs under `allowed_actions: "selected"` with `generic-automation-and-it` not on its list sees `startup_failure` (0 jobs) for every cross-org reusable-workflow call, even when SHA-pinning is satisfied — the two checks are independent.
+
+If your org admin has refused or stalled the request to add `generic-automation-and-it/smooth-ai-report-review@*` to the allow-list, you need a **local-job** caller. The example [`.docs/examples/code-review-local.yml`](.docs/examples/code-review-local.yml) is a consumer-side workflow whose only `uses:` entries are `actions/checkout@<sha>` (already allow-listed by every org with `github_owned_allowed: true`), and which checks out this repo at a pinned SHA into `.review-tools/` before invoking the same [`run-review.sh`](.agents/skills/ai-review-report/scripts/run-review.sh) entrypoint the reusable-workflow packaging uses. The job body:
+
+```yaml
+jobs:
+  review:
+    if: /* same gating as the reusable caller */
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>            # the PR
+      - uses: actions/checkout@<sha>            # the gate, pinned SHA
+        with:
+          repository: generic-automation-and-it/smooth-ai-report-review
+          ref: <pinned-sha>
+          path: .review-tools
+      - run: bash .review-tools/.agents/skills/ai-review-report/scripts/run-review.sh
+        env: { /* OPENCODE_REVIEW_REPORT_PROVIDER, *_API_KEY, ... */ }
+```
+
+How it works:
+- **Same behaviour, two packagings.** `run-review.sh` is the gate's single source of truth. The reusable workflow's job body is now a thin wrapper around it (checkout PR head → fetch review tooling into `.smooth-ai-review-tools/` → call `run-review.sh`). The local-job caller is the same wrapper minus the wrapping — both resolve the same env-var contract and post the same reviews.
+- **`uses:` level only.** The allow-list checks `uses:` references (not the git URLs a script subsequently `git clone`s, and not action inputs). The two `actions/checkout` steps pass the allow-list; the gate's own code arrives via the second `actions/checkout`'s `ref:` (the SHA you pin) — exactly the supply-chain surface the policy is meant to govern.
+- **SHA-pin everything.** The whole point of the local-job packaging is to preserve the supply-chain guarantee. Pin both `actions/checkout@<sha>` and the upstream `ref: <pinned-sha>`. The example pins the upstream ref to a specific commit; bump it in lockstep with upstream releases you want to consume. **Do not use a floating tag (`@v1`) here** — that would defeat the point.
+- **Same config as the reusable caller.** `OPENCODE_REVIEW_REPORT_PROVIDER`, the seven `OPENCODE_*_API_KEY` Secrets, the per-provider URL Variables, the `OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}` Variables, `MANDATORY_CONTEXT_FILES`, `AGENTS_MD_EXEMPT_PATHS`, `OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE`, `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK`, `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT`, and `OPENCODE_REVIEW_REPORT_CLI_VERSION` are all set in the job `env:` block the same way as the reusable-workflow caller. The reusable-workflow `runner`, `tools_ref`, `mandatory_context_files`, `agents_md_exempt_paths`, and `opencode_config` inputs map to the same names as Variables; the local-job caller has no `inputs:` contract for them.
+- **Three trigger shapes still supported.** The entrypoint reads `$GITHUB_EVENT_PATH` (a JSON payload GitHub writes automatically) rather than from expression interpolation, so `pull_request`, `issue_comment` with `/ai-review`, and `workflow_dispatch` all work the same way as in the reusable workflow.
+
+### ⚠️ Security sign-off required
+
+The local-job packaging is **technically compliant** with `allowed_actions: "selected"` and `sha_pinning_required: true` — the `uses:` references are `actions/checkout` and the third-party code is fetched at a pinned SHA. But the policy's *purpose* is to make third-party code reviewable, and a local job that fetches the same third-party code via an allow-listed `actions/checkout` step runs exactly what the policy meant to gate. The local-job packaging is **contrary to the spirit of the allow-list policy**, even though it passes the letter. Before adopting it:
+
+- Confirm with your org/enterprise admin that adding `generic-automation-and-it/smooth-ai-report-review@*` to the allow-list is not an option (the allow-list exists for reviewability; this packaging opts out of that reviewability).
+- Document the deviation in your security sign-off: the upstream repo, the pinned SHA, the audit trail for the pin choice, and the monitoring story for upstream changes.
+- Pin the upstream `ref:` to a **specific commit SHA**, not a tag — and bump it as a deliberate, reviewable change rather than auto-updating.
+
+If your org admin can add the allow-list entry, prefer the [reusable workflow](#use-as-a-reusable-workflow) — it is materially easier to audit (one `uses:` line, one org-level review) and matches the policy's intent.
 
 ## Install as a Claude Code plugin
 
