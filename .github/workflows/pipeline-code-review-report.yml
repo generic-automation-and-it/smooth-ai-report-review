@@ -419,6 +419,12 @@ jobs:
       - name: Run review gate
         id: run_review
         env:
+          # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
+          # `gh api`, all of which require GITHUB_TOKEN. The runner only
+          # auto-injects GITHUB_TOKEN into step env when the step declares
+          # it explicitly; bare `run:` shells see the bare runner env which
+          # does NOT include it. Forward secrets.GITHUB_TOKEN here.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Forward the workflow's dispatch input for issue_comment and
           # workflow_dispatch. run-review.sh reads it via $REVIEWER_INPUT
           # (env-var contract — NOT inputs.* / steps.*.outputs).

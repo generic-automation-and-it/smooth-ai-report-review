@@ -371,6 +371,100 @@ else
   fail=$((fail + 1))
 fi
 
+# ── GITHUB_TOKEN preflight (regression: PR #86) ────────────────────────────
+# The reusable workflow's bare `run:` shells do NOT auto-inject
+# GITHUB_TOKEN — the step's env: block must forward it explicitly.
+# This regression was caught on PR #86: the refactor forgot the forward
+# and the gate failed at the preflight check. Lock the contract.
+echo ""
+echo "=========================================="
+echo "Testing GITHUB_TOKEN preflight (regression)"
+echo "=========================================="
+
+# Extract the preflight block from run-review.sh (the GITHUB_TOKEN check at
+# line ~141) and inline it in a fresh shell with a stub $GITHUB_EVENT_PATH.
+# Stub the rest of the script's required env so the check is reachable.
+extract_preflight() {
+  # Print from the GITHUB_EVENT_PATH preflight through the GITHUB_TOKEN
+  # check. Skip the Bash-version guard (uses BASH_SOURCE) and the body
+  # before the preflight — those have their own coverage.
+  sed -n '/^# --- Step 1: Validate the runtime/,/GITHUB_TOKEN is not set/p' "$RUN_REVIEW"
+}
+
+# 1. The preflight must fail when GITHUB_TOKEN is unset.
+write_pull_request_event "$TMP_DIR/pr.json"
+no_token_exit="$(GITHUB_EVENT_PATH="$TMP_DIR/pr.json" \
+  GITHUB_REPOSITORY=owner/repo \
+  GITHUB_SERVER_URL=https://github.com \
+  GITHUB_RUN_ID=12345 \
+  bash -c '
+  unset GITHUB_TOKEN
+  '"$(extract_preflight)"'
+' 2>&1 >/dev/null; echo $?)"
+check "preflight fails when GITHUB_TOKEN unset" "1" "$no_token_exit"
+
+# 2. The preflight must pass when GITHUB_TOKEN is set.
+with_token_exit="$(GITHUB_EVENT_PATH="$TMP_DIR/pr.json" \
+  GITHUB_REPOSITORY=owner/repo \
+  GITHUB_SERVER_URL=https://github.com \
+  GITHUB_RUN_ID=12345 \
+  GITHUB_TOKEN=ghp_test \
+  bash -c '
+  '"$(extract_preflight)"'
+' 2>&1 >/dev/null; echo $?)"
+check "preflight accepts GITHUB_TOKEN" "0" "$with_token_exit"
+
+# 3. The error message must mention GITHUB_TOKEN so consumers can
+# diagnose the failure without reading the source.
+extract_preflight > "$TMP_DIR/preflight.sh"
+(
+  unset GITHUB_TOKEN
+  GITHUB_EVENT_PATH="$TMP_DIR/pr.json" \
+  GITHUB_REPOSITORY=owner/repo \
+  GITHUB_SERVER_URL=https://github.com \
+  GITHUB_RUN_ID=12345 \
+  bash "$TMP_DIR/preflight.sh" > "$TMP_DIR/no_token.out" 2>&1 || true
+)
+no_token_msg="$(head -1 "$TMP_DIR/no_token.out")"
+case "$no_token_msg" in
+  *GITHUB_TOKEN*) echo "  ✅ preflight error message names GITHUB_TOKEN"
+                   pass=$((pass + 1)) ;;
+  *)              echo "  ❌ preflight error message missing GITHUB_TOKEN: $no_token_msg"
+                   fail=$((fail + 1)) ;;
+esac
+
+# 4. The two caller templates (reusable workflow + local-job caller) must
+# both forward GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} on the
+# Run review gate step's env: block. Catches the exact regression from
+# PR #86 — a future refactor that strips the forward breaks both paths.
+assert_step_forwards_github_token() {
+  local name="$1" file="$2"
+  # Look for a step named "Run review gate" that contains
+  # `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` inside its env: block.
+  local ok
+  ok="$(python3 -c "
+import yaml, sys
+data = yaml.safe_load(open('$file'))
+jobs = data.get('jobs', {})
+job = next(iter(jobs.values()))
+for step in job.get('steps', []):
+  if step.get('name') == 'Run review gate':
+    env = step.get('env', {}) or {}
+    if 'GITHUB_TOKEN' not in env:
+      sys.exit(2)
+    val = str(env.get('GITHUB_TOKEN', ''))
+    if 'secrets.GITHUB_TOKEN' not in val:
+      sys.exit(3)
+    sys.exit(0)
+sys.exit(1)
+" && echo yes || echo no)"
+  check "$name forwards GITHUB_TOKEN via secrets.GITHUB_TOKEN" "yes" "$ok"
+}
+assert_step_forwards_github_token "reusable workflow" \
+  ".github/workflows/pipeline-code-review-report.yml"
+assert_step_forwards_github_token "local-job caller" \
+  ".docs/examples/code-review-local.yml"
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="

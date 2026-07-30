@@ -33,7 +33,14 @@
 #
 # Required env (set by the caller; defaults shown in brackets):
 #   GITHUB_EVENT_PATH      — set by GitHub Actions automatically
-#   GITHUB_TOKEN           — set by GitHub Actions automatically
+#   GITHUB_TOKEN           — MUST be forwarded explicitly in the step's
+#                             env: block (the runner auto-injects it only
+#                             into the GITHUB_ENV, not into bare `run:`
+#                             shells). The preflight check at line ~134
+#                             fails fast if it's missing. Both packagings
+#                             (reusable workflow + local-job caller) set
+#                             `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`
+#                             on the Run review gate step.
 #   GITHUB_REPOSITORY      — set by GitHub Actions automatically
 #   GITHUB_SERVER_URL      — set by GitHub Actions automatically
 #   GITHUB_RUN_ID          — set by GitHub Actions automatically

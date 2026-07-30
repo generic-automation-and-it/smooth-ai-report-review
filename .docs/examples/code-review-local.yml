@@ -32,6 +32,11 @@
 #               OPENCODE_OPENAI_API_KEY / OPENCODE_ANTHROPIC_API_KEY /
 #               OPENCODE_GO_OPENAI_API_KEY / OPENCODE_GO_ANTHROPIC_API_KEY /
 #               OPENCODE_OPENROUTER_API_KEY.
+#               GITHUB_TOKEN is auto-injected by the runner; no explicit
+#               configuration is required, but the repo must allow the
+#               default `GITHUB_TOKEN` permission (the gate's `permissions:`
+#               block requests `contents: read`, `pull-requests: write`,
+#               `issues: write`, and `actions: read`).
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
 #
@@ -165,6 +170,10 @@ jobs:
 
       - name: Run review gate
         env:
+          # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
+          # `gh api`, all of which require GITHUB_TOKEN. Forward it explicitly;
+          # the runner does not auto-inject into bare `run:` shells.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Forward the workflow's dispatch input (the reusable-workflow
           # packaging sets this via inputs.pr_number; the local-job packaging
           # passes it as REVIEWER_INPUT so run-review.sh reads it from the env
