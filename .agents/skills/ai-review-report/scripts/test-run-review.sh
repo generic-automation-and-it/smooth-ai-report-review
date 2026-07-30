@@ -460,10 +460,10 @@ sys.exit(1)
 " && echo yes || echo no)"
   check "$name forwards GITHUB_TOKEN via secrets.GITHUB_TOKEN" "yes" "$ok"
 }
-assert_step_forwards_github_token "reusable workflow" \
-  ".github/workflows/pipeline-code-review-report.yml"
-assert_step_forwards_github_token "local-job caller" \
-  ".docs/examples/code-review-local.yml"
+# Call sites are placed below, inside the command -v python3 guard,
+# so the test doesn't fail opaquely with "python3: command not found"
+# on hardened self-hosted runners. PR #86 review 4820368853 #5:
+# the prior guard at 5c2abfe missed this function.
 
 # 5. After running the opencode installer, the binary lives in
 # $HOME/.opencode/bin — but the installer's $GITHUB_PATH update only
@@ -656,6 +656,10 @@ for step in data['jobs']['review']['steps']:
   check "$file ref contains run-review.sh (pin is post-entrypoint)" "1" "$has_script"
 }
 assert_example_pin_is_valid ".docs/examples/code-review-local.yml"
+assert_step_forwards_github_token "reusable workflow" \
+  ".github/workflows/pipeline-code-review-report.yml"
+assert_step_forwards_github_token "local-job caller" \
+  ".docs/examples/code-review-local.yml"
 fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
 
