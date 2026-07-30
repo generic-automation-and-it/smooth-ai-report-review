@@ -8,7 +8,7 @@
 # *** MAKES REAL, PAID MODEL CALLS. Triggers: manual (workflow_dispatch) + a
 #     POST-MERGE CANARY on push to main, path-filtered to the review-pipeline files
 #     that actually change the eval outcome (the prompt/transport/corpus under the
-#     skill, the DR standards, this workflow). It is deliberately NOT wired to
+#     skill, this workflow). It is deliberately NOT wired to
 #     pull_request — it never blocks a PR and is not in the default bash-test path.
 #     The eval scores the reviewer model against a fixed corpus, so an arbitrary
 #     PR's content cannot change the result; only the path-filtered files can. ***
@@ -21,14 +21,13 @@ name: LLM Eval Harness
 on:
   # Post-merge canary: run after a change lands on main, but ONLY when it touches
   # the review pipeline (the prompt-assembly + transport + corpus the eval scores,
-  # the DR standards the reviewer reads, or this workflow). Cannot block a merge —
+  # or this workflow). Cannot block a merge —
   # a regression surfaces as a failed run on main. Arbitrary product/doc PRs that
   # do not touch these paths never trigger a paid run.
   push:
     branches: [main]
     paths:
       - ".agents/skills/ai-review-report/**"
-      - ".github/instructions/code-review-standards.instructions.md"
       - ".github/workflows/llm-eval-harness.yml"
   workflow_dispatch:
     inputs:

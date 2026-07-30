@@ -60,14 +60,13 @@ CORPUS_DIR="${EVAL_CORPUS_DIR:-$SCRIPT_DIR/corpus}"
 [ -d "$CORPUS_DIR" ] && CORPUS_DIR="$(cd "$CORPUS_DIR" && pwd)"
 
 # Canonical DR-standards context the reviewer reads in production (LADR-003 /
-# MANDATORY_CONTEXT_FILES). DR-001…011 are the real instructions file; DR-012…014
-# come from the SKILL.md Key Behaviors, mirrored in the corpus supplement. Both
-# are placed at their PRODUCTION dot-paths in each sandbox so review-in-chunks.sh
-# always includes them (it auto-includes dot-prefixed/root context — line ~371).
-DR_INSTRUCTIONS_SRC="$REPO_ROOT/.github/instructions/code-review-standards.instructions.md"
+# MANDATORY_CONTEXT_FILES). The eval corpus carries a self-contained DR-001...011
+# snapshot because this repo retired its old `.github/instructions` tree; the
+# DR-012...015 supplement mirrors the ai-review-report SKILL.md Key Behaviors.
+# Both are assembled into the production context path in each sandbox.
+DR_STANDARDS_BASE_SRC="$CORPUS_DIR/context/code-review-standards.md"
 DR_SUPPLEMENT_SRC="$CORPUS_DIR/context/code-review-standards-supplement.md"
-DR_INSTRUCTIONS_DEST=".github/instructions/code-review-standards.instructions.md"
-DR_SUPPLEMENT_DEST=".agents/skills/code-review-standards/SKILL.md"
+DR_STANDARDS_DEST=".agents/skills/code-review-standards/SKILL.md"
 
 EVAL_RECALL_THRESHOLD="${EVAL_RECALL_THRESHOLD:-80}"
 EVAL_SAMPLES="${EVAL_SAMPLES:-1}"
@@ -107,8 +106,8 @@ if [ "$SELFTEST" != "1" ]; then
   command -v opencode >/dev/null 2>&1 || die "opencode CLI not found (install: curl -fsSL https://opencode.ai/install | bash)."
   command -v timeout  >/dev/null 2>&1 || die "timeout not found (run via eval/local-evals.sh on macOS — it installs a shim)."
   [ -f "$REVIEW_SCRIPT" ] || die "review-in-chunks.sh not found at $REVIEW_SCRIPT (workflow↔script path coupling)."
-  [ -f "$DR_INSTRUCTIONS_SRC" ] || die "DR standards not found at $DR_INSTRUCTIONS_SRC."
-  [ -f "$DR_SUPPLEMENT_SRC" ]   || die "DR supplement not found at $DR_SUPPLEMENT_SRC."
+  [ -f "$DR_STANDARDS_BASE_SRC" ] || die "DR standards not found at $DR_STANDARDS_BASE_SRC."
+  [ -f "$DR_SUPPLEMENT_SRC" ]     || die "DR supplement not found at $DR_SUPPLEMENT_SRC."
   [ -n "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-}" ] || die "OPENCODE_REVIEW_REPORT_MODEL_PRIMARY is unset — set the chunk-review model under eval (the OPENCODE_REVIEW_REPORT_MODEL_PRIMARY Variable, or --model via local-evals.sh / the CI workflow)."
 
   # Default the rest of the chain to the designed PRIMARY model (NOT a hardcoded
@@ -192,15 +191,18 @@ run_fixture() {
     git commit -q -m "head" --allow-empty
     local to_sha; to_sha="$(git rev-parse HEAD)"
 
-    # Place the DR-standards context at its production dot-paths so the reviewer
-    # reads the SAME standards production injects via MANDATORY_CONTEXT_FILES.
-    mkdir -p "$(dirname "$DR_INSTRUCTIONS_DEST")" "$(dirname "$DR_SUPPLEMENT_DEST")"
-    cp "$DR_INSTRUCTIONS_SRC" "$DR_INSTRUCTIONS_DEST"
-    cp "$DR_SUPPLEMENT_SRC"   "$DR_SUPPLEMENT_DEST"
+    # Place the DR-standards context at its production dot-path so the reviewer
+    # reads the same standards production injects via MANDATORY_CONTEXT_FILES.
+    mkdir -p "$(dirname "$DR_STANDARDS_DEST")"
+    {
+      cat "$DR_STANDARDS_BASE_SRC"
+      printf '\n\n'
+      cat "$DR_SUPPLEMENT_SRC"
+    } > "$DR_STANDARDS_DEST"
 
     mkdir -p ci_temp ci_temp/reviews
     git diff --name-only -z "$from_sha..$to_sha" > ci_temp/changed_files.txt
-    printf '%s\n%s\n' "$DR_INSTRUCTIONS_DEST" "$DR_SUPPLEMENT_DEST" > ci_temp/context_files.txt
+    printf '%s\n' "$DR_STANDARDS_DEST" > ci_temp/context_files.txt
 
     export OPENCODE_MODEL_ID="$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY"
     export GITHUB_OUTPUT="$sandbox/ci_temp/github_output.txt"

@@ -74,10 +74,8 @@ scripts/eval/
 │   ├── must-catch/         # MC-001…006 synthesized seeded defects with
 │   │   └── <id>/           #   min_severity in their manifest
 │   └── context/
-│       └── code-review-standards-supplement.md   # DR-012…014 supplement
-│                                               #   (rest is the repo's own
-│                                               #   .github/instructions/...
-│                                               #   instructions.md)
+│       ├── code-review-standards.md              # DR-001…011 snapshot
+│       └── code-review-standards-supplement.md   # DR-012…015 supplement
 ├── README.md               # human-readable run guide
 └── AGENTS.md               # this file
 ```
@@ -86,10 +84,9 @@ scripts/eval/
 1. `mktemp` a sandbox, `git init`, commit `before/` (or empty base) as the
    base, then overlay `after/` and commit it as head. Net-new files = full
    review surface; modify/delete = real diff.
-2. Place the canonical DR standards at their production dot-paths (so
-   `MANDATORY_CONTEXT_FILES` injects the same context production uses):
-   `.github/instructions/code-review-standards.instructions.md` and
-   `.agents/skills/code-review-standards/SKILL.md`.
+2. Assemble the canonical DR standards corpus snapshot and supplement at the
+   production dot-path (so `MANDATORY_CONTEXT_FILES` injects the same context
+   production uses): `.agents/skills/code-review-standards/SKILL.md`.
 3. `export OPENCODE_MODEL_ID=$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` and call
    the real `../review-in-chunks.sh` against the diff — this is the genuine
    eval target (prompt assembly + two-tier opencode chain), not a reimplemented
@@ -112,7 +109,6 @@ scripts/eval/
 - **`workflow_dispatch`** — manual.
 - **`push: branches: [main]`**, **path-filtered** to
   `.agents/skills/ai-review-report/**`,
-  `.github/instructions/code-review-standards.instructions.md`, and the
   workflow itself. Post-merge canary: cannot block a merge; a regression
   surfaces as a failed run on the merge commit. The path filter keeps it
   cheap — the eval scores the reviewer against a fixed corpus, so arbitrary
@@ -194,10 +190,5 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
-| 2026-06-08 | Initial AGENTS.md for the eval dir. Captures the LADR-033 follow-up
-| state: must-NOT-flag fixture hygiene (DR-001/006/014 steering comments),
-| the `EVAL_ARTIFACT_DIR` triage archive, the post-merge canary trigger
-| (path-filtered to `.agents/skills/ai-review-report/**`,
-| `code-review-standards.instructions.md`, the workflow), and the eval's
-| intentionally-stricter Crit/High/Med precision bar. Test path is still
-| `test-evals.sh` (17/17 green); default-path cost unchanged. | — |
+| 2026-06-08 | Initial eval-dir AGENTS.md: fixture hygiene, `EVAL_ARTIFACT_DIR` triage archive, post-merge canary trigger, strict precision bar, and safe `test-evals.sh` path. | — |
+| 2026-07-30 | Move the retired `.github/instructions` DR standards into the eval corpus and assemble them into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox. | — |

@@ -64,11 +64,11 @@ Create `corpus/{must-not-flag|must-catch}/<id>/`:
   (e.g. `DR-013`, `MC-003`). The harness commits `before/`, then `after/`, and
   reviews the diff between them.
 
-The harness places the canonical DR standards
-(`.github/instructions/code-review-standards.instructions.md` +
-`corpus/context/code-review-standards-supplement.md`) at their production
-dot-paths in each sandbox so the reviewer reads the same context production
-injects via `MANDATORY_CONTEXT_FILES`.
+The harness combines the canonical DR standards corpus snapshot
+(`corpus/context/code-review-standards.md` +
+`corpus/context/code-review-standards-supplement.md`) and places the result at
+`.agents/skills/code-review-standards/SKILL.md` in each sandbox so the reviewer
+reads the same context production injects via `MANDATORY_CONTEXT_FILES`.
 
 ## Files
 

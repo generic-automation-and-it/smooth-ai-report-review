@@ -2,11 +2,11 @@
 
 > **Eval-corpus context file.** The eval harness places this at the production
 > path `.agents/skills/code-review-standards/SKILL.md` inside each fixture
-> sandbox so the reviewer reads the SAME standards production injects via
-> `MANDATORY_CONTEXT_FILES`. DR-001…DR-011 live in
-> `.github/instructions/code-review-standards.instructions.md` (copied verbatim).
-> DR-012…DR-014 below mirror the `ai-review-report` SKILL.md **Key Behaviors** —
-> keep in sync with that file (the source of truth).
+> sandbox so the reviewer reads the same standards production injects via
+> `MANDATORY_CONTEXT_FILES`. DR-001...DR-011 live in the adjacent
+> `code-review-standards.md` corpus snapshot. DR-012...DR-015 below mirror the
+> `ai-review-report` SKILL.md **Key Behaviors** — keep in sync with that file
+> (the source of truth).
 
 Intentional patterns for AI reviewers to prevent false positives.
 
