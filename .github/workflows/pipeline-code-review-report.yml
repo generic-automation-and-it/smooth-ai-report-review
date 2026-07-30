@@ -389,12 +389,24 @@ jobs:
       OPENCODE_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
 
     steps:
-      - name: Checkout PR head
+      - name: Checkout PR head (or default branch for non-PR events; script re-fetches)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          # `pull_request` events: head.ref resolves the PR head.
+          # `issue_comment` / `workflow_dispatch`: `github.event.pull_request` is absent,
+          # so the expression falls through to `github.ref` (typically the default
+          # branch). The script's Step 6 re-fetches the actual PR head from
+          # `${head_repo}@${head_ref}` (resolved via the GitHub API from the event
+          # payload), so end-to-end correctness does NOT depend on this checkout
+          # being right for non-PR events.
+          # Previously this expression also tried `issue.pull_request && head.sha`
+          # for `issue_comment`, but `github.event.pull_request` is absent for
+          # those events, so the `&&` clause was dead code (PR #86 review
+          # 4820072658 finding #2 + #5 — simplify to match the local-job
+          # caller's shape and remove the dead branch).
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request && github.event.pull_request.head.sha || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.repository }}
 
       # ── Review-script resolution ─────────────────────────────────────────────
       # Every script invocation below goes through $REVIEW_SKILL_DIR. The job
