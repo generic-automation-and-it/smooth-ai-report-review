@@ -432,7 +432,6 @@ jobs:
           path: .smooth-ai-review-tools
 
       - name: Run review gate
-        id: run_review
         env:
           # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
           # `gh api`, all of which require GITHUB_TOKEN. The runner only

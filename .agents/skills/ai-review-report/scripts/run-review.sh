@@ -76,9 +76,10 @@
 
 set -euo pipefail
 
-# Requires Bash >= 4 (associative arrays, mapfile, ${VAR^^}, wait -n throttling).
+# Requires Bash >= 4 (associative arrays, ${VAR^^}).
 # The workflow's ubuntu-latest runners ship Bash 5; this guard makes local macOS
-# runs fail fast instead of producing wrong results from unthrottled gateway calls.
+# runs fail fast instead of producing wrong results from older Bash versions.
+# (`mapfile` and `wait -n` are used by `review-in-chunks.sh`, not here.)
 if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
   echo "❌ run-review.sh requires Bash >= 4 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
   exit 1
@@ -282,7 +283,7 @@ case "$EVENT_NAME" in
     else
       PR_NUMBER_RAW="$(jq -r '.issue.number // ""' "$GITHUB_EVENT_PATH")"
     fi
-    if [ -z "$PR_NUMBER_RAW" ] || ! [[ "$PR_NUMBER_RAW" =~ ^[0-9]+$ ]]; then
+    if [ -z "$PR_NUMBER_RAW" ] || ! [[ "$PR_NUMBER_RAW" =~ ^[1-9][0-9]*$ ]]; then
       echo "❌ PR number missing or not a positive integer: '$PR_NUMBER_RAW'" >&2
       exit 1
     fi
