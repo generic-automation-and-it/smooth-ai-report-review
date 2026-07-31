@@ -173,7 +173,7 @@ grep -q 'OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1' "${tmp_dir}/test5.env"
   cat "${tmp_dir}/test5.env"
   fail "Test 5: GRAPH_ANALYSIS should default to 1"
 }
-pass "Test 5: GRAPH_ANALYSIS defaults to 0 (disabled)"
+pass "Test 5: GRAPH_ANALYSIS defaults to 1 (enabled)"
 
 # --- Test 6: detect-changes-graph.sh with valid graph DB + mock CLI ----------
 echo ""
