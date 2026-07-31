@@ -91,7 +91,7 @@ jobs:
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || '' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || '' }}
-      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
+      OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
       # Disable Claude Code (.claude) support to avoid conflicts with opencode.
       OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
       OPENCODE_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
@@ -112,7 +112,7 @@ jobs:
         run: |
           set -e
           # Install opencode via the shared lib (LADR-048) so this workflow
-          # honours OPENCODE_REVIEW_REPORT_CLI_VERSION the same way the review
+          # honours OPENCODE_CLI_VERSION the same way the review
           # gate does.
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"

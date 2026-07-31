@@ -146,7 +146,7 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
   if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
     if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-- **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` → **\`v${OPENCODE_CLI_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_CLI_VERSION\` ([release notes](https://github.com/sst/opencode/releases))"
+- **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` → **\`v${OPENCODE_CLI_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_CLI_VERSION\` ([release notes](https://github.com/sst/opencode/releases))"
       OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*"
     else
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
@@ -162,7 +162,7 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
   if [ -n "$GRAPH_CURRENT_VERSION" ]; then
     if _cv_is_newer "$GRAPH_LATEST_VERSION" "$GRAPH_CURRENT_VERSION"; then
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-- **code-review-graph:** \`v${GRAPH_CURRENT_VERSION}\` → **\`v${GRAPH_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_GRAPH_VERSION\` ([releases](https://github.com/tirth8205/code-review-graph/releases))"
+- **code-review-graph:** \`v${GRAPH_CURRENT_VERSION}\` → **\`v${GRAPH_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION\` ([releases](https://github.com/tirth8205/code-review-graph/releases))"
       # If the CLI footer hasn't been written (CLI is current or absent), let
       # the graph notice own the footer — otherwise the footer silently
       # reports "up to date" while the header shows a graph update.
@@ -184,7 +184,7 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
   if [ -n "$RTK_CURRENT_VERSION" ]; then
     if _cv_is_newer "$RTK_LATEST_VERSION" "$RTK_CURRENT_VERSION"; then
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-- **rtk:** \`v${RTK_CURRENT_VERSION}\` → **\`v${RTK_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_RTK_VERSION\` ([releases](https://github.com/${RTK_GITHUB_REPO}/releases))"
+- **rtk:** \`v${RTK_CURRENT_VERSION}\` → **\`v${RTK_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_TOOL_RTK_VERSION\` ([releases](https://github.com/${RTK_GITHUB_REPO}/releases))"
       # The literal `*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*` below is
       # the priority-chain "current" sentinel: only the CLI's current branch
       # writes a non-arrow footer. rtk takes the footer over only when the

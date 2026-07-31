@@ -13,13 +13,13 @@
 # block silently reintroduces the pin-parity gap this lib closed.
 #
 # Inputs (env vars, all optional):
-#   OPENCODE_REVIEW_REPORT_CLI_VERSION  — version pin (leading `v` stripped);
+#   OPENCODE_CLI_VERSION  — version pin (leading `v` stripped);
 #                                          blank → `latest`.
 #   GITHUB_PATH                          — set by GitHub Actions; appended so
 #                                          follow-up steps find opencode.
 #
 # Behaviour:
-#   1. Resolve REQUESTED_VERSION from OPENCODE_REVIEW_REPORT_CLI_VERSION.
+#   1. Resolve REQUESTED_VERSION from OPENCODE_CLI_VERSION.
 #   2. If opencode is already on PATH and matches the request (or request is
 #      latest), print the cache-hit line and exit 0.
 #   3. Otherwise: run the opencode installer with `--version` CLI flag
@@ -37,8 +37,8 @@
 set -euo pipefail
 
 REQUESTED_VERSION=""
-if [ -n "${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}" ]; then
-  REQUESTED_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION#v}"
+if [ -n "${OPENCODE_CLI_VERSION:-}" ]; then
+  REQUESTED_VERSION="${OPENCODE_CLI_VERSION#v}"
 else
   REQUESTED_VERSION="latest"
 fi

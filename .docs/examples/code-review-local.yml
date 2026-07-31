@@ -43,7 +43,7 @@
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
 #               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
 #                 blank → committed default; LADR-047),
-#               OPENCODE_REVIEW_REPORT_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
+#               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
 #               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
 #               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
 #                 workflow's 6-path list — override with your repo's real context files),
@@ -366,14 +366,14 @@ jobs:
             (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
             vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
-          OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
+          OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
           # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
-          OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
+          OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION: ${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION || '' }}
           # RTK token optimization (LADR-054) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
-          OPENCODE_REVIEW_REPORT_RTK_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_RTK_VERSION || '' }}
+          OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md
