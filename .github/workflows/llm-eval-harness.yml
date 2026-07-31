@@ -111,18 +111,13 @@ jobs:
       - name: Install opencode
         run: |
           set -e
+          # Install opencode via the shared lib (LADR-048) so this workflow
+          # honours OPENCODE_REVIEW_REPORT_CLI_VERSION the same way the review
+          # gate does.
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
-          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          PIN="${OPENCODE_REVIEW_REPORT_CLI_VERSION#v}"
-          if [ -n "$PIN" ]; then
-            VERSION="$PIN" OPENCODE_REVIEW_REPORT_CLI_VERSION="$PIN" curl -fsSL https://opencode.ai/install | bash
-          else
-            curl -fsSL https://opencode.ai/install | bash
-          fi
-          command -v opencode >/dev/null 2>&1 || { echo "❌ opencode not available after install."; exit 1; }
+          bash .agents/skills/ai-review-report/scripts/lib/install-opencode.sh
           opencode stats >/dev/null 2>&1 || true   # warm the SQLite store
-          echo "✓ opencode ready ($(opencode --version || echo unknown))"
 
       - name: Run LLM evals
         # run-evals.sh sources lib/resolve-provider.sh (resolves provider-id +

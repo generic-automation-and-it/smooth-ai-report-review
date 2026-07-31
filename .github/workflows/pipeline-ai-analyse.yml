@@ -259,6 +259,7 @@ jobs:
       OPENCODE_GO_ANTHROPIC_API_KEY: ${{ secrets.OPENCODE_GO_ANTHROPIC_API_KEY }}
       OPENCODE_OPENROUTER_API_KEY: ${{ secrets.OPENCODE_OPENROUTER_API_KEY }}
       OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
+      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       PR_NUMBER: ${{ needs.guard.outputs.pr_number }}
       MEDIUM_SECTION: ${{ needs.guard.outputs.medium_section }}
       LOW_SECTION: ${{ needs.guard.outputs.low_section }}
@@ -329,12 +330,13 @@ jobs:
       - name: Initialize OPENCODE
         run: |
           set -euo pipefail
+          # Install opencode via the shared lib (LADR-048) so this workflow
+          # honours OPENCODE_REVIEW_REPORT_CLI_VERSION the same way the review
+          # gate does. Post-install orchestration below stays inline because
+          # it is analyse-specific.
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
-          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          if ! command -v opencode >/dev/null 2>&1; then
-            curl -fsSL https://opencode.ai/install | bash
-          fi
+          bash "${REVIEW_SKILL_DIR}/scripts/lib/install-opencode.sh"
           bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
           opencode stats >/dev/null || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || true

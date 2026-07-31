@@ -329,6 +329,12 @@ The LADRs are the **decisions the model must follow** — they are the rules, no
 - **Consequences**: The test suite stays an independent oracle: a wrong autonomous fix can no longer green itself by rewriting the very tests that would have caught it, and if a fix does break coupled behavior the unchanged tests fail in the loop and signal it. Genuine test-only findings are skipped by default (surfaced as SKIP rows / revert notes) until a maintainer opts in with `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX=true`, accepting that self-fixes may then touch tests. The matcher is intentionally slightly broad on directory names (`test/`, `tests/`, `spec/`) to fail safe toward protecting tests; a repo that deliberately wants autonomous test edits flips the Variable. This adds a fourth analyse-scoped Variable alongside `OPENCODE_ANALYSE_PROVIDER`/`_MODEL`/`_MAX_INCREMENTAL` and a new `ai-analyse/scripts/lib` script resolved via `$ANALYSE_SKILL_DIR`.
 - **See also**: LADR-042 (the analyse loop this guards), LADR-029 (edit-only agent surface — why deterministic enforcement lives in the workflow, not the model).
 
+### LADR-048: Shared `install-opencode.sh` lib + version-pin parity
+
+- **Status**: Accepted
+- **Decision**: Extract the opencode install logic into a single shared lib `.agents/skills/ai-review-report/scripts/lib/install-opencode.sh` that every install path in this repo delegates to (the gate, `pipeline-ai-analyse.yml`, `llm-eval-harness.yml`, and the npm consumer template). The lib honours `OPENCODE_REVIEW_REPORT_CLI_VERSION` (blank → `latest`), handles cache-hit skip, install (`VERSION=` env var when pinned, bare when latest), PATH repair, and post-install version-mismatch hard fail. Add `OPENCODE_REVIEW_REPORT_CLI_VERSION` to `pipeline-ai-analyse.yml`'s env block so the analyse workflow honours the pin.
+- **Consequences**: Every install path honours the version pin through one implementation. The `ai-analyse` prerequisite gap (always pulling `latest`) is closed. Adding a new install path requires delegating to the shared lib, not inlining another `curl | bash`. The dead `CACHE_KEY` var in `run-review.sh` is gone. Root `CLAUDE.md` Non-Negotiables now require delegation to the shared lib for any new install path.
+
 ## Key Behaviors
 
 - **Review action decision matrix**: Full review + no issues → approve | Full + Critical/High → request-changes | Incremental + any result → comment (never approve) | Failed → request-changes

@@ -511,6 +511,8 @@ Then open a PR (or comment `/ai-review` on one) to trigger the gate. Full variab
 - **Allow GitHub Actions to approve PRs.** Enable repo (or org) **Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests."** Without it, a clean full review fails when the gate tries to approve (`GitHub Actions is not permitted to approve pull requests`). An org-level policy can force this off and overrides the repo toggle.
 - Gateway config for the selected provider (default `GEMINI`): the API key as a GitHub **Secret** (`OPENCODE_GEMINI_API_KEY`) and the gateway URL as a **Variable** (`OPENCODE_REVIEW_REPORT_GEMINI_URL`); optional **Variables** `OPENCODE_REVIEW_REPORT_PROVIDER` (to switch provider), `OPENCODE_REVIEW_REPORT_MODEL_*` (to retune the model chain), and `OPENCODE_REVIEW_REPORT_CLI_VERSION` (pin OPENCODE CLI; unset = latest) without editing the workflow. See [Environment variables](#environment-variables) for the complete list and [Providers](#providers) for the per-provider breakdown.
 
+> **Recommended: pin the opencode version.** Set the `OPENCODE_REVIEW_REPORT_CLI_VERSION` repo/org Variable to a specific release (e.g. `1.18.10`). Without a pin, every CI run installs `latest`, which exposes you to silent behavior drift and upstream-supply-chain risk with no reproducibility. The gate, `ai-analyse`, and eval harness all honor the pin through a single shared installer ([`lib/install-opencode.sh`](.agents/skills/ai-review-report/scripts/lib/install-opencode.sh) — see LADR-048). See [Environment variables](#environment-variables) for the full reference.
+
 ## Providers
 
 OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-review-report/assets/opencode.json`](.agents/skills/ai-review-report/assets/opencode.json)) defines the providers OpenCode can route to. Each provider reads its gateway URL and API key from environment variables (`{env:...}` substitution), so credentials never live in the repo.
@@ -554,7 +556,7 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_REVIEW_REPORT_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `OPENAI`, `ANTHROPIC`, `OPENCODE-GO-OPENAI`, `OPENCODE-GO-ANTHROPIC`, or `OPEN_ROUTER` |
 | `OPENCODE_REVIEW_REPORT_GEMINI_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini gateway base URL (default provider, OpenAI-compatible). Unset → `@ai-sdk/google`'s native Gemini API base. Point at a LiteLLM proxy to relay instead. |
 | `OPENCODE_REVIEW_REPORT_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI gateway base URL (only if using OpenAI models). Unset → `@ai-sdk/openai`'s native API base. |
-| `OPENCODE_REVIEW_REPORT_CLI_VERSION` | _(unset)_ | Optional OPENCODE CLI version pin used by the **Initialize OPENCODE** step cache/install flow. Leave unset to install latest and use cached fallback if download fails. |
+| `OPENCODE_REVIEW_REPORT_CLI_VERSION` | _(unset)_ | OPENCODE CLI version pin (recommended — see callout above). Unset = latest, which is the weak default: every run pulls whatever is current upstream with no reproducibility. Set to a specific release like `1.18.10`. |
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
 | `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
 | `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
@@ -581,7 +583,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_GO_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenCode Go OpenAI-compatible API key (`go-openai` provider). Base URL is hardcoded (`https://opencode.ai/zen/go/v1`) — no URL Variable. |
 | `OPENCODE_GO_ANTHROPIC_API_KEY` (**Secret**) | GitHub / shell export | OpenCode Go Anthropic-compatible API key (`go-anthropic` provider). Base URL is hardcoded — no URL Variable. |
 | `OPENCODE_OPENROUTER_API_KEY` (**Secret**) | GitHub / shell export | OpenRouter aggregator API key (`openrouter` provider). Base URL `https://openrouter.ai/api/v1` is hardcoded — no URL Variable. |
-| `OPENCODE_REVIEW_REPORT_CLI_VERSION` | GitHub **Variable** / shell (default unset) | Optional OPENCODE CLI version pin for the workflow's **Initialize OPENCODE** step. Unset = latest. |
+| `OPENCODE_REVIEW_REPORT_CLI_VERSION` | GitHub **Variable** / shell (default unset) | OPENCODE CLI version pin (recommended — see callout above). Unset = latest, which is the weak default: every run pulls whatever is current upstream with no reproducibility. Set to a specific release like `1.18.10`. |
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
