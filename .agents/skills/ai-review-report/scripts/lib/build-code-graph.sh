@@ -75,13 +75,16 @@ if [ "$install_needed" = "true" ]; then
     export PATH="$HOME/.local/bin:$PATH"
     echo "$HOME/.local/bin" >> "${GITHUB_PATH:-/dev/null}"
   fi
+  # --force reinstalls even when a different version is already present —
+  # without it, pipx exits non-zero on "already installed" and the version-
+  # mismatch case above always fails here.
   if [ "$REQUESTED_VERSION" = "latest" ]; then
-    if ! pipx install code-review-graph; then
+    if ! pipx install --force code-review-graph; then
       echo "❌ code-review-graph install failed." >&2
       exit 1
     fi
   else
-    if ! pipx install "code-review-graph==${REQUESTED_VERSION}"; then
+    if ! pipx install --force "code-review-graph==${REQUESTED_VERSION}"; then
       echo "❌ code-review-graph install failed." >&2
       exit 1
     fi

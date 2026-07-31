@@ -80,14 +80,51 @@ pass "Test 1: version match detected, install skipped"
 # Clean up fake graph
 rm -rf .code-review-graph
 
-# --- Test 2: build-code-graph.sh version mismatch triggers install -----------
+# --- Test 2: build-code-graph.sh version mismatch triggers pipx --force reinstall ---
 echo ""
-echo "Test 2: Version mismatch triggers install and fails on mismatch"
+echo "Test 2: Version mismatch triggers pipx install --force (regression guard for the 'already installed' upgrade-path bug)"
 
-# Create mocks for pipx and python3 so the script doesn't try to install real packages
-cat > "${mock_bin}/pipx" <<'MOCK_EOF'
+# Track the "installed" version in a state file so the mocks can simulate real
+# pipx behaviour: code-review-graph is already installed at 2.3.6 (a different
+# version than requested), so a plain `pipx install` must fail exactly like
+# real pipx does ("already installed"), and only `--force` may succeed. If a
+# future change drops --force from build-code-graph.sh, this mock makes the
+# install fail instead of silently letting a no-op mock mask the regression.
+state_file="${tmp_dir}/mock_installed_version"
+echo "2.3.6" > "$state_file"
+
+cat > "${mock_bin}/code-review-graph" <<MOCK_EOF
 #!/bin/bash
-# Mock pipx: succeed on install but don't actually install anything
+if [ "\$1" = "--version" ]; then
+  cat "${state_file}"
+  exit 0
+fi
+if [ "\$1" = "build" ]; then
+  mkdir -p .code-review-graph
+  echo "fake-db" > .code-review-graph/graph.db
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+
+cat > "${mock_bin}/pipx" <<MOCK_EOF
+#!/bin/bash
+if [ "\$1" = "install" ]; then
+  shift
+  force="false"
+  for arg in "\$@"; do
+    [ "\$arg" = "--force" ] && force="true"
+  done
+  if [ "\$force" != "true" ]; then
+    echo '"code-review-graph" is already installed at /root/.local/share/pipx/venvs/code-review-graph' >&2
+    exit 1
+  fi
+  spec=""
+  for arg in "\$@"; do spec="\$arg"; done
+  echo "\${spec#*==}" > "${state_file}"
+  exit 0
+fi
 exit 0
 MOCK_EOF
 chmod +x "${mock_bin}/pipx"
@@ -99,18 +136,19 @@ exit 0
 MOCK_EOF
 chmod +x "${mock_bin}/python3"
 
-# Request 2.4.0 but mock returns 2.3.6 — should fail version check
+# Request 2.4.0 while the mock reports 2.3.6 already installed — this must
+# now succeed via pipx install --force and report the new version.
 PATH="${mock_bin}:${PATH}" \
   OPENCODE_REVIEW_REPORT_GRAPH_VERSION="2.4.0" \
-  bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test2.out" 2>&1 && {
+  bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test2.out" 2>&1 || {
     cat "${tmp_dir}/test2.out"
-    fail "Test 2: should fail when installed version mismatches requested"
+    fail "Test 2: should succeed via pipx install --force when a different version is already installed"
   }
-grep -q "version mismatch" "${tmp_dir}/test2.out" || {
+grep -q "code-review-graph ready (version: 2.4.0)" "${tmp_dir}/test2.out" || {
   cat "${tmp_dir}/test2.out"
-  fail "Test 2: should report version mismatch"
+  fail "Test 2: should reinstall and report the newly requested version"
 }
-pass "Test 2: version mismatch detected and reported correctly"
+pass "Test 2: version mismatch triggers pipx install --force and succeeds"
 
 rm -rf .code-review-graph
 
