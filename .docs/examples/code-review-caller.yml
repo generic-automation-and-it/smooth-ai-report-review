@@ -107,6 +107,14 @@ on:
         options:
           - '0'
           - '1'
+      bypass_mandatory_context_file:
+        description: 'Bypass AGENTS.md checks and mandatory context file loading (1=bypassed, 0=normal). When truthy, skips both the mandatory context file injection and the AGENTS.md validation gate.'
+        required: false
+        type: choice
+        default: '0'
+        options:
+          - '0'
+          - '1'
 
 # The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
 permissions:
@@ -142,6 +150,7 @@ jobs:
       model_preset: ${{ inputs.model_preset || '(repository default)' }}
       disable_claude_code: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
       disable_agents_md_check: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
+      bypass_mandatory_context_file: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from
       # mandatory_context_files: >-  # override the context files resolved in YOUR repo
