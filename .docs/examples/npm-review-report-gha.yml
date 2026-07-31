@@ -78,11 +78,16 @@ jobs:
           set -eo pipefail
           # Pin an exact version in real use, e.g. @1.2.3, so reviews are reproducible.
           npm install --no-save @generic-automation-and-it/smooth-ai-review
-          # opencode is the model transport the scripts drive. The npm package
-          # links the review skills into .agents/skills/ at postinstall (see
-          # LADR-038), so the shared installer is on disk at the path below.
+          # opencode is the model transport the scripts drive. The npm
+          # package ships the skill files (and the shared installer) in its
+          # .agents/skills/ payload (see package.json `files`), so the
+          # shared installer is on disk at the path below after `npm install`.
           # Delegate to it (LADR-048) so this template honours
-          # OPENCODE_REVIEW_REPORT_CLI_VERSION.
+          # OPENCODE_REVIEW_REPORT_CLI_VERSION. (The package's plugin-side
+          # opencode-plugin.js handles per-skill linking into .agents/skills/
+          # at opencode session init — see LADR-038 — but that path isn't
+          # needed here, since the install script lives inside the package
+          # itself.)
           bash node_modules/@generic-automation-and-it/smooth-ai-review/.agents/skills/ai-review-report/scripts/lib/install-opencode.sh
 
       - name: Run review report
