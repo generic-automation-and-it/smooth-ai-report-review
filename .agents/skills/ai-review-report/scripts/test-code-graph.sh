@@ -169,9 +169,9 @@ echo "Test 5: run-review.sh env var defaults"
 
 # Extract just the env var defaults from run-review.sh (lines around the GRAPH vars)
 grep -A2 'OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS=' "${SCRIPT_DIR}/run-review.sh" | head -3 > "${tmp_dir}/test5.env"
-grep -q 'OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-0' "${tmp_dir}/test5.env" || {
+grep -q 'OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1' "${tmp_dir}/test5.env" || {
   cat "${tmp_dir}/test5.env"
-  fail "Test 5: GRAPH_ANALYSIS should default to 0"
+  fail "Test 5: GRAPH_ANALYSIS should default to 1"
 }
 pass "Test 5: GRAPH_ANALYSIS defaults to 0 (disabled)"
 

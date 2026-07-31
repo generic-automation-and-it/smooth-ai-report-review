@@ -114,7 +114,7 @@ OPENCODE_REVIEW_REPORT_CLI_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}"
 # data enriches chunk prompts (Phase 2) and aggregation (Phase 4). Phase 1
 # only builds the graph and produces the data; chunking/aggregation changes
 # land in LADR-050/051/052.
-OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-0}"
+OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1}"
 OPENCODE_REVIEW_REPORT_GRAPH_VERSION="${OPENCODE_REVIEW_REPORT_GRAPH_VERSION:-}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
 export OPENCODE_REVIEW_REPORT_GRAPH_VERSION
@@ -772,7 +772,7 @@ unset _bypass_mandatory_ctx
 # Graceful degradation: if the graph build or detect-changes fails, we log a
 # warning and continue without graph enrichment. The chunked review proceeds
 # with its existing logic (directory/semantic grouping, context files only).
-_graph_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-0}"
+_graph_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1}"
 GRAPH_ANALYSIS_AVAILABLE="false"
 case "${_graph_enabled,,}" in
   1|true|yes|on)
