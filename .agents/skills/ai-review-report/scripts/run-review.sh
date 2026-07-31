@@ -656,8 +656,8 @@ case "$review_type" in
   incremental)
     git diff --name-only -z "${from_sha}..${head_sha}" > "$WORK_DIR/files_since_last_review.txt"
     comm -z -12 \
-      <(tr '\0' '\n' < "$WORK_DIR/files_since_last_review.txt" | sort -z) \
-      <(tr '\0' '\n' < "$WORK_DIR/feature_branch_files.txt" | sort -z) \
+      <(sort -z < "$WORK_DIR/files_since_last_review.txt") \
+      <(sort -z < "$WORK_DIR/feature_branch_files.txt") \
       > "$WORK_DIR/changed_files.txt"
     ;;
   *)

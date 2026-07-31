@@ -699,6 +699,69 @@ assert_step_forwards_github_token "local-job caller" \
 fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
 
+# ── Incremental diff intersection regression tests ───────────────────────
+echo ""
+echo "=========================================="
+echo "Testing incremental diff intersection preserves NUL delimiters"
+echo "=========================================="
+
+write_nul_fixture() {
+  local path="$1"
+  shift
+  python3 - "$path" "$@" <<'PY'
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+items = sys.argv[2:]
+path.write_bytes(b"\0".join(item.encode("utf-8") for item in items) + b"\0")
+PY
+}
+
+assert_incremental_intersection() {
+  local name="$1"
+  local since_file="$2"
+  local branch_file="$3"
+  local expected_file="$4"
+  local actual_file="$TMP_DIR/${name//[^a-zA-Z0-9]/_}.actual"
+
+  comm -z -12 \
+    <(sort -z < "$since_file") \
+    <(sort -z < "$branch_file") \
+    > "$actual_file"
+
+  if python3 - "$actual_file" "$expected_file" <<'PY'
+import pathlib
+import sys
+actual = pathlib.Path(sys.argv[1]).read_bytes().split(b"\0")[:-1]
+expected = pathlib.Path(sys.argv[2]).read_bytes().split(b"\0")[:-1]
+if actual != expected:
+    raise SystemExit(f"actual={actual!r}\nexpected={expected!r}")
+PY
+  then
+    check "$name" "ok" "ok"
+  else
+    check "$name" "ok" "fail"
+  fi
+}
+
+since_fixture="$TMP_DIR/incremental-since.txt"
+branch_fixture="$TMP_DIR/incremental-branch.txt"
+expected_fixture="$TMP_DIR/incremental-expected.txt"
+write_nul_fixture "$since_fixture" "alpha/a.txt" "beta/b.txt"
+write_nul_fixture "$branch_fixture" "alpha/a.txt" "beta/b.txt" "gamma/c.txt"
+write_nul_fixture "$expected_fixture" "alpha/a.txt" "beta/b.txt"
+assert_incremental_intersection "subset intersection preserves common NUL-delimited paths" \
+  "$since_fixture" "$branch_fixture" "$expected_fixture"
+
+since_fixture="$TMP_DIR/incremental-newline-since.txt"
+branch_fixture="$TMP_DIR/incremental-newline-branch.txt"
+expected_fixture="$TMP_DIR/incremental-newline-expected.txt"
+write_nul_fixture "$since_fixture" "alpha/a.txt" $'contains\nnewline.txt'
+write_nul_fixture "$branch_fixture" $'contains\nnewline.txt' "gamma/c.txt"
+write_nul_fixture "$expected_fixture" $'contains\nnewline.txt'
+assert_incremental_intersection "newline-containing path survives NUL-delimited intersection" \
+  "$since_fixture" "$branch_fixture" "$expected_fixture"
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="
