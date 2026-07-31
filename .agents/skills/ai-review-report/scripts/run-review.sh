@@ -418,9 +418,12 @@ fi
 _rtk_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
 if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -x "$LIB_DIR/install-rtk.sh" ]; then
-    bash "$LIB_DIR/install-rtk.sh" || echo "⚠️  RTK unavailable — continuing without it" >&2
-    if [ -d "$HOME/.local/bin" ]; then
-      export PATH="$HOME/.local/bin:$PATH"
+    if bash "$LIB_DIR/install-rtk.sh"; then
+      if [ -d "$HOME/.local/bin" ] && ! command -v rtk >/dev/null 2>&1; then
+        export PATH="$HOME/.local/bin:$PATH"
+      fi
+    else
+      echo "⚠️  RTK unavailable — continuing without it" >&2
     fi
   else
     echo "⚠️  install-rtk.sh not found at $LIB_DIR — continuing without RTK" >&2
