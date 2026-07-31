@@ -10,7 +10,6 @@
 #
 # Inputs (env vars):
 #   MERGE_BASE_FOR_DIFF — git ref to diff against (set by run-review.sh Step 9)
-#   head_sha            — current HEAD SHA (set by run-review.sh Step 4)
 #
 # Exit codes:
 #   0 — success (analysis produced, even if empty)

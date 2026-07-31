@@ -467,8 +467,8 @@ jobs:
       # logic lives in scripts/lib/build-code-graph.sh (called from run-review.sh
       # Step 13.5) — this cache step just persists the .code-review-graph/ directory
       # between CI runs. The if: condition uses contains() to match the wider truthy
-      # set accepted by run-review.sh (1|true|yes|on). Note: GitHub Actions doesn't
-      # have toLower(), so the variable value should be lowercase.
+      # set accepted by run-review.sh (1|true|yes|on). Note: contains() is
+      # case-insensitive, so any case works for `1`/`true`/`yes`/`on`.
       - name: Cache code knowledge graph
         if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1')
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
