@@ -181,7 +181,7 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
   # block: an earlier tool's "behind" notice keeps the footer; rtk only takes
   # it over when nothing has claimed it yet, or the only thing claiming it
   # was CLI's "current" message.
-      if [ -n "$RTK_CURRENT_VERSION" ]; then
+  if [ -n "$RTK_CURRENT_VERSION" ]; then
     if _cv_is_newer "$RTK_LATEST_VERSION" "$RTK_CURRENT_VERSION"; then
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **rtk:** \`v${RTK_CURRENT_VERSION}\` → **\`v${RTK_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_RTK_VERSION\` ([releases](https://github.com/${RTK_GITHUB_REPO}/releases))"
