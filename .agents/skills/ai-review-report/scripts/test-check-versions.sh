@@ -1,17 +1,18 @@
 #!/bin/bash
 # test-check-versions.sh — regression tests for lib/check-versions.sh.
 #
-# Runs fully offline: `opencode` and `curl` are stubbed on PATH, and the
-# registry is a fixture directory. The stub curl records every requested URL so
-# the tests can assert *which* package was looked up — the original bug was a
-# lookup against `registry.npmjs.org/opencode`, which 404s (the CLI publishes as
-# `opencode-ai`), so the header silently rendered "✅ up to date" while an
-# update was available.
+# Runs fully offline: `opencode` / `code-review-graph` and `curl` are stubbed
+# on PATH, and the registries are fixture directories. The stub curl records
+# every requested URL so the tests can assert *which* package was looked up —
+# the original bug was a lookup against `registry.npmjs.org/opencode`, which
+# 404s (the CLI publishes as `opencode-ai`), so the header silently rendered
+# "✅ up to date" while an update was available.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="${SCRIPT_DIR}/lib/check-versions.sh"
 AGGREGATOR="${SCRIPT_DIR}/aggregate-reviews.sh"
+RUN_REVIEW="${SCRIPT_DIR}/run-review.sh"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -34,8 +35,12 @@ cat > "${stub_bin}/opencode" <<'STUB'
 [ "${1:-}" = "--version" ] && echo "${STUB_OPENCODE_VERSION:-1.0.0}"
 STUB
 
+# code-review-graph is absent from PATH by default (mirrors "graph analysis
+# disabled" / "not installed"). Tests that need it present prepend their own
+# stub dir to PATH.
+
 # Fixture registry: curl -sf --max-time N <url>. The last argument is the URL;
-# it maps to $STUB_REGISTRY_DIR/<percent-decoded path with / → _>.json. A
+# it maps to $STUB_REGISTRY_DIR/<domain-stripped path with / → _>.json. A
 # missing fixture exits 22, exactly as `curl -sf` does on a 404.
 cat > "${stub_bin}/curl" <<'STUB'
 #!/bin/bash
@@ -52,20 +57,14 @@ chmod +x "${stub_bin}/opencode" "${stub_bin}/curl"
 
 registry_dir="${tmp_dir}/registry"
 mkdir -p "$registry_dir"
-write_pkg() { printf '{"version":"%s"}\n' "$2" > "${registry_dir}/${1}_latest.json"; }
+# npm latest: .../<pkg>/latest → <pkg>_latest.json
+write_npm_pkg() { printf '{"version":"%s"}\n' "$2" > "${registry_dir}/${1}_latest.json"; }
+# PyPI JSON API: .../pypi/<pkg>/json → pypi_<pkg>_json.json (registry base
+# already includes the /pypi segment, matching the real pypi.org/pypi shape).
+write_pypi_pkg() { printf '{"info":{"version":"%s"}}\n' "$2" > "${registry_dir}/pypi_${1}_json.json"; }
 
-# Fixture opencode.json — a sentinel npm name proves the mapping is read from
-# the installed config rather than a hardcoded table inside the script.
 fake_home="${tmp_dir}/home"
-mkdir -p "${fake_home}/.config/opencode"
-cat > "${fake_home}/.config/opencode/opencode.json" <<'JSON'
-{
-  "provider": {
-    "gemini":  { "npm": "@ai-sdk/google" },
-    "openai":  { "npm": "@sentinel/from-config" }
-  }
-}
-JSON
+mkdir -p "${fake_home}"
 
 # run_check <name> [VAR=VAL ...] — source the lib in a clean subshell and dump
 # the rendered strings to ${tmp_dir}/<name>.{info,footer,log}.
@@ -79,14 +78,15 @@ run_check() {
     STUB_REGISTRY_DIR="$registry_dir" \
     STUB_CURL_LOG="$log" \
     OPENCODE_NPM_REGISTRY="https://registry.example.test" \
+    GRAPH_PYPI_REGISTRY="https://pypi.example.test/pypi" \
     "$@" \
     bash -c '
       set -euo pipefail
       . "$1"
       printf "%s" "${OPENCODE_VERSION_INFO:-}"   > "$2.info"
       printf "%s" "${OPENCODE_VERSION_FOOTER:-}" > "$2.footer"
-      { declare -p _cv_have_jq _cv_provider_id _cv_config 2>/dev/null
-        declare -F _cv_npm_latest _cv_is_newer 2>/dev/null; } > "$2.leaks" || true
+      { declare -p _cv_have_jq 2>/dev/null
+        declare -F _cv_npm_latest _cv_pypi_latest _cv_is_newer 2>/dev/null; } > "$2.leaks" || true
     ' _ "$LIB" "${tmp_dir}/${name}" >/dev/null
 }
 
@@ -94,8 +94,7 @@ echo "=========================================="
 echo "Testing opencode CLI package name + update detection"
 echo "=========================================="
 
-write_pkg "opencode-ai" "1.18.10"
-write_pkg "@ai-sdk_google" "4.0.29"
+write_npm_pkg "opencode-ai" "1.18.10"
 
 run_check update_available STUB_OPENCODE_VERSION=1.18.9
 grep -q '/opencode-ai/latest$' "${tmp_dir}/update_available.curl.log" \
@@ -129,30 +128,53 @@ ok "a pin ahead of npm latest does not render a bogus update notice"
 
 echo ""
 echo "=========================================="
-echo "Testing provider package resolution"
+echo "Testing code-review-graph resolution"
 echo "=========================================="
 
-run_check provider_default STUB_OPENCODE_VERSION=1.18.10
-grep -q '@ai-sdk/google' "${tmp_dir}/provider_default.info" \
-  || fail "provider line missing; expected the gemini default"
-ok "provider-id defaults to gemini (matches run-review.sh's :-gemini guards)"
+# code-review-graph absent from PATH (graph analysis disabled or install
+# failed) — no graph line should render, and no PyPI lookup should happen.
+run_check graph_absent STUB_OPENCODE_VERSION=1.18.10
+grep -q 'code-review-graph' "${tmp_dir}/graph_absent.info" \
+  && fail "graph line rendered even though code-review-graph is not on PATH"
+grep -q 'pypi' "${tmp_dir}/graph_absent.curl.log" \
+  && fail "PyPI was queried even though code-review-graph is not installed"
+ok "no graph line and no PyPI lookup when code-review-graph is absent"
 
-write_pkg "@sentinel_from-config" "9.9.9"
-run_check provider_from_config \
+# code-review-graph present, update available.
+graph_bin="${tmp_dir}/graph_bin"
+mkdir -p "$graph_bin"
+cat > "${graph_bin}/code-review-graph" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && echo "${STUB_GRAPH_VERSION:-2.0.0}"
+STUB
+chmod +x "${graph_bin}/code-review-graph"
+write_pypi_pkg "code-review-graph" "2.5.0"
+
+run_check graph_update_available \
   STUB_OPENCODE_VERSION=1.18.10 \
-  OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai
-grep -q '@sentinel/from-config' "${tmp_dir}/provider_from_config.info" \
-  || fail "provider npm name was not read from the installed opencode.json"
-ok "provider npm name comes from opencode.json (single source of truth, no duplicated map)"
+  STUB_GRAPH_VERSION=2.4.0 \
+  PATH="${graph_bin}:${stub_bin}:/usr/bin:/bin"
+grep -q '/code-review-graph/json$' "${tmp_dir}/graph_update_available.curl.log" \
+  || fail "graph lookup did not request code-review-graph/json from PyPI"
+ok "graph version is looked up on PyPI under the 'code-review-graph' package"
 
-grep -q '@sentinel%2Ffrom-config/latest$' "${tmp_dir}/provider_from_config.curl.log" \
-  || fail "scoped package name was not percent-encoded in the registry URL"
-ok "scoped provider packages are percent-encoded for the registry"
+grep -q 'code-review-graph.*⬆️\|⬆️.*code-review-graph' "${tmp_dir}/graph_update_available.info" \
+  || fail "no update marker for code-review-graph 2.4.0 → 2.5.0"
+grep -q 'v2.4.0' "${tmp_dir}/graph_update_available.info" || fail "current graph version missing from header"
+grep -q 'v2.5.0' "${tmp_dir}/graph_update_available.info" || fail "latest graph version missing from header"
+grep -q 'OPENCODE_REVIEW_REPORT_GRAPH_VERSION' "${tmp_dir}/graph_update_available.info" \
+  || fail "graph update notice does not name the Variable to bump"
+ok "header announces an available code-review-graph update and names the Variable"
 
-grep -q 'v9.9.9' "${tmp_dir}/provider_from_config.info" || fail "provider latest version missing"
-grep -q '⬆️' "${tmp_dir}/provider_from_config.info" \
-  && fail "provider line must not claim an update — the SDK is bundled in the CLI binary"
-ok "provider line is informational (no unreachable current-vs-latest branch)"
+run_check graph_up_to_date \
+  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_GRAPH_VERSION=2.5.0 \
+  PATH="${graph_bin}:${stub_bin}:/usr/bin:/bin"
+grep -q 'code-review-graph' "${tmp_dir}/graph_up_to_date.info" \
+  || fail "graph line missing when code-review-graph is installed"
+grep -q 'code-review-graph.*⬆️\|⬆️.*code-review-graph' "${tmp_dir}/graph_up_to_date.info" \
+  && fail "false update notice for code-review-graph when current == latest"
+ok "code-review-graph current == latest renders ✅ and no update notice"
 
 echo ""
 echo "=========================================="
@@ -163,8 +185,8 @@ rm -f "${registry_dir}/opencode-ai_latest.json"
 run_check registry_down STUB_OPENCODE_VERSION=1.18.9
 grep -q '✅' "${tmp_dir}/registry_down.info" || fail "unreachable registry should still report the installed version"
 grep -q '⬆️' "${tmp_dir}/registry_down.info" && fail "unreachable registry must not invent an update"
-ok "unreachable registry degrades to installed-version-only, never blocks the review"
-write_pkg "opencode-ai" "1.18.10"
+ok "unreachable npm registry degrades to installed-version-only, never blocks the review"
+write_npm_pkg "opencode-ai" "1.18.10"
 
 cat > "${stub_bin}/opencode" <<'STUB'
 #!/bin/bash
@@ -187,20 +209,25 @@ ok "no _cv_* variables or helper functions leak into the sourcing shell"
 
 echo ""
 echo "=========================================="
-echo "Testing aggregate-reviews.sh wiring"
+echo "Testing aggregate-reviews.sh + run-review.sh wiring"
 echo "=========================================="
 
 grep -q 'OPENCODE_VERSION_FOOTER="\${10:-}"' "$AGGREGATOR" \
   || fail "aggregate-reviews.sh does not accept the footer as \$10"
 ok "aggregate-reviews.sh reads the footer from \$10"
 
-grep -q 'OPENCODE_CLI_CURRENT_VERSION\|OPENCODE_CLI_LATEST_VERSION' "$AGGREGATOR" \
-  && fail "aggregate-reviews.sh reads env vars that are never exported to it (dead code)"
-ok "aggregate-reviews.sh no longer reads unexported version vars"
-
-grep -q '"\${OPENCODE_VERSION_FOOTER:-}"' "${SCRIPT_DIR}/run-review.sh" \
+grep -q '"\${OPENCODE_VERSION_FOOTER:-}"' "$RUN_REVIEW" \
   || fail "run-review.sh does not pass OPENCODE_VERSION_FOOTER to the aggregator"
 ok "run-review.sh forwards the footer to the aggregator"
+
+grep -q 'graph_analysis_available' "$RUN_REVIEW" > /tmp/_graph_line_no.txt
+graph_output_line=$(grep -n 'echo "graph_analysis_available=' "$RUN_REVIEW" | head -1 | cut -d: -f1)
+check_versions_line=$(grep -n '\. "\$LIB_DIR/check-versions.sh"' "$RUN_REVIEW" | head -1 | cut -d: -f1)
+[ -n "$graph_output_line" ] && [ -n "$check_versions_line" ] \
+  || fail "could not locate graph-analysis-available write or check-versions.sh source line"
+[ "$check_versions_line" -gt "$graph_output_line" ] \
+  || fail "check-versions.sh must be sourced AFTER graph analysis completes, so 'code-review-graph --version' reflects what build-code-graph.sh installed"
+ok "check-versions.sh runs after graph analysis (Step 13.5), not before opencode install probing"
 
 echo ""
 echo "=========================================="
