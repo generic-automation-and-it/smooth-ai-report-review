@@ -22,7 +22,8 @@
 # Behaviour:
 #   1. Check if code-review-graph is already installed and matches the version
 #      pin (or pin is latest). If so, skip install.
-#   2. Install via pip (user-local) if missing or version mismatch.
+#   2. Install via pipx (isolated venv) if missing or version mismatch.
+#      Falls back to pip --user on systems without pipx.
 #   3. Build or incrementally update the graph in .code-review-graph/.
 #   4. Verify the graph DB exists and is non-empty.
 #   5. Print summary: node count, edge count, build time.

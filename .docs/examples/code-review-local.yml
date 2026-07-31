@@ -221,7 +221,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .code-review-graph
-          key: crg-${{ runner.os }}-${{ hashFiles('**/*.cs', '**/*.csproj', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.py', '**/*.go', '**/*.java', '**/go.mod', '**/go.sum', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/Pipfile.lock', '**/poetry.lock') }}-v1
+          key: crg-${{ runner.os }}-${{ hashFiles('**/*.cs', '**/*.csproj', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.py', '**/*.go', '**/*.java', '**/go.mod', '**/go.sum', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/Pipfile.lock', '**/poetry.lock', '**/Gemfile.lock', '**/Cargo.lock', '**/composer.lock', '**/mix.lock') }}-v1
           restore-keys: |
             crg-${{ runner.os }}-
 
