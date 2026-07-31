@@ -37,7 +37,9 @@ _cv_have_jq="false"
 command -v jq >/dev/null 2>&1 && _cv_have_jq="true"
 
 # _cv_npm_latest <package> — echo the latest published version, or nothing.
-# Scoped names (@scope/name) are percent-encoded as the registry requires.
+# Encodes `/` as %2F so npm's @scope/name form survives the URL path; `@`
+# itself is allowed in registry paths and is not touched. Current call site
+# (opencode-ai) is unscoped, so the substitution is a no-op in practice.
 _cv_npm_latest() {
   [ "$_cv_have_jq" = "true" ] || return 0
   local _pkg="${1//\//%2F}" _json
@@ -46,8 +48,10 @@ _cv_npm_latest() {
 }
 
 # _cv_pypi_latest <package> — echo the latest published version, or nothing.
-# Scoped names (@scope/name) are percent-encoded as the registry requires,
-# mirroring _cv_npm_latest so a future scoped-package fork still resolves.
+# PyPI uses PEP 503's scope--name form (no `/`) for scoped packages, so this
+# substitution is only relevant for non-PEP-503 mirrors. Mirrors
+# _cv_npm_latest's encoding for consistency. Current call site
+# (code-review-graph) is unscoped.
 _cv_pypi_latest() {
   [ "$_cv_have_jq" = "true" ] || return 0
   local _pkg="${1//\//%2F}" _json
@@ -98,14 +102,21 @@ OPENCODE_VERSION_FOOTER=""
 if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ]; then
   OPENCODE_VERSION_INFO="📦 **Versions**"
 
-  if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
-    OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+  # The outer `if` is widened with `|| GRAPH_CURRENT_VERSION` so a graph-only
+  # run still renders a Versions block. That removed the implicit
+  # `[ -n "$OPENCODE_CLI_CURRENT_VERSION" ]` guard this inner block used to
+  # inherit — re-apply it explicitly so an undetectable CLI version does not
+  # produce a stray `v` token in the header/footer.
+  if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
+    if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` → **\`v${OPENCODE_CLI_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_CLI_VERSION\` ([release notes](https://github.com/sst/opencode/releases))"
-    OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*"
-  else
-    OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+      OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*"
+    else
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` ✅"
-    OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*"
+      OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*"
+    fi
   fi
 
   # code-review-graph line — only when the tool is actually installed (graph
