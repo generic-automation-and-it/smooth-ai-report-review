@@ -43,7 +43,7 @@
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
 #               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
 #                 blank → committed default; LADR-047),
-#               OPENCODE_REVIEW_REPORT_CLI_VERSION (opencode version pin, blank → latest),
+#               OPENCODE_REVIEW_REPORT_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
 #               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
 #               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
 #                 workflow's 6-path list — override with your repo's real context files),

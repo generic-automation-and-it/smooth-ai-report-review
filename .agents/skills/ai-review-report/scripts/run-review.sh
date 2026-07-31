@@ -370,72 +370,27 @@ else
   echo "✓ ripgrep already installed ($(rg --version | head -1))"
 fi
 
-# 5c. Resolve requested opencode version + try cache restore.
-REQUESTED_VERSION=""
-if [ -n "${OPENCODE_REVIEW_REPORT_CLI_VERSION}" ]; then
-  REQUESTED_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION#v}"
+# 5c. Install opencode — delegated to the shared lib (LADR-048) so every
+# install path in this repo honours OPENCODE_REVIEW_REPORT_CLI_VERSION
+# through a single implementation. The lib exports $HOME/.opencode/bin on
+# PATH and appends to $GITHUB_PATH for follow-up steps. Guarded so a
+# missing lib (broken LADR-048 path-coupling) surfaces with the same UX
+# as the lib's other failures instead of an opaque "No such file".
+if [ -x "$LIB_DIR/install-opencode.sh" ]; then
+  bash "$LIB_DIR/install-opencode.sh"
 else
-  REQUESTED_VERSION="latest"
+  echo "❌ install-opencode.sh not found or not executable at $LIB_DIR/install-opencode.sh" >&2
+  echo "   LADR-048 path-coupling broken — every install path must delegate to scripts/lib/install-opencode.sh" >&2
+  exit 1
 fi
-echo "Requested opencode version: ${REQUESTED_VERSION}"
-CACHE_KEY="opencode-$(uname -s)-${REQUESTED_VERSION}"
-# Cache restore is best-effort — on a fresh runner or with a missing cache
-# key, just install. actions/cache is run by the caller (the workflow) when
-# this script is invoked as a reusable-workflow step; local callers do not
-# have it, so we just install.
-if command -v opencode >/dev/null 2>&1; then
-  cached_version="$(opencode --version 2>/dev/null | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
-  if [ -n "$cached_version" ] && { [ "$REQUESTED_VERSION" = "latest" ] || [ "$cached_version" = "$REQUESTED_VERSION" ]; }; then
-    echo "✓ opencode found on PATH (version: $cached_version)"
-  else
-    install_needed="true"
-  fi
-else
-  install_needed="true"
-fi
-
-if [ "${install_needed:-false}" = "true" ]; then
-  echo "Installing opencode (${REQUESTED_VERSION})..."
-  if [ "$REQUESTED_VERSION" = "latest" ]; then
-    if ! curl -fsSL https://opencode.ai/install | bash; then
-      echo "❌ opencode install failed." >&2
-      exit 1
-    fi
-  else
-    if ! VERSION="$REQUESTED_VERSION" OPENCODE_REVIEW_REPORT_CLI_VERSION="$REQUESTED_VERSION" \
-         curl -fsSL https://opencode.ai/install | bash; then
-      echo "❌ opencode install failed." >&2
-      exit 1
-    fi
-  fi
-fi
-
-# The installer writes to $GITHUB_PATH (a GitHub Actions special: it appends
-# to PATH of SUBSEQUENT steps, not the current shell). It also appends to
-# $HOME/.bashrc, which `bash` does not re-source. The binary lives at
-# $HOME/.opencode/bin/opencode — export it explicitly so the verification
-# below (and every later `opencode` call in this script) can find it.
-# Also append to $GITHUB_PATH so a follow-up step (Post Error Comment, etc.)
-# in the same job can find opencode too.
-if [ -x "$HOME/.opencode/bin/opencode" ] && ! command -v opencode >/dev/null 2>&1; then
+# The lib's PATH export runs in its own subshell and doesn't propagate here.
+# Re-export for this script's subsequent opencode invocations (PR #86 fix).
+# Unconditionally append to $GITHUB_PATH so follow-up steps also find opencode,
+# even on a cache hit (the lib's exit-0 cache-hit branch doesn't touch $GITHUB_PATH).
+if [ -x "$HOME/.opencode/bin/opencode" ]; then
   export PATH="$HOME/.opencode/bin:$PATH"
   echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
 fi
-
-if ! command -v opencode >/dev/null 2>&1; then
-  echo "❌ opencode is not on PATH after install." >&2
-  exit 1
-fi
-installed_version="$(opencode --version | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
-if [ -z "$installed_version" ]; then
-  echo "❌ Unable to determine installed opencode version." >&2
-  exit 1
-fi
-if [ "$REQUESTED_VERSION" != "latest" ] && [ "$installed_version" != "$REQUESTED_VERSION" ]; then
-  echo "❌ opencode version mismatch: expected ${REQUESTED_VERSION}, got ${installed_version}." >&2
-  exit 1
-fi
-echo "✓ opencode ready (version: ${installed_version})"
 
 # 5d. Install opencode.json provider config.
 bash "$LIB_DIR/setup-opencode-config.sh"

@@ -38,6 +38,14 @@ permissions:
 jobs:
   review-report:
     runs-on: ubuntu-latest
+    env:
+      # Pin opencode to a specific version for supply-chain hygiene +
+      # reproducibility (recommended). Unset = latest, which pulls whatever
+      # is current upstream on every run with no reproducibility. Set the
+      # OPENCODE_REVIEW_REPORT_CLI_VERSION repo/org Variable to something
+      # like 'major.minor.patch' to enable the pin. The shared installer (LADR-048)
+      # honours it across every install path in this repo.
+      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
     steps:
       - name: Checkout PR head (full history for base diff)
         uses: actions/checkout@v4
@@ -70,9 +78,19 @@ jobs:
           set -eo pipefail
           # Pin an exact version in real use, e.g. @1.2.3, so reviews are reproducible.
           npm install --no-save @generic-automation-and-it/smooth-ai-review
-          # opencode is the model transport the scripts drive. Installs to ~/.opencode/bin.
-          curl -fsSL https://opencode.ai/install | bash
-          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          # opencode is the model transport the scripts drive. The npm
+          # package ships the skill files (and the shared installer) in its
+          # .agents/skills/ payload (see package.json `files`), so the
+          # shared installer is on disk at the path below after `npm install`.
+          # Delegate to it (LADR-048) so this template honours
+          # OPENCODE_REVIEW_REPORT_CLI_VERSION. (The package's plugin-side
+          # opencode-plugin.js handles per-skill linking into .agents/skills/
+          # at opencode session init — see LADR-038.) The install script
+          # ships inside the npm package (via the `files` whitelist in
+          # `package.json`), so `npm install` makes it available at the path
+          # below without needing the opencode plugin to link it at session
+          # init.
+          bash node_modules/@generic-automation-and-it/smooth-ai-review/.agents/skills/ai-review-report/scripts/lib/install-opencode.sh
 
       - name: Run review report
         env:

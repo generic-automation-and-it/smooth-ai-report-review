@@ -22,6 +22,7 @@ Autonomous counterpart to `/ai-review`: consumes the OpenCode Review Report's lo
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-07-31 | `pipeline-ai-analyse.yml` now honours `OPENCODE_REVIEW_REPORT_CLI_VERSION` (previously always installed `latest` regardless of the pin). The workflow's env block gains the Variable, and the `Initialize OPENCODE` step delegates opencode install to the shared lib `.agents/skills/ai-review-report/scripts/lib/install-opencode.sh` (LADR-048) so the analyse workflow and the review gate install opencode through one implementation. | LADR-048 |
 | 2026-07-24 | Added the "test in the loop" guard: autonomous fixes no longer edit tests or the test framework unless `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is truthy. New deterministic reverter `scripts/lib/filter-test-self-fix.sh` (+ offline test), workflow prompt/commit/summary wiring, and docs. | LADR-045 |
 | 2026-07-05 | Critical/High findings are now omitted from the summary table entirely instead of appearing as SKIP rows (SKILL.md + `pipeline-ai-analyse.yml` prompt). | PR #61 |
 | 2026-06-30 | Initial AGENTS.md for the `ai-analyse` skill: autonomous low/medium fixer, edit-only in CI, `[ai-analyse]` traceability marker, incremental-cycle cap. | ai-analyse |
