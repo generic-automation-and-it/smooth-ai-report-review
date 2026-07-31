@@ -130,6 +130,14 @@ on:
         options:
           - '0'
           - '1'
+      bypass_mandatory_context_file:
+        description: 'Bypass AGENTS.md checks and mandatory context file loading (1=bypassed, 0=normal). When truthy, skips both the mandatory context file injection and the AGENTS.md validation gate.'
+        required: false
+        type: choice
+        default: '0'
+        options:
+          - '0'
+          - '1'
 
 permissions:
   pull-requests: write
@@ -141,6 +149,12 @@ permissions:
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ai-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: true
+
+env:
+  # Force GitHub-hosted JS actions onto Node 24 to match the reusable workflow.
+  # Without this, Node-version skew between the two packagings can surface as
+  # silent failures in third-party actions that assume a newer runtime.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   review:
@@ -349,6 +363,7 @@ jobs:
             .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
           AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
           OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
+          OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}
           OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
           # Mirror the reusable workflow's lockstep forward — see
           # `pipeline-code-review-report.yml:388-389`. The two are always

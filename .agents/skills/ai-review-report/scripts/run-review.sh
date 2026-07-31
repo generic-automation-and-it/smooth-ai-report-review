@@ -49,6 +49,7 @@
 #   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / SECONDARY / ORCHESTRATOR — model chain
 #   OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE  [1]   — disable .claude support
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
+#   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
 #   OPENCODE_REVIEW_REPORT_CLI_VERSION  [unset → latest] — opencode version pin
 #   OPENCODE_REVIEW_REPORT_CONFIG  [unset → committed opencode.json] — LADR-047
@@ -100,6 +101,7 @@ LIB_DIR="$SCRIPT_DIR/lib"
 OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
 export OPENCODE_DISABLE_CLAUDE_CODE="$OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE"
 OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
+OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
 OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
 if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" -le 0 ]; then
   echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT='${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}' (must be a positive integer). Using default: 100" >&2
@@ -716,12 +718,32 @@ echo "$pr_body" > "$WORK_DIR/pr_description.txt"
 echo "PR: ${pr_title} by @${pr_author}"
 
 # --- Step 13: Find context files (mandatory + *AGENTS.md ancestor walk) ------
-bash "$SCRIPT_DIR/find-context-files.sh"
+# When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
+# (1/true/yes/on), skip the mandatory context file loading AND the AGENTS.md
+# ancestor walk — the review runs without injected context files.
+_bypass_mandatory_ctx="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+case "${_bypass_mandatory_ctx,,}" in
+  1|true|yes|on)
+    echo "⏭️  Bypassing mandatory context file loading (OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=${_bypass_mandatory_ctx})"
+    echo "has_context=false" >> "$GITHUB_OUTPUT"
+    echo "context_file_count=0" >> "$GITHUB_OUTPUT"
+    : > "$WORK_DIR/context_files.txt" 2>/dev/null || true
+    ;;
+  *)
+    bash "$SCRIPT_DIR/find-context-files.sh"
+    ;;
+esac
+unset _bypass_mandatory_ctx
 
 # --- Step 14: Validate AGENTS.md (full reviews only) -------------------------
 VALIDATION_PASSED_FILE="$WORK_DIR/validation_passed"
+_bypass_agents_md="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
 if [ "$review_type" = "full" ] \
-   && [ "${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK}" != "1" ]; then
+   && [ "${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK}" != "1" ] \
+   && [ "${_bypass_agents_md,,}" != "1" ] \
+   && [ "${_bypass_agents_md,,}" != "true" ] \
+   && [ "${_bypass_agents_md,,}" != "yes" ] \
+   && [ "${_bypass_agents_md,,}" != "on" ]; then
   BASE_SHA_FOR_VALIDATION="${from_sha}" \
   HEAD_SHA_FOR_VALIDATION="${head_sha}" \
   BASE_REF_FOR_VALIDATION="${base_ref}" \
@@ -732,6 +754,7 @@ else
 fi
 validation_passed="$(grep '^validation_passed=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 echo "AGENTS.md validation: ${validation_passed}"
+unset _bypass_agents_md
 
 # If validation failed on a full review, post a blocking request-changes and
 # stop. Mirrors the workflow's `Block PR if AGENTS.md Validation Failed` step.
