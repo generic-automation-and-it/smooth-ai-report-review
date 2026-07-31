@@ -46,9 +46,11 @@ _cv_npm_latest() {
 }
 
 # _cv_pypi_latest <package> — echo the latest published version, or nothing.
+# Scoped names (@scope/name) are percent-encoded as the registry requires,
+# mirroring _cv_npm_latest so a future scoped-package fork still resolves.
 _cv_pypi_latest() {
   [ "$_cv_have_jq" = "true" ] || return 0
-  local _pkg="$1" _json
+  local _pkg="${1//\//%2F}" _json
   _json=$(curl -sf --max-time 5 "${GRAPH_PYPI_REGISTRY}/${_pkg}/json" 2>/dev/null) || return 0
   printf '%s' "$_json" | jq -r '.info.version // empty' 2>/dev/null || true
 }
@@ -93,7 +95,7 @@ fi
 OPENCODE_VERSION_INFO=""
 OPENCODE_VERSION_FOOTER=""
 
-if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
+if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ]; then
   OPENCODE_VERSION_INFO="📦 **Versions**"
 
   if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
@@ -114,6 +116,12 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
     if _cv_is_newer "$GRAPH_LATEST_VERSION" "$GRAPH_CURRENT_VERSION"; then
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **code-review-graph:** \`v${GRAPH_CURRENT_VERSION}\` → **\`v${GRAPH_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_GRAPH_VERSION\` ([releases](https://github.com/tirth8205/code-review-graph/releases))"
+      # If the CLI footer hasn't been written (CLI is current or absent), let
+      # the graph notice own the footer — otherwise the footer silently
+      # reports "up to date" while the header shows a graph update.
+      if [ -z "$OPENCODE_VERSION_FOOTER" ] || [ "$OPENCODE_VERSION_FOOTER" = "*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*" ]; then
+        OPENCODE_VERSION_FOOTER="*code-review-graph: v${GRAPH_CURRENT_VERSION} → v${GRAPH_LATEST_VERSION} available ⬆️*"
+      fi
     else
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **code-review-graph:** \`v${GRAPH_CURRENT_VERSION}\` ✅"
