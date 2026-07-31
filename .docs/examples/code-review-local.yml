@@ -210,6 +210,18 @@ jobs:
           ref: c72937139e53363f051b09c64f706e7df4e38a23 # PR #86 head — bump after merge
           path: .review-tools
 
+      # ── Code graph analysis (LADR-049) ──────────────────────────────────────
+      # Mirrors the reusable workflow's graph cache step. The install + build
+      # logic is in scripts/lib/build-code-graph.sh (called from run-review.sh).
+      - name: Cache code knowledge graph
+        if: vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS == '1'
+        uses: actions/cache@v4
+        with:
+          path: .code-review-graph
+          key: crg-${{ runner.os }}-${{ hashFiles('**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/*.csproj', '**/go.sum', '**/Pipfile.lock', '**/poetry.lock') }}-v1
+          restore-keys: |
+            crg-${{ runner.os }}-
+
       - name: Run review gate
         env:
           # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
@@ -353,6 +365,9 @@ jobs:
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
           OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
+          OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '0' }}
+          OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md
