@@ -405,6 +405,14 @@ bash "$LIB_DIR/opencode-health.sh" || true
 bash "$LIB_DIR/resolve-provider.sh"
 echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 
+# 5f-bis. Check CLI + provider package versions against npm latest.
+# Sets OPENCODE_VERSION_INFO (and component vars) for the review header.
+# Sourced (not exec'd) so the env vars are available in this shell.
+if [ -f "$LIB_DIR/check-versions.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$LIB_DIR/check-versions.sh"
+fi
+
 # 5g. Probe the two-tier review chain (PRIMARY → SECONDARY). On a soft-fail
 # (both models unavailable), set all_models_failed=true and post a
 # request-changes review from the catch-all step below.
@@ -896,7 +904,8 @@ bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${FILES_CHANGED}" \
   "${head_sha}" \
   "${EXPERTISE_STATEMENT}" \
-  "${last_full_review_status:-none}"
+  "${last_full_review_status:-none}" \
+  "${OPENCODE_VERSION_INFO:-}"
 
 # --- Step 19: Minimize previous reviews (full only) --------------------------
 if [ "$review_type" = "full" ] && [ "$validation_passed" != "false" ]; then
