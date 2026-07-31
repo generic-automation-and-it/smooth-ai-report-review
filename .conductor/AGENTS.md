@@ -44,11 +44,19 @@ at scripts under `.conductor/scripts/`, which start the imposter container and, 
 
 ## Key Behaviors
 
-- **Session forwarding opt-out** — `imposter-container.sh` defaults both
-  `OPENCODE_GO_{ANTHROPIC,OPENAI}_SESSION_FORWARDING` to `none` in the host shell, preserves them through
-  `sudo --preserve-env`, and passes the matching `-e` flags to `docker run` so the container sees them.
-  Matched routes therefore do **not** stamp `session_id` / `x-opencode-session`. To re-enable, comment out
-  both exports, remove both names from `--preserve-env`, and remove the two `-e` flags.
+- **`CONDUCTOR_IS_LOCAL` short-circuit.** Both `setup.sh` and `imposter-container.sh` exit 0 immediately
+  when `CONDUCTOR_IS_LOCAL=1` (set by Conductor for local Mac/desktop workspaces). A local machine already
+  has Docker Desktop and the imposter container up; running this script would only clobber that setup.
+- **Codex configuration.** `setup.sh` writes `~/.codex/config.toml` (via Python) to set
+  `model_provider = "smooth-llm-proxy"` and the matching `[model_providers.smooth-llm-proxy]` table pointing
+  at `http://127.0.0.1:${PORT}/openai/v1` with `wire_api = "responses"`. Only the provider selector and the
+  imposter table are touched; all other Codex settings (MCP servers, RTK config, etc.) are preserved. A
+  `.bak` copy is made on first run. `setup.sh` aborts before starting the container if the expected lines are
+  not found after writing (catches silent regex misses).
+- **Session forwarding opt-out** — The image default is `SessionForwarding: opencode-go` on both
+  `opencode-go-*` providers, so matched routes stamp `session_id` / `x-opencode-session`. To stop OpenCode
+  session token usage, uncomment the two `OPENCODE_GO_{ANTHROPIC,OPENAI}_SESSION_FORWARDING` exports,
+  add both names to `--preserve-env`, and add the two `-e` flags to the `docker run`.
 - **Enabling this in a new workspace.** Nothing to configure beyond secrets: once
   `.conductor/settings.toml` is on the branch a workspace is created from, Conductor runs its `setup` script
   automatically. The only prerequisite is that the workspace has `OPENCODE_API_KEY` and `OPENROUTER_API_KEY`
@@ -69,19 +77,24 @@ at scripts under `.conductor/scripts/`, which start the imposter container and, 
   directly with `sudo nohup` when `docker info` fails, matching the Amazon Linux 2023 cloud sandbox lifecycle
   (no systemd as PID 1) documented in the wiki setup doc. It has only been run in that cloud sandbox. A local
   Mac workspace normally has Docker Desktop already running its own daemon on a different socket path than the
-  hardcoded `unix:///var/run/docker.sock` default, and `--pull=never` assumes the image was already pulled by
-  the (cloud-only) snapshot script. `[scripts] setup` has no `available_in` gate — unlike `[scripts.run.*]` —
-  so it runs unconditionally on every workspace, local or cloud. Until this is verified working on macOS,
-  local users who hit failures should override `setup` via a personal `settings.local.toml` (see the
-  precedence gotcha above).
+  hardcoded `unix:///var/run/docker.sock` default, and `--pull=always` re-checks GHCR for a newer image on
+  every start; the snapshot pulls the image once at snapshot time, but a rotated tag or a manual dispatch will
+  be picked up on the next `setup`/`restart-imposter`. `[scripts] setup` has no `available_in` gate —
+  unlike `[scripts.run.*]` — so it runs unconditionally on every workspace, local or cloud. Until this is
+  verified working on macOS, local users who hit failures should override `setup` via a personal
+  `settings.local.toml` (see the precedence gotcha above).
 - **Idempotent recreate, not incremental update.** Every run (`setup` or `restart-imposter`) does
   `docker rm -f` then `docker run -d` unconditionally — there's no update-in-place path, no volumes to lose,
   and no state carried between recreations beyond what's baked into the image + the `-e` flags.
 - **Current imposter model mappings** (single source of truth: the `-e` flags in `imposter-container.sh`):
   `claude-sonnet-4-6`/`claude-opus-4-6`/`claude-opus-4-8` → OpenCode Go `qwen3.6-plus`/`qwen3.7-plus`/`qwen3.7-max`;
-  `claude-haiku-*` → OpenRouter Anthropic `inclusionai/ling-3.0-flash:free`; `gpt-5.4`/`gpt-5.5`/`gpt-5.6-luna` →
-  OpenCode Go `kimi-k2.7-code`/`glm-5.2`/`grok-4.5`. OpenRouter targets keep the provider-prefixed slug
-  (e.g. `inclusionai/ling-3.0-flash:free`) the OpenRouter API expects.
+  `claude-haiku-*` → OpenRouter Anthropic `inclusionai/ling-3.0-flash:free`; `gpt-5.4`/`gpt-5.5` route via
+  `opencode-go-openai-chat` (`OpenAiUpstreamApi: chat_completions`) → OpenCode Go `kimi-k2.7-code`/`glm-5.2`,
+  and `gpt-5.6-luna` routes via `opencode-go-openai-responses` (`OpenAiUpstreamApi: responses`) → OpenCode Go
+  `grok-4.5`. The two `opencode-go-openai-*` providers are split because `gpt-5.4`/`gpt-5.5` need the
+  Chat-downgrade path today while `gpt-5.6-luna` is held in reserve for future Responses-API support.
+  OpenRouter targets keep the provider-prefixed slug (e.g. `inclusionai/ling-3.0-flash:free`) the OpenRouter
+  API expects.
 - **The MCP servers `code-review-graph install` configures all invoke `uvx code-review-graph serve`**,
   regardless of platform. If a workspace's snapshot doesn't have `uv` on `PATH`, the generated MCP configs are
   written successfully but the servers themselves cannot start — `code-review-graph build` still exits 0 in
@@ -104,3 +117,4 @@ manual cleanup step per teammate, not something this script can detect or warn a
 | Date | Change | Ref |
 | :---- | :---- | :---- |
 | 2026-07-30 | Initial version. Copied from `generic-automation-and-it/smooth-llm-imposter` `.conductor/`; updated wiki doc reference to point to source repo and updated tracked-file count to 92 (this repo's `.agents/skills/`). | — |
+| 2026-07-31 | Sync from `smooth-llm-imposter` `.conductor/`: add `CONDUCTOR_IS_LOCAL=1` short-circuit to `imposter-container.sh` and `setup.sh`; add Codex configuration section to `setup.sh`; change `--pull=never` → `--pull=always` in `imposter-container.sh`; make session-forwarding opt-in (comment out exports + `-e` flags, remove from `--preserve-env`); split `opencode-go-openai` into `opencode-go-openai-chat` (chat_completions, gpt-5.4/5.5) and `opencode-go-openai-responses` (responses, gpt-5.6-luna). Updated AGENTS.md accordingly. | — |
