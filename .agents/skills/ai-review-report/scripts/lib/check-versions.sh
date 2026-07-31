@@ -1,19 +1,23 @@
 #!/bin/bash
-# check-versions.sh — check the opencode CLI and the active provider package
-# for newer releases, and render an update notice for the review report.
+# check-versions.sh — check the opencode CLI and code-review-graph for newer
+# releases, and render an update notice for the review report.
 #
-# Called from run-review.sh after the provider is resolved (sourced, not
-# exec'd, so the rendered strings land in the caller's shell).
+# Called from run-review.sh after Step 13.5 (code graph analysis), so both
+# tools have already been installed and their versions are known regardless
+# of whether graph analysis is enabled. Sourced (not exec'd), so the rendered
+# strings land in the caller's shell.
 #
 # Sets (consumed by run-review.sh, passed positionally to aggregate-reviews.sh):
 #   OPENCODE_VERSION_INFO    — multi-line Markdown block for the review header
 #   OPENCODE_VERSION_FOOTER  — single-line Markdown for the review footer
 #
 # Also sets, for callers that want the raw values:
-#   OPENCODE_CLI_CURRENT_VERSION     — installed opencode CLI version
-#   OPENCODE_CLI_LATEST_VERSION      — latest on npm (empty if unknown)
-#   OPENCODE_PROVIDER_NPM_PACKAGE    — npm package backing the active provider
-#   OPENCODE_PROVIDER_LATEST_VERSION — latest on npm (empty if unknown)
+#   OPENCODE_CLI_CURRENT_VERSION   — installed opencode CLI version
+#   OPENCODE_CLI_LATEST_VERSION    — latest on npm (empty if unknown)
+#   GRAPH_CURRENT_VERSION          — installed code-review-graph version (empty
+#                                    if the tool isn't installed / graph
+#                                    analysis is disabled)
+#   GRAPH_LATEST_VERSION           — latest on PyPI (empty if unknown)
 #
 # All lookups are best-effort: every network call is bounded by --max-time and
 # a failure leaves the corresponding variable empty, which renders the report
@@ -24,19 +28,35 @@
 # latter 404s on the registry. Overridable for tests.
 OPENCODE_CLI_NPM_PACKAGE="${OPENCODE_CLI_NPM_PACKAGE:-opencode-ai}"
 
-# Registry base, overridable so tests can point at a local fixture server.
+# Registry bases, overridable so tests can point at local fixture servers.
 OPENCODE_NPM_REGISTRY="${OPENCODE_NPM_REGISTRY:-https://registry.npmjs.org}"
+GRAPH_PYPI_REGISTRY="${GRAPH_PYPI_REGISTRY:-https://pypi.org/pypi}"
+GRAPH_PYPI_PACKAGE="${GRAPH_PYPI_PACKAGE:-code-review-graph}"
 
 _cv_have_jq="false"
 command -v jq >/dev/null 2>&1 && _cv_have_jq="true"
 
 # _cv_npm_latest <package> — echo the latest published version, or nothing.
-# Scoped names (@scope/name) are percent-encoded as the registry requires.
+# Encodes `/` as %2F so npm's @scope/name form survives the URL path; `@`
+# itself is allowed in registry paths and is not touched. Current call site
+# (opencode-ai) is unscoped, so the substitution is a no-op in practice.
 _cv_npm_latest() {
   [ "$_cv_have_jq" = "true" ] || return 0
   local _pkg="${1//\//%2F}" _json
   _json=$(curl -sf --max-time 5 "${OPENCODE_NPM_REGISTRY}/${_pkg}/latest" 2>/dev/null) || return 0
   printf '%s' "$_json" | jq -r '.version // empty' 2>/dev/null || true
+}
+
+# _cv_pypi_latest <package> — echo the latest published version, or nothing.
+# PyPI uses PEP 503's scope--name form (no `/`) for scoped packages, so this
+# substitution is only relevant for non-PEP-503 mirrors. Mirrors
+# _cv_npm_latest's encoding for consistency. Current call site
+# (code-review-graph) is unscoped.
+_cv_pypi_latest() {
+  [ "$_cv_have_jq" = "true" ] || return 0
+  local _pkg="${1//\//%2F}" _json
+  _json=$(curl -sf --max-time 5 "${GRAPH_PYPI_REGISTRY}/${_pkg}/json" 2>/dev/null) || return 0
+  printf '%s' "$_json" | jq -r '.info.version // empty' 2>/dev/null || true
 }
 
 # _cv_is_newer <candidate> <current> — true when candidate sorts strictly
@@ -57,30 +77,17 @@ OPENCODE_CLI_CURRENT_VERSION="$(opencode --version 2>/dev/null \
   | head -1 | sed 's/^v//' || true)"
 OPENCODE_CLI_LATEST_VERSION="$(_cv_npm_latest "$OPENCODE_CLI_NPM_PACKAGE")"
 
-# --- provider package: latest -------------------------------------------------
-# The provider → npm mapping is already declared in opencode.json (each
-# provider's `npm` field), installed to ~/.config/opencode/opencode.json by
-# setup-opencode-config.sh (which hard-fails if the source is missing, so the
-# file is guaranteed present here). Read it rather than duplicating the map —
-# a second copy would drift the moment a provider is added.
-#
-# The provider-id default mirrors run-review.sh's `${…:-gemini}` guards, so a
-# caller that invokes run-review.sh without the workflow's job-scoped
-# OPENCODE_REVIEW_REPORT_PROVIDER_ID still reports the provider the review
-# actually routed to.
-OPENCODE_PROVIDER_NPM_PACKAGE=""
-_cv_provider_id="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
-_cv_config="$HOME/.config/opencode/opencode.json"
-if [ "$_cv_have_jq" = "true" ] && [ -f "$_cv_config" ]; then
-  OPENCODE_PROVIDER_NPM_PACKAGE=$(jq -r \
-    --arg id "$_cv_provider_id" \
-    '.provider[$id].npm // empty' \
-    "$_cv_config" 2>/dev/null || true)
+# --- code-review-graph: installed vs. latest ----------------------------------
+# Same parse as build-code-graph.sh. Empty when graph analysis is disabled or
+# the install failed — degrades gracefully, no line is rendered below.
+GRAPH_CURRENT_VERSION=""
+if command -v code-review-graph >/dev/null 2>&1; then
+  GRAPH_CURRENT_VERSION="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+)*' | head -1 || true)"
 fi
 
-OPENCODE_PROVIDER_LATEST_VERSION=""
-if [ -n "$OPENCODE_PROVIDER_NPM_PACKAGE" ]; then
-  OPENCODE_PROVIDER_LATEST_VERSION="$(_cv_npm_latest "$OPENCODE_PROVIDER_NPM_PACKAGE")"
+GRAPH_LATEST_VERSION=""
+if [ -n "$GRAPH_CURRENT_VERSION" ]; then
+  GRAPH_LATEST_VERSION="$(_cv_pypi_latest "$GRAPH_PYPI_PACKAGE")"
 fi
 
 # --- render -------------------------------------------------------------------
@@ -92,27 +99,44 @@ fi
 OPENCODE_VERSION_INFO=""
 OPENCODE_VERSION_FOOTER=""
 
-if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
+if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ]; then
   OPENCODE_VERSION_INFO="📦 **Versions**"
 
-  if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
-    OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+  # The outer `if` is widened with `|| GRAPH_CURRENT_VERSION` so a graph-only
+  # run still renders a Versions block. That removed the implicit
+  # `[ -n "$OPENCODE_CLI_CURRENT_VERSION" ]` guard this inner block used to
+  # inherit — re-apply it explicitly so an undetectable CLI version does not
+  # produce a stray `v` token in the header/footer.
+  if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
+    if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` → **\`v${OPENCODE_CLI_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_CLI_VERSION\` ([release notes](https://github.com/sst/opencode/releases))"
-    OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*"
-  else
-    OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+      OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*"
+    else
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` ✅"
-    OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*"
+      OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*"
+    fi
   fi
 
-  # Provider package line. The provider SDK is compiled into the opencode
-  # binary — there is no node_modules tree on disk to read an installed
-  # version from — so this is a latest-available reference, not a
-  # current-vs-latest diff. Labelled as such so it is not misread as "you are
-  # behind"; the CLI bump above is what actually moves it.
-  if [ -n "$OPENCODE_PROVIDER_NPM_PACKAGE" ] && [ -n "$OPENCODE_PROVIDER_LATEST_VERSION" ]; then
-    OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-- **Provider** (\`${_cv_provider_id}\`) \`${OPENCODE_PROVIDER_NPM_PACKAGE}\`: latest \`v${OPENCODE_PROVIDER_LATEST_VERSION}\` on npm ℹ️ — bundled with the CLI, moves when the CLI is bumped"
+  # code-review-graph line — only when the tool is actually installed (graph
+  # analysis enabled and build succeeded). Same current-vs-latest diff style
+  # as the CLI line above, since (unlike the provider SDK) this is a real
+  # installed binary with a version we can read.
+  if [ -n "$GRAPH_CURRENT_VERSION" ]; then
+    if _cv_is_newer "$GRAPH_LATEST_VERSION" "$GRAPH_CURRENT_VERSION"; then
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+- **code-review-graph:** \`v${GRAPH_CURRENT_VERSION}\` → **\`v${GRAPH_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_GRAPH_VERSION\` ([releases](https://github.com/tirth8205/code-review-graph/releases))"
+      # If the CLI footer hasn't been written (CLI is current or absent), let
+      # the graph notice own the footer — otherwise the footer silently
+      # reports "up to date" while the header shows a graph update.
+      if [ -z "$OPENCODE_VERSION_FOOTER" ] || [ "$OPENCODE_VERSION_FOOTER" = "*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*" ]; then
+        OPENCODE_VERSION_FOOTER="*code-review-graph: v${GRAPH_CURRENT_VERSION} → v${GRAPH_LATEST_VERSION} available ⬆️*"
+      fi
+    else
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+- **code-review-graph:** \`v${GRAPH_CURRENT_VERSION}\` ✅"
+    fi
   fi
 fi
 
@@ -125,5 +149,5 @@ fi
 
 # Sourced into the caller's shell — clean up temporaries and helpers so they
 # don't leak into run-review.sh (same discipline as lib/resolve-provider.sh).
-unset _cv_have_jq _cv_provider_id _cv_config
-unset -f _cv_npm_latest _cv_is_newer
+unset _cv_have_jq
+unset -f _cv_npm_latest _cv_pypi_latest _cv_is_newer
