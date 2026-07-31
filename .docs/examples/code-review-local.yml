@@ -214,11 +214,18 @@ jobs:
       # Mirrors the reusable workflow's graph cache step. The install + build
       # logic is in scripts/lib/build-code-graph.sh (called from run-review.sh).
       - name: Cache code knowledge graph
-        if: vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS == '1'
+        if: >-
+          contains('1 true yes on',
+          (vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '0') | lower)
         uses: actions/cache@v4
         with:
           path: .code-review-graph
-          key: crg-${{ runner.os }}-${{ hashFiles('**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/*.csproj', '**/go.sum', '**/Pipfile.lock', '**/poetry.lock') }}-v1
+          # Key includes source-tree hashes so the graph invalidates when the
+          # code under review changes (build-code-graph.sh's correctness pivot
+          # is the source tree, not just lockfiles). Schema version suffix
+          # allows force-invalidation on graph format changes.
+          key: >-
+            crg-${{ runner.os }}-${{ hashFiles('**/*.cs', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.py', '**/*.go', '**/*.java', '**/*.kt', '**/*.rs', '**/*.rb', '**/*.php', '**/*.csproj', '**/go.mod', '**/Cargo.toml', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/Pipfile.lock', '**/poetry.lock') }}-v1
           restore-keys: |
             crg-${{ runner.os }}-
 

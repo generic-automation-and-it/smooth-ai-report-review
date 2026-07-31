@@ -804,6 +804,12 @@ case "${_graph_enabled,,}" in
 esac
 export GRAPH_ANALYSIS_AVAILABLE
 unset _graph_enabled
+# TODO(LADR-050/051/052): GRAPH_ANALYSIS_AVAILABLE is a Phase 1 stub — the
+# per-chunk context injection (LADR-050), graph-aware chunk grouping
+# (LADR-051), and aggregation enrichment (LADR-052) consumers don't exist
+# yet, so this $GITHUB_OUTPUT write is currently a dead signal. Land it in
+# the same commit as the first consumer that reads it, or remove the export
+# and the $GITHUB_OUTPUT write if the consumers land elsewhere.
 echo "graph_analysis_available=${GRAPH_ANALYSIS_AVAILABLE}" >> "$GITHUB_OUTPUT"
 
 # --- Step 14: Validate AGENTS.md (full reviews only) -------------------------
