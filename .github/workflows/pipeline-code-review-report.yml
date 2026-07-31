@@ -401,8 +401,9 @@ jobs:
       # When enabled, builds a SQLite graph of the repo and runs detect-changes
       # to produce risk-scored function-level analysis. The graph data enriches
       # chunk prompts and aggregation (see LADR-050/051/052 for downstream consumers).
-      # GRAPH_VERSION pins the code-review-graph package version for supply-chain
-      # hygiene (mirrors OPENCODE_CLI_VERSION for opencode).
+      # OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION pins the code-review-graph
+      # package version for supply-chain hygiene (mirrors OPENCODE_CLI_VERSION
+      # for opencode; both honoured via the shared lib in scripts/lib/).
       OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
       OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION: ${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION || '' }}
       # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted
