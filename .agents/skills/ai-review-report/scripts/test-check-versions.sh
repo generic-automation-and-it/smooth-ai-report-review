@@ -1,12 +1,12 @@
 #!/bin/bash
 # test-check-versions.sh — regression tests for lib/check-versions.sh.
 #
-# Runs fully offline: `opencode` / `code-review-graph` and `curl` are stubbed
-# on PATH, and the registries are fixture directories. The stub curl records
-# every requested URL so the tests can assert *which* package was looked up —
-# the original bug was a lookup against `registry.npmjs.org/opencode`, which
-# 404s (the CLI publishes as `opencode-ai`), so the header silently rendered
-# "✅ up to date" while an update was available.
+# Runs fully offline: `opencode` / `code-review-graph` / `rtk` and `curl` are
+# stubbed on PATH, and the registries are fixture directories. The stub curl
+# records every requested URL so the tests can assert *which* package was
+# looked up — the original bug was a lookup against `registry.npmjs.org/opencode`,
+# which 404s (the CLI publishes as `opencode-ai`), so the header silently
+# rendered "✅ up to date" while an update was available.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,9 +35,9 @@ cat > "${stub_bin}/opencode" <<'STUB'
 [ "${1:-}" = "--version" ] && echo "${STUB_OPENCODE_VERSION:-1.0.0}"
 STUB
 
-# code-review-graph is absent from PATH by default (mirrors "graph analysis
-# disabled" / "not installed"). Tests that need it present prepend their own
-# stub dir to PATH.
+# code-review-graph and rtk are absent from PATH by default (mirrors "graph
+# analysis disabled" / "RTK disabled" / "not installed"). Tests that need
+# either present prepend their own stub dir to PATH.
 
 # Fixture registry: curl -sf --max-time N <url>. The last argument is the URL;
 # it maps to $STUB_REGISTRY_DIR/<domain-stripped path with / → _>.json. A
@@ -62,6 +62,9 @@ write_npm_pkg() { printf '{"version":"%s"}\n' "$2" > "${registry_dir}/${1}_lates
 # PyPI JSON API: .../pypi/<pkg>/json → pypi_<pkg>_json.json (registry base
 # already includes the /pypi segment, matching the real pypi.org/pypi shape).
 write_pypi_pkg() { printf '{"info":{"version":"%s"}}\n' "$2" > "${registry_dir}/pypi_${1}_json.json"; }
+# GitHub Releases API: .../repos/<owner>/<repo>/releases/latest →
+# repos_<owner>_<repo>_releases_latest.json.
+write_github_release() { printf '{"tag_name":"%s"}\n' "$2" > "${registry_dir}/repos_${1//\//_}_releases_latest.json"; }
 
 fake_home="${tmp_dir}/home"
 mkdir -p "${fake_home}"
@@ -79,6 +82,7 @@ run_check() {
     STUB_CURL_LOG="$log" \
     OPENCODE_NPM_REGISTRY="https://registry.example.test" \
     GRAPH_PYPI_REGISTRY="https://pypi.example.test/pypi" \
+    RTK_GITHUB_API="https://api.example.test" \
     "$@" \
     bash -c '
       set -euo pipefail
@@ -86,7 +90,7 @@ run_check() {
       printf "%s" "${OPENCODE_VERSION_INFO:-}"   > "$2.info"
       printf "%s" "${OPENCODE_VERSION_FOOTER:-}" > "$2.footer"
       { declare -p _cv_have_jq 2>/dev/null
-        declare -F _cv_npm_latest _cv_pypi_latest _cv_is_newer 2>/dev/null; } > "$2.leaks" || true
+        declare -F _cv_npm_latest _cv_pypi_latest _cv_github_latest_tag _cv_is_newer 2>/dev/null; } > "$2.leaks" || true
     ' _ "$LIB" "${tmp_dir}/${name}" >/dev/null
 }
 
@@ -178,6 +182,63 @@ ok "code-review-graph current == latest renders ✅ and no update notice"
 
 echo ""
 echo "=========================================="
+echo "Testing rtk resolution"
+echo "=========================================="
+
+# rtk absent from PATH (RTK disabled or install failed) — no rtk line should
+# render, and no GitHub Releases lookup should happen.
+run_check rtk_absent STUB_OPENCODE_VERSION=1.18.10
+grep -q '\*\*rtk:\*\*' "${tmp_dir}/rtk_absent.info" \
+  && fail "rtk line rendered even though rtk is not on PATH"
+grep -q 'releases/latest' "${tmp_dir}/rtk_absent.curl.log" \
+  && fail "GitHub was queried even though rtk is not installed"
+ok "no rtk line and no GitHub lookup when rtk is absent"
+
+# rtk present, update available.
+rtk_bin="${tmp_dir}/rtk_bin"
+mkdir -p "$rtk_bin"
+cat > "${rtk_bin}/rtk" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && echo "rtk ${STUB_RTK_VERSION:-0.40.0}"
+STUB
+chmod +x "${rtk_bin}/rtk"
+write_github_release "rtk-ai/rtk" "0.44.1"
+
+run_check rtk_update_available \
+  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_RTK_VERSION=0.44.0 \
+  PATH="${rtk_bin}:${stub_bin}:/usr/bin:/bin"
+grep -q '/repos/rtk-ai/rtk/releases/latest$' "${tmp_dir}/rtk_update_available.curl.log" \
+  || fail "rtk lookup did not request the rtk-ai/rtk GitHub releases/latest endpoint"
+ok "rtk version is looked up on GitHub under the 'rtk-ai/rtk' repo"
+
+grep -q 'rtk.*⬆️\|⬆️.*rtk' "${tmp_dir}/rtk_update_available.info" \
+  || fail "no update marker for rtk 0.44.0 → 0.44.1"
+grep -q 'v0.44.0' "${tmp_dir}/rtk_update_available.info" || fail "current rtk version missing from header"
+grep -q 'v0.44.1' "${tmp_dir}/rtk_update_available.info" || fail "latest rtk version missing from header"
+grep -q 'OPENCODE_REVIEW_REPORT_RTK_VERSION' "${tmp_dir}/rtk_update_available.info" \
+  || fail "rtk update notice does not name the Variable to bump"
+ok "header announces an available rtk update and names the Variable"
+
+# opencode CLI is current in this run (STUB_OPENCODE_VERSION=1.18.10 == the
+# npm fixture) and code-review-graph is absent, so nothing has claimed the
+# footer before rtk's block runs — rtk should take it over.
+grep -q '→' "${tmp_dir}/rtk_update_available.footer" || fail "footer missing the rtk update arrow"
+grep -q 'rtk' "${tmp_dir}/rtk_update_available.footer" || fail "footer did not fall through to rtk's update notice"
+ok "rtk's update notice claims the footer when nothing else has"
+
+run_check rtk_up_to_date \
+  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_RTK_VERSION=0.44.1 \
+  PATH="${rtk_bin}:${stub_bin}:/usr/bin:/bin"
+grep -q '\*\*rtk:\*\*' "${tmp_dir}/rtk_up_to_date.info" \
+  || fail "rtk line missing when rtk is installed"
+grep -q 'rtk.*⬆️\|⬆️.*rtk' "${tmp_dir}/rtk_up_to_date.info" \
+  && fail "false update notice for rtk when current == latest"
+ok "rtk current == latest renders ✅ and no update notice"
+
+echo ""
+echo "=========================================="
 echo "Testing best-effort degradation"
 echo "=========================================="
 
@@ -228,6 +289,12 @@ check_versions_line=$(grep -n '\. "\$LIB_DIR/check-versions.sh"' "$RUN_REVIEW" |
 [ "$check_versions_line" -gt "$graph_output_line" ] \
   || fail "check-versions.sh must be sourced AFTER graph analysis completes, so 'code-review-graph --version' reflects what build-code-graph.sh installed"
 ok "check-versions.sh runs after graph analysis (Step 13.5), not before opencode install probing"
+
+rtk_install_line=$(grep -n 'bash "\$LIB_DIR/install-rtk.sh"' "$RUN_REVIEW" | head -1 | cut -d: -f1)
+[ -n "$rtk_install_line" ] || fail "could not locate the install-rtk.sh call site"
+[ "$check_versions_line" -gt "$rtk_install_line" ] \
+  || fail "check-versions.sh must be sourced AFTER install-rtk.sh runs, so 'rtk --version' reflects what was actually installed"
+ok "check-versions.sh runs after rtk install (step 5c-bis)"
 
 echo ""
 echo "=========================================="

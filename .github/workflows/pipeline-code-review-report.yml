@@ -83,6 +83,11 @@ on:
         required: false
         type: string
         default: ''
+      rtk_version:
+        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054, e.g. "0.44.1"). Blank → OPENCODE_REVIEW_REPORT_RTK_VERSION Variable, else latest. Only used when RTK is enabled (OPENCODE_REVIEW_REPORT_ENABLE_RTK Variable, default on).'
+        required: false
+        type: string
+        default: ''
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
@@ -162,6 +167,11 @@ on:
         default: ''
       opencode_config:
         description: 'Repo-relative path to a custom opencode.json inside the repo under review (e.g. .github/opencode.json). Blank → OPENCODE_REVIEW_REPORT_CONFIG Variable, else the built-in .agents/skills/ai-review-report/assets/opencode.json. Any override MUST keep {env:OPENCODE_*} placeholders for credentials — never commit real keys.'
+        required: false
+        type: string
+        default: ''
+      rtk_version:
+        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_REVIEW_REPORT_RTK_VERSION Variable, else latest.'
         required: false
         type: string
         default: ''
@@ -395,6 +405,12 @@ jobs:
       # hygiene (mirrors OPENCODE_REVIEW_REPORT_CLI_VERSION for opencode).
       OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
       OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
+      # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted
+      # after LADR-014's Gemini-CLI hook was superseded by the opencode
+      # transport migration (LADR-023). rtk_version input wins over the
+      # Variable, matching the opencode_config precedence pattern.
+      OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
+      OPENCODE_REVIEW_REPORT_RTK_VERSION: ${{ inputs.rtk_version || vars.OPENCODE_REVIEW_REPORT_RTK_VERSION || '' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md
