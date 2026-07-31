@@ -119,6 +119,14 @@ OPENCODE_REVIEW_REPORT_GRAPH_VERSION="${OPENCODE_REVIEW_REPORT_GRAPH_VERSION:-}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
 export OPENCODE_REVIEW_REPORT_GRAPH_VERSION
 
+# RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted after
+# LADR-014's Gemini-CLI hook was superseded by the opencode transport
+# migration (LADR-023). RTK_VERSION pins the rtk-ai/rtk binary version.
+OPENCODE_REVIEW_REPORT_ENABLE_RTK="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
+OPENCODE_REVIEW_REPORT_RTK_VERSION="${OPENCODE_REVIEW_REPORT_RTK_VERSION:-}"
+export OPENCODE_REVIEW_REPORT_ENABLE_RTK
+export OPENCODE_REVIEW_REPORT_RTK_VERSION
+
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
 OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
@@ -401,6 +409,24 @@ if [ -x "$HOME/.opencode/bin/opencode" ]; then
   export PATH="$HOME/.opencode/bin:$PATH"
   echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
 fi
+
+# 5c-bis. Install rtk-ai/rtk and wire its OpenCode plugin (LADR-054, opt-in).
+# Runs after opencode itself is installed and on PATH, since RTK's plugin
+# init targets opencode's config surface. Graceful degradation: a failure
+# here must not fail the review — RTK is a token-optimization enhancement,
+# not a hard dependency like opencode itself.
+_rtk_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
+if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+  if [ -x "$LIB_DIR/install-rtk.sh" ]; then
+    bash "$LIB_DIR/install-rtk.sh" || echo "⚠️  RTK unavailable — continuing without it" >&2
+    if [ -d "$HOME/.local/bin" ]; then
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+  else
+    echo "⚠️  install-rtk.sh not found at $LIB_DIR — continuing without RTK" >&2
+  fi
+fi
+unset _rtk_enabled
 
 # 5d. Install opencode.json provider config.
 bash "$LIB_DIR/setup-opencode-config.sh"
@@ -828,13 +854,14 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "graph_analysis_available=${GRAPH_ANALYSIS_AVAILABLE}" >> "$GITHUB_OUTPUT"
 fi
 
-# --- Step 13.6: Check CLI + code-review-graph versions against latest -------
+# --- Step 13.6: Check CLI + code-review-graph + rtk versions against latest --
 # Sets OPENCODE_VERSION_INFO (header block) and OPENCODE_VERSION_FOOTER
 # (footer line), both passed positionally to aggregate-reviews.sh at step 18.
 # Sourced (not exec'd) so the rendered strings land in this shell. Runs after
-# the graph analysis step (13.5) so `code-review-graph --version` reflects
-# whatever build-code-graph.sh actually installed (empty when graph analysis
-# is disabled or the install failed — the graph line is simply omitted).
+# the graph analysis step (13.5) and rtk install (5c-bis, LADR-054) so
+# `code-review-graph --version` / `rtk --version` reflect whatever was
+# actually installed for this run (each is empty, and its line simply
+# omitted, when disabled or its install failed).
 # Best-effort: every lookup is network-bounded and failure renders nothing.
 if [ -f "$LIB_DIR/check-versions.sh" ]; then
   # shellcheck disable=SC1091

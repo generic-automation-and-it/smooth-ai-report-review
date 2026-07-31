@@ -169,6 +169,8 @@ jobs:
       # agents_md_exempt_paths: '.docs/release-notes'
       # opencode_config: .github/opencode.json   # ship your OWN opencode.json (path in YOUR repo);
       #                                           # must keep {env:OPENCODE_*} credential placeholders
+      # rtk_version: '0.44.1'                    # pin the rtk-ai/rtk token-optimizer version (LADR-054);
+      #                                           # blank → OPENCODE_REVIEW_REPORT_RTK_VERSION Variable, else latest
     # Explicit mapping works for same-org AND cross-org callers. Only the selected
     # provider's key needs to exist in your repo/org; unset ones resolve empty and
     # are never used. (Same-org callers may replace this whole block with

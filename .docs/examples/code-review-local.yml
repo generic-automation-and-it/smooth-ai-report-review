@@ -371,6 +371,9 @@ jobs:
           # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
           OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
+          # RTK token optimization (LADR-054) — mirrors the reusable workflow's env vars.
+          OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
+          OPENCODE_REVIEW_REPORT_RTK_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_RTK_VERSION || '' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md
