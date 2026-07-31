@@ -373,8 +373,16 @@ fi
 # 5c. Install opencode — delegated to the shared lib (LADR-048) so every
 # install path in this repo honours OPENCODE_REVIEW_REPORT_CLI_VERSION
 # through a single implementation. The lib exports $HOME/.opencode/bin on
-# PATH and appends to $GITHUB_PATH for follow-up steps.
-bash "$LIB_DIR/install-opencode.sh"
+# PATH and appends to $GITHUB_PATH for follow-up steps. Guarded so a
+# missing lib (broken LADR-048 path-coupling) surfaces with the same UX
+# as the lib's other failures instead of an opaque "No such file".
+if [ -x "$LIB_DIR/install-opencode.sh" ]; then
+  bash "$LIB_DIR/install-opencode.sh"
+else
+  echo "❌ install-opencode.sh not found or not executable at $LIB_DIR/install-opencode.sh" >&2
+  echo "   LADR-048 path-coupling broken — every install path must delegate to scripts/lib/install-opencode.sh" >&2
+  exit 1
+fi
 # The lib's PATH export runs in its own subshell and doesn't propagate here.
 # Re-export for this script's subsequent opencode invocations (PR #86 fix).
 if [ -x "$HOME/.opencode/bin/opencode" ] && ! command -v opencode >/dev/null 2>&1; then

@@ -22,8 +22,9 @@
 #   1. Resolve REQUESTED_VERSION from OPENCODE_REVIEW_REPORT_CLI_VERSION.
 #   2. If opencode is already on PATH and matches the request (or request is
 #      latest), print the cache-hit line and exit 0.
-#   3. Otherwise: run the opencode installer with VERSION= when pinned, or
-#      bare when latest. Hard-fail on non-zero exit.
+#   3. Otherwise: run the opencode installer with `--version` CLI flag
+#      (via `bash -s -- --version`) when pinned, or bare when latest.
+#      Hard-fail on non-zero exit.
 #   4. PATH repair: the installer writes to $GITHUB_PATH (SUBSEQUENT steps)
 #      and to $HOME/.bashrc (not re-sourced by bash). Export the bin dir
 #      explicitly so this shell and follow-up steps in the same job can find

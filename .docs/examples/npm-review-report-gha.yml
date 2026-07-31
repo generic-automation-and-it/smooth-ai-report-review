@@ -43,7 +43,7 @@ jobs:
       # reproducibility (recommended). Unset = latest, which pulls whatever
       # is current upstream on every run with no reproducibility. Set the
       # OPENCODE_REVIEW_REPORT_CLI_VERSION repo/org Variable to something
-      # like '1.18.10' to enable the pin. The shared installer (LADR-048)
+      # like '1.x.y' to enable the pin. The shared installer (LADR-048)
       # honours it across every install path in this repo.
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
     steps:
@@ -85,9 +85,11 @@ jobs:
           # Delegate to it (LADR-048) so this template honours
           # OPENCODE_REVIEW_REPORT_CLI_VERSION. (The package's plugin-side
           # opencode-plugin.js handles per-skill linking into .agents/skills/
-          # at opencode session init — see LADR-038 — but that path isn't
-          # needed here, since the install script lives inside the package
-          # itself.)
+          # at opencode session init — see LADR-038.) The install script
+          # ships inside the npm package (via the `files` whitelist in
+          # `package.json`), so `npm install` makes it available at the path
+          # below without needing the opencode plugin to link it at session
+          # init.
           bash node_modules/@generic-automation-and-it/smooth-ai-review/.agents/skills/ai-review-report/scripts/lib/install-opencode.sh
 
       - name: Run review report
