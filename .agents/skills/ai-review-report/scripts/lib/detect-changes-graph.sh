@@ -56,6 +56,21 @@ if [ -z "$BASE_REF" ]; then
 fi
 echo "Running detect-changes against base: ${BASE_REF}"
 
+# --- Resolve repo root for path relativization --------------------------------
+# The CLI emits ABSOLUTE file paths (confirmed against v2.3.7 — `file_path` on
+# changed_functions, `file` on test_gaps). Two reasons we strip the repo root
+# before rendering:
+#   1. On a CI runner the prefix is ~70 chars
+#      (/home/runner/work/<repo>/<repo>/...), which blows past the 60-char
+#      truncation below and cuts exactly the informative tail.
+#   2. graph_file_risks.txt is the join key for graph-aware chunk grouping
+#      (LADR-051), which matches against repo-relative diff paths.
+# ltrimstr is a no-op when the prefix doesn't match (e.g. a symlinked checkout
+# where git's toplevel and the CLI's path differ), so this degrades gracefully
+# to the previous absolute-path behaviour rather than mangling anything.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+REPO_PREFIX="${REPO_ROOT%/}/"
+
 # --- Run detect-changes -------------------------------------------------------
 # `detect-changes` has no `--format` flag — its default (unflagged) stdout
 # output IS the structured JSON (see .context/bug-detect-changes-format-flag.md
@@ -95,6 +110,10 @@ ANALYSIS_TIME=$((ANALYSIS_END - ANALYSIS_START))
 #     risk_score on these entries.
 #   - context_savings: {estimated, saved_tokens, saved_percent}
 #
+# All path fields (changed_functions[].file_path, test_gaps[].file) are
+# ABSOLUTE. We relativize them against REPO_PREFIX at render time — see the
+# "Resolve repo root" block above for why.
+#
 # We extract per-file risk scores for chunk grouping and produce a markdown
 # summary for the aggregation prompt.
 
@@ -119,12 +138,13 @@ echo "Parsing graph analysis results..."
 
 # Per-file risk scores: extract max risk per file for chunk grouping
 # Output format: filepath<TAB>risk_score<TAB>changed_function_count
-jq -r '
+# Paths are emitted REPO-RELATIVE so LADR-051 can join them against diff paths.
+jq -r --arg root "$REPO_PREFIX" '
   .changed_functions // [] |
   group_by(.file_path) |
   .[] |
   {
-    file: .[0].file_path,
+    file: (.[0].file_path // "?" | ltrimstr($root)),
     max_risk: ([.[].risk_score // 0] | max),
     func_count: length
   } |
@@ -165,13 +185,13 @@ SAVINGS_PCT="$(jq -r '.context_savings.saved_percent // "unknown"' \
   if [ "${HIGH_RISK_COUNT:-0}" -gt 0 ]; then
     echo "### 🔴 High-Risk Changed Functions (risk ≥ 0.7)"
     echo ""
-    jq -r '
+    jq -r --arg root "$REPO_PREFIX" '
       .changed_functions // [] |
       [.[] | select((.risk_score // 0) >= 0.7)] |
       sort_by(-.risk_score) |
       .[:10] |
       .[] |
-      "- `\(.file_path // "?"):\(.line_start // "?")` — `\(.name // "unknown")` risk: \(.risk_score)"
+      "- `\(.file_path // "?" | ltrimstr($root)):\(.line_start // "?")` — `\(.name // "unknown")` risk: \(.risk_score)"
     ' "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo "  *(parsing failed)*"
     echo ""
   fi
@@ -193,11 +213,11 @@ SAVINGS_PCT="$(jq -r '.context_savings.saved_percent // "unknown"' \
   if [ "${GAP_COUNT:-0}" -gt 0 ]; then
     echo "### ⚠️ Test Coverage Gaps"
     echo ""
-    jq -r '
+    jq -r --arg root "$REPO_PREFIX" '
       .test_gaps // [] |
       .[:10] |
       .[] |
-      "- `\(.file // "?"):\(.line_start // "?")` — `\(.name // "unknown")`"
+      "- `\(.file // "?" | ltrimstr($root)):\(.line_start // "?")` — `\(.name // "unknown")`"
     ' "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo "  *(parsing failed)*"
     echo ""
   fi

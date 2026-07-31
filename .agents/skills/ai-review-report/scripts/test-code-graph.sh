@@ -229,6 +229,12 @@ echo "fake-db" > .code-review-graph/graph.db
 # test_gaps, and context_savings.saved_percent (not savings_pct). The mock
 # rejects `--format` exactly like the real CLI does, so a regression back
 # to the old (wrong) assumption fails this test instead of passing it.
+#
+# Path fields are emitted ABSOLUTE (resolved at mock runtime via git
+# rev-parse), because that is what the real CLI does — an earlier version of
+# this mock used relative paths and therefore could not catch the missing
+# relativization in detect-changes-graph.sh. The assertions below require the
+# rendered output to be repo-relative.
 cat > "${mock_bin}/code-review-graph" <<'MOCK_EOF'
 #!/bin/bash
 if [ "$1" = "--version" ]; then
@@ -240,18 +246,20 @@ if [ "$1" = "detect-changes" ]; then
     echo "error: unrecognized arguments: --format" >&2
     exit 2
   fi
-  cat <<'JSON_EOF'
+  # The real CLI reports absolute paths rooted at the repo it analysed.
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  cat <<JSON_EOF
 {
   "changed_functions": [
     {
-      "file_path": "src/controllers/order_controller.cs",
+      "file_path": "$ROOT/src/controllers/order_controller.cs",
       "line_start": 42,
       "line_end": 60,
       "name": "ProcessOrder",
       "risk_score": 0.85
     },
     {
-      "file_path": "src/services/pricing_service.cs",
+      "file_path": "$ROOT/src/services/pricing_service.cs",
       "line_start": 15,
       "line_end": 20,
       "name": "ValidatePrice",
@@ -272,12 +280,12 @@ if [ "$1" = "detect-changes" ]; then
   ],
   "test_gaps": [
     {
-      "file": "src/controllers/order_controller.cs",
+      "file": "$ROOT/src/controllers/order_controller.cs",
       "line_start": 42,
       "name": "ProcessOrder"
     },
     {
-      "file": "src/services/pricing_service.cs",
+      "file": "$ROOT/src/services/pricing_service.cs",
       "line_start": 15,
       "name": "ValidatePrice"
     }
@@ -324,6 +332,29 @@ grep -q "Token savings: ~82%" "ci_temp/graph_risk_summary.md" || \
 # Verify file risks (grouped by file_path)
 [ -s "ci_temp/graph_file_risks.txt" ] || fail "Test 6: file risks should be non-empty"
 grep -q "order_controller.cs" "ci_temp/graph_file_risks.txt" || fail "Test 6: should include order_controller.cs"
+
+# --- Paths must be relativized against the repo root -------------------------
+# The mock emits ABSOLUTE paths like the real CLI. Every rendered path must be
+# repo-relative: the summary tables are unreadable otherwise (a CI runner's
+# ~70-char prefix overflows the 60-char truncation), and graph_file_risks.txt
+# is the join key for LADR-051 chunk grouping, which matches diff paths.
+test6_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if grep -qF "${test6_root}/src/" "ci_temp/graph_file_risks.txt"; then
+  cat "ci_temp/graph_file_risks.txt"
+  fail "Test 6: graph_file_risks.txt paths must be repo-relative, not absolute"
+fi
+if grep -qF "${test6_root}/src/" "ci_temp/graph_risk_summary.md"; then
+  fail "Test 6: summary paths must be repo-relative, not absolute"
+fi
+# Positive assertion: the risk file's first column starts at the repo-relative
+# path, so a future consumer can join it against `git diff --name-only`.
+cut -f1 "ci_temp/graph_file_risks.txt" | grep -qx "src/controllers/order_controller.cs" || {
+  cat "ci_temp/graph_file_risks.txt"
+  fail "Test 6: graph_file_risks.txt column 1 should be exactly 'src/controllers/order_controller.cs'"
+}
+# test_gaps[] uses .file (not .file_path) — relativized through the same path.
+grep -q -- "- \`src/services/pricing_service.cs:15\`" "ci_temp/graph_risk_summary.md" || \
+  fail "Test 6: test_gaps entries should render repo-relative file:line_start"
 
 # Verify counts in output (regression guard for the FLOW_COUNT/GAP_COUNT
 # "[.x // []] | length" bug, which always evaluated to 1 regardless of
