@@ -142,6 +142,12 @@ concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ai-review-{0}', github.event.pull_request.number) || format('{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: true
 
+env:
+  # Force GitHub-hosted JS actions onto Node 24 to match the reusable workflow.
+  # Without this, Node-version skew between the two packagings can surface as
+  # silent failures in third-party actions that assume a newer runtime.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   review:
     if: |
