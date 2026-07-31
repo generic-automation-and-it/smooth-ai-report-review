@@ -57,34 +57,15 @@ fi
 echo "Running detect-changes against base: ${BASE_REF}"
 
 # --- Run detect-changes -------------------------------------------------------
-# The CLI outputs JSON to stdout. Capture it and also produce a brief summary.
+# `detect-changes` has no `--format` flag — its default (unflagged) stdout
+# output IS the structured JSON (see .context/bug-detect-changes-format-flag.md
+# for how this was discovered and confirmed against the installed CLI).
+# `--brief` produces a human-readable summary instead, which we don't want here.
 ANALYSIS_START="$(date +%s)"
 
-# Try the JSON output first; fall back to brief text if JSON format is unavailable
-if code-review-graph detect-changes --base "$BASE_REF" --format json \
+if code-review-graph detect-changes --base "$BASE_REF" \
     > "$WORK_DIR/graph_detect_changes.json" 2>"$WORK_DIR/graph_detect_changes_stderr.log"; then
   echo "✓ detect-changes completed (JSON output)"
-elif code-review-graph detect-changes --base "$BASE_REF" \
-    > "$WORK_DIR/graph_detect_changes_brief.txt" 2>"$WORK_DIR/graph_detect_changes_stderr.log"; then
-  echo "✓ detect-changes completed (text output — JSON format not available)"
-  # Wrap text output in a minimal JSON structure for downstream compatibility
-  # Use jq -n --arg for safe JSON escaping (defense-in-depth against special chars in BASE_REF)
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg base "$BASE_REF" --rawfile raw "$WORK_DIR/graph_detect_changes_brief.txt" \
-      '{format: "text-fallback", raw_output: $raw, base_ref: $base}' \
-      > "$WORK_DIR/graph_detect_changes.json"
-  else
-    # Fallback: manual escaping (jq not available)
-    RAW_ESCAPED="$(cat "$WORK_DIR/graph_detect_changes_brief.txt" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')"
-    BASE_ESCAPED="$(printf '%s' "$BASE_REF" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-    cat > "$WORK_DIR/graph_detect_changes.json" <<EOF
-{
-  "format": "text-fallback",
-  "raw_output": "${RAW_ESCAPED}",
-  "base_ref": "${BASE_ESCAPED}"
-}
-EOF
-  fi
 else
   echo "⚠️  detect-changes failed — skipping graph enrichment" >&2
   cat "$WORK_DIR/graph_detect_changes_stderr.log" 2>/dev/null | head -10 || true
@@ -98,11 +79,21 @@ ANALYSIS_END="$(date +%s)"
 ANALYSIS_TIME=$((ANALYSIS_END - ANALYSIS_START))
 
 # --- Parse and produce summaries ----------------------------------------------
-# The JSON structure from detect-changes includes:
-#   - changed_functions[]: each with risk_score, file, line, callers[], tests[]
+# The real detect-changes JSON schema (confirmed against code-review-graph
+# v2.3.7 output, not assumed — see .context/bug-detect-changes-format-flag.md):
+#   - changed_functions[]: id, kind, name, qualified_name, file_path,
+#     line_start, line_end, language, parent_name, is_test, risk_score.
+#     No callers[] or tests[] field — test coverage lives in test_gaps[]
+#     instead, and is not attached per-function here.
+#   - review_priorities[]: same shape as changed_functions[], pre-sorted by
+#     the tool's own priority ranking (not consumed here yet — see the bug
+#     doc's "possible future improvements" section).
 #   - affected_flows[]: execution flows impacted by changes
-#   - test_gaps[]: high-risk functions without test coverage
-#   - context_savings: token reduction estimates
+#   - test_gaps[]: functions without test coverage — name, qualified_name,
+#     file (NOT file_path — the field name is inconsistent with
+#     changed_functions/review_priorities), line_start, line_end. No
+#     risk_score on these entries.
+#   - context_savings: {estimated, saved_tokens, saved_percent}
 #
 # We extract per-file risk scores for chunk grouping and produce a markdown
 # summary for the aggregation prompt.
@@ -123,29 +114,6 @@ if [ ! -s "$WORK_DIR/graph_detect_changes.json" ] || ! jq empty "$WORK_DIR/graph
   exit 0
 fi
 
-# Check if this is a text-fallback structure (no structured fields)
-FORMAT="$(jq -r '.format // "structured"' "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo "structured")"
-if [ "$FORMAT" = "text-fallback" ]; then
-  echo "ℹ️  Graph output is text-fallback format — limited structured analysis available"
-  # Extract what we can from the raw text
-  cat > "$WORK_DIR/graph_risk_summary.md" <<EOF
-## 🔗 Code Graph Analysis
-
-*Graph analysis completed in ${ANALYSIS_TIME}s. Structured parsing unavailable — see raw output below.*
-
-<details>
-<summary>Raw detect-changes output</summary>
-
-\`\`\`
-$(jq -r '.raw_output // "no output"' "$WORK_DIR/graph_detect_changes.json" 2>/dev/null | head -100)
-\`\`\`
-
-</details>
-EOF
-  : > "$WORK_DIR/graph_file_risks.txt"
-  exit 0
-fi
-
 # --- Structured analysis (JSON with expected fields) -------------------------
 echo "Parsing graph analysis results..."
 
@@ -153,10 +121,10 @@ echo "Parsing graph analysis results..."
 # Output format: filepath<TAB>risk_score<TAB>changed_function_count
 jq -r '
   .changed_functions // [] |
-  group_by(.file) |
+  group_by(.file_path) |
   .[] |
   {
-    file: .[0].file,
+    file: .[0].file_path,
     max_risk: ([.[].risk_score // 0] | max),
     func_count: length
   } |
@@ -173,17 +141,17 @@ HIGH_RISK_COUNT="$(jq '[.changed_functions // [] | .[] | select((.risk_score // 
 echo "  High-risk functions (≥0.7): ${HIGH_RISK_COUNT}"
 
 # Count affected execution flows
-FLOW_COUNT="$(jq '[.affected_flows // []] | length' \
+FLOW_COUNT="$(jq '.affected_flows // [] | length' \
   "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo 0)"
 echo "  Affected execution flows: ${FLOW_COUNT}"
 
 # Count test gaps
-GAP_COUNT="$(jq '[.test_gaps // []] | length' \
+GAP_COUNT="$(jq '.test_gaps // [] | length' \
   "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo 0)"
 echo "  Test coverage gaps: ${GAP_COUNT}"
 
 # Token savings estimate
-SAVINGS_PCT="$(jq -r '.context_savings.savings_pct // "unknown"' \
+SAVINGS_PCT="$(jq -r '.context_savings.saved_percent // "unknown"' \
   "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo "unknown")"
 
 # --- Build markdown summary ---------------------------------------------------
@@ -203,9 +171,7 @@ SAVINGS_PCT="$(jq -r '.context_savings.savings_pct // "unknown"' \
       sort_by(-.risk_score) |
       .[:10] |
       .[] |
-      "- `\(.file):\(.line // "?")` — `\(.name // "unknown")` risk: \(.risk_score)" +
-      (if (.callers // [] | length) > 0 then " (\(.callers | length) callers)" else "" end) +
-      (if (.tests // [] | length) == 0 then " ⚠️ NO TESTS" else "" end)
+      "- `\(.file_path // "?"):\(.line_start // "?")` — `\(.name // "unknown")` risk: \(.risk_score)"
     ' "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo "  *(parsing failed)*"
     echo ""
   fi
@@ -231,7 +197,7 @@ SAVINGS_PCT="$(jq -r '.context_savings.savings_pct // "unknown"' \
       .test_gaps // [] |
       .[:10] |
       .[] |
-      "- `\(.file // "?")` — `\(.function // "unknown")` (risk: \(.risk_score // "?"))"
+      "- `\(.file // "?"):\(.line_start // "?")` — `\(.name // "unknown")`"
     ' "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo "  *(parsing failed)*"
     echo ""
   fi
