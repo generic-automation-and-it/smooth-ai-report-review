@@ -425,6 +425,100 @@ grep -q "full-build-fallback" "${tmp_dir}/test8.out" || {
 }
 pass "Test 8: fallback to full rebuild works"
 
+# --- Test 9: run-review.sh re-exports PATH across the build/detect subshell boundary ---
+echo ""
+echo "Test 9: PATH re-export lets detect-changes-graph.sh find a pipx-installed binary (regression guard for the cross-subshell PATH bug)"
+
+# Structural check: run-review.sh must actually contain a PATH re-export
+# between the build-code-graph.sh and detect-changes-graph.sh invocations —
+# the functional simulation below proves the mechanism works, but not that
+# run-review.sh itself wires it in.
+run_review_sh="${SCRIPT_DIR}/run-review.sh"
+build_line="$(grep -n 'bash "\$LIB_DIR/build-code-graph\.sh"' "$run_review_sh" | head -1 | cut -d: -f1)"
+detect_line="$(grep -n 'bash "\$LIB_DIR/detect-changes-graph\.sh"' "$run_review_sh" | head -1 | cut -d: -f1)"
+export_line="$(sed -n "${build_line},${detect_line}p" "$run_review_sh" | grep -n 'export PATH="\$HOME/\.local/bin' | head -1 | cut -d: -f1)"
+[ -n "$build_line" ] && [ -n "$detect_line" ] && [ -n "$export_line" ] || {
+  fail "Test 9: run-review.sh must re-export \$HOME/.local/bin onto PATH between the build and detect subshell calls"
+}
+
+# A working code-review-graph mock, to be "installed" by the pipx mock below.
+cat > "${mock_bin}/code-review-graph-real" <<'MOCK_EOF'
+#!/bin/bash
+if [ "$1" = "--version" ]; then
+  echo "2.3.6"
+  exit 0
+fi
+if [ "$1" = "build" ]; then
+  mkdir -p .code-review-graph
+  echo "fake-db" > .code-review-graph/graph.db
+  exit 0
+fi
+if [ "$1" = "detect-changes" ]; then
+  echo "Changed functions: 0"
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph-real"
+
+# Simulate a real pipx install: a fake isolated HOME whose ~/.local/bin is NOT
+# on the starting PATH (mirrors ubuntu-latest, where build-code-graph.sh's own
+# subshell-local PATH export is invisible to the next `bash` invocation).
+fake_home="${tmp_dir}/fake_home"
+mkdir -p "${fake_home}/.local/bin"
+
+cat > "${mock_bin}/pipx" <<MOCK_EOF
+#!/bin/bash
+# Mock pipx install: actually places a working code-review-graph binary at
+# \$HOME/.local/bin, matching real pipx's install location.
+if [ "\$1" = "install" ]; then
+  cp "${mock_bin}/code-review-graph-real" "\$HOME/.local/bin/code-review-graph"
+  chmod +x "\$HOME/.local/bin/code-review-graph"
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/pipx"
+
+# code-review-graph itself is deliberately absent from mock_bin here — pipx is
+# the only way to get it, and it lands only in $HOME/.local/bin. Use a narrow
+# base PATH (not the ambient $PATH) so a real code-review-graph install on the
+# host machine can't mask the scenario being tested.
+rm -f "${mock_bin}/code-review-graph"
+pre_export_path="${mock_bin}:/usr/bin:/bin"
+
+HOME="$fake_home" PATH="${pre_export_path}" \
+  bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test9_build.out" 2>&1 || {
+    cat "${tmp_dir}/test9_build.out"
+    fail "Test 9: build-code-graph.sh should succeed by installing via pipx"
+  }
+
+# Confirm the bug premise: on the same PATH build-code-graph.sh started with,
+# code-review-graph still isn't reachable — its own PATH export didn't leak.
+HOME="$fake_home" PATH="${pre_export_path}" \
+  bash -c 'command -v code-review-graph' >/dev/null 2>&1 && {
+    fail "Test 9: code-review-graph should NOT be reachable without the fix (test setup invalid)"
+  }
+
+# Now run detect-changes-graph.sh exactly as run-review.sh's fixed Step 13.5
+# does: re-export $HOME/.local/bin onto PATH after build-code-graph.sh, before
+# the next subshell invocation.
+mkdir -p .code-review-graph
+echo "fake-db" > .code-review-graph/graph.db
+post_export_path="${fake_home}/.local/bin:${pre_export_path}"
+HOME="$fake_home" PATH="${post_export_path}" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test9_detect.out" 2>&1 || {
+    cat "${tmp_dir}/test9_detect.out"
+    fail "Test 9: detect-changes-graph.sh should succeed once PATH is re-exported"
+  }
+grep -q "code-review-graph not found on PATH" "${tmp_dir}/test9_detect.out" && {
+  cat "${tmp_dir}/test9_detect.out"
+  fail "Test 9: detect-changes-graph.sh should find the pipx-installed binary after PATH re-export"
+}
+pass "Test 9: PATH re-export makes the pipx-installed binary visible to detect-changes-graph.sh"
+
+rm -rf .code-review-graph ci_temp
+
 # --- Cleanup ------------------------------------------------------------------
 rm -rf .code-review-graph ci_temp
 

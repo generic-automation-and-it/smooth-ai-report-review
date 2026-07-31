@@ -784,6 +784,14 @@ if printf '%s' "${_graph_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|tr
   echo "=========================================="
   # Build the graph (install code-review-graph if needed, build/update SQLite DB)
   if bash "$LIB_DIR/build-code-graph.sh"; then
+    # build-code-graph.sh's pipx install may land code-review-graph in
+    # ~/.local/bin, but its PATH export is local to that subshell — it's
+    # gone by the time this shell resumes. Re-export here (same pattern as
+    # install-opencode.sh, LADR-048) so detect-changes-graph.sh, run as a
+    # separate subshell below, can still find the binary.
+    if [ -d "$HOME/.local/bin" ]; then
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
     # Run detect-changes to produce risk analysis
     if bash "$LIB_DIR/detect-changes-graph.sh"; then
       # Verify outputs exist and are non-empty
