@@ -385,7 +385,9 @@ else
 fi
 # The lib's PATH export runs in its own subshell and doesn't propagate here.
 # Re-export for this script's subsequent opencode invocations (PR #86 fix).
-if [ -x "$HOME/.opencode/bin/opencode" ] && ! command -v opencode >/dev/null 2>&1; then
+# Unconditionally append to $GITHUB_PATH so follow-up steps also find opencode,
+# even on a cache hit (the lib's exit-0 cache-hit branch doesn't touch $GITHUB_PATH).
+if [ -x "$HOME/.opencode/bin/opencode" ]; then
   export PATH="$HOME/.opencode/bin:$PATH"
   echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
 fi
