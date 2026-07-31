@@ -214,9 +214,10 @@ jobs:
       # Mirrors the reusable workflow's graph cache step. The install + build
       # logic is in scripts/lib/build-code-graph.sh (called from run-review.sh).
       # The if: condition uses contains() to match the wider truthy set accepted
-      # by run-review.sh (1|true|yes|on, case-insensitive).
+      # by run-review.sh (1|true|yes|on). Note: GitHub Actions doesn't have
+      # toLower(), so the variable value should be lowercase.
       - name: Cache code knowledge graph
-        if: contains('1 true yes on', toLower(vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '0'))
+        if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '0')
         uses: actions/cache@v4
         with:
           path: .code-review-graph
