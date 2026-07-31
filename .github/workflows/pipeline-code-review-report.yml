@@ -387,6 +387,14 @@ jobs:
       OPENCODE_REVIEW_REPORT_CONFIG: ${{ inputs.opencode_config || vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
       OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+      # Code graph analysis (LADR-049) — opt-in Tree-sitter-based knowledge graph.
+      # When enabled, builds a SQLite graph of the repo and runs detect-changes
+      # to produce risk-scored function-level analysis. The graph data enriches
+      # chunk prompts and aggregation (see LADR-050/051/052 for downstream consumers).
+      # GRAPH_VERSION pins the code-review-graph package version for supply-chain
+      # hygiene (mirrors OPENCODE_REVIEW_REPORT_CLI_VERSION for opencode).
+      OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
+      OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md
@@ -449,6 +457,30 @@ jobs:
           repository: generic-automation-and-it/smooth-ai-report-review
           ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.workflow_sha || 'v1' }}
           path: .smooth-ai-review-tools
+
+      # ── Code graph analysis (LADR-049) ──────────────────────────────────────
+      # Opt-in: enabled by setting OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
+      # to a truthy value (1/true/yes/on, case-insensitive) as a repo/org Variable.
+      # When enabled, the review gate builds a Tree-sitter knowledge graph of the
+      # repo and uses it for risk-scored function-level analysis. The graph DB is
+      # cached between runs for fast incremental updates. The actual install + build
+      # logic lives in scripts/lib/build-code-graph.sh (called from run-review.sh
+      # Step 13.5) — this cache step just persists the .code-review-graph/ directory
+      # between CI runs. The if: condition uses contains() to match the wider truthy
+      # set accepted by run-review.sh (1|true|yes|on). Note: contains() is
+      # case-insensitive, so any case works for `1`/`true`/`yes`/`on`.
+      - name: Cache code knowledge graph
+        if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1')
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: .code-review-graph
+          # Key on source-tree hashes so the graph invalidates when code changes
+          # (the common case), not just when dependencies change. Includes lockfile
+          # hashes as a secondary signal for dep-only changes. Schema version suffix
+          # allows force-invalidation on graph format changes.
+          key: crg-${{ runner.os }}-${{ hashFiles('**/*.cs', '**/*.csproj', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.py', '**/*.go', '**/*.java', '**/go.mod', '**/go.sum', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/Pipfile.lock', '**/poetry.lock', '**/Gemfile.lock', '**/Cargo.lock', '**/composer.lock', '**/mix.lock') }}-v1
+          restore-keys: |
+            crg-${{ runner.os }}-
 
       - name: Run review gate
         env:
