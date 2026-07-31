@@ -10,9 +10,9 @@
 # workflow YAML. This mirrors the LADR-048 pattern for install-opencode.sh.
 #
 # Inputs (env vars, all optional):
-#   OPENCODE_REVIEW_REPORT_GRAPH_VERSION    — version pin for code-review-graph;
+#   OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION    — version pin for code-review-graph;
 #                                              blank → latest from PyPI.
-#   OPENCODE_REVIEW_REPORT_GRAPH_BASE_REF   — git ref for incremental updates
+#   OPENCODE_TOOL_CODE_REVIEW_GRAPH_BASE_REF   — git ref for incremental updates
 #                                              (e.g., origin/main). When set,
 #                                              runs `build --incremental --base`;
 #                                              when blank, runs full `build`.
@@ -38,8 +38,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Version resolution -------------------------------------------------------
 REQUESTED_VERSION=""
-if [ -n "${OPENCODE_REVIEW_REPORT_GRAPH_VERSION:-}" ]; then
-  REQUESTED_VERSION="${OPENCODE_REVIEW_REPORT_GRAPH_VERSION#v}"
+if [ -n "${OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION:-}" ]; then
+  REQUESTED_VERSION="${OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION#v}"
 else
   REQUESTED_VERSION="latest"
 fi
@@ -135,7 +135,7 @@ BUILD_START="$(date +%s)"
 
 if [ -d "$GRAPH_DIR" ] && [ -f "$GRAPH_DIR/graph.db" ]; then
   echo "Existing graph found — running incremental update..."
-  BASE_REF="${OPENCODE_REVIEW_REPORT_GRAPH_BASE_REF:-}"
+  BASE_REF="${OPENCODE_TOOL_CODE_REVIEW_GRAPH_BASE_REF:-}"
   if [ -n "$BASE_REF" ]; then
     echo "  Base ref: ${BASE_REF}"
     if ! code-review-graph build --incremental --base "$BASE_REF"; then

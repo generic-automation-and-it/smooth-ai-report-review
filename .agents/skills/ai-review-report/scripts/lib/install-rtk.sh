@@ -14,13 +14,13 @@
 # dead gemini-cli hook. See LADR-054 for the full decision record.
 #
 # Inputs (env vars, all optional):
-#   OPENCODE_REVIEW_REPORT_RTK_VERSION  — version pin (leading `v` stripped);
+#   OPENCODE_TOOL_RTK_VERSION  — version pin (leading `v` stripped);
 #                                          blank → latest.
 #   GITHUB_PATH                          — set by GitHub Actions; appended so
 #                                          follow-up steps find rtk.
 #
 # Behaviour:
-#   1. Resolve REQUESTED_VERSION from OPENCODE_REVIEW_REPORT_RTK_VERSION.
+#   1. Resolve REQUESTED_VERSION from OPENCODE_TOOL_RTK_VERSION.
 #   2. If rtk is already on PATH and matches the request (or request is
 #      latest), print the cache-hit line and skip straight to init.
 #   3. Otherwise: install via the upstream install.sh, which supports pinning
@@ -43,8 +43,8 @@
 set -uo pipefail
 
 REQUESTED_VERSION=""
-if [ -n "${OPENCODE_REVIEW_REPORT_RTK_VERSION:-}" ]; then
-  REQUESTED_VERSION="${OPENCODE_REVIEW_REPORT_RTK_VERSION#v}"
+if [ -n "${OPENCODE_TOOL_RTK_VERSION:-}" ]; then
+  REQUESTED_VERSION="${OPENCODE_TOOL_RTK_VERSION#v}"
 else
   REQUESTED_VERSION="latest"
 fi

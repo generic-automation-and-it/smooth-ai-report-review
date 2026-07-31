@@ -42,10 +42,10 @@ jobs:
       # Pin opencode to a specific version for supply-chain hygiene +
       # reproducibility (recommended). Unset = latest, which pulls whatever
       # is current upstream on every run with no reproducibility. Set the
-      # OPENCODE_REVIEW_REPORT_CLI_VERSION repo/org Variable to something
+      # OPENCODE_CLI_VERSION repo/org Variable to something
       # like 'major.minor.patch' to enable the pin. The shared installer (LADR-048)
       # honours it across every install path in this repo.
-      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
+      OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
     steps:
       - name: Checkout PR head (full history for base diff)
         uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
           # .agents/skills/ payload (see package.json `files`), so the
           # shared installer is on disk at the path below after `npm install`.
           # Delegate to it (LADR-048) so this template honours
-          # OPENCODE_REVIEW_REPORT_CLI_VERSION. (The package's plugin-side
+          # OPENCODE_CLI_VERSION. (The package's plugin-side
           # opencode-plugin.js handles per-skill linking into .agents/skills/
           # at opencode session init — see LADR-038.) The install script
           # ships inside the npm package (via the `files` whitelist in

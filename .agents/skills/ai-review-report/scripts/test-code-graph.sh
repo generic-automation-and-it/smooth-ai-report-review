@@ -66,7 +66,7 @@ chmod +x "${mock_bin}/pip"
 
 # Test: when code-review-graph is on PATH with matching version, skip install
 PATH="${mock_bin}:${PATH}" \
-  OPENCODE_REVIEW_REPORT_GRAPH_VERSION="2.3.6" \
+  OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION="2.3.6" \
   bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test1.out" 2>&1 || {
     cat "${tmp_dir}/test1.out"
     fail "Test 1: should succeed when version matches"
@@ -139,7 +139,7 @@ chmod +x "${mock_bin}/python3"
 # Request 2.4.0 while the mock reports 2.3.6 already installed — this must
 # now succeed via pipx install --force and report the new version.
 PATH="${mock_bin}:${PATH}" \
-  OPENCODE_REVIEW_REPORT_GRAPH_VERSION="2.4.0" \
+  OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION="2.4.0" \
   bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test2.out" 2>&1 || {
     cat "${tmp_dir}/test2.out"
     fail "Test 2: should succeed via pipx install --force when a different version is already installed"
@@ -423,7 +423,7 @@ mkdir -p .code-review-graph
 echo "old-db" > .code-review-graph/graph.db
 
 PATH="${mock_bin}:${PATH}" \
-  OPENCODE_REVIEW_REPORT_GRAPH_BASE_REF="origin/main" \
+  OPENCODE_TOOL_CODE_REVIEW_GRAPH_BASE_REF="origin/main" \
   bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test7.out" 2>&1 || {
     cat "${tmp_dir}/test7.out"
     fail "Test 7: incremental build should succeed"
@@ -473,7 +473,7 @@ mkdir -p .code-review-graph
 echo "old-db" > .code-review-graph/graph.db
 
 PATH="${mock_bin}:${PATH}" \
-  OPENCODE_REVIEW_REPORT_GRAPH_BASE_REF="origin/main" \
+  OPENCODE_TOOL_CODE_REVIEW_GRAPH_BASE_REF="origin/main" \
   bash "${LIB_DIR}/build-code-graph.sh" > "${tmp_dir}/test8.out" 2>&1 || {
     cat "${tmp_dir}/test8.out"
     fail "Test 8: should succeed via fallback"

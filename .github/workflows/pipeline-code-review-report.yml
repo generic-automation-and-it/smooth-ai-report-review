@@ -84,7 +84,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054, e.g. "0.44.1"). Blank → OPENCODE_REVIEW_REPORT_RTK_VERSION Variable, else latest. Only used when RTK is enabled (OPENCODE_REVIEW_REPORT_ENABLE_RTK Variable, default on).'
+        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054, e.g. "0.44.1"). Blank → OPENCODE_TOOL_RTK_VERSION Variable, else latest. Only used when RTK is enabled (OPENCODE_REVIEW_REPORT_ENABLE_RTK Variable, default on).'
         required: false
         type: string
         default: ''
@@ -171,7 +171,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_REVIEW_REPORT_RTK_VERSION Variable, else latest.'
+        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable, else latest.'
         required: false
         type: string
         default: ''
@@ -395,22 +395,22 @@ jobs:
       # Optional custom opencode.json source. Precedence: opencode_config input
       # → OPENCODE_REVIEW_REPORT_CONFIG Variable → built-in.
       OPENCODE_REVIEW_REPORT_CONFIG: ${{ inputs.opencode_config || vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
-      OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
+      OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
       OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
       # Code graph analysis (LADR-049) — opt-in Tree-sitter-based knowledge graph.
       # When enabled, builds a SQLite graph of the repo and runs detect-changes
       # to produce risk-scored function-level analysis. The graph data enriches
       # chunk prompts and aggregation (see LADR-050/051/052 for downstream consumers).
       # GRAPH_VERSION pins the code-review-graph package version for supply-chain
-      # hygiene (mirrors OPENCODE_REVIEW_REPORT_CLI_VERSION for opencode).
+      # hygiene (mirrors OPENCODE_CLI_VERSION for opencode).
       OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
-      OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
+      OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION: ${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION || '' }}
       # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted
       # after LADR-014's Gemini-CLI hook was superseded by the opencode
       # transport migration (LADR-023). rtk_version input wins over the
       # Variable, matching the opencode_config precedence pattern.
       OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
-      OPENCODE_REVIEW_REPORT_RTK_VERSION: ${{ inputs.rtk_version || vars.OPENCODE_REVIEW_REPORT_RTK_VERSION || '' }}
+      OPENCODE_TOOL_RTK_VERSION: ${{ inputs.rtk_version || vars.OPENCODE_TOOL_RTK_VERSION || '' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md

@@ -110,9 +110,9 @@ grep -q 'v1.18.9' "${tmp_dir}/update_available.info" || fail "current version mi
 grep -q 'v1.18.10' "${tmp_dir}/update_available.info" || fail "latest version missing from header"
 ok "header announces an available CLI update"
 
-grep -q 'OPENCODE_REVIEW_REPORT_CLI_VERSION' "${tmp_dir}/update_available.info" \
+grep -q 'OPENCODE_CLI_VERSION' "${tmp_dir}/update_available.info" \
   || fail "update notice does not name the Variable to bump"
-ok "update notice names OPENCODE_REVIEW_REPORT_CLI_VERSION"
+ok "update notice names OPENCODE_CLI_VERSION"
 
 grep -q '→' "${tmp_dir}/update_available.footer" || fail "footer missing the update arrow"
 ok "footer is rendered (regression: it read unexported vars in a child process)"
@@ -166,7 +166,7 @@ grep -q 'code-review-graph.*⬆️\|⬆️.*code-review-graph' "${tmp_dir}/graph
   || fail "no update marker for code-review-graph 2.4.0 → 2.5.0"
 grep -q 'v2.4.0' "${tmp_dir}/graph_update_available.info" || fail "current graph version missing from header"
 grep -q 'v2.5.0' "${tmp_dir}/graph_update_available.info" || fail "latest graph version missing from header"
-grep -q 'OPENCODE_REVIEW_REPORT_GRAPH_VERSION' "${tmp_dir}/graph_update_available.info" \
+grep -q 'OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION' "${tmp_dir}/graph_update_available.info" \
   || fail "graph update notice does not name the Variable to bump"
 ok "header announces an available code-review-graph update and names the Variable"
 
@@ -216,7 +216,7 @@ grep -q 'rtk.*⬆️\|⬆️.*rtk' "${tmp_dir}/rtk_update_available.info" \
   || fail "no update marker for rtk 0.44.0 → 0.44.1"
 grep -q 'v0.44.0' "${tmp_dir}/rtk_update_available.info" || fail "current rtk version missing from header"
 grep -q 'v0.44.1' "${tmp_dir}/rtk_update_available.info" || fail "latest rtk version missing from header"
-grep -q 'OPENCODE_REVIEW_REPORT_RTK_VERSION' "${tmp_dir}/rtk_update_available.info" \
+grep -q 'OPENCODE_TOOL_RTK_VERSION' "${tmp_dir}/rtk_update_available.info" \
   || fail "rtk update notice does not name the Variable to bump"
 ok "header announces an available rtk update and names the Variable"
 

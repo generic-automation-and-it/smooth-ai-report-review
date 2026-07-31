@@ -51,7 +51,7 @@
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
 #   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
-#   OPENCODE_REVIEW_REPORT_CLI_VERSION  [unset → latest] — opencode version pin
+#   OPENCODE_CLI_VERSION  [unset → latest] — opencode version pin
 #   OPENCODE_REVIEW_REPORT_CONFIG  [unset → committed opencode.json] — LADR-047
 #   OPENCODE_REVIEW_REPORT_GEMINI_URL / _COPILOT_URL / _OPENAI_URL — gateway URLs
 #   OPENCODE_GEMINI_API_KEY / _COPILOT_API_KEY / _OPENAI_API_KEY — provider keys
@@ -107,7 +107,7 @@ if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_
   echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT='${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}' (must be a positive integer). Using default: 100" >&2
   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT=100
 fi
-OPENCODE_REVIEW_REPORT_CLI_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}"
+OPENCODE_CLI_VERSION="${OPENCODE_CLI_VERSION:-}"
 # Graph analysis (LADR-049) — opt-in code knowledge graph enrichment.
 # When truthy, builds a Tree-sitter-based SQLite graph of the repo and runs
 # detect-changes to produce risk-scored function-level analysis. The graph
@@ -115,17 +115,17 @@ OPENCODE_REVIEW_REPORT_CLI_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}"
 # only builds the graph and produces the data; chunking/aggregation changes
 # land in LADR-050/051/052.
 OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1}"
-OPENCODE_REVIEW_REPORT_GRAPH_VERSION="${OPENCODE_REVIEW_REPORT_GRAPH_VERSION:-}"
+OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION="${OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION:-}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
-export OPENCODE_REVIEW_REPORT_GRAPH_VERSION
+export OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION
 
 # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted after
 # LADR-014's Gemini-CLI hook was superseded by the opencode transport
 # migration (LADR-023). RTK_VERSION pins the rtk-ai/rtk binary version.
 OPENCODE_REVIEW_REPORT_ENABLE_RTK="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
-OPENCODE_REVIEW_REPORT_RTK_VERSION="${OPENCODE_REVIEW_REPORT_RTK_VERSION:-}"
+OPENCODE_TOOL_RTK_VERSION="${OPENCODE_TOOL_RTK_VERSION:-}"
 export OPENCODE_REVIEW_REPORT_ENABLE_RTK
-export OPENCODE_REVIEW_REPORT_RTK_VERSION
+export OPENCODE_TOOL_RTK_VERSION
 
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
@@ -389,7 +389,7 @@ else
 fi
 
 # 5c. Install opencode — delegated to the shared lib (LADR-048) so every
-# install path in this repo honours OPENCODE_REVIEW_REPORT_CLI_VERSION
+# install path in this repo honours OPENCODE_CLI_VERSION
 # through a single implementation. The lib exports $HOME/.opencode/bin on
 # PATH and appends to $GITHUB_PATH for follow-up steps. Guarded so a
 # missing lib (broken LADR-048 path-coupling) surfaces with the same UX

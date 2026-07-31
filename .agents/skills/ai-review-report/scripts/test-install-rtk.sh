@@ -4,7 +4,7 @@
 # Runs fully offline: `curl` and the upstream install.sh it pipes to are
 # stubbed on PATH. The stub records the RTK_VERSION env var the piped script
 # actually saw — the original bug was passing the `v`-stripped
-# OPENCODE_REVIEW_REPORT_RTK_VERSION straight through as RTK_VERSION, but
+# OPENCODE_TOOL_RTK_VERSION straight through as RTK_VERSION, but
 # rtk's release tags (and its install.sh's download-URL construction) require
 # the leading `v` (e.g. `v0.44.1`, not `0.44.1`), so every pinned install
 # 404'd and silently degraded to "RTK unavailable" (confirmed live against
@@ -74,12 +74,12 @@ echo "=========================================="
 echo "Testing pinned-version tag prefix (regression)"
 echo "=========================================="
 
-run_install pinned OPENCODE_REVIEW_REPORT_RTK_VERSION="0.44.1"
+run_install pinned OPENCODE_TOOL_RTK_VERSION="0.44.1"
 grep -q '^RTK_VERSION_SEEN=v0.44.1$' "${tmp_dir}/pinned.log" \
   || fail "upstream install.sh did not see the v-prefixed tag (got: $(cat "${tmp_dir}/pinned.log" 2>/dev/null))"
 ok "a bare-digit pin (0.44.1) is re-prefixed with 'v' before reaching rtk's installer"
 
-run_install pinned_v OPENCODE_REVIEW_REPORT_RTK_VERSION="v0.44.1"
+run_install pinned_v OPENCODE_TOOL_RTK_VERSION="v0.44.1"
 grep -q '^RTK_VERSION_SEEN=v0.44.1$' "${tmp_dir}/pinned_v.log" \
   || fail "an already-v-prefixed pin was double-prefixed or mangled (got: $(cat "${tmp_dir}/pinned_v.log" 2>/dev/null))"
 ok "a v-prefixed pin (v0.44.1) is not double-prefixed"
