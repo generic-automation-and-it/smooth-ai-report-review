@@ -375,6 +375,12 @@ fi
 # through a single implementation. The lib exports $HOME/.opencode/bin on
 # PATH and appends to $GITHUB_PATH for follow-up steps.
 bash "$LIB_DIR/install-opencode.sh"
+# The lib's PATH export runs in its own subshell and doesn't propagate here.
+# Re-export for this script's subsequent opencode invocations (PR #86 fix).
+if [ -x "$HOME/.opencode/bin/opencode" ] && ! command -v opencode >/dev/null 2>&1; then
+  export PATH="$HOME/.opencode/bin:$PATH"
+  echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
+fi
 
 # 5d. Install opencode.json provider config.
 bash "$LIB_DIR/setup-opencode-config.sh"
