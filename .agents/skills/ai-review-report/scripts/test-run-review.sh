@@ -546,6 +546,64 @@ HOME="$TMP_DIR" PATH="/usr/bin:/bin" bash -c '
 ' > /tmp/opencode_path_test.out 2>&1
 check "post-install PATH update makes opencode reachable" "OK" "$(cat /tmp/opencode_path_test.out)"
 
+# ── Incremental diff intersection regression tests ───────────────────────
+echo ""
+echo "=========================================="
+echo "Testing incremental diff intersection preserves NUL delimiters"
+echo "=========================================="
+
+write_nul_fixture() {
+  local path="$1"
+  shift
+  : > "$path"
+  local item
+  for item in "$@"; do
+    printf '%s\0' "$item" >> "$path"
+  done
+}
+
+assert_incremental_intersection() {
+  local name="$1"
+  local since_file="$2"
+  local branch_file="$3"
+  local expected_file="$4"
+  local actual_file="$TMP_DIR/${name//[^a-zA-Z0-9]/_}.actual"
+
+  bash "$SCRIPT_DIR/lib/intersect-changed-files.sh" \
+    "$since_file" "$branch_file" "$actual_file"
+
+  if cmp -s "$actual_file" "$expected_file"; then
+    check "$name" "ok" "ok"
+  else
+    check "$name" "ok" "fail"
+  fi
+}
+
+run_review_uses_helper() {
+  local count
+  count="$(grep -F "intersect-changed-files.sh" "$RUN_REVIEW" | wc -l | tr -d ' ')"
+  check "run-review.sh routes incremental intersection through shared helper" "1" "$count"
+}
+run_review_uses_helper
+
+since_fixture="$TMP_DIR/incremental-since.txt"
+branch_fixture="$TMP_DIR/incremental-branch.txt"
+expected_fixture="$TMP_DIR/incremental-expected.txt"
+write_nul_fixture "$since_fixture" "alpha/a.txt" "beta/b.txt"
+write_nul_fixture "$branch_fixture" "alpha/a.txt" "beta/b.txt" "gamma/c.txt"
+write_nul_fixture "$expected_fixture" "alpha/a.txt" "beta/b.txt"
+assert_incremental_intersection "subset intersection preserves common NUL-delimited paths" \
+  "$since_fixture" "$branch_fixture" "$expected_fixture"
+
+since_fixture="$TMP_DIR/incremental-newline-since.txt"
+branch_fixture="$TMP_DIR/incremental-newline-branch.txt"
+expected_fixture="$TMP_DIR/incremental-newline-expected.txt"
+write_nul_fixture "$since_fixture" "alpha/a.txt" $'contains\nnewline.txt'
+write_nul_fixture "$branch_fixture" $'contains\nnewline.txt' "gamma/c.txt"
+write_nul_fixture "$expected_fixture" $'contains\nnewline.txt'
+assert_incremental_intersection "newline-containing path survives NUL-delimited intersection" \
+  "$since_fixture" "$branch_fixture" "$expected_fixture"
+
 # ── YAML-level tests (PR #86 review 4820157344 #15 + #16) ─────────────────
 # Gate on python3 (needed for the YAML parser) and on non-shallow git
 # history (the `git ls-tree $ref` test needs the ref in local objects).
@@ -698,69 +756,6 @@ assert_step_forwards_github_token "local-job caller" \
   ".docs/examples/code-review-local.yml"
 fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
-
-# ── Incremental diff intersection regression tests ───────────────────────
-echo ""
-echo "=========================================="
-echo "Testing incremental diff intersection preserves NUL delimiters"
-echo "=========================================="
-
-write_nul_fixture() {
-  local path="$1"
-  shift
-  python3 - "$path" "$@" <<'PY'
-import pathlib
-import sys
-path = pathlib.Path(sys.argv[1])
-items = sys.argv[2:]
-path.write_bytes(b"\0".join(item.encode("utf-8") for item in items) + b"\0")
-PY
-}
-
-assert_incremental_intersection() {
-  local name="$1"
-  local since_file="$2"
-  local branch_file="$3"
-  local expected_file="$4"
-  local actual_file="$TMP_DIR/${name//[^a-zA-Z0-9]/_}.actual"
-
-  comm -z -12 \
-    <(sort -z < "$since_file") \
-    <(sort -z < "$branch_file") \
-    > "$actual_file"
-
-  if python3 - "$actual_file" "$expected_file" <<'PY'
-import pathlib
-import sys
-actual = pathlib.Path(sys.argv[1]).read_bytes().split(b"\0")[:-1]
-expected = pathlib.Path(sys.argv[2]).read_bytes().split(b"\0")[:-1]
-if actual != expected:
-    raise SystemExit(f"actual={actual!r}\nexpected={expected!r}")
-PY
-  then
-    check "$name" "ok" "ok"
-  else
-    check "$name" "ok" "fail"
-  fi
-}
-
-since_fixture="$TMP_DIR/incremental-since.txt"
-branch_fixture="$TMP_DIR/incremental-branch.txt"
-expected_fixture="$TMP_DIR/incremental-expected.txt"
-write_nul_fixture "$since_fixture" "alpha/a.txt" "beta/b.txt"
-write_nul_fixture "$branch_fixture" "alpha/a.txt" "beta/b.txt" "gamma/c.txt"
-write_nul_fixture "$expected_fixture" "alpha/a.txt" "beta/b.txt"
-assert_incremental_intersection "subset intersection preserves common NUL-delimited paths" \
-  "$since_fixture" "$branch_fixture" "$expected_fixture"
-
-since_fixture="$TMP_DIR/incremental-newline-since.txt"
-branch_fixture="$TMP_DIR/incremental-newline-branch.txt"
-expected_fixture="$TMP_DIR/incremental-newline-expected.txt"
-write_nul_fixture "$since_fixture" "alpha/a.txt" $'contains\nnewline.txt'
-write_nul_fixture "$branch_fixture" $'contains\nnewline.txt' "gamma/c.txt"
-write_nul_fixture "$expected_fixture" $'contains\nnewline.txt'
-assert_incremental_intersection "newline-containing path survives NUL-delimited intersection" \
-  "$since_fixture" "$branch_fixture" "$expected_fixture"
 
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
