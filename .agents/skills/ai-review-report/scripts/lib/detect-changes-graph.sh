@@ -77,11 +77,12 @@ elif code-review-graph detect-changes --base "$BASE_REF" \
   else
     # Fallback: manual escaping (jq not available)
     RAW_ESCAPED="$(cat "$WORK_DIR/graph_detect_changes_brief.txt" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')"
+    BASE_ESCAPED="$(printf '%s' "$BASE_REF" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     cat > "$WORK_DIR/graph_detect_changes.json" <<EOF
 {
   "format": "text-fallback",
   "raw_output": "${RAW_ESCAPED}",
-  "base_ref": "${BASE_REF}"
+  "base_ref": "${BASE_ESCAPED}"
 }
 EOF
   fi
@@ -246,6 +247,7 @@ SAVINGS_PCT="$(jq -r '.context_savings.savings_pct // "unknown"' \
       # Truncate long file paths
       display_file="$file"
       if [ "${#display_file}" -gt 60 ]; then
+        # Bash 5 substring-from-end: keep the last 57 chars after a "..." prefix
         display_file="...${display_file: -57}"
       fi
       echo "| \`$display_file\` | ${risk} | ${count} |"
