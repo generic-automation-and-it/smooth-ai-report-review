@@ -108,6 +108,16 @@ if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_
   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT=100
 fi
 OPENCODE_REVIEW_REPORT_CLI_VERSION="${OPENCODE_REVIEW_REPORT_CLI_VERSION:-}"
+# Graph analysis (LADR-049) — opt-in code knowledge graph enrichment.
+# When truthy, builds a Tree-sitter-based SQLite graph of the repo and runs
+# detect-changes to produce risk-scored function-level analysis. The graph
+# data enriches chunk prompts (Phase 2) and aggregation (Phase 4). Phase 1
+# only builds the graph and produces the data; chunking/aggregation changes
+# land in LADR-050/051/052.
+OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1}"
+OPENCODE_REVIEW_REPORT_GRAPH_VERSION="${OPENCODE_REVIEW_REPORT_GRAPH_VERSION:-}"
+export OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
+export OPENCODE_REVIEW_REPORT_GRAPH_VERSION
 
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
@@ -750,6 +760,73 @@ case "${_bypass_mandatory_ctx,,}" in
     ;;
 esac
 unset _bypass_mandatory_ctx
+
+# --- Step 13.5: Code graph analysis (LADR-049, opt-in) -----------------------
+# When OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS is truthy, build the code
+# knowledge graph and run detect-changes to produce risk-scored function-level
+# analysis. The graph data is consumed by:
+#   - Phase 2 (LADR-050): per-chunk graph context injection in review-in-chunks.sh
+#   - Phase 3 (LADR-051): graph-aware chunk grouping (replaces LLM semantic grouping)
+#   - Phase 4 (LADR-052): aggregation enrichment in aggregate-reviews.sh
+#
+# Graceful degradation: if the graph build or detect-changes fails, we log a
+# warning and continue without graph enrichment. The chunked review proceeds
+# with its existing logic (directory/semantic grouping, context files only).
+_graph_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1}"
+# Tokenize the value via tr so pathological inputs (1true, 1on, 11) align
+# with the cache step's `contains()` truthy-set. Three-state result:
+# "true" / "failed" / "disabled" — lets LADR-050/051/052 consumers
+# distinguish "didn't run" from "ran and failed".
+if printf '%s' "${_graph_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+  echo ""
+  echo "=========================================="
+  echo "Code Graph Analysis (LADR-049)"
+  echo "=========================================="
+  # Build the graph (install code-review-graph if needed, build/update SQLite DB)
+  if bash "$LIB_DIR/build-code-graph.sh"; then
+    # build-code-graph.sh's pipx install may land code-review-graph in
+    # ~/.local/bin, but its PATH export is local to that subshell — it's
+    # gone by the time this shell resumes. Re-export here (same pattern as
+    # install-opencode.sh, LADR-048) so detect-changes-graph.sh, run as a
+    # separate subshell below, can still find the binary.
+    if [ -d "$HOME/.local/bin" ]; then
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+    # Run detect-changes to produce risk analysis
+    if bash "$LIB_DIR/detect-changes-graph.sh"; then
+      # Verify outputs exist and are non-empty
+      if [ -s "$WORK_DIR/graph_detect_changes.json" ]; then
+        GRAPH_ANALYSIS_AVAILABLE="true"
+        echo "✓ Graph analysis available for chunk enrichment"
+      else
+        echo "⚠️  Graph analysis produced empty output — continuing without graph enrichment"
+        GRAPH_ANALYSIS_AVAILABLE="failed"
+      fi
+    else
+      echo "⚠️  detect-changes failed — continuing without graph enrichment"
+      GRAPH_ANALYSIS_AVAILABLE="failed"
+    fi
+  else
+    echo "⚠️  Graph build failed — continuing without graph enrichment"
+    GRAPH_ANALYSIS_AVAILABLE="failed"
+  fi
+else
+  # Graph analysis disabled — no-op
+  GRAPH_ANALYSIS_AVAILABLE="disabled"
+fi
+export GRAPH_ANALYSIS_AVAILABLE
+unset _graph_enabled
+# TODO(LADR-050/051/052): GRAPH_ANALYSIS_AVAILABLE is a Phase 1 stub — the
+# per-chunk context injection (LADR-050), graph-aware chunk grouping
+# (LADR-051), and aggregation enrichment (LADR-052) consumers don't exist
+# yet, so this $GITHUB_OUTPUT write is currently a dead signal. Three
+# states: "true" = built and ready, "failed" = enabled but build/detect
+# failed, "disabled" = explicitly off. Land it in the same commit as the
+# first consumer that reads it, or remove the export and the
+# $GITHUB_OUTPUT write if the consumers land elsewhere.
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  echo "graph_analysis_available=${GRAPH_ANALYSIS_AVAILABLE}" >> "$GITHUB_OUTPUT"
+fi
 
 # --- Step 14: Validate AGENTS.md (full reviews only) -------------------------
 VALIDATION_PASSED_FILE="$WORK_DIR/validation_passed"

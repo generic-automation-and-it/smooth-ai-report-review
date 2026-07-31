@@ -210,6 +210,21 @@ jobs:
           ref: c72937139e53363f051b09c64f706e7df4e38a23 # PR #86 head — bump after merge
           path: .review-tools
 
+      # ── Code graph analysis (LADR-049) ──────────────────────────────────────
+      # Mirrors the reusable workflow's graph cache step. The install + build
+      # logic is in scripts/lib/build-code-graph.sh (called from run-review.sh).
+      # The if: condition uses contains() to match the wider truthy set accepted
+      # by run-review.sh (1|true|yes|on). Note: contains() is case-insensitive,
+      # so any case works for `1`/`true`/`yes`/`on`.
+      - name: Cache code knowledge graph
+        if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1')
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: .code-review-graph
+          key: crg-${{ runner.os }}-${{ hashFiles('**/*.cs', '**/*.csproj', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.py', '**/*.go', '**/*.java', '**/go.mod', '**/go.sum', '**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/requirements*.txt', '**/Pipfile.lock', '**/poetry.lock', '**/Gemfile.lock', '**/Cargo.lock', '**/composer.lock', '**/mix.lock') }}-v1
+          restore-keys: |
+            crg-${{ runner.os }}-
+
       - name: Run review gate
         env:
           # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
@@ -353,6 +368,9 @@ jobs:
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
           OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
+          OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
+          OPENCODE_REVIEW_REPORT_GRAPH_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_VERSION || '' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md
