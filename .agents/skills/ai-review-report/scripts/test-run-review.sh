@@ -296,6 +296,42 @@ invalid_count_check "empty MAX_FILE_COUNT falls back to 100" ""
 invalid_count_check "negative MAX_FILE_COUNT falls back to 100" "-5"
 invalid_count_check "zero MAX_FILE_COUNT falls back to 100" "0"
 
+# ── Bypass mandatory context file env var ──────────────────────────────────
+echo ""
+echo "=========================================="
+echo "Testing OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE"
+echo "=========================================="
+
+bypass_default="$(env -i bash -c '
+  OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+  printf "%s" "$OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE"
+')"
+check "bypass default is empty when unset" "" "$bypass_default"
+
+bypass_set="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=1 bash -c '
+  val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+  printf "%s" "$val"
+')"
+check "bypass preserves truthy value (1)" "1" "$bypass_set"
+
+bypass_true="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=true bash -c '
+  val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+  case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
+')"
+check "bypass truthy 'true' is detected" "bypassed" "$bypass_true"
+
+bypass_false="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=false bash -c '
+  val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+  case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
+')"
+check "bypass 'false' is not bypassed" "normal" "$bypass_false"
+
+bypass_empty="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="" bash -c '
+  val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+  case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
+')"
+check "bypass empty is not bypassed" "normal" "$bypass_empty"
+
 # ── Provider → key/URL mapping (the pre-checkout fail-fast) ───────────────
 # The script's `case` in step 5a maps the provider to (U=URL var, K=key var).
 # Test that GEMINI / COPILOT / OPENAI / ANTHROPIC / OPENCODE-GO-* / OPEN_ROUTER
