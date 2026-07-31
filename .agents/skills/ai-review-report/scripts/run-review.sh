@@ -816,7 +816,9 @@ unset _graph_enabled
 # failed, "disabled" = explicitly off. Land it in the same commit as the
 # first consumer that reads it, or remove the export and the
 # $GITHUB_OUTPUT write if the consumers land elsewhere.
-echo "graph_analysis_available=${GRAPH_ANALYSIS_AVAILABLE}" >> "$GITHUB_OUTPUT"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  echo "graph_analysis_available=${GRAPH_ANALYSIS_AVAILABLE}" >> "$GITHUB_OUTPUT"
+fi
 
 # --- Step 14: Validate AGENTS.md (full reviews only) -------------------------
 VALIDATION_PASSED_FILE="$WORK_DIR/validation_passed"

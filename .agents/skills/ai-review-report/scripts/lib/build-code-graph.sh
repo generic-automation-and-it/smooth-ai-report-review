@@ -45,11 +45,25 @@ else
 fi
 echo "Requested code-review-graph version: ${REQUESTED_VERSION}"
 
+# --- Semver-aware version equality -------------------------------------------
+# _ver_eq <a> <b> — return 0 if versions are semver-equal (treats 2.9 as equal
+# to 2.9.0, 2.9.0.0, etc.). Padding is per-segment so 2.9.1 != 2.9.0.
+_ver_eq() {
+  [ "$1" = "$2" ] && return 0
+  local IFS=. a=($1) b=($2) i
+  while [ "${#a[@]}" -lt "${#b[@]}" ]; do a+=(0); done
+  while [ "${#b[@]}" -lt "${#a[@]}" ]; do b+=(0); done
+  for i in "${!a[@]}"; do
+    [ "${a[i]}" != "${b[i]}" ] && return 1
+  done
+  return 0
+}
+
 # --- Install check ------------------------------------------------------------
 install_needed="false"
 if command -v code-review-graph >/dev/null 2>&1; then
-  cached_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){0,3}' | head -1 || true)"
-  if [ -n "$cached_version" ] && { [ "$REQUESTED_VERSION" = "latest" ] || [ "$cached_version" = "$REQUESTED_VERSION" ]; }; then
+  cached_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+)*' | head -1 || true)"
+  if [ -n "$cached_version" ] && { [ "$REQUESTED_VERSION" = "latest" ] || _ver_eq "$cached_version" "$REQUESTED_VERSION"; }; then
     echo "✓ code-review-graph found on PATH (version: $cached_version)"
   else
     install_needed="true"
@@ -104,12 +118,12 @@ if ! command -v code-review-graph >/dev/null 2>&1; then
   exit 1
 fi
 
-installed_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){0,3}' | head -1 || true)"
+installed_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+)*' | head -1 || true)"
 if [ -z "$installed_version" ]; then
   echo "❌ Unable to determine installed code-review-graph version." >&2
   exit 1
 fi
-if [ "$REQUESTED_VERSION" != "latest" ] && [ "$installed_version" != "$REQUESTED_VERSION" ]; then
+if [ "$REQUESTED_VERSION" != "latest" ] && ! _ver_eq "$installed_version" "$REQUESTED_VERSION"; then
   echo "❌ code-review-graph version mismatch: expected ${REQUESTED_VERSION}, got ${installed_version}." >&2
   exit 1
 fi
