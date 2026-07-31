@@ -1,120 +1,129 @@
 #!/bin/bash
-# check-versions.sh — check for CLI and provider package updates.
+# check-versions.sh — check the opencode CLI and the active provider package
+# for newer releases, and render an update notice for the review report.
 #
-# Called from run-review.sh after opencode is installed (sourced, not exec'd).
-# Queries the npm registry for the latest versions and sets env vars for the
-# review header/footer to render update notices.
+# Called from run-review.sh after the provider is resolved (sourced, not
+# exec'd, so the rendered strings land in the caller's shell).
 #
-# Sets (env vars, consumed by aggregate-reviews.sh via run-review.sh):
+# Sets (consumed by run-review.sh, passed positionally to aggregate-reviews.sh):
+#   OPENCODE_VERSION_INFO    — multi-line Markdown block for the review header
+#   OPENCODE_VERSION_FOOTER  — single-line Markdown for the review footer
+#
+# Also sets, for callers that want the raw values:
 #   OPENCODE_CLI_CURRENT_VERSION     — installed opencode CLI version
-#   OPENCODE_CLI_LATEST_VERSION      — latest version on npm (empty if unknown)
-#   OPENCODE_PROVIDER_NPM_PACKAGE    — npm package name for the active provider
-#   OPENCODE_PROVIDER_CURRENT_VERSION — provider SDK version used at runtime
-#   OPENCODE_PROVIDER_LATEST_VERSION  — latest version on npm (empty if unknown)
+#   OPENCODE_CLI_LATEST_VERSION      — latest on npm (empty if unknown)
+#   OPENCODE_PROVIDER_NPM_PACKAGE    — npm package backing the active provider
+#   OPENCODE_PROVIDER_LATEST_VERSION — latest on npm (empty if unknown)
 #
-# All checks are best-effort — failures are silently skipped so a network
-# hiccup never blocks the review.
+# All lookups are best-effort: every network call is bounded by --max-time and
+# a failure leaves the corresponding variable empty, which renders the report
+# exactly as it did before this check existed. A version check must never
+# block a review.
 
-# --- opencode CLI version (installed) ----------------------------------------
+# The opencode CLI publishes to npm as `opencode-ai`, NOT `opencode` — the
+# latter 404s on the registry. Overridable for tests.
+OPENCODE_CLI_NPM_PACKAGE="${OPENCODE_CLI_NPM_PACKAGE:-opencode-ai}"
+
+# Registry base, overridable so tests can point at a local fixture server.
+OPENCODE_NPM_REGISTRY="${OPENCODE_NPM_REGISTRY:-https://registry.npmjs.org}"
+
+_cv_have_jq="false"
+command -v jq >/dev/null 2>&1 && _cv_have_jq="true"
+
+# _cv_npm_latest <package> — echo the latest published version, or nothing.
+# Scoped names (@scope/name) are percent-encoded as the registry requires.
+_cv_npm_latest() {
+  [ "$_cv_have_jq" = "true" ] || return 0
+  local _pkg="${1//\//%2F}" _json
+  _json=$(curl -sf --max-time 5 "${OPENCODE_NPM_REGISTRY}/${_pkg}/latest" 2>/dev/null) || return 0
+  printf '%s' "$_json" | jq -r '.version // empty' 2>/dev/null || true
+}
+
+# _cv_is_newer <candidate> <current> — true when candidate sorts strictly
+# above current. Uses `sort -V` rather than a bare `!=` so that a pin ahead of
+# the registry (or a prerelease suffix) never renders a bogus "update
+# available".
+_cv_is_newer() {
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  [ "$1" != "$2" ] || return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]
+}
+
+# --- opencode CLI: installed vs. latest ---------------------------------------
+# Same parse as install-opencode.sh, so the reported version is exactly the one
+# that ran the review.
 OPENCODE_CLI_CURRENT_VERSION="$(opencode --version 2>/dev/null \
   | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' \
   | head -1 | sed 's/^v//' || true)"
+OPENCODE_CLI_LATEST_VERSION="$(_cv_npm_latest "$OPENCODE_CLI_NPM_PACKAGE")"
 
-# --- opencode CLI latest on npm ----------------------------------------------
-OPENCODE_CLI_LATEST_VERSION=""
-if _cli_json=$(curl -sf --max-time 5 https://registry.npmjs.org/opencode/latest 2>/dev/null); then
-  OPENCODE_CLI_LATEST_VERSION=$(echo "$_cli_json" | jq -r '.version // empty' 2>/dev/null || true)
-fi
-
-# --- provider npm package name -----------------------------------------------
-# Map provider ID → npm SDK package. Hardcoded mapping matches
-# assets/opencode.json; kept in sync manually (the JSON is read by the
-# opencode runtime, not by this shell script at review time).
-_provider_npm_for_id() {
-  case "$1" in
-    gemini)         echo "@ai-sdk/google" ;;
-    github-copilot) echo "@ai-sdk/github-copilot" ;;
-    openai)         echo "@ai-sdk/openai" ;;
-    anthropic)      echo "@ai-sdk/anthropic" ;;
-    go-openai)      echo "@ai-sdk/openai-compatible" ;;
-    go-anthropic)   echo "@ai-sdk/anthropic" ;;
-    openrouter)     echo "@openrouter/ai-sdk-provider" ;;
-    *)              echo "" ;;
-  esac
-}
-
+# --- provider package: latest -------------------------------------------------
+# The provider → npm mapping is already declared in opencode.json (each
+# provider's `npm` field), installed to ~/.config/opencode/opencode.json by
+# setup-opencode-config.sh (which hard-fails if the source is missing, so the
+# file is guaranteed present here). Read it rather than duplicating the map —
+# a second copy would drift the moment a provider is added.
+#
+# The provider-id default mirrors run-review.sh's `${…:-gemini}` guards, so a
+# caller that invokes run-review.sh without the workflow's job-scoped
+# OPENCODE_REVIEW_REPORT_PROVIDER_ID still reports the provider the review
+# actually routed to.
 OPENCODE_PROVIDER_NPM_PACKAGE=""
-if [ -n "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-}" ]; then
-  # Try extracting from the installed opencode.json first (single source of
-  # truth for provider → npm mapping). Fall back to the hardcoded map above.
-  _oc_cfg="$HOME/.config/opencode/opencode.json"
-  if [ -f "$_oc_cfg" ] && command -v jq >/dev/null 2>&1; then
-    OPENCODE_PROVIDER_NPM_PACKAGE=$(jq -r \
-      ".provider[\"${OPENCODE_REVIEW_REPORT_PROVIDER_ID}\"].npm // empty" \
-      "$_oc_cfg" 2>/dev/null || true)
-  fi
-  if [ -z "$OPENCODE_PROVIDER_NPM_PACKAGE" ]; then
-    OPENCODE_PROVIDER_NPM_PACKAGE=$(_provider_npm_for_id "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}")
-  fi
+_cv_provider_id="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
+_cv_config="$HOME/.config/opencode/opencode.json"
+if [ "$_cv_have_jq" = "true" ] && [ -f "$_cv_config" ]; then
+  OPENCODE_PROVIDER_NPM_PACKAGE=$(jq -r \
+    --arg id "$_cv_provider_id" \
+    '.provider[$id].npm // empty' \
+    "$_cv_config" 2>/dev/null || true)
 fi
 
-# --- provider SDK latest on npm ----------------------------------------------
 OPENCODE_PROVIDER_LATEST_VERSION=""
 if [ -n "$OPENCODE_PROVIDER_NPM_PACKAGE" ]; then
-  _encoded_pkg=$(echo "$OPENCODE_PROVIDER_NPM_PACKAGE" | sed 's|/|%2F|g')
-  if _prov_json=$(curl -sf --max-time 5 "https://registry.npmjs.org/${_encoded_pkg}/latest" 2>/dev/null); then
-    OPENCODE_PROVIDER_LATEST_VERSION=$(echo "$_prov_json" | jq -r '.version // empty' 2>/dev/null || true)
-  fi
+  OPENCODE_PROVIDER_LATEST_VERSION="$(_cv_npm_latest "$OPENCODE_PROVIDER_NPM_PACKAGE")"
 fi
 
-# Provider SDK version used at install time (matches what opencode resolved
-# when it set up its node_modules). This is informational — the SDK is
-# managed by opencode, not pinned by the user.
-OPENCODE_PROVIDER_CURRENT_VERSION=""
-
-# --- build version-info block for the review header --------------------------
-# Renders a compact block that aggregate-reviews.sh inserts after the Model
-# line. Empty string when nothing could be determined.
-#
-# Format (GitHub-flavoured Markdown — no ANSI colour; uses emoji for status):
-#   📦 **Versions**
-#   • OpenCode CLI: v1.2.3 ✅
-#   • @ai-sdk/google: v8.2.0 → **v8.3.0** available ⬆️
+# --- render -------------------------------------------------------------------
+# GitHub-flavoured Markdown; the report is a PR review body, so status is
+# carried by emoji (✅ current / ⬆️ update available) rather than ANSI colour.
+# The update line names the Variable to bump and links the release notes, so
+# the notice is actionable rather than merely informational.
 
 OPENCODE_VERSION_INFO=""
+OPENCODE_VERSION_FOOTER=""
 
 if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
   OPENCODE_VERSION_INFO="📦 **Versions**"
 
-  # CLI line
-  if [ -n "$OPENCODE_CLI_LATEST_VERSION" ] && \
-     [ "$OPENCODE_CLI_LATEST_VERSION" != "$OPENCODE_CLI_CURRENT_VERSION" ]; then
+  if _cv_is_newer "$OPENCODE_CLI_LATEST_VERSION" "$OPENCODE_CLI_CURRENT_VERSION"; then
     OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-• **OpenCode CLI:** v${OPENCODE_CLI_CURRENT_VERSION} → **v${OPENCODE_CLI_LATEST_VERSION}** available ⬆️"
+- **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` → **\`v${OPENCODE_CLI_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_REVIEW_REPORT_CLI_VERSION\` ([release notes](https://github.com/sst/opencode/releases))"
+    OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*"
   else
     OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-• **OpenCode CLI:** v${OPENCODE_CLI_CURRENT_VERSION} ✅"
+- **opencode CLI:** \`v${OPENCODE_CLI_CURRENT_VERSION}\` ✅"
+    OPENCODE_VERSION_FOOTER="*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*"
   fi
 
-  # Provider line (only when we know the package name and have a latest version).
-  # The provider SDK is managed by opencode (not pinned by the user), so we
-  # show the npm latest as an informational reference — users can compare
-  # against their provider changelog to see if they're current.
+  # Provider package line. The provider SDK is compiled into the opencode
+  # binary — there is no node_modules tree on disk to read an installed
+  # version from — so this is a latest-available reference, not a
+  # current-vs-latest diff. Labelled as such so it is not misread as "you are
+  # behind"; the CLI bump above is what actually moves it.
   if [ -n "$OPENCODE_PROVIDER_NPM_PACKAGE" ] && [ -n "$OPENCODE_PROVIDER_LATEST_VERSION" ]; then
-    if [ -n "$OPENCODE_PROVIDER_CURRENT_VERSION" ] && \
-       [ "$OPENCODE_PROVIDER_LATEST_VERSION" != "$OPENCODE_PROVIDER_CURRENT_VERSION" ]; then
-      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-• **${OPENCODE_PROVIDER_NPM_PACKAGE}:** v${OPENCODE_PROVIDER_CURRENT_VERSION} → **v${OPENCODE_PROVIDER_LATEST_VERSION}** available ⬆️"
-    else
-      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
-• **${OPENCODE_PROVIDER_NPM_PACKAGE}:** latest v${OPENCODE_PROVIDER_LATEST_VERSION}"
-    fi
+    OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+- **Provider** (\`${_cv_provider_id}\`) \`${OPENCODE_PROVIDER_NPM_PACKAGE}\`: latest \`v${OPENCODE_PROVIDER_LATEST_VERSION}\` on npm ℹ️ — bundled with the CLI, moves when the CLI is bumped"
   fi
 fi
 
-# Log to stdout for workflow-run visibility
+# Log to stdout for workflow-run visibility.
 if [ -n "$OPENCODE_VERSION_INFO" ]; then
   echo ""
   echo "$OPENCODE_VERSION_INFO"
   echo ""
 fi
+
+# Sourced into the caller's shell — clean up temporaries and helpers so they
+# don't leak into run-review.sh (same discipline as lib/resolve-provider.sh).
+unset _cv_have_jq _cv_provider_id _cv_config
+unset -f _cv_npm_latest _cv_is_newer

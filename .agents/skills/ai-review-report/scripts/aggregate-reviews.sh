@@ -11,7 +11,12 @@ fi
 # Script: aggregate-reviews.sh
 # Purpose: Aggregate chunked reviews and generate PR summary
 # Usage: Called from pipeline-code-review-report.yml workflow
-# Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS $9=OPENCODE_VERSION_INFO
+# Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS $9=OPENCODE_VERSION_INFO $10=OPENCODE_VERSION_FOOTER
+#
+# $9/$10 are rendered by lib/check-versions.sh. They are passed positionally,
+# not read from the environment: this script runs as a child process, so an
+# unexported variable set by a lib sourced into run-review.sh would silently
+# be empty here.
 
 TOTAL_CHUNKS="$1"
 OPENCODE_MODEL_ID="$2"
@@ -22,10 +27,11 @@ CURRENT_SHA="${6:-unknown}"
 EXPERTISE_STATEMENT="$7"
 LAST_FULL_REVIEW_STATUS="${8:-none}"
 OPENCODE_VERSION_INFO="${9:-}"
+OPENCODE_VERSION_FOOTER="${10:-}"
 
 if [ -z "$TOTAL_CHUNKS" ] || [ -z "$OPENCODE_MODEL_ID" ] || [ -z "$EXPERTISE_STATEMENT" ]; then
   echo "Error: Missing required arguments"
-  echo "Usage: aggregate-reviews.sh TOTAL_CHUNKS OPENCODE_MODEL_ID REVIEW_TYPE [FROM_SHA] [FILES_CHANGED] [CURRENT_SHA] EXPERTISE_STATEMENT [LAST_FULL_REVIEW_STATUS] [OPENCODE_VERSION_INFO]"
+  echo "Usage: aggregate-reviews.sh TOTAL_CHUNKS OPENCODE_MODEL_ID REVIEW_TYPE [FROM_SHA] [FILES_CHANGED] [CURRENT_SHA] EXPERTISE_STATEMENT [LAST_FULL_REVIEW_STATUS] [OPENCODE_VERSION_INFO] [OPENCODE_VERSION_FOOTER]"
   exit 1
 fi
 
@@ -688,14 +694,10 @@ cat >> ci_temp/final_review.md << EOF
 *Model: ${OPENCODE_MODEL_DISPLAY_NAME} | Reviewed in $TOTAL_CHUNKS chunks*
 EOF
 
-# Compact CLI version line in footer (always shown when version is known)
-if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ]; then
-  if [ -n "$OPENCODE_CLI_LATEST_VERSION" ] && \
-     [ "$OPENCODE_CLI_LATEST_VERSION" != "$OPENCODE_CLI_CURRENT_VERSION" ]; then
-    echo "*OpenCode CLI: v${OPENCODE_CLI_CURRENT_VERSION} → v${OPENCODE_CLI_LATEST_VERSION} available ⬆️*" >> ci_temp/final_review.md
-  else
-    echo "*OpenCode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*" >> ci_temp/final_review.md
-  fi
+# Compact CLI version line in the footer, pre-rendered by check-versions.sh.
+# Empty when the version could not be determined.
+if [ -n "$OPENCODE_VERSION_FOOTER" ]; then
+  echo "$OPENCODE_VERSION_FOOTER" >> ci_temp/final_review.md
 fi
 
 echo ""
