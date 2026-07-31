@@ -20,7 +20,7 @@
 #               These resolve against the CALLER repo/org automatically.
 #
 # Recommended: pin the opencode CLI version.
-#   Set OPENCODE_REVIEW_REPORT_CLI_VERSION as a repo/org Variable (e.g. '1.x.y')
+#   Set OPENCODE_REVIEW_REPORT_CLI_VERSION as a repo/org Variable (e.g. 'major.minor.patch')
 #   so every CI run installs the same opencode binary. Unset = latest, which
 #   pulls whatever is current upstream on every run — no reproducibility and
 #   silent behaviour drift when upstream ships a change. The reusable workflow's

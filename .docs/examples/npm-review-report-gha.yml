@@ -43,7 +43,7 @@ jobs:
       # reproducibility (recommended). Unset = latest, which pulls whatever
       # is current upstream on every run with no reproducibility. Set the
       # OPENCODE_REVIEW_REPORT_CLI_VERSION repo/org Variable to something
-      # like '1.x.y' to enable the pin. The shared installer (LADR-048)
+      # like 'major.minor.patch' to enable the pin. The shared installer (LADR-048)
       # honours it across every install path in this repo.
       OPENCODE_REVIEW_REPORT_CLI_VERSION: ${{ vars.OPENCODE_REVIEW_REPORT_CLI_VERSION || '' }}
     steps:
