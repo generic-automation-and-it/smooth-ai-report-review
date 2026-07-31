@@ -700,22 +700,18 @@ fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
 
 # ── Incremental diff intersection regression tests ───────────────────────
+# These tests call lib/intersect-changed-files.sh directly (the LADR-048
+# single-source-of-truth extracted from run-review.sh's incremental case).
+# A tautological re-implementation of the pipeline inline would pass even
+# when run-review.sh is deleted from disk; calling the shared lib ensures
+# a regression in the lib (and therefore in run-review.sh) is caught here.
+# Fixtures are written with pure-shell printf — no python3 required.
 echo ""
 echo "=========================================="
 echo "Testing incremental diff intersection preserves NUL delimiters"
 echo "=========================================="
 
-write_nul_fixture() {
-  local path="$1"
-  shift
-  python3 - "$path" "$@" <<'PY'
-import pathlib
-import sys
-path = pathlib.Path(sys.argv[1])
-items = sys.argv[2:]
-path.write_bytes(b"\0".join(item.encode("utf-8") for item in items) + b"\0")
-PY
-}
+INTERSECT_LIB="$SCRIPT_DIR/lib/intersect-changed-files.sh"
 
 assert_incremental_intersection() {
   local name="$1"
@@ -724,20 +720,9 @@ assert_incremental_intersection() {
   local expected_file="$4"
   local actual_file="$TMP_DIR/${name//[^a-zA-Z0-9]/_}.actual"
 
-  comm -z -12 \
-    <(sort -z < "$since_file") \
-    <(sort -z < "$branch_file") \
-    > "$actual_file"
+  bash "$INTERSECT_LIB" "$since_file" "$branch_file" > "$actual_file"
 
-  if python3 - "$actual_file" "$expected_file" <<'PY'
-import pathlib
-import sys
-actual = pathlib.Path(sys.argv[1]).read_bytes().split(b"\0")[:-1]
-expected = pathlib.Path(sys.argv[2]).read_bytes().split(b"\0")[:-1]
-if actual != expected:
-    raise SystemExit(f"actual={actual!r}\nexpected={expected!r}")
-PY
-  then
+  if cmp -s "$actual_file" "$expected_file"; then
     check "$name" "ok" "ok"
   else
     check "$name" "ok" "fail"
@@ -747,18 +732,18 @@ PY
 since_fixture="$TMP_DIR/incremental-since.txt"
 branch_fixture="$TMP_DIR/incremental-branch.txt"
 expected_fixture="$TMP_DIR/incremental-expected.txt"
-write_nul_fixture "$since_fixture" "alpha/a.txt" "beta/b.txt"
-write_nul_fixture "$branch_fixture" "alpha/a.txt" "beta/b.txt" "gamma/c.txt"
-write_nul_fixture "$expected_fixture" "alpha/a.txt" "beta/b.txt"
+printf 'alpha/a.txt\0beta/b.txt\0' > "$since_fixture"
+printf 'alpha/a.txt\0beta/b.txt\0gamma/c.txt\0' > "$branch_fixture"
+printf 'alpha/a.txt\0beta/b.txt\0' > "$expected_fixture"
 assert_incremental_intersection "subset intersection preserves common NUL-delimited paths" \
   "$since_fixture" "$branch_fixture" "$expected_fixture"
 
 since_fixture="$TMP_DIR/incremental-newline-since.txt"
 branch_fixture="$TMP_DIR/incremental-newline-branch.txt"
 expected_fixture="$TMP_DIR/incremental-newline-expected.txt"
-write_nul_fixture "$since_fixture" "alpha/a.txt" $'contains\nnewline.txt'
-write_nul_fixture "$branch_fixture" $'contains\nnewline.txt' "gamma/c.txt"
-write_nul_fixture "$expected_fixture" $'contains\nnewline.txt'
+printf 'alpha/a.txt\0contains\nnewline.txt\0' > "$since_fixture"
+printf 'contains\nnewline.txt\0gamma/c.txt\0' > "$branch_fixture"
+printf 'contains\nnewline.txt\0' > "$expected_fixture"
 assert_incremental_intersection "newline-containing path survives NUL-delimited intersection" \
   "$since_fixture" "$branch_fixture" "$expected_fixture"
 
