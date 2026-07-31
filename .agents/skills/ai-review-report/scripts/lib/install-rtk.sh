@@ -70,7 +70,13 @@ if [ "$install_needed" = "true" ]; then
       exit 1
     fi
   else
-    if ! curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | RTK_VERSION="$REQUESTED_VERSION" sh; then
+    # rtk's GitHub release tags carry a leading `v` (e.g. `v0.44.1`), and its
+    # install.sh uses RTK_VERSION verbatim to build the release download URL
+    # — passing the stripped, bare-digit REQUESTED_VERSION 404s. Re-add the
+    # `v` only for this call; REQUESTED_VERSION itself must stay bare so the
+    # cache-hit/verify comparisons above and below match `rtk --version`'s
+    # numeric-only output.
+    if ! curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | RTK_VERSION="v${REQUESTED_VERSION}" sh; then
       echo "⚠️  rtk install failed — continuing without it" >&2
       exit 1
     fi
