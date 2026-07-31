@@ -11,7 +11,12 @@ fi
 # Script: aggregate-reviews.sh
 # Purpose: Aggregate chunked reviews and generate PR summary
 # Usage: Called from pipeline-code-review-report.yml workflow
-# Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS
+# Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS $9=OPENCODE_VERSION_INFO $10=OPENCODE_VERSION_FOOTER
+#
+# $9/$10 are rendered by lib/check-versions.sh. They are passed positionally,
+# not read from the environment: this script runs as a child process, so an
+# unexported variable set by a lib sourced into run-review.sh would silently
+# be empty here.
 
 TOTAL_CHUNKS="$1"
 OPENCODE_MODEL_ID="$2"
@@ -21,10 +26,12 @@ FILES_CHANGED="${5:-0}"
 CURRENT_SHA="${6:-unknown}"
 EXPERTISE_STATEMENT="$7"
 LAST_FULL_REVIEW_STATUS="${8:-none}"
+OPENCODE_VERSION_INFO="${9:-}"
+OPENCODE_VERSION_FOOTER="${10:-}"
 
 if [ -z "$TOTAL_CHUNKS" ] || [ -z "$OPENCODE_MODEL_ID" ] || [ -z "$EXPERTISE_STATEMENT" ]; then
   echo "Error: Missing required arguments"
-  echo "Usage: aggregate-reviews.sh TOTAL_CHUNKS OPENCODE_MODEL_ID REVIEW_TYPE [FROM_SHA] [FILES_CHANGED] [CURRENT_SHA] EXPERTISE_STATEMENT [LAST_FULL_REVIEW_STATUS]"
+  echo "Usage: aggregate-reviews.sh TOTAL_CHUNKS OPENCODE_MODEL_ID REVIEW_TYPE [FROM_SHA] [FILES_CHANGED] [CURRENT_SHA] EXPERTISE_STATEMENT [LAST_FULL_REVIEW_STATUS] [OPENCODE_VERSION_INFO] [OPENCODE_VERSION_FOOTER]"
   exit 1
 fi
 
@@ -602,6 +609,14 @@ cat >> ci_temp/final_review.md << EOF
 **Model:** ${OPENCODE_MODEL_DISPLAY_NAME}
 EOF
 
+# Version info block (CLI + provider package versions vs. npm latest).
+# Rendered between the Model line and the coverage banner. Empty when the
+# version check was skipped or failed (check-versions.sh is best-effort).
+if [ -n "$OPENCODE_VERSION_INFO" ]; then
+  echo "" >> ci_temp/final_review.md
+  echo "$OPENCODE_VERSION_INFO" >> ci_temp/final_review.md
+fi
+
 # LADR-036: coverage banner. When any chunk failed, the fail-closed override at
 # the end of this script forces REQUEST_CHANGES even if the Recommendation says
 # APPROVE — say so in the body, so the posted state and the body never
@@ -678,6 +693,12 @@ cat >> ci_temp/final_review.md << EOF
 *Automated review by [opencode](https://opencode.ai) using ${OPENCODE_PROVIDER_DISPLAY_NAME}*
 *Model: ${OPENCODE_MODEL_DISPLAY_NAME} | Reviewed in $TOTAL_CHUNKS chunks*
 EOF
+
+# Compact CLI version line in the footer, pre-rendered by check-versions.sh.
+# Empty when the version could not be determined.
+if [ -n "$OPENCODE_VERSION_FOOTER" ]; then
+  echo "$OPENCODE_VERSION_FOOTER" >> ci_temp/final_review.md
+fi
 
 echo ""
 echo "✅ Final review comment prepared"
