@@ -44,26 +44,12 @@ else
 fi
 echo "Requested code-review-graph version: ${REQUESTED_VERSION}"
 
-# --- Install ----------------------------------------------------------------
-# Use a dedicated venv to avoid PEP 668 (externally-managed-environment) on
-# modern Ubuntu runners (24.04+), which reject `pip install --user` against
-# the system Python unless --break-system-packages is passed. The venv lives
-# under ${HOME} so it survives between CI runs when actions/cache warms the
-# graph directory.
-VENV_DIR="${HOME}/.crg-venv"
-if [ ! -d "$VENV_DIR" ]; then
-  echo "Creating venv at ${VENV_DIR}..."
-  if ! python3 -m venv "$VENV_DIR" 2>&1; then
-    echo "❌ python3 venv module unavailable — install python3-venv" >&2
-    exit 1
-  fi
-fi
-
+# --- Install check ------------------------------------------------------------
 install_needed="false"
-if [ -x "${VENV_DIR}/bin/code-review-graph" ]; then
-  cached_version="$("${VENV_DIR}/bin/code-review-graph" --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){0,3}' | head -1 || true)"
+if command -v code-review-graph >/dev/null 2>&1; then
+  cached_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){0,3}' | head -1 || true)"
   if [ -n "$cached_version" ] && { [ "$REQUESTED_VERSION" = "latest" ] || [ "$cached_version" = "$REQUESTED_VERSION" ]; }; then
-    echo "✓ code-review-graph found in venv (version: $cached_version)"
+    echo "✓ code-review-graph found on PATH (version: $cached_version)"
   else
     install_needed="true"
   fi
@@ -73,13 +59,28 @@ fi
 
 if [ "$install_needed" = "true" ]; then
   echo "Installing code-review-graph (${REQUESTED_VERSION})..."
+  # Use pipx for isolated install — avoids PEP 668 "externally-managed-environment"
+  # errors on Ubuntu 24.04+ (ubuntu-latest) where pip install --user is rejected.
+  # pipx installs to ~/.local/bin and creates an isolated venv per package.
+  if ! command -v pipx >/dev/null 2>&1; then
+    echo "  Installing pipx for isolated Python package management..."
+    if ! python3 -m pip install --user --break-system-packages pipx 2>/dev/null; then
+      # Fallback: try without --break-system-packages (older Python / macOS)
+      python3 -m pip install --user pipx || {
+        echo "❌ pipx install failed." >&2
+        exit 1
+      }
+    fi
+    export PATH="$HOME/.local/bin:$PATH"
+    echo "$HOME/.local/bin" >> "${GITHUB_PATH:-/dev/null}"
+  fi
   if [ "$REQUESTED_VERSION" = "latest" ]; then
-    if ! "${VENV_DIR}/bin/pip" install code-review-graph 2>&1 | tail -20; then
+    if ! pipx install code-review-graph; then
       echo "❌ code-review-graph install failed." >&2
       exit 1
     fi
   else
-    if ! "${VENV_DIR}/bin/pip" install "code-review-graph==${REQUESTED_VERSION}" 2>&1 | tail -20; then
+    if ! pipx install "code-review-graph==${REQUESTED_VERSION}"; then
       echo "❌ code-review-graph install failed." >&2
       exit 1
     fi
@@ -87,10 +88,12 @@ if [ "$install_needed" = "true" ]; then
 fi
 
 # --- PATH repair --------------------------------------------------------------
-# Venv installs land at ${VENV_DIR}/bin. Export for this shell and append to
-# GITHUB_PATH so follow-up steps can find the binary.
-export PATH="${VENV_DIR}/bin:$PATH"
-echo "${VENV_DIR}/bin" >> "${GITHUB_PATH:-/dev/null}"
+# pip --user installs to ~/.local/bin on most platforms. Ensure it's on PATH
+# for this shell and follow-up steps.
+if [ -d "$HOME/.local/bin" ] && ! command -v code-review-graph >/dev/null 2>&1; then
+  export PATH="$HOME/.local/bin:$PATH"
+  echo "$HOME/.local/bin" >> "${GITHUB_PATH:-/dev/null}"
+fi
 
 if ! command -v code-review-graph >/dev/null 2>&1; then
   echo "❌ code-review-graph is not on PATH after install." >&2
@@ -109,9 +112,6 @@ fi
 echo "✓ code-review-graph ready (version: ${installed_version})"
 
 # --- Build / update the graph -------------------------------------------------
-# CWD-dependent: GRAPH_DIR and `code-review-graph build` both run against the
-# current working directory (the repo under review). Keep this in sync with
-# the cache step's `path: .code-review-graph` in the workflow YAML.
 GRAPH_DIR=".code-review-graph"
 BUILD_START="$(date +%s)"
 

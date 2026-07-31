@@ -25,13 +25,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="ci_temp"
 
-# --- Tunables -----------------------------------------------------------------
-# Top-N caps for downstream LADR-050/051/052 consumers. Adjust here to widen
-# or narrow the per-chunk / per-flow context windows without touching the
-# jq pipelines below.
-readonly TOP_N_FILE_RISKS=10
-readonly TOP_N_HIGH_RISK=10
-
 # Ensure work directory exists
 mkdir -p "$WORK_DIR"
 
@@ -75,12 +68,23 @@ if code-review-graph detect-changes --base "$BASE_REF" --format json \
 elif code-review-graph detect-changes --base "$BASE_REF" \
     > "$WORK_DIR/graph_detect_changes_brief.txt" 2>"$WORK_DIR/graph_detect_changes_stderr.log"; then
   echo "✓ detect-changes completed (text output — JSON format not available)"
-  # Wrap text output in a minimal JSON structure for downstream compatibility.
-  # Use jq --arg so a $BASE_REF containing quotes or backslashes is escaped
-  # safely rather than interpolated as raw text.
-  jq -n --arg base "$BASE_REF" --arg raw "$(cat "$WORK_DIR/graph_detect_changes_brief.txt")" \
-    '{format: "text-fallback", raw_output: $raw, base_ref: $base}' \
-    > "$WORK_DIR/graph_detect_changes.json"
+  # Wrap text output in a minimal JSON structure for downstream compatibility
+  # Use jq -n --arg for safe JSON escaping (defense-in-depth against special chars in BASE_REF)
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg base "$BASE_REF" --rawfile raw "$WORK_DIR/graph_detect_changes_brief.txt" \
+      '{format: "text-fallback", raw_output: $raw, base_ref: $base}' \
+      > "$WORK_DIR/graph_detect_changes.json"
+  else
+    # Fallback: manual escaping (jq not available)
+    RAW_ESCAPED="$(cat "$WORK_DIR/graph_detect_changes_brief.txt" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')"
+    cat > "$WORK_DIR/graph_detect_changes.json" <<EOF
+{
+  "format": "text-fallback",
+  "raw_output": "${RAW_ESCAPED}",
+  "base_ref": "${BASE_REF}"
+}
+EOF
+  fi
 else
   echo "⚠️  detect-changes failed — skipping graph enrichment" >&2
   cat "$WORK_DIR/graph_detect_changes_stderr.log" 2>/dev/null | head -10 || true
@@ -193,11 +197,11 @@ SAVINGS_PCT="$(jq -r '.context_savings.savings_pct // "unknown"' \
   if [ "${HIGH_RISK_COUNT:-0}" -gt 0 ]; then
     echo "### 🔴 High-Risk Changed Functions (risk ≥ 0.7)"
     echo ""
-    jq -r --argjson n "$TOP_N_HIGH_RISK" '
+    jq -r '
       .changed_functions // [] |
       [.[] | select((.risk_score // 0) >= 0.7)] |
       sort_by(-.risk_score) |
-      .[:$n] |
+      .[:10] |
       .[] |
       "- `\(.file):\(.line // "?")` — `\(.name // "unknown")` risk: \(.risk_score)" +
       (if (.callers // [] | length) > 0 then " (\(.callers | length) callers)" else "" end) +
@@ -232,13 +236,13 @@ SAVINGS_PCT="$(jq -r '.context_savings.savings_pct // "unknown"' \
     echo ""
   fi
 
-  # Per-file risk summary (top N)
+  # Per-file risk summary (top 10)
   if [ -s "$WORK_DIR/graph_file_risks.txt" ]; then
-    echo "### 📊 Per-File Risk Summary (top ${TOP_N_FILE_RISKS})"
+    echo "### 📊 Per-File Risk Summary (top 10)"
     echo ""
     echo "| File | Max Risk | Changed Functions |"
     echo "|------|----------|-------------------|"
-    head -n "$TOP_N_FILE_RISKS" "$WORK_DIR/graph_file_risks.txt" | while IFS=$'\t' read -r file risk count; do
+    head -10 "$WORK_DIR/graph_file_risks.txt" | while IFS=$'\t' read -r file risk count; do
       # Truncate long file paths
       display_file="$file"
       if [ "${#display_file}" -gt 60 ]; then
