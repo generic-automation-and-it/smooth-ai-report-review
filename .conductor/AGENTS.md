@@ -228,7 +228,7 @@ illustrative mappings and caching choices in
 [HLD 001](../../hlds/001-llm-imposter-routing/README.md#configuration); the HLD is not the runtime source of
 truth for this script. OpenCode Go target IDs are bare upstream strings with no `opencode-go/` prefix,
 consistent with the live-upstream
-[`OpencodeToolNormalizationEvalTests.cs`](../../../tests/SmoothLlmImposter.Upstream.EvalTest/OpencodeToolNormalizationEvalTests.cs).
+[`OpencodeToolNormalizationEvalTests.cs`](../../tests/SmoothLlmImposter.Upstream.EvalTest/OpencodeToolNormalizationEvalTests.cs).
 OpenRouter targets keep the provider-prefixed slug the OpenRouter API expects (here `inclusionai/ling-3.0-flash:free`).
 
 Inbound API model names (the `From` column above) are imposter-side aliases — they are what

@@ -143,10 +143,10 @@ if [ -f "$KIT_VERSION_FILE" ]; then
   cp -R "$KIT_DIR" "${KIT_DIR}.bak.$(date +%s)"
 fi
 mkdir -p "$KIT_DIR"
-# Replace by unlink+rename, never `cp` in place. An upgrade overwrites this very
-# script while bash is still reading it; truncating the inode makes the running
-# shell execute garbage ("line 147: e: command not found"). Unlinking leaves the
-# open inode alive until the process exits.
+# Replace by unlink+rename, never `cp` in place. Truncating the in-place
+# file would leave any process that re-opens it (e.g. via `source`) reading
+# a half-written file. Unlinking leaves the open inode alive until the
+# process exits.
 find "$STAGE_DIR" -mindepth 1 -maxdepth 1 | while IFS= read -r item; do
   name="$(basename "$item")"
   rm -rf "${KIT_DIR:?}/$name"
