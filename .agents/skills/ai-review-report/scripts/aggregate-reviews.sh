@@ -608,30 +608,63 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -eq "$EXPECTED_SIDECARS" ]; then
     if bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
          "$MERGED_FINDINGS_FILE" > ci_temp/issues_summary.md 2>/dev/null \
-       && [ -s ci_temp/issues_summary.md ] \
-       && grep -q '^## 🔍 Issues Summary' ci_temp/pr_summary_main.md; then
+       && [ -s ci_temp/issues_summary.md ]; then
       # Replace the orchestrator's `## 🔍 Issues Summary` section — heading
       # through to the next `## ` heading — with the rendered one. Anything
       # outside that range (Overall Summary, Positive Highlights, Suggested
       # Fixes, Recommendation) is untouched and still comes from the orchestrator.
-      awk -v render="ci_temp/issues_summary.md" '
-        state == 0 && /^## 🔍 Issues Summary/ {
-          state = 1
-          while ((getline line < render) > 0) print line
-          close(render)
-          next
-        }
-        state == 1 && /^## / { state = 2 }
-        state == 1 { next }
-        { print }
-      ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.rendered.md \
-        && mv ci_temp/pr_summary_main.rendered.md ci_temp/pr_summary_main.md
-      # The spliced-in section is our own markdown and cannot be unbalanced, but
-      # the orchestrator's surrounding prose still can be — and the section we
-      # removed may have been where its parity flipped. Re-balance.
-      balance_fences ci_temp/pr_summary_main.md
-      FINDINGS_SUMMARY_APPLIED="true"
-      echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars)"
+      #
+      # INSERT when there is no such section to replace. Requiring one to exist
+      # was a real defect: when the orchestrator's own summary call fails,
+      # aggregate-reviews.sh substitutes a fallback template that has no
+      # `## 🔍 Issues Summary` heading at all — so the replace-only path silently
+      # discarded a healthy merged document. Observed on PR #106 run
+      # 30756015689: the merge produced 5 findings and 1 suppressed, the summary
+      # LLM failed, and the posted review carried no findings section whatsoever.
+      # That is exactly backwards — a failed orchestrator is when deterministic,
+      # already-validated findings matter most, not least. Insert before the
+      # Recommendation (or append) so the section always has a home.
+      if grep -q '^## 🔍 Issues Summary' ci_temp/pr_summary_main.md; then
+        _fs_mode="replaced"
+        awk -v render="ci_temp/issues_summary.md" '
+          state == 0 && /^## 🔍 Issues Summary/ {
+            state = 1
+            while ((getline line < render) > 0) print line
+            close(render)
+            next
+          }
+          state == 1 && /^## / { state = 2 }
+          state == 1 { next }
+          { print }
+        ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.rendered.md
+      elif grep -q '^## 🎯 Recommendation' ci_temp/pr_summary_main.md; then
+        _fs_mode="inserted before Recommendation (orchestrator summary had no Issues Summary)"
+        awk -v render="ci_temp/issues_summary.md" '
+          done_it == 0 && /^## 🎯 Recommendation/ {
+            while ((getline line < render) > 0) print line
+            close(render)
+            done_it = 1
+          }
+          { print }
+        ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.rendered.md
+      else
+        _fs_mode="appended (orchestrator summary had neither Issues Summary nor Recommendation)"
+        cat ci_temp/pr_summary_main.md ci_temp/issues_summary.md \
+          > ci_temp/pr_summary_main.rendered.md
+      fi
+      if [ -s ci_temp/pr_summary_main.rendered.md ]; then
+        mv ci_temp/pr_summary_main.rendered.md ci_temp/pr_summary_main.md
+        # The spliced-in section is our own markdown and cannot be unbalanced, but
+        # the orchestrator's surrounding prose still can be — and the section we
+        # removed may have been where its parity flipped. Re-balance.
+        balance_fences ci_temp/pr_summary_main.md
+        FINDINGS_SUMMARY_APPLIED="true"
+        echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars) — ${_fs_mode}"
+      else
+        rm -f ci_temp/pr_summary_main.rendered.md
+        echo "⚠️ Issues Summary splice produced no output — keeping the orchestrator's"
+      fi
+      unset _fs_mode
     else
       echo "⚠️ Could not render Issues Summary from merged findings — keeping the orchestrator's"
     fi

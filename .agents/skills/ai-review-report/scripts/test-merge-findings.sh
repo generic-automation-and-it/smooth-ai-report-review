@@ -464,6 +464,25 @@ if [ -x "$ANALYSE_SCOPE_SH" ]; then
     "$(bash "$ANALYSE_SCOPE_SH" "$TMP_DIR/soft-rendered.md" | jq -r .has_low_medium)"
 fi
 
+# --- Test 14: the Issues Summary always has a home ---------------------------
+# Requiring an existing `## 🔍 Issues Summary` to replace was a real defect: when
+# the orchestrator's own summary call fails, aggregate-reviews.sh substitutes a
+# fallback template with no such heading, and a healthy merged document was
+# silently discarded. Observed on PR #106 run 30756015689 — 5 findings merged,
+# 0 reached the posted review. A failed orchestrator is when deterministic
+# findings matter MOST.
+AGG_SH="$SCRIPT_DIR/aggregate-reviews.sh"
+check "Test 14a: render is not gated on an existing Issues Summary heading" "0" \
+  "$(awk '/render-findings-summary.sh/,/^       && \[ -s ci_temp\/issues_summary.md \]/' "$AGG_SH" | grep -c "grep -q '\^## 🔍 Issues Summary'")"
+check "Test 14b: replace branch present" "1" \
+  "$(grep -c "_fs_mode=\"replaced\"" "$AGG_SH")"
+check "Test 14c: insert-before-Recommendation branch present" "1" \
+  "$(grep -c 'inserted before Recommendation' "$AGG_SH")"
+check "Test 14d: append fallback branch present" "1" \
+  "$(grep -c 'appended (orchestrator summary had neither' "$AGG_SH")"
+check "Test 14e: splice output is checked before it replaces the summary" "1" \
+  "$(grep -c 'if \[ -s ci_temp/pr_summary_main.rendered.md \]; then' "$AGG_SH")"
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
