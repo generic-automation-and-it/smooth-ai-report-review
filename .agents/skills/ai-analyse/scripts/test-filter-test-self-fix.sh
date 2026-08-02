@@ -18,7 +18,7 @@ git config user.email t@e.st
 git config user.name tester
 
 # Committed baseline: a source file, a test file, and a JVM-style test class.
-mkdir -p src __tests__ app/tests java
+mkdir -p src __tests__ app/tests java scripts
 printf 'v1\n' > src/app.js
 printf 'v1\n' > src/app.test.ts
 printf 'v1\n' > __tests__/thing.js
@@ -29,6 +29,9 @@ printf 'v1\n' > vitest.config.ts
 printf 'v1\n' > src/widget.test.e2e.ts # multi-dot test filename — must be matched/reverted
 printf 'v1\n' > __tests__/deleteme_test.js # tracked test file the run will DELETE
 printf 'v1\n' > src/obstruct.test.ts   # tracked test the run will replace with a DIRECTORY
+printf 'v1\n' > scripts/test-review-chunk-threshold.sh  # test- prefix .sh — must be matched/reverted
+printf 'v1\n' > scripts/test-helper.py                  # test- prefix .py — must be matched/reverted
+printf 'v1\n' > scripts/test-helper-data.txt            # NOT a test (no matching extension) — must survive
 git add -A
 git commit -qm baseline
 
@@ -47,6 +50,10 @@ rm src/obstruct.test.ts && mkdir src/obstruct.test.ts && printf 'x\n' > src/obst
                                        # model replaced a tracked test with a DIRECTORY — remove-and-retry must restore it
 printf 'v2\n' > src/new_source.js      # new non-test file — keep
 printf 'v2\n' > src/brand.spec.js      # new test file — revert (delete)
+printf 'v2\n' > scripts/test-review-chunk-threshold.sh  # test- prefix .sh edit — revert
+printf 'v2\n' > scripts/test-helper.py                  # test- prefix .py edit — revert
+printf 'v2\n' > scripts/test-helper-data.txt            # non-test extension — keep
+printf 'v2\n' > scripts/test-new-untracked.sh           # new untracked test- prefix .sh — revert (delete)
 
 # Snapshot working tree, then run the guard in default (off) mode.
 out="$(OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX="" bash "$HELPER" 2>/dev/null)"
@@ -71,16 +78,22 @@ assert_content __tests__/deleteme_test.js v1  # DELETED tracked test file restor
 assert_content src/obstruct.test.ts v1        # file-replaced-by-dir: remove-and-retry restored it (and it is a file again)
 [ -f src/obstruct.test.ts ] || { echo "FAIL: src/obstruct.test.ts should be a regular file after revert" >&2; exit 1; }
 assert_absent src/brand.spec.js
+# test- prefix patterns (LADR-057):
+assert_content scripts/test-review-chunk-threshold.sh v1  # test- prefix .sh matched + reverted
+assert_content scripts/test-helper.py v1                  # test- prefix .py matched + reverted
+assert_absent scripts/test-new-untracked.sh               # untracked test- prefix .sh removed
 # Preserved:
 assert_content src/app.js v2
 assert_content src/Latest.cs v2
 assert_content src/new_source.js v2
+assert_content scripts/test-helper-data.txt v2            # non-test extension preserved
 
 # Reverted list on stdout must name each reverted path and nothing else.
-for p in src/app.test.ts __tests__/thing.js app/tests/handler_test.py java/WidgetTest.java vitest.config.ts src/widget.test.e2e.ts __tests__/deleteme_test.js src/obstruct.test.ts src/brand.spec.js; do
+for p in src/app.test.ts __tests__/thing.js app/tests/handler_test.py java/WidgetTest.java vitest.config.ts src/widget.test.e2e.ts __tests__/deleteme_test.js src/obstruct.test.ts src/brand.spec.js scripts/test-review-chunk-threshold.sh scripts/test-helper.py; do
   printf '%s\n' "$out" | grep -qx "$p" || { echo "FAIL: '$p' missing from reverted list" >&2; exit 1; }
 done
 printf '%s\n' "$out" | grep -qx src/app.js && { echo "FAIL: non-test file listed as reverted" >&2; exit 1; }
+printf '%s\n' "$out" | grep -qx scripts/test-helper-data.txt && { echo "FAIL: non-test extension listed as reverted" >&2; exit 1; }
 
 echo "✓ default mode reverts test/test-framework edits, preserves the rest"
 

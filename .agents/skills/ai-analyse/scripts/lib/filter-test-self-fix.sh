@@ -39,6 +39,7 @@ CI_RE='(^|/)(__tests__|__mocks__|tests?|specs?|e2e|cypress|playwright|\.storyboo
 CI_RE+='|\.(test|spec)\.[A-Za-z0-9.]+$'
 CI_RE+='|(^|/)test_[A-Za-z0-9][A-Za-z0-9_]*\.py$'
 CI_RE+='|(^|/)[A-Za-z0-9][A-Za-z0-9_.-]*_test\.[A-Za-z0-9]+$'
+CI_RE+='|(^|/)test-[A-Za-z0-9][A-Za-z0-9_.-]*\.(sh|bash|bats|ps1|py|js|mjs|ts)$'
 CI_RE+='|(^|/)(conftest\.py|pytest\.ini|tox\.ini|phpunit\.xml(\.dist)?'
 CI_RE+='|jest\.(config|setup)\.[A-Za-z0-9.]+|vitest\.(config|setup|workspace)\.[A-Za-z0-9.]+'
 CI_RE+='|playwright\.config\.[A-Za-z0-9.]+|cypress\.(config\.[A-Za-z0-9.]+|json)'
