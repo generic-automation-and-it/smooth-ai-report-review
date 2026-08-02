@@ -94,6 +94,35 @@ filtered10="$(printf '%s' "$input10" | bash "$HELPER" 2>/dev/null)"
 }
 echo "✓ broken test signature matches"
 
+# ── 10b. "expected … but got" signature (tier 1) ─────────────────
+# The only tier-1 phrase with no fixture until now. Tier 1 is matched on the
+# bare phrase, so this must be withheld with no test word on the line.
+input10b='- 🟡 Medium Priority: TransformSpec expected 3 items but got 2 after the merge'
+filtered10b="$(printf '%s' "$input10b" | bash "$HELPER" 2>/dev/null)"
+[ -z "$filtered10b" ] || {
+  echo "FAIL: 'expected … but got' should be withheld, got: $filtered10b" >&2; exit 1
+}
+echo "✓ expected-but-got signature matches"
+
+# ── 10c. CHARACTERISATION: "expected … but got" over-matches ─────
+# This pins CURRENT behaviour, not desired behaviour. `expected .+ but got` is
+# the one tier-1 phrase that does not name a test, so it also matches compiler
+# diagnostics and API-contract prose — a real finding is withheld from the
+# autonomous fixer, which is the same class of harm this filter exists to
+# prevent (see the "Prefer under-matching" note in the helper's header).
+#
+# Left as a withhold assertion deliberately: if someone demotes this phrase to
+# tier 2 (the reviewed follow-up), THIS TEST GOES RED. That is the point — the
+# change is then a deliberate decision with a test to update, not a silent
+# behaviour flip. Flip the assertion to `[ "$filtered10c" = "$input10c" ]` at
+# that time.
+input10c='- 🔵 Low Priority: resolve_provider expected a slug but got the full URL, so the lookup misses'
+filtered10c="$(printf '%s' "$input10c" | bash "$HELPER" 2>/dev/null)"
+[ -z "$filtered10c" ] || {
+  echo "FAIL: tier-1 over-match characterisation changed; got: $filtered10c" >&2; exit 1
+}
+echo "✓ expected-but-got over-match pinned (characterisation)"
+
 # ── 11. Generic failure phrasing with NO test word must SURVIVE ──
 # Regression: the first implementation matched the bare phrases "does not pass"
 # and "is failing", which are ordinary code-review English. Three real findings
