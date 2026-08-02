@@ -112,6 +112,62 @@ else
   ok "no upstream P-scale vocabulary in the prompt"
 fi
 
+# D2 (LADR-060): is_verification branch must appear before is_doc_only
+# in source order. If is_doc_only comes first, YAML-only chunks
+# (the majority of verification-mechanism cases) get the documentation
+# prompt instead of the fidelity lens — a silent failure.
+verification_line="$(grep -n 'is_verification=true' "$TARGET" | head -n1 | cut -d: -f1)"
+doc_only_line="$(grep -n 'is_doc_only=true' "$TARGET" | head -n1 | cut -d: -f1)"
+if [ -n "$verification_line" ] && [ -n "$doc_only_line" ] && [ "$verification_line" -lt "$doc_only_line" ]; then
+  ok "is_verification branch appears before is_doc_only branch"
+else
+  bad "is_verification branch must appear before is_doc_only branch (verification=$verification_line, doc_only=$doc_only_line)"
+fi
+
+# D2 (LADR-060): workflow-path glob must be present in the verification
+# detection. Without it, .github/workflows/*.yml changes are not
+# caught by the fidelity lens.
+if grep -qE '\.github/workflows/\*' "$TARGET"; then
+  ok "workflow-path glob present in verification detection"
+else
+  bad "workflow-path glob missing from verification detection"
+fi
+
+# D3 (LADR-061): the blame-provenance block must be emitted only when a digest
+# exists. Emitted unconditionally it tells the model to cite "the digest below"
+# with nothing below it — an instruction it cannot follow, on every chunk, at a
+# cost against the LADR-035 budget. Assert the heredoc sits inside the
+# `[ -n "$_blame_inline" ]` guard.
+blame_heredoc_line="$(grep -n 'Git Blame Provenance' "$TARGET" | head -n1 | cut -d: -f1)"
+blame_guard_line="$(grep -n 'if \[ -n "\$_blame_inline" \]' "$TARGET" | head -n1 | cut -d: -f1)"
+if [ -n "$blame_heredoc_line" ] && [ -n "$blame_guard_line" ] && [ "$blame_guard_line" -lt "$blame_heredoc_line" ]; then
+  ok "blame-provenance block is inside the has-a-digest guard"
+else
+  bad "blame-provenance block is emitted unconditionally (guard=$blame_guard_line, block=$blame_heredoc_line)"
+fi
+
+# D3 (LADR-061): the digest call must use names that exist in THIS script.
+# $LIB_DIR is defined by run-review.sh and never exported, and the head SHA is
+# $TO_SHA here — guarding on $LIB_DIR or a bare $HEAD_SHA silently disables the
+# feature with no error anywhere. Both were wrong in the first implementation.
+if grep -q 'build-blame-digest.sh' "$TARGET"; then
+  blame_call="$(grep -n -A4 -B4 'build-blame-digest.sh' "$TARGET")"
+  # Comments may name $LIB_DIR (they explain why it must not be used); only a
+  # live reference is a defect.
+  if grep -vE '^[[:space:]]*#' "$TARGET" | grep -q '\$LIB_DIR\|\${LIB_DIR'; then
+    bad "review-in-chunks.sh references \$LIB_DIR in code, which is unset in this script"
+  else
+    ok "no live \$LIB_DIR reference in review-in-chunks.sh"
+  fi
+  if printf '%s' "$blame_call" | grep -q 'TO_SHA'; then
+    ok "blame digest call uses \$TO_SHA (this script's head-SHA variable)"
+  else
+    bad "blame digest call does not reference \$TO_SHA — the guard cannot be satisfied"
+  fi
+else
+  bad "blame digest call is missing from review-in-chunks.sh"
+fi
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then

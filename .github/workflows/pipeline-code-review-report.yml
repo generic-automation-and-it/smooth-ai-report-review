@@ -419,6 +419,16 @@ jobs:
       # to fall back to the orchestrator's free-text Issues Summary — the
       # markdown grammar is identical either way, so nothing downstream breaks.
       OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+      # Trivial-PR skip (LADR-059) — on by default. A deterministic
+      # lockfile/manifest-only precondition plus an orchestrator-model veto may
+      # skip the whole review. Never fires for `/ai-review` comments or
+      # workflow_dispatch — those set force_full_review. Set to a falsy value
+      # (0/false/no/off) to review every PR unconditionally.
+      OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
+      # Run artifacts (LADR-062) — on by default. Assembles ci_temp/run/
+      # (report.md, per-chunk reviews, findings.merged.json, metadata.json) for
+      # the upload step below. Set to a falsy value to skip assembly.
+      OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
       # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
       # chain, so on timeout the LADR-002 secondary is never reached. Raised
       # from a hardcoded 300 after LADR-055 tripled per-chunk output.
@@ -565,6 +575,26 @@ jobs:
           EOF
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi
+
+      # Upload per-run artifacts (LADR-062) — mirrored in the local-job
+      # packaging (.docs/examples/code-review-local.yml). The directory is
+      # assembled by run-review.sh's EXIT trap (Step 4.5) and holds the
+      # rendered report, the per-chunk reviews, findings.merged.json, and
+      # metadata.json. Must sit between the gate and the cleanup step: after
+      # `rm -rf ci_temp` there is nothing left to upload.
+      # if: always() so a failed run — the one you most want to explain
+      # afterwards — still leaves a record.
+      # if-no-files-found: ignore because the trap is a no-op when the run
+      # exits before any output exists (bad config, unsupported event). A
+      # `warn` here would fail nothing but would misreport a healthy skip.
+      - name: Upload review run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-run-${{ github.run_id }}
+          path: ci_temp/run/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Clean up temporary files
         if: always()

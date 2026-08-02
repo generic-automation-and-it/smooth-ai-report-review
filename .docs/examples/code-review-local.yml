@@ -376,6 +376,10 @@ jobs:
           OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}
           # Structured findings (LADR-055) — mirrors the reusable workflow's env var.
           OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+          # Trivial-PR skip (LADR-059) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
+          # Run artifacts (LADR-062) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
           # Per-chunk review budget, seconds — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
           MANDATORY_CONTEXT_FILES: >-
@@ -446,6 +450,16 @@ jobs:
           EOF
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi
+
+      # Upload per-run artifacts (LADR-062) — mirrors the reusable workflow.
+      - name: Upload review run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-run-${{ github.run_id }}
+          path: ci_temp/run/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Clean up temporary files
         if: always()
