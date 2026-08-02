@@ -285,6 +285,17 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 - Do NOT copy "No issue", "consistent", "verified for consistency", "flagging only because checked", or similar passing-check notes into any Issues Summary severity section.
 - Do NOT count passing checks in the Recommendation issue totals.
 
+**Completion Gate (MANDATORY):**
+- Do not finish until your report contains all four of `## 📋 Overall Summary`, `## 🔍 Issues Summary`, `## 📝 Suggested Fixes`, and `## 🎯 Recommendation`.
+- **Never replace the actionable list with a count.** Writing "3 issues found" in place of the three issues is a failure, not a summary. Every issue you counted in the Recommendation must be listed in full in the Issues Summary.
+- A section with nothing in it gets the literal placeholder "None found" — never an omitted heading.
+- Re-read your report against these four points before you finish, and re-render anything that fails.
+
+**Formatting Rules (MANDATORY):**
+- Use ASCII-safe characters in finding text: no box-drawing characters, no per-item horizontal rules, no Unicode arrows or middots. Write `->` instead of an arrow character.
+- **The severity emoji grammar is exempt and mandatory.** 🔴 🟠 🟡 🔵 🗂️ and the section headings below are parsed by downstream tooling — always emit them exactly as shown. The ASCII rule applies only to decorative characters inside the text of a finding.
+- Reuse one stable `#` number per finding across every section it appears in. Never re-derive numbering per severity block.
+
 **Required Output Format:**
 
 ## 📋 Overall Summary
@@ -315,6 +326,10 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 
 ### 🔵 Low Priority / Nitpicks
 [List low priority issues or summarize common patterns]
+[If none: "None found"]
+
+### 🗂️ Pre-existing (not introduced by this PR)
+[Observations about unchanged code the diff neither touches nor interacts with — these do not count toward the verdict]
 [If none: "None found"]
 
 ## 📝 Suggested Fixes
@@ -349,8 +364,9 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 - Count of 🟠 High Priority Issues: [number - DO NOT count "None found" as an issue]
 - Count of 🟡 Medium Priority Issues: [number - DO NOT count "None found" as an issue]
 - Count of 🔵 Low Priority Issues: [number - DO NOT count "None found" as an issue]
+- Count of 🗂️ Pre-existing issues: [number - DO NOT count "None found" as an issue] — these do NOT block the PR
 
-**IMPORTANT:** If a section says "None found", the count for that section is 0 (zero). Do NOT count "None found" as an issue.
+**IMPORTANT:** If a section says "None found", the count for that section is 0 (zero). Do NOT count "None found" as an issue. Pre-existing findings are excluded from the blocking count by design — a pre-existing Critical does not force REQUEST_CHANGES.
 
 **Examples:**
 - ✅ Correct: 🔴 Critical says "None found" and 🟠 High says "None found" → Critical=0, High=0 → APPROVE
@@ -606,7 +622,7 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   EXPECTED_SIDECARS=$((TOTAL_CHUNKS - FAILED_CHUNK_COUNT))
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -eq "$EXPECTED_SIDECARS" ]; then
     if bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
-         "$MERGED_FINDINGS_FILE" > ci_temp/issues_summary.md 2>/dev/null \
+         "$MERGED_FINDINGS_FILE" "$FAILED_CHUNK_COUNT" "$TOTAL_CHUNKS" > ci_temp/issues_summary.md 2>/dev/null \
        && [ -s ci_temp/issues_summary.md ]; then
       # Replace the orchestrator's `## 🔍 Issues Summary` section — heading
       # through to the next `## ` heading — with the rendered one. Anything
