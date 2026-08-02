@@ -444,4 +444,7 @@ ci_temp/
 # Also ignore the legacy .github/ location in case an older tool drops the
 # file there during the migration window.
 .github/code-review-graph.instruction.md
+# Diagnostic logs (sibling of ci_temp so the `if: always()` rm -rf ci_temp
+# cleanup cannot reach them — see lib/report-error-log.sh and the
+# A failure that names a log path must also print it Key Behavior).
 ci_temp_logs/

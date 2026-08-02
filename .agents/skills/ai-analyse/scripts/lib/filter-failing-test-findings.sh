@@ -41,15 +41,16 @@ FAIL_RE_STRONG='(failing test|test fails|test failure|broken test|test is red|as
 # `is red` sits here rather than tier 1 so it also catches "BazSpec is red on
 # CI" and "the suite is red", not just the literal phrase "test is red".
 FAIL_RE_WEAK="(is failing|are failing|does not pass|doesn't pass|fails to pass|is red|are red)"
-TEST_WORD_RE='(test|spec|suite|fixture)'
+# Anchor on word boundaries so 'contest' / 'latest' / 'attest' / 'testify' don't trip the tier-2 gate.
+TEST_WORD_RE='(^[0-9]+|)([^A-Za-z0-9_])(test|tests|spec|specs|suite|suites|fixture|fixtures)([^A-Za-z0-9_]|$)'
 
 # Withhold when a tier-1 signature is present, or a tier-2 signature appears
 # on a line that is actually about a test.
 is_failing_test_finding() {
   local line="$1"
-  printf '%s' "$line" | grep -qiE "$FAIL_RE_STRONG" && return 0
-  if printf '%s' "$line" | grep -qiE "$FAIL_RE_WEAK"; then
-    printf '%s' "$line" | grep -qiE "$TEST_WORD_RE" && return 0
+  printf '%s' "$line" | grep -qiPE "$FAIL_RE_STRONG" && return 0
+  if printf '%s' "$line" | grep -qiPE "$FAIL_RE_WEAK"; then
+    printf '%s' "$line" | grep -qiPE "$TEST_WORD_RE" && return 0
   fi
   return 1
 }
