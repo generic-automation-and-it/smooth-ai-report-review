@@ -374,6 +374,8 @@ jobs:
           # RTK token optimization (LADR-054) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
           OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}
+          # Structured findings (LADR-055) — mirrors the reusable workflow's env var.
+          OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md

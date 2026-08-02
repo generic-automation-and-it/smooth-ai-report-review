@@ -549,6 +549,22 @@ bash "$SCRIPT_DIR/review-in-chunks.sh" \
 TOTAL_CHUNKS=$(grep '^total_chunks=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 
+# --- Step 5b: Merge structured findings (LADR-055) ---
+# Mirrors run-review.sh step 17.5. Without this the local path would extract
+# per-chunk sidecars and then never merge them, so aggregation would always fall
+# back and a local review would silently lack the dedup, numbering and
+# confidence gate a CI review gets — the two paths must not diverge on what the
+# reviewer sees. Best-effort: a non-zero exit means "no merged document".
+_lr_structured="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
+if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+  if [ -f "$SCRIPT_DIR/lib/merge-findings.sh" ]; then
+    bash "$SCRIPT_DIR/lib/merge-findings.sh" \
+      "ci_temp/reviews" \
+      "ci_temp/findings.merged.json" || true
+  fi
+fi
+unset _lr_structured
+
 echo ""
 echo "🔗 Aggregating reviews..."
 echo ""

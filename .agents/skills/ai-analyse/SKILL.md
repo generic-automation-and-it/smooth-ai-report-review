@@ -55,6 +55,15 @@ The GitHub Actions workflow invokes this skill headlessly by inlining this `SKIL
 
 The workflow performs deterministic commit, rebase/push, and PR comment posting after the model exits. If those git-owned steps cannot rebase onto the latest PR head or fetch it reliably, the workflow posts the summary with `push_skipped` and leaves the branch unchanged for a later retry or human follow-up.
 
+### Input shape — what LADR-055 changed, and what it did not
+
+The input to this skill is **unchanged in format**: `ai-review-report`'s `lib/extract-ai-analyse-scope.sh` still scrapes `### 🟡 Medium Priority Issues` and `### 🔵 Low Priority / Nitpicks` out of the posted review body, and this skill still reads those sections. Nothing here needs editing.
+
+Two things about that input are worth knowing:
+
+- **The findings you receive are now filtered.** When the gate has full structured-findings coverage, those sections are rendered from a merged, deduplicated set with a confidence gate applied: a Medium or Low finding the chunk reviewer anchored below confidence 75 — a verified nitpick, or something it could not evidence — is suppressed before it reaches you, and the count is printed in the review's `### 📊 Coverage` block. Expect **fewer and better-evidenced** items than before, and no cross-chunk duplicates of the same defect. Each finding now carries a stable `#N` and a `(chunk #N)` back-reference; use the `#N` in your table's `#` column when it is present rather than renumbering.
+- **`ci_temp/findings.merged.json` exists and is the intended future input.** The gate writes the full structured document — including `autofix_class` (`gated_auto` / `manual` / `advisory`), `owner`, `requires_verification`, and `suggested_fix` per finding — which is a far better autonomy predicate than "the severity is Medium": under the current severity-only rule (LADR-042) a Medium needing a design decision is auto-fixable while a Critical with a one-line mechanical fix is not. **Nothing consumes it yet.** Switching this skill's selection predicate from severity to route is a separate, deliberate change (Tier 1 item 5); do not start reading the JSON opportunistically, because the current comment-scraping path is what the workflow's trust boundary and `filter-test-self-fix.sh` enforcement are built around.
+
 ## Decision Rules
 
 - Known intentional pattern: `SKIP`

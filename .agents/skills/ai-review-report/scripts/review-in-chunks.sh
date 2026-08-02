@@ -32,6 +32,31 @@ echo "Model: $OPENCODE_MODEL_ID"
 echo "=========================================="
 echo ""
 
+# LADR-055: structured findings — confidence anchors, the quote-the-line gate,
+# and the machine-readable per-chunk sidecar. Enabled by default; a falsy
+# OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS reverts the chunk prompt to
+# its pre-LADR-055 shape exactly, which is what makes an eval A/B meaningful.
+#
+# The anchors and the sidecar are gated together on purpose. The anchors are only
+# load-bearing because merge-findings.py enforces them mechanically (demotion
+# without a quote, suppression below the actionable anchor); with the sidecar off
+# there is nothing to enforce them, and unenforced rubric prose is prompt weight
+# with an unmeasured effect on output.
+#
+# Same tokenized truthy test as the graph-analysis (LADR-049) and rtk (LADR-054)
+# gates, so pathological values like `1true` land on the same side of the line
+# everywhere.
+structured_findings_enabled() {
+  local v="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
+  printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
+}
+if structured_findings_enabled; then
+  echo "🧩 Structured findings enabled (LADR-055)"
+else
+  echo "🧩 Structured findings disabled (OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS)"
+fi
+echo ""
+
 # Testing rules are now discovered dynamically via *AGENTS.md pattern (Implementation #89)
 # No hardcoded path - Testing_Rules_AGENTS.md is found by find-context-files.sh
 
@@ -679,6 +704,43 @@ EOF
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
 - **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via \`webfetch\`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
+EOF
+
+  # LADR-055: confidence anchors + quote-the-line gate. Quoted heredoc — this
+  # block is full of backticks and JSON braces, and none of it may expand.
+  if structured_findings_enabled; then
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+
+**Confidence Anchors (MANDATORY, in addition to the tag above):**
+
+Give every finding a `confidence` anchor — one of exactly `0`, `25`, `50`, `75`, `100`. Discrete anchors only: `72`, `0.85` and `"high"` are all invalid. Pick the single anchor whose behavioural criterion you can honestly self-apply. The rubric is anchored on behaviour you actually performed, not on a vague sense of certainty — if you cannot truthfully attach the behavioural claim to the finding, step down to the next anchor.
+
+- **`0` — Not confident at all.** A false positive that does not stand up to light scrutiny, or a pre-existing issue this PR did not introduce. **Never emit.**
+- **`25` — Somewhat confident.** Might be a real issue but could also be a false positive; you could not verify from the diff and surrounding code alone. **Never emit** — either gather more evidence (`read_file` the related files, resolve call sites with `grep`) until you can honestly anchor at `50` or higher, or suppress entirely.
+- **`50` — Moderately confident.** You verified this is a real issue but it is a nitpick, narrow edge case, or has minimal practical impact. Style preferences and subjective improvements land here.
+- **`75` — Highly confident.** You double-checked the diff and surrounding code and confirmed the issue will affect users, downstream callers, or runtime behavior in normal usage. The bug, vulnerability, or contract violation is clearly present and actionable. Anchor `75` requires **naming a concrete observable consequence** — a wrong result, an unhandled error path, a contract mismatch, a security exposure, missing coverage a real test scenario would surface. "This could be cleaner" or "I would have written this differently" do not meet this bar; they are anchor `50`. When torn between `50` and `75`, ask: **"will a user, caller, or operator concretely encounter this in normal usage, or is this my opinion about the code's quality?"** The former is `75`; the latter is `50`.
+- **`100` — Absolutely certain.** The issue is verifiable from the code itself — compile error, type mismatch, definitive logic bug (off-by-one in a tested algorithm, wrong return type, swapped arguments), or an explicit project-standards violation with a quotable rule. No interpretation required.
+
+**Anchor and severity are independent axes.** A 🟡 Medium finding can be anchor `100` if the evidence is airtight; a 🔴 Critical finding can be anchor `50` if it is an important concern you could not fully verify. The anchor gates *where* the finding surfaces; the severity orders it *within* the surfaced set. Do not raise an anchor to make a finding look important, and do not lower a severity because your anchor is low.
+
+**Relationship to the tag above:** `[SPECULATIVE]` implies `confidence` of `50` or less — you cannot be highly confident in something you did not verify. `[VERIFIED]` means you read the code; the anchor then says how much it matters and how airtight the evidence is. A `[VERIFIED]` nitpick is anchor `50`, and that is the correct, expected outcome — it is not a failure to have verified something small.
+
+**Quote-the-line gate (MANDATORY for anchors `75` and `100`):**
+
+Before you anchor a finding at `75` or `100`, quote the verbatim line(s) that make it true, with `file:line`, as the **first** evidence item:
+
+- "field X doesn't exist on model Y" → quote the class / `Meta` / migration where X would be defined.
+- "`dict.get()` may return None" → quote the dict's initialization.
+- "race between A and B" → quote both A and B.
+- "swapped argument / wrong return" → quote the call site **and** the signature.
+
+**If you cannot quote the motivating line, you cannot claim `75`+ — step down to `50`.** This is enforced mechanically after the review, not on trust: a finding at `75` or `100` with no quoted first evidence is demoted to `50` automatically, and the demotion is counted in the posted report.
+
+**Framework carve-out — read this before flagging a "missing" symbol.** When the symbol is generated by a framework metaclass, ORM configuration, decorator, source generator, or migration history (EF Core fluent configuration / `DbSet` / migration snapshots, Rails `has_many`/`scope`, Django `Meta`, SQLAlchemy `Column`/`relationship`, Prisma client, TypeORM/Sequelize decorators), quote the **generating construct** — reading the source that generates the symbol satisfies the gate. **A failed `grep` for the literal name does NOT satisfy the gate and is not evidence that the symbol is absent.** This is the same rule as DR-012 (EF Core expression trees are translated to SQL, not executed as runtime C#) seen from the evidence side: in both cases the code that decides the behaviour is not the code the literal name appears in.
+EOF
+  fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
 
 ## ⚠️ CRITICAL: REVIEW SCOPE AND FILE ACCESS
 
@@ -742,6 +804,62 @@ Only include real defects, risks, or actionable documentation/maintenance issues
 ```language
 [corrected code if applicable]
 ```
+EOF
+
+  # LADR-055: the machine-readable sidecar instruction, gated with the anchors.
+  if structured_findings_enabled; then
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+
+**Structured findings sidecar (LADR-055) — emit AFTER all of the markdown above:**
+
+Once the human-readable review above is complete, append **one** block in exactly this shape as the very last thing in your output. The markdown above is the review; this block is a machine-readable mirror of the same findings for deduplication across chunks. It is stripped out before the review is posted, so it never appears to a human reader.
+
+<!-- FINDINGS_JSON_BEGIN -->
+```json
+{
+  "chunk": 0,
+  "findings": [
+    {
+      "title": "Order lookup trusts a user-supplied account id",
+      "severity": "critical",
+      "file": "src/Controllers/OrdersController.cs",
+      "line": 42,
+      "why_it_matters": "Any signed-in user can read another user's orders by changing the account id in the URL. The action loads the account and returns its orders without checking the caller owns it. ShipmentsController:38 already guards the same attack class with CurrentUser.Owns(account); matching that guard fixes this.",
+      "confidence": 100,
+      "verified": true,
+      "evidence": [
+        "src/Controllers/OrdersController.cs:42 -- var account = await _db.Accounts.FindAsync(accountId);",
+        "src/Controllers/ShipmentsController.cs:38 -- if (!CurrentUser.Owns(account)) return Forbid();"
+      ],
+      "first_evidence": "src/Controllers/OrdersController.cs:42 -- var account = await _db.Accounts.FindAsync(accountId);",
+      "pre_existing": false,
+      "requires_verification": true,
+      "autofix_class": "gated_auto",
+      "owner": "downstream-resolver",
+      "suggested_fix": "Add the CurrentUser.Owns(account) guard before the lookup, matching ShipmentsController.cs:38."
+    }
+  ],
+  "residual_risks": [],
+  "testing_gaps": []
+}
+```
+<!-- FINDINGS_JSON_END -->
+
+Rules for the sidecar — a violated rule silently drops the finding from deduplication, it does not fail your review:
+
+- `chunk` is this chunk's number, shown in the `## 📁 CHUNK #N` heading at the top of this prompt.
+- `severity` is one of `"critical"`, `"high"`, `"medium"`, `"low"` — lower-case words, never emoji and never P0/P1/P2/P3.
+- `verified` is `true` for a `[VERIFIED]` finding and `false` for a `[SPECULATIVE]` one — it must agree with the tag you used in the markdown above.
+- `confidence` is one of the five anchors. `evidence` is an ARRAY of strings with at least one element, even when there is only one quote. At anchors `75`/`100` the first element must be the quoted motivating line, repeated in `first_evidence`.
+- `autofix_class` is one of `"gated_auto"`, `"manual"`, `"advisory"`; `owner` is one of `"downstream-resolver"`, `"human"`, `"release"`. Nothing acts on these yet — classify honestly, they are routing signal only. Default `owner` to `"downstream-resolver"` unless the item genuinely needs human judgment first or is release/rollout work.
+- `suggested_fix`, `first_evidence` and `graph_evidence` are optional; every other field is required on every finding.
+- Emit **one** finding object per distinct defect. Every finding you listed under **Issues Found** above belongs here, and nothing that is not a finding does: no "None found" placeholders, no passing checks, no coverage notes.
+- If you found nothing, emit the block with `"findings": []`.
+- The block is the LAST thing in your output. Do not wrap it in extra prose, do not emit it twice, and do not put it before the markdown review.
+EOF
+  fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
 
 ## 📝 DIFF TO REVIEW
 
@@ -817,6 +935,19 @@ EOF
   # but cannot self-activate this repo's ai-review-report skill. Fallback chain
   # preserves LADR-002.
   if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+    # LADR-055: pull the structured-findings sidecar out and strip it from the
+    # markdown. Runs BEFORE the empty-output floor below on purpose — the floor
+    # must measure the markdown a human will actually read, so a model that
+    # returned nothing but a JSON block still trips it. Best-effort and never a
+    # chunk failure: this call cannot write a `.failed` flag (LADR-031 owns that
+    # channel) and its exit code is deliberately ignored.
+    if structured_findings_enabled; then
+      bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-findings-json.sh" \
+        "ci_temp/reviews/chunk_${chunk_num}.md" \
+        "${chunk_num}" \
+        "ci_temp/reviews/chunk_${chunk_num}.findings.json" || true
+    fi
+
     # Empty-output detection: opencode can exit 0 while producing no review
     # text (e.g. provider silently failing, agent misconfiguration). A real
     # chunk review is always at least a few hundred bytes of markdown with
@@ -847,6 +978,10 @@ EOF
       # marker string gets quoted into legitimate review bodies when the gate
       # reviews its own docs, which text-grepping false-matches (see LADR-031).
       echo "empty/tiny output (${review_size} bytes)" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+      # A failed chunk contributes no findings (LADR-055). Drop any sidecar the
+      # extraction step managed to salvage, so the merged set and the failed-chunk
+      # count can never disagree about which chunks were actually reviewed.
+      rm -f "ci_temp/reviews/chunk_${chunk_num}.findings.json"
     else
       echo "  ✅ Chunk ${chunk_num} review completed (${review_size} bytes)"
     fi
@@ -873,6 +1008,8 @@ EOF
     } > ci_temp/reviews/chunk_${chunk_num}.md
     # LADR-031: out-of-band failure signal (see comment at the empty/tiny site).
     echo "exit code ${exit_code}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+    # LADR-055: a failed chunk contributes no findings — clear any stale sidecar.
+    rm -f "ci_temp/reviews/chunk_${chunk_num}.findings.json"
   fi
 
   echo ""

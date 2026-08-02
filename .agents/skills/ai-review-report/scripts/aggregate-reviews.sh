@@ -576,6 +576,64 @@ SHORT_CURRENT_SHA="${CURRENT_SHA:0:7}"
 # review text for the failure marker (a quoted marker false-matched on PR #15).
 FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
 
+# LADR-055: render Part 1's Issues Summary from the merged structured findings
+# instead of the orchestrator's free-text list, when — and only when — every
+# chunk that actually reviewed something contributed a sidecar.
+#
+# The coverage precondition is the load-bearing part. Rendering from a PARTIAL
+# set would silently drop the findings of any chunk whose model ignored the
+# sidecar instruction: the review would still post, still look complete, and
+# still be green, with entire chunks missing from the decision surface. That is
+# the exact failure shape this whole change exists to avoid, so a partial set
+# falls back to the pre-LADR-055 path in full. Failed chunks are excluded from
+# the expectation, not counted against it — they contribute no findings by
+# definition (LADR-031), and the coverage banner above already says so.
+#
+# Everything else about the posted body is unchanged: Part 2's collapsible
+# <details> section still carries the verbatim chunk markdown, duplicates and
+# all (LADR-005). Part 1 is the decision surface and benefits from dedup and
+# stable numbering; Part 2 is the audit trail and must show what each chunk
+# reviewer actually said.
+FINDINGS_SUMMARY_APPLIED="false"
+MERGED_FINDINGS_FILE="ci_temp/findings.merged.json"
+if [ -s "$MERGED_FINDINGS_FILE" ]; then
+  SIDECAR_COUNT=$(ls ci_temp/reviews/chunk_*.findings.json 2>/dev/null | wc -l | tr -d ' ')
+  EXPECTED_SIDECARS=$((TOTAL_CHUNKS - FAILED_CHUNK_COUNT))
+  if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -eq "$EXPECTED_SIDECARS" ]; then
+    if bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
+         "$MERGED_FINDINGS_FILE" > ci_temp/issues_summary.md 2>/dev/null \
+       && [ -s ci_temp/issues_summary.md ] \
+       && grep -q '^## 🔍 Issues Summary' ci_temp/pr_summary_main.md; then
+      # Replace the orchestrator's `## 🔍 Issues Summary` section — heading
+      # through to the next `## ` heading — with the rendered one. Anything
+      # outside that range (Overall Summary, Positive Highlights, Suggested
+      # Fixes, Recommendation) is untouched and still comes from the orchestrator.
+      awk -v render="ci_temp/issues_summary.md" '
+        state == 0 && /^## 🔍 Issues Summary/ {
+          state = 1
+          while ((getline line < render) > 0) print line
+          close(render)
+          next
+        }
+        state == 1 && /^## / { state = 2 }
+        state == 1 { next }
+        { print }
+      ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.rendered.md \
+        && mv ci_temp/pr_summary_main.rendered.md ci_temp/pr_summary_main.md
+      # The spliced-in section is our own markdown and cannot be unbalanced, but
+      # the orchestrator's surrounding prose still can be — and the section we
+      # removed may have been where its parity flipped. Re-balance.
+      balance_fences ci_temp/pr_summary_main.md
+      FINDINGS_SUMMARY_APPLIED="true"
+      echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars)"
+    else
+      echo "⚠️ Could not render Issues Summary from merged findings — keeping the orchestrator's"
+    fi
+  else
+    echo "ℹ️ Structured findings cover ${SIDECAR_COUNT:-0} of ${EXPECTED_SIDECARS:-0} reviewed chunk(s) — keeping the orchestrator's Issues Summary (partial coverage would drop findings)"
+  fi
+fi
+
 cat > ci_temp/final_review.md << EOF
 ## 🤖 OpenCode CLI Code Review - Commit: \`${SHORT_CURRENT_SHA}\`
 
@@ -663,6 +721,19 @@ This PR was reviewed in **$TOTAL_CHUNKS chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo
 
 EOF
 
+# LADR-055 (D6.3): close the summary↔detail navigation gap. Part 1 is
+# deduplicated and numbered; the sections below are each reviewer's raw output
+# and are neither. Without this sentence a differing count between the two parts
+# reads as a bug rather than as dedup working. The chunk back-reference on each
+# numbered finding — "(chunk #3)" — names one of the `### Chunk #N` headings
+# below, which is why those headings must stay stable and predictable.
+if [ "$FINDINGS_SUMMARY_APPLIED" = "true" ]; then
+  cat >> ci_temp/final_review.md << 'EOF'
+> **Reading these against the summary:** the 🔍 Issues Summary above is deduplicated across chunks and numbered stably, and each finding names the chunk it came from. The sections below are what each chunk reviewer actually said, verbatim and unedited — so one numbered finding above may appear in several sections below, and findings the summary suppressed as low-confidence still appear here. The counts are meant to differ.
+
+EOF
+fi
+
 cat ci_temp/combined_reviews.md >> ci_temp/final_review.md
 
 # Add AI Review Context Documents section
@@ -729,6 +800,27 @@ REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary
 if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
   if [ "$REVIEW_DECISION" != "request_changes" ]; then
     echo "⚠️ ${FAILED_CHUNK_COUNT} chunk(s) failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
+    REVIEW_DECISION="request_changes"
+  fi
+fi
+
+# LADR-055: the decision above is parsed from the ORCHESTRATOR's summary, which
+# counts the Issues Summary it wrote. When we replaced that section with one
+# rendered from the merged findings, the two can disagree — a Critical/High that
+# every chunk reported but the orchestrator dropped would now be printed in the
+# body under a posted APPROVE. That is precisely the body↔state contradiction
+# LADR-036 exists to prevent, so escalate.
+#
+# This is deliberately one-directional. It can only turn approve/comment into
+# request_changes; it can never turn request_changes into anything softer, so a
+# cross-chunk finding the orchestrator raised holistically — which by definition
+# has no per-chunk sidecar entry — still blocks. Structured findings can add a
+# reason to block; they can never remove one.
+if [ "${FINDINGS_SUMMARY_APPLIED:-false}" = "true" ] && [ "$REVIEW_DECISION" != "request_changes" ]; then
+  BLOCKING_FINDING_COUNT=$(jq '[.findings[] | select(.severity == "critical" or .severity == "high")] | length' \
+    "$MERGED_FINDINGS_FILE" 2>/dev/null || echo 0)
+  if [ "${BLOCKING_FINDING_COUNT:-0}" -gt 0 ]; then
+    echo "⚠️ ${BLOCKING_FINDING_COUNT} Critical/High finding(s) in the rendered Issues Summary — forcing REQUEST_CHANGES, overriding '${REVIEW_DECISION:-unknown}' (body and posted state must agree)."
     REVIEW_DECISION="request_changes"
   fi
 fi

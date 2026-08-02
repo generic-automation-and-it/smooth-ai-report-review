@@ -1,0 +1,108 @@
+#!/bin/bash
+# render-findings-summary.sh — render the posted review's `## 🔍 Issues Summary`
+# from the merged findings document (LADR-055). Writes markdown to stdout.
+#
+# Usage: render-findings-summary.sh <merged_json>
+#
+# The output must stay byte-compatible with the grammar three consumers parse:
+#
+#   - scripts/eval/lib/score-review.sh   — `[VERIFIED]` plus the severity keyword
+#                                          in the label (the text before the
+#                                          first colon), "None found" as the
+#                                          empty placeholder.
+#   - lib/extract-ai-analyse-scope.sh    — `### 🟡 Medium Priority Issues` and
+#                                          `### 🔵 Low Priority` section headers,
+#                                          captured until the next `###`/`##`.
+#   - lib/select-ai-analyse-artifact.sh  — `## 🔍 Issues Summary` identifies the
+#                                          body as a gate artifact.
+#
+# What this adds on top of that grammar is additive only: a stable `#` number and
+# a chunk back-reference per finding. Changing an emoji, a section header, or the
+# position of the `[VERIFIED]` tag breaks a consumer silently — the review still
+# posts, the autonomous fixer just stops finding anything to fix.
+set -uo pipefail
+
+merged="${1:-}"
+if [ -z "$merged" ] || [ ! -s "$merged" ]; then
+  exit 1
+fi
+command -v jq >/dev/null 2>&1 || exit 1
+jq -e '.status == "complete"' "$merged" >/dev/null 2>&1 || exit 1
+
+jq -r '
+  def clean: gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "");
+
+  def sev_emoji:
+    if . == "critical" then "🔴"
+    elif . == "high"   then "🟠"
+    elif . == "medium" then "🟡"
+    else "🔵" end;
+
+  def sev_label:
+    if . == "critical" then "Critical"
+    elif . == "high"   then "High Priority"
+    elif . == "medium" then "Medium Priority"
+    else "Low Priority" end;
+
+  def chunk_ref:
+    if (. | length) == 0 then ""
+    elif (. | length) == 1 then " (chunk #\(.[0]))"
+    else " (chunks " + ([.[] | "#\(.)"] | join(", ")) + ")"
+    end;
+
+  # One finding, one bullet. The label — everything before the first colon —
+  # carries the number, the emoji, the [VERIFIED]/[SPECULATIVE] tag and the
+  # severity keyword, in that order, because that is what score-review.sh reads.
+  def bullet:
+    "- **#\(.["#"])** \(.severity | sev_emoji) "
+    + (if .verified == true then "[VERIFIED]" else "[SPECULATIVE]" end)
+    + " \(.severity | sev_label): \(.title | clean)"
+    + " — `\(.file)"
+    + (if (.line | type) == "number" then ":\(.line)" else ":\(.line)" end)
+    + "`"
+    + (.chunks // [] | chunk_ref)
+    + (if (.why_it_matters // "") != "" then "\n  - \(.why_it_matters | clean)" else "" end);
+
+  def section($sev; $heading):
+    "### \($heading)",
+    "",
+    ( [ .findings[] | select(.severity == $sev) ]
+      | if length == 0 then "None found" else (.[] | bullet) end ),
+    "";
+
+  "## 🔍 Issues Summary",
+  "",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`#1`, `#2`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning.",
+  "",
+  section("critical"; "🔴 Critical Issues"),
+  section("high"; "🟠 High Priority Issues"),
+  section("medium"; "🟡 Medium Priority Issues"),
+  section("low"; "🔵 Low Priority / Nitpicks"),
+
+  # Pre-existing findings are reported, never counted. They are not defects this
+  # PR introduced, so surfacing them among the actionable set would make every
+  # review of a legacy file look like a regression.
+  ( if (.pre_existing_findings | length) > 0 then
+      ( "### 🗂️ Pre-existing (not introduced by this PR)",
+        "",
+        ( .pre_existing_findings[]
+          | "- \(.severity | sev_emoji) \(.severity | sev_label): \(.title | clean) — `\(.file):\(.line)`"
+            + (.chunks // [] | chunk_ref) ),
+        "" )
+    else empty end ),
+
+  # Coverage. Suppression that nobody can see is suppression nobody should
+  # trust, so this block renders even when every count is zero.
+  "### 📊 Coverage",
+  "",
+  "- **Duplicates merged across chunks:** \(.merged_duplicates)",
+  "- **Demoted for missing quoted evidence:** \(.demoted_no_quote) (claimed confidence ≥ 75 without quoting the motivating line, stepped down to 50)",
+  "- **Suppressed below the actionable anchor:** \(.suppressed_findings | length)"
+    + ( if (.suppressed_by_confidence | length) > 0
+        then " (" + ([ .suppressed_by_confidence | to_entries[] | "confidence \(.key): \(.value)" ] | join(", ")) + ")"
+        else "" end ),
+  "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
+  "",
+  "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
+  ""
+' "$merged"
