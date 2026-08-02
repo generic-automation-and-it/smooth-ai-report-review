@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/generic-automation-and-it/smooth-ai-report-review/assets/findings-schema.json",
+  "title": "Chunk Review Findings (LADR-055)",
+  "description": "Structured sidecar emitted by a single chunk review, alongside — never instead of — the human-readable markdown. One document per chunk. Merged across chunks by scripts/lib/merge-findings.py. Design adapted from EveryInc/compound-engineering-plugin skills/ce-code-review references/findings-schema.json (commit a5cd949, MIT); severity vocabulary, chunk identity, the `verified` mirror and `graph_evidence` are this repo's.",
+  "type": "object",
+  "required": ["chunk", "findings", "residual_risks", "testing_gaps"],
+  "properties": {
+    "chunk": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero-based index of the chunk that produced this document. This is the source identity — chunk boundaries are the dedup axis, not reviewer personas. The merge helper records every contributing chunk on a merged finding so the rendered summary can back-reference the chunk section a reader should open."
+    },
+    "findings": {
+      "type": "array",
+      "description": "Findings from this chunk. Empty array when the chunk is clean — an empty array is a valid, expected result, not a failure.",
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "severity",
+          "file",
+          "line",
+          "why_it_matters",
+          "confidence",
+          "evidence",
+          "pre_existing",
+          "requires_verification",
+          "autofix_class",
+          "owner"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Short, specific issue title. 10 words or fewer. Together with file and line this is the dedup fingerprint, so phrase the same defect the same way every time — do not restate the same problem with different wording in two chunks."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"],
+            "description": "This repo's severity vocabulary, lower-case: 'critical' = 🔴 Critical, 'high' = 🟠 High Priority, 'medium' = 🟡 Medium Priority, 'low' = 🔵 Low Priority. Use exactly these four strings — never P0/P1/P2/P3 and never emoji. Severity is urgency, and it is an axis independent of `confidence`: severity orders a finding within the actionable surface, confidence decides whether it reaches that surface at all."
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Repo-root-relative path, exactly as it appears in the diff header (`diff --git a/<path> b/<path>`). Not absolute, not prefixed with a/ or b/."
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Primary line number of the issue in the file's current state. Emit an integer. Note that `scripts/lib/merge-findings.py` is deliberately more permissive than this schema and also accepts any non-empty string (e.g. \"42\", \"42-55\") so an otherwise complete finding is not dropped over the type of its line reference; a strict Schema validator will reject those, so do not rely on the looser form."
+          },
+          "why_it_matters": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Impact and failure mode — not 'what is wrong' but 'what breaks'. Lead with observable behaviour: what a user, caller, operator, or attacker experiences. Roughly 2-4 sentences. When a suggested_fix is present, make clear why that fix addresses the root cause, referencing a parallel pattern in this repo where one exists."
+          },
+          "confidence": {
+            "type": "integer",
+            "enum": [0, 25, 50, 75, 100],
+            "description": "Discrete anchor — exactly one of 0, 25, 50, 75, 100. Not a continuous score; 72, 0.85 and \"high\" are validation failures. Each anchor carries a behavioural criterion you must be able to honestly self-apply. 0: false positive under light scrutiny, or pre-existing — never emitted. 25: might be real, might be a false positive; could not verify from the diff and surrounding code — never emitted. 50: verified real, but a nitpick, narrow edge case, or minimal practical impact; style preferences land here. 75: double-checked, and you can name a concrete observable consequence a user, caller, or operator hits in normal usage. 100: verifiable from the code alone — compile error, type mismatch, definitive logic bug, or a quotable standards violation. Anchors 75 and 100 additionally require the quote-the-line gate (see `first_evidence`); the merge helper demotes a 75+ finding with no first_evidence to 50 mechanically."
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Code-grounded evidence: verbatim snippets with file:line, or precise pattern descriptions. At least one item; a bare string instead of an array is a validation failure. For any finding at anchor 75 or 100 the FIRST item must be the verbatim motivating line(s) with file:line — the exact code text that makes the finding true — mirrored into `first_evidence`."
+          },
+          "first_evidence": {
+            "type": "string",
+            "description": "The quote-the-line gate, promoted to its own field so it can be enforced mechanically. Verbatim motivating line(s) with `file:line`. Required in practice for anchors 75 and 100: the merge helper demotes any 75/100 finding whose first_evidence is missing or blank down to 50 and counts the demotion. Framework carve-out: when the symbol is generated by a metaclass, ORM `Meta`, decorator, source generator, or migration history (EF Core fluent config / `DbSet` / migration snapshot, Rails `has_many`, Django `Meta`, SQLAlchemy `Column`, Prisma client, TypeORM/Sequelize decorators), quoting the GENERATING construct satisfies the gate. A failed grep for the literal symbol name does not satisfy it and is not evidence of absence."
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Mirror of this repo's existing [VERIFIED] / [SPECULATIVE] markdown grammar (LADR-012), so the JSON and markdown views of the same finding cannot disagree. true = you saw the relevant source in this chunk's diff or read the file with read_file; false = inferred from partial context, or the finding rests on an unverified platform-behaviour claim (LADR-015 / DR-015). Absent is treated as false — the conservative reading."
+          },
+          "pre_existing": {
+            "type": "boolean",
+            "description": "True ONLY for an issue in unchanged code that this diff does not interact with. If the diff makes a previously-dormant issue newly reachable, it is NOT pre-existing. On a dedup group the merge helper resolves this to true only when every contributing chunk said true."
+          },
+          "requires_verification": {
+            "type": "boolean",
+            "description": "True when any fix for this finding must be re-verified with targeted tests or a follow-up review pass before it can be trusted. ORs to true across a dedup group."
+          },
+          "autofix_class": {
+            "type": "string",
+            "enum": ["gated_auto", "manual", "advisory"],
+            "description": "Intrinsic shape of the follow-up work. Routing SIGNAL, never apply permission — nothing in this pipeline consumes it yet (reserved for the ai-analyse selection predicate). gated_auto = a concrete suggested_fix is proposed and a caller may apply it after its own judgment. manual = actionable but needs a design input or decision first. advisory = report-only (residual risk, rollout note, learning). On a dedup group the MORE CONSERVATIVE value wins, in the order gated_auto < manual < advisory."
+          },
+          "owner": {
+            "type": "string",
+            "enum": ["downstream-resolver", "human", "release"],
+            "description": "Who owns the next action. Routing SIGNAL, not yet consumed. downstream-resolver = a caller or human acts after review (the default for actionable findings). human = judgment required before implementation. release = operational or rollout follow-up. On a dedup group the MORE CONSERVATIVE value wins, in the order downstream-resolver < human < release."
+          },
+          "suggested_fix": {
+            "type": "string",
+            "description": "Concrete, minimal fix you can defend from the diff and surrounding code. Propose one whenever any defensible change is reachable — from the cited code, a parallel pattern in this repo, or a framework convention you verified. Imperfect information is not grounds for omission: propose the most defensible default and name the assumption. Omit only when there is genuinely no code-level change to propose (the finding is a question, or the resolution is purely organizational)."
+          },
+          "graph_evidence": {
+            "type": "object",
+            "description": "Optional structural evidence from the code knowledge graph (code-review-graph, LADR-049), for findings whose claim rests on call-site or reachability facts rather than on the quoted line alone — 'nothing calls this', 'every caller already guards', 'this is on a critical execution flow'. DEFINED BUT NOT WIRED: no producer populates it and no consumer reads it as of LADR-055; it exists so the Tier 2 evidence-discipline work and LADR-050's per-chunk graph context injection do not need a second schema migration. Do not treat its absence as a defect.",
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "The graph query the claim rests on, e.g. 'callers_of', 'callees_of', 'tests_for', 'dead_code'."
+              },
+              "target": {
+                "type": "string",
+                "description": "Symbol or path the query was run against."
+              },
+              "result_summary": {
+                "type": "string",
+                "description": "One line stating what the query returned and why it supports the finding."
+              }
+            }
+          }
+        }
+      }
+    },
+    "residual_risks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Risks noticed but not confirmable as findings from this chunk. Concatenated across chunks by the merge helper; never promoted to findings."
+    },
+    "testing_gaps": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Missing test coverage identified for the code in this chunk. Concatenated across chunks by the merge helper; never promoted to findings."
+    }
+  }
+}

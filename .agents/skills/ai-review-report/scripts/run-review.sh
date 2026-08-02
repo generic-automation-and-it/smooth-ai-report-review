@@ -1007,6 +1007,27 @@ TOTAL_CHUNKS="$(grep '^total_chunks=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 echo "Total chunks: ${TOTAL_CHUNKS}"
 
+# --- Step 17.5: Merge structured findings across chunks (LADR-055) ------------
+# Each chunk may have emitted a machine-readable sidecar alongside its markdown
+# (extracted and stripped by review-in-chunks.sh). Merge them into one
+# deterministic document: exact dedup on (file, line, title), conservative route
+# merge, mechanical quote-the-line demotion, confidence gate, stable numbering.
+#
+# Best-effort, exactly like the graph analysis at step 13.5 and rtk at 5c-bis: a
+# non-zero exit here means "no merged document", which aggregation reads as "do
+# what you did before LADR-055". It is NOT a chunk failure — LADR-031's
+# `chunk_<n>.failed` flag files remain the sole chunk-failure signal, and this
+# step must never write one.
+_structured_findings="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
+if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+  if [ -f "$LIB_DIR/merge-findings.sh" ]; then
+    bash "$LIB_DIR/merge-findings.sh" \
+      "$WORK_DIR/reviews" \
+      "$WORK_DIR/findings.merged.json" || true
+  fi
+fi
+unset _structured_findings
+
 # --- Step 18: Aggregate -------------------------------------------------------
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${TOTAL_CHUNKS}" \

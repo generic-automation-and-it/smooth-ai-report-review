@@ -9,6 +9,15 @@ echo ""
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../" && pwd)"
 SOURCE_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
 SOURCE_COUNT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+# review-in-chunks.sh calls the LADR-055 sidecar extractor after every chunk.
+# Without it in the sandbox the call errored to stderr on every chunk and was
+# swallowed by its `|| true`, so the extraction path was silently unexercised
+# here from the day it landed.
+SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+# Same coupling: review-in-chunks.sh resolves its per-chunk budget through the
+# shared validator, so a sandbox without it falls back to bash's "No such file"
+# and an empty timeout string.
+SOURCE_TIMEOUT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 
 TMP_DIR="$(mktemp -d /tmp/review-chunk-threshold.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -20,6 +29,8 @@ setup_repo() {
 
   cp "${SOURCE_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
   cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+  cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+  cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -115,6 +126,8 @@ setup_large_file_repo() {
   mkdir -p "${test_repo}/bin"
   cp "${SOURCE_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
   cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+  cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+  cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -205,3 +218,66 @@ echo ""
 echo "=========================================="
 echo "Chunk threshold tests passed"
 echo "=========================================="
+
+# --- Chunk timeout is configurable and validated (post-LADR-055) --------------
+# The budget wraps the whole model chain, so a wrong value here does not degrade
+# gracefully — it fail-closes a chunk that would have reviewed fine.
+echo ""
+echo "=========================================="
+echo "Testing OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT"
+echo "=========================================="
+_ct_fail=0
+_ric="$REPO_ROOT/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+_ct_lib="$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
+_ct() { # _ct <label> <expected> <actual>
+  if [ "$3" = "$2" ]; then echo "  ✅ $1"; else echo "  ❌ $1 (expected '$2', got '$3')"; _ct_fail=1; fi
+}
+# Assert the variable is READ, not that it appears literally at the `timeout`
+# call. The original assertion pinned the exact call-site string
+# `timeout "${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s"`, which broke the moment
+# the value gained the validation SKILL.md had always documented (an
+# intermediate `_chunk_timeout` holding the validated value). The behaviour the
+# test exists to protect — the variable is honoured, no hardcoded budget creeps
+# back — is covered by this check plus the fallback cases below; the shape of
+# the call site is an implementation detail and pinning it only produces false
+# failures on correct refactors.
+_ct "the shared validator exists and is the one the call site names" "1" \
+  "$([ -f "$_ct_lib" ] && echo 1 || echo 0)"
+_ct "the chunk-timeout variable is read by the gate" "1" \
+  "$(cat "$_ric" "$_ct_lib" | grep -cE 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT' | awk '{print ($1 > 0) ? 1 : 0}')"
+_ct "no hardcoded 300s chunk timeout remains" "0" \
+  "$(grep -c 'timeout 300s' "$_ric")"
+_ct "timeout marker reports the configured budget, not a hardcoded 5 minutes" "1" \
+  "$(grep -c 'Reason:\*\* Timeout' "$_ric")"
+# The call site must resolve the budget THROUGH the shared validator. Without
+# this assertion the cases below still pass while `review-in-chunks.sh` reverts
+# to an unvalidated `${VAR:-450}` — which is exactly how the previous version of
+# this test (a self-contained subshell reproduction of the validator) could stay
+# green against a call site that had drifted, or lost its validation entirely.
+_ct "the call site resolves the budget via lib/validate-chunk-timeout.sh" "1" \
+  "$(grep -c '_chunk_timeout=.*validate-chunk-timeout\.sh' "$_ric")"
+_ct "no unvalidated \${VAR:-450} fallback remains at the call site" "0" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-' "$_ric")"
+# The validator must reject junk and fall back rather than pass it to `timeout`.
+# `007` is the case the old reproduction got wrong: `^[0-9]+$` accepted it, the
+# real `^[1-9][0-9]*$` does not.
+for bad in "abc" "0" "-5" "" "007" "45s" "4.5"; do
+  out="$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="$bad" bash "$_ct_lib" 2>/dev/null)"
+  _ct "invalid value '$bad' falls back to 450" "450" "$out"
+done
+_ct "unset falls back to 450" "450" \
+  "$(env -u OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT bash "$_ct_lib" 2>/dev/null)"
+_ct "a rejected value is reported on stderr, not swallowed" "1" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=abc bash "$_ct_lib" 2>&1 >/dev/null \
+     | grep -c 'falling back')"
+_ct "valid override is honoured" "1200" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=1200 bash "$_ct_lib" 2>/dev/null)"
+_ct "the validated value is a bare integer on stdout" "1" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=abc bash "$_ct_lib" 2>/dev/null \
+     | grep -cE '^[1-9][0-9]*$')"
+# Env-var parity: any var the entrypoint reads must be in BOTH packagings.
+_ct "declared in the reusable workflow" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
+_ct "declared in the local-job packaging" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+[ "$_ct_fail" -eq 0 ] || exit 1

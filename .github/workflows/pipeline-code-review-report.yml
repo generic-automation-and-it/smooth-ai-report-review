@@ -412,6 +412,17 @@ jobs:
       # Variable, matching the opencode_config precedence pattern.
       OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
       OPENCODE_TOOL_RTK_VERSION: ${{ inputs.rtk_version || vars.OPENCODE_TOOL_RTK_VERSION || '' }}
+      # Structured findings (LADR-055) — each chunk emits a machine-readable
+      # sidecar alongside its markdown; the sidecars are deduplicated and gated
+      # by scripts/lib/merge-findings.py, and the posted Issues Summary is
+      # rendered from the merged result. Set to a falsy value (0/false/no/off)
+      # to fall back to the orchestrator's free-text Issues Summary — the
+      # markdown grammar is identical either way, so nothing downstream breaks.
+      OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+      # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
+      # chain, so on timeout the LADR-002 secondary is never reached. Raised
+      # from a hardcoded 300 after LADR-055 tripled per-chunk output.
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md
