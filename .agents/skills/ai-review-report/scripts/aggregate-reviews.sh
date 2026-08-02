@@ -597,7 +597,13 @@ FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr 
 FINDINGS_SUMMARY_APPLIED="false"
 MERGED_FINDINGS_FILE="ci_temp/findings.merged.json"
 if [ -s "$MERGED_FINDINGS_FILE" ]; then
-  SIDECAR_COUNT=$(ls ci_temp/reviews/chunk_*.findings.json 2>/dev/null | wc -l | tr -d ' ')
+  # Count chunks the merge actually ingested, not sidecar files on disk. A file
+  # that exists but was rejected downstream — unparseable at the slurp, or a
+  # document the merge helper counted as malformed — would otherwise be counted
+  # as covered, and this precondition would wave through a summary that silently
+  # omits that chunk while reporting full coverage. `merged_chunks` is the
+  # merge's own answer to "whose findings are in here"; nothing else is.
+  SIDECAR_COUNT=$(jq -r '(.merged_chunks // []) | length' "$MERGED_FINDINGS_FILE" 2>/dev/null || echo 0)
   EXPECTED_SIDECARS=$((TOTAL_CHUNKS - FAILED_CHUNK_COUNT))
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -eq "$EXPECTED_SIDECARS" ]; then
     if bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \

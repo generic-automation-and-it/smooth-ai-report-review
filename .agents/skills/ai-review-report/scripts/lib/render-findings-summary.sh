@@ -63,11 +63,33 @@ jq -r '
     + (.chunks // [] | chunk_ref)
     + (if (.why_it_matters // "") != "" then "\n  - \(.why_it_matters | clean)" else "" end);
 
+  # Residual risks and testing gaps render into the Medium tier as ordinary
+  # bullets. They are real work the reviewer identified, and the Medium section
+  # is where `ai-analyse` looks — leaving them in the merged JSON only meant
+  # nobody, human or agent, ever saw them.
+  #
+  # Deliberately WITHOUT the [VERIFIED] tag. `eval/lib/score-review.sh` counts a
+  # line as a flag only when its label carries `[VERIFIED]` *and* a severity
+  # keyword; precision over the DR corpus is zero-tolerance, so tagging these
+  # would let an honest reviewer note such as "no test covers the new branch"
+  # fail a must-not-flag fixture. Untagged, they are visible to a reader and to
+  # `extract-ai-analyse-scope.sh` (which only needs a non-empty, non-"None found"
+  # line) while staying out of the flag count. They also carry no file:line —
+  # they are not located defects, and inventing a location would be worse.
+  def soft_bullet($kind):
+    "- 🟡 \($kind): \(. | clean)";
+
+  def soft_items:
+    [ (.testing_gaps // [])[] | soft_bullet("Testing gap") ]
+    + [ (.residual_risks // [])[] | soft_bullet("Residual risk") ];
+
   def section($sev; $heading):
     "### \($heading)",
     "",
-    ( [ .findings[] | select(.severity == $sev) ]
-      | if length == 0 then "None found" else (.[] | bullet) end ),
+    ( ( [ .findings[] | select(.severity == $sev) ] | map(bullet) )
+      + (if $sev == "medium" then soft_items else [] end)
+      | if length == 0 then ["None found"] else . end
+      | .[] ),
     "";
 
   "## 🔍 Issues Summary",

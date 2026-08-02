@@ -130,6 +130,15 @@ def valid_finding(value):
     return True
 
 
+def soft_key(value):
+    """Dedup key for the free-text soft buckets (residual risks, testing gaps).
+
+    Same normalisation as the title leg of `fingerprint()`. These carry no
+    file/line, so the text is all there is to key on.
+    """
+    return " ".join(str(value).lower().split())
+
+
 def normalise_line(value):
     """Integer when it reads as one, else the stripped original."""
     if isinstance(value, int) and not isinstance(value, bool):
@@ -273,6 +282,14 @@ def main():
     order = []
     residual_risks = []
     testing_gaps = []
+    residual_seen = set()
+    testing_seen = set()
+    # Which chunks actually contributed a usable document. This is the coverage
+    # figure the caller must gate on: counting sidecar FILES instead would count
+    # a chunk whose document was rejected here as covered, and render a summary
+    # that silently omits it while reporting full coverage — the exact failure
+    # the coverage precondition exists to prevent, reached through a side door.
+    merged_chunks = set()
 
     # --- 1. validate + 2. fingerprint dedup ---------------------------------
     for source in payload:
@@ -280,12 +297,21 @@ def main():
             malformed_returns += 1
             continue
         chunk = source["chunk"]
+        merged_chunks.add(chunk)
+        # Both lists are rendered into the Medium tier, so they get the same
+        # cross-chunk deduplication the findings do. Chunk boundaries are an
+        # arbitrary split of one changeset: "no tests for the new guard" reported
+        # by three chunks is one gap, not three. Keyed on whitespace-normalised
+        # lower case — the same normalisation the title leg of `fingerprint()`
+        # uses — and first-seen wins so the output order stays deterministic.
         for item in source.get("residual_risks") or []:
-            if nonempty_string(item):
-                residual_risks.append(item)
+            if nonempty_string(item) and soft_key(item) not in residual_seen:
+                residual_seen.add(soft_key(item))
+                residual_risks.append(item.strip())
         for item in source.get("testing_gaps") or []:
-            if nonempty_string(item):
-                testing_gaps.append(item)
+            if nonempty_string(item) and soft_key(item) not in testing_seen:
+                testing_seen.add(soft_key(item))
+                testing_gaps.append(item.strip())
         for finding in source["findings"]:
             if not valid_finding(finding):
                 malformed_findings += 1
@@ -347,6 +373,7 @@ def main():
         json.dumps(
             {
                 "status": "complete",
+                "merged_chunks": sorted(merged_chunks),
                 "findings": findings,
                 "pre_existing_findings": pre_existing_findings,
                 "suppressed_findings": suppressed_findings,

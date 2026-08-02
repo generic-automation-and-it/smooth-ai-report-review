@@ -282,6 +282,81 @@ check "Test 10h: malformed sidecar produces no output file" "false" \
 check "Test 10i: extraction never writes a .failed flag (LADR-031)" "0" \
   "$(ls "$work"/*.failed 2>/dev/null | wc -l | tr -d ' ')"
 
+# A review that QUOTES a sentinel must not lose the prose after it. Six of this
+# repo's own tracked files contain the literal sentinel and the review model is
+# told to quote the code it flags, so this is the canonical self-review case, not
+# a hypothetical. Anchoring on the first `begin` truncated the review here, took
+# the real sidecar with it, and could drop the body under the 200-byte
+# empty-output floor — turning a clean chunk into a fail-closed REQUEST_CHANGES.
+quoted_body='**Issues Found:**
+- 🟠 [VERIFIED] High Priority: the extractor keys on `<!-- FINDINGS_JSON_BEGIN -->` in review text.
+- 🟡 [VERIFIED] Medium Priority: this finding is after the quote and must survive.'
+{
+  printf '%s\n\n' "$quoted_body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '{"chunk": 99, "findings": [], "residual_risks": [], "testing_gaps": []}\n'
+  printf '```\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_7.md"
+bash "$EXTRACT_SH" "$work/chunk_7.md" 7 "$work/chunk_7.findings.json" >/dev/null
+check "Test 10j: quoted sentinel does not truncate the review" "$quoted_body" "$(cat "$work/chunk_7.md")"
+check "Test 10k: real sidecar still extracted past a quoted sentinel" "7" \
+  "$(jq -r .chunk "$work/chunk_7.findings.json" 2>/dev/null || echo missing)"
+
+# A quoted sentinel with no closing one is indistinguishable from a truncated
+# block. Strip nothing: a fenced JSON block left in the body is cosmetic, losing
+# the rest of the review is not.
+printf '%s\n' "$quoted_body" > "$work/chunk_8.md"
+cp "$work/chunk_8.md" "$TMP_DIR/chunk_8.before.md"
+bash "$EXTRACT_SH" "$work/chunk_8.md" 8 "$work/chunk_8.findings.json" >/dev/null
+check "Test 10l: unterminated sentinel leaves the body untouched" \
+  "$(cat "$TMP_DIR/chunk_8.before.md")" "$(cat "$work/chunk_8.md")"
+check "Test 10m: unterminated sentinel produces no sidecar" "false" \
+  "$([ -f "$work/chunk_8.findings.json" ] && echo true || echo false)"
+
+# A quoted COMPLETE pair (the docs example) followed by the real block: the last
+# complete pair is the sidecar, the quoted one is prose and stays.
+{
+  printf 'The gate emits:\n<!-- FINDINGS_JSON_BEGIN -->\nexample\n<!-- FINDINGS_JSON_END -->\n'
+  printf -- '- 🟠 [VERIFIED] High Priority: real finding after the quoted example.\n\n'
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '{"chunk": 99, "findings": [], "residual_risks": [], "testing_gaps": []}\n'
+  printf '```\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_9.md"
+bash "$EXTRACT_SH" "$work/chunk_9.md" 9 "$work/chunk_9.findings.json" >/dev/null
+check "Test 10n: quoted complete pair survives, last pair is the sidecar" "1" \
+  "$(grep -c 'FINDINGS_JSON_BEGIN' "$work/chunk_9.md" || true)"
+check "Test 10o: real finding after the quoted example survives" "1" \
+  "$(grep -c 'real finding after the quoted example' "$work/chunk_9.md" || true)"
+# Both remaining shapes below were produced by one real MiniMax M3 review of this
+# repo's own LADR-055 diff — the truncated block and the inline quote appeared in
+# the same run. A delimiter is alone on its line; an unterminated one is honoured
+# only when what follows looks like the block.
+{
+  printf -- '- 🟡 [VERIFIED] Medium Priority: prose that must survive.\n\n'
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n{\n  "chunk": 2,\n  "findings": [\n    { "owner": "human",\n'
+} > "$work/chunk_10.md"
+bash "$EXTRACT_SH" "$work/chunk_10.md" 10 "$work/chunk_10.findings.json" >/dev/null
+check "Test 10p: truncated mid-block sidecar is stripped to EOF" "0" \
+  "$(grep -c 'FINDINGS_JSON' "$work/chunk_10.md" || true)"
+check "Test 10q: prose before a truncated block survives" "1" \
+  "$(grep -c 'prose that must survive' "$work/chunk_10.md" || true)"
+
+printf -- '- 🟠 High: the extractor keys on `<!-- FINDINGS_JSON_BEGIN -->` inline in prose.\nTAIL\n' \
+  > "$work/chunk_11.md"
+cp "$work/chunk_11.md" "$TMP_DIR/chunk_11.before.md"
+bash "$EXTRACT_SH" "$work/chunk_11.md" 11 "$work/chunk_11.findings.json" >/dev/null
+check "Test 10r: sentinel quoted INLINE is not a delimiter" \
+  "$(cat "$TMP_DIR/chunk_11.before.md")" "$(cat "$work/chunk_11.md")"
+
+printf 'Docs say:\n<!-- FINDINGS_JSON_BEGIN -->\nProse explaining the block, not JSON.\nTAIL\n' \
+  > "$work/chunk_12.md"
+cp "$work/chunk_12.md" "$TMP_DIR/chunk_12.before.md"
+bash "$EXTRACT_SH" "$work/chunk_12.md" 12 "$work/chunk_12.findings.json" >/dev/null
+check "Test 10s: unterminated sentinel followed by prose is left alone" \
+  "$(cat "$TMP_DIR/chunk_12.before.md")" "$(cat "$work/chunk_12.md")"
+
+rm -f "$work"/chunk_{7,8,9,10,11,12}.md "$work"/chunk_{7,8,9,10,11,12}.findings.json
+
 # --- Test 11: wrapper collection --------------------------------------------
 rm -f "$work"/*.findings.json
 printf '%s' "$(doc 0 "$(finding 'Wrapper A' critical 'src/A.cs' 1 100 false 'q')")" > "$work/chunk_0.findings.json"
@@ -291,6 +366,14 @@ bash "$MERGE_SH" "$work" "$TMP_DIR/merged.json" >/dev/null 2>&1
 check "Test 11a: wrapper wrote a merged document" "complete" "$(jq -r .status "$TMP_DIR/merged.json")"
 check "Test 11b: unparseable sidecar skipped, valid ones kept" "2" \
   "$(jq '.findings | length' "$TMP_DIR/merged.json")"
+# Coverage must be counted from what the merge ingested, not from files on disk.
+# Three sidecars exist here and one was rejected: an `ls`-based count would read
+# 3, satisfy aggregation's full-coverage precondition, and render a summary
+# missing chunk 2 while reporting complete coverage.
+check "Test 11b2: merged_chunks names only the ingested chunks" "0,1" \
+  "$(jq -r '.merged_chunks | join(",")' "$TMP_DIR/merged.json")"
+check "Test 11b3: merged_chunks is shorter than the sidecar file count" "3" \
+  "$(ls "$work"/chunk_*.findings.json 2>/dev/null | wc -l | tr -d ' ')"
 
 set +e
 bash "$MERGE_SH" "$TMP_DIR/no-such-dir" "$TMP_DIR/none.json" >/dev/null 2>&1; rc=$?
@@ -338,6 +421,48 @@ check "Test 12f: Coverage block renders even when empty" "1" \
   "$(grep -c '^### 📊 Coverage$' "$TMP_DIR/empty-rendered.md")"
 check "Test 12g: empty summary uses the None found placeholder" "4" \
   "$(grep -c '^None found$' "$TMP_DIR/empty-rendered.md")"
+
+# --- Test 13: soft buckets render into the Medium tier ------------------------
+# Residual risks and testing gaps are real work the reviewer identified. They are
+# rendered as Medium bullets so a reader and `ai-analyse` both see them — but
+# WITHOUT the [VERIFIED] tag, because score-review.sh counts a flag only when the
+# label carries both the tag and a severity keyword, and DR precision is
+# zero-tolerance. An honest "no test covers the new branch" note must never fail
+# a must-not-flag fixture.
+soft_in='[
+  {"chunk":0,"findings":[],"residual_risks":["No rate limiting on export"],
+   "testing_gaps":["No test covers the new guard","No test for concurrency"]},
+  {"chunk":1,"findings":[],"residual_risks":["  no   RATE limiting on export "],
+   "testing_gaps":["No test covers the new guard"]}
+]'
+soft_out="$(printf '%s' "$soft_in" | merge)"
+check "Test 13a: testing gaps deduplicated across chunks" "2" \
+  "$(printf '%s' "$soft_out" | jq '.testing_gaps | length')"
+check "Test 13b: residual risks deduplicated case/whitespace-insensitively" "1" \
+  "$(printf '%s' "$soft_out" | jq '.residual_risks | length')"
+check "Test 13c: first-seen wording wins (deterministic)" "No rate limiting on export" \
+  "$(printf '%s' "$soft_out" | jq -r '.residual_risks[0]')"
+
+printf '%s' "$soft_out" > "$TMP_DIR/soft-merged.json"
+bash "$RENDER_SH" "$TMP_DIR/soft-merged.json" > "$TMP_DIR/soft-rendered.md"
+soft_medium="$(awk '/^### 🟡 Medium Priority Issues$/{c=1;next} c&&/^### /{exit} c' "$TMP_DIR/soft-rendered.md")"
+check "Test 13d: testing gaps render in the Medium section" "2" \
+  "$(printf '%s\n' "$soft_medium" | grep -c 'Testing gap:' || true)"
+check "Test 13e: residual risks render in the Medium section" "1" \
+  "$(printf '%s\n' "$soft_medium" | grep -c 'Residual risk:' || true)"
+check "Test 13f: soft bullets carry no [VERIFIED] tag" "0" \
+  "$(printf '%s\n' "$soft_medium" | grep -c 'VERIFIED' || true)"
+check "Test 13g: Medium section is not None found when only soft items exist" "0" \
+  "$(printf '%s\n' "$soft_medium" | grep -c '^None found$' || true)"
+
+if [ -x "$SCORE_SH" ]; then
+  check "Test 13h: soft items alone are NOT scored as a flag (DR precision)" "" \
+    "$(bash "$SCORE_SH" "$TMP_DIR/soft-rendered.md" | tr '\n' ',' | sed 's/,$//')"
+fi
+if [ -x "$ANALYSE_SCOPE_SH" ]; then
+  check "Test 13i: ai-analyse sees soft items as actionable scope" "true" \
+    "$(bash "$ANALYSE_SCOPE_SH" "$TMP_DIR/soft-rendered.md" | jq -r .has_low_medium)"
+fi
 
 echo ""
 echo "=========================================="

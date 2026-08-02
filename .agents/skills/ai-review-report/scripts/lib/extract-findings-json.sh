@@ -20,6 +20,15 @@
 #     block is our problem, not the PR author's; leaving it in would post a wall
 #     of JSON to the PR. The sentinels are HTML comments so even a leaked one
 #     renders invisibly rather than corrupting the body.
+#  1b. ...but only a COMPLETE, LAST pair is ever stripped — see the anchoring
+#     comment above the awk below. A review that merely *quotes* a sentinel must
+#     not lose the prose that follows it. This repo reviews its own PRs, six of
+#     its own tracked files contain the literal sentinel, and the review model is
+#     told to quote the code it flags: the quoting case is not hypothetical here,
+#     it is the canonical trigger. Same failure shape as LADR-031 (a marker
+#     string quoted into a legitimate review body, text-matched as if it were a
+#     control signal), and the same conclusion — a control channel must not be
+#     forgeable by review content.
 #  2. The sidecar is best-effort and NEVER a chunk failure. Missing block,
 #     truncated block, malformed JSON, wrong top-level shape — every one of these
 #     logs a warning, removes any partial output, and exits 0. LADR-031's
@@ -60,16 +69,69 @@ fi
 tmp_block="${out_json}.block.tmp"
 tmp_md="${chunk_md}.stripped.tmp"
 
-# Split the file in one awk pass: everything outside the sentinel range goes to
-# the stripped markdown, everything strictly inside goes to the block. An
-# unterminated block (model output cut off mid-JSON) consumes to EOF — the
-# remainder is JSON, not review prose, so keeping it would be noise either way.
-awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" -v md="$tmp_md" -v blk="$tmp_block" '
-  index($0, b) { inblock = 1; seen = 1; next }
-  inblock && index($0, e) { inblock = 0; next }
-  inblock { print > blk; next }
+# Anchor on the LAST COMPLETE begin..end pair, never the first begin.
+#
+# The prompt requires the sidecar to be the last thing in the output, so the last
+# complete pair is the real block by construction. Anchoring on the first `begin`
+# instead makes the channel forgeable by review content: a chunk reviewing one of
+# this repo's own files that contains the sentinel — review-in-chunks.sh,
+# extract-findings-json.sh, SKILL.md, AGENTS.md, CHANGELOG.md,
+# test-merge-findings.sh — need only quote that line in its prose for everything
+# after it to be swallowed as "the block". Observed cost when that happens: the
+# review is truncated at the quote, the real sidecar is consumed with it and
+# fails to parse, and the surviving markdown can fall under the 200-byte
+# empty-output floor, turning a clean review into a fail-closed REQUEST_CHANGES
+# on a chunk that reviewed fine.
+#
+# Two discriminators separate a real delimiter from a quoted one, and a single
+# real review of this repo produced both shapes at once:
+#
+#   1. A delimiter is ALONE on its line. The real block always emits the sentinel
+#      on its own line; a reviewer quoting it writes it inline mid-sentence
+#      ("... the extractor keys on `<!-- ... -->` in review text"). An inline
+#      mention is prose and is not a delimiter at all.
+#   2. An unterminated `begin` is only honoured when what follows LOOKS like the
+#      block — the next non-blank line opens a fence or a JSON value. That is the
+#      genuine "model was cut off mid-JSON" case, and stripping it to EOF keeps
+#      the wall of JSON out of the posted body. A lone `begin` followed by prose
+#      is a quote; stripping there would eat the rest of the review.
+#
+# Preference order: the last complete pair wins; a later unterminated-but-
+# JSON-shaped `begin` beats it, since the prompt puts the real block last.
+pair="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" '
+  { line = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line) }
+  line == b { cand = NR; candnext = ""; next }
+  cand && line == e { bl = cand; el = NR; cand = 0; next }
+  cand && candnext == "" && line != "" { candnext = line }
+  END {
+    if (cand && cand > bl && (candnext ~ /^```/ || candnext ~ /^[{[]/)) {
+      print cand " 0"          # unterminated but JSON-shaped: strip to EOF
+    } else if (bl) {
+      print bl " " el
+    }
+  }
+' "$chunk_md" 2>/dev/null)"
+
+if [ -z "$pair" ]; then
+  echo "  ⚠️ Chunk ${chunk_num}: no findings sidecar delimiter (only a quoted mention) — leaving the review body untouched"
+  rm -f "$out_json"
+  exit 0
+fi
+
+begin_line="${pair%% *}"
+end_line="${pair##* }"
+# `0` means "unterminated, consume to EOF" — an end line past any real line.
+if [ "$end_line" = "0" ]; then
+  end_line=$(( $(wc -l < "$chunk_md") + 1 ))
+  echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was truncated mid-block — stripping it, continuing without the sidecar"
+fi
+
+# Split on the resolved line numbers: everything outside [begin_line, end_line]
+# is markdown, everything strictly inside is the block.
+awk -v bl="$begin_line" -v el="$end_line" -v md="$tmp_md" -v blk="$tmp_block" '
+  NR == bl || NR == el { next }
+  NR > bl && NR < el { print > blk; next }
   { print > md }
-  END { if (seen && inblock) print "unterminated" > "/dev/stderr" }
 ' "$chunk_md" 2>/dev/null
 
 # awk only creates an output file once it writes to it; make sure both exist.
