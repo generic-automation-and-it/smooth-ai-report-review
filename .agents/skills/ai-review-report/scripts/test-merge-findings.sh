@@ -223,6 +223,22 @@ check "Test 8c: unanimous pre_existing is partitioned out" "1" \
 check "Test 8d: unanimous pre_existing is not actionable" "0" \
   "$(printf '%s' "$out" | jq '.findings | length')"
 
+# LADR-063: pre-existing items are numbered too, in their own `#P` sequence.
+# They are reported and never counted toward the verdict, so they must not draw
+# from the findings sequence — but an unnumbered item cannot be referenced in a
+# skip decision, which is the whole reason the section exists.
+printf '%s' "$out" > "$TMP_DIR/pe-merged.json"
+bash "$RENDER_SH" "$TMP_DIR/pe-merged.json" > "$TMP_DIR/pe-rendered.md"
+pe_section="$(awk '/^### 🗂️ Pre-existing/{c=1;next} c&&/^### /{exit} c' "$TMP_DIR/pe-rendered.md")"
+check "Test 8e: pre-existing items are numbered #P1..#Pn" "1" \
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#P[0-9]+\*\* ' || true)"
+check "Test 8f: pre-existing numbering does not use the findings namespace" "0" \
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+if [ -x "$SCORE_SH" ]; then
+  check "Test 8g: numbering a pre-existing item does not make it a flag" "" \
+    "$(bash "$SCORE_SH" "$TMP_DIR/pe-rendered.md" | tr '\n' ',' | sed 's/,$//')"
+fi
+
 # --- Test 9: determinism -----------------------------------------------------
 # Same input twice → byte-identical output, including `#` assignment. The eval
 # harness and any future run-to-run diff depend on this.
@@ -454,6 +470,22 @@ check "Test 13f: soft bullets carry no [VERIFIED] tag" "0" \
   "$(printf '%s\n' "$soft_medium" | grep -c 'VERIFIED' || true)"
 check "Test 13g: Medium section is not None found when only soft items exist" "0" \
   "$(printf '%s\n' "$soft_medium" | grep -c '^None found$' || true)"
+
+# LADR-063: soft items are numbered in their OWN sequences (#T1…, #R1…), not in
+# the findings' #N sequence. Two separate contracts are pinned here. First, they
+# ARE numbered — an unnumbered item cannot be referenced in a fix/skip decision,
+# which is what made residual risks invisible in practice. Second, the sequences
+# are independent: adding a finding must not repoint `#R1`, because the PR
+# description's Skip Areas bullets are read by the NEXT run's gate and a shifted
+# number silently rebinds a skip to a different item.
+check "Test 13j: testing gaps are numbered #T1..#Tn" "2" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#T[0-9]+\*\* ' || true)"
+check "Test 13k: residual risks are numbered #R1..#Rn" "1" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#R[0-9]+\*\* ' || true)"
+check "Test 13l: each soft sequence starts at 1 (independent of findings)" "1,1" \
+  "$(printf '%s\n' "$soft_medium" | grep -oE '#[TR]1\b' | sed 's/#[TR]//' | tr '\n' ',' | sed 's/,$//')"
+check "Test 13m: soft numbers never collide with the findings namespace" "0" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
 
 if [ -x "$SCORE_SH" ]; then
   check "Test 13h: soft items alone are NOT scored as a flag (DR precision)" "" \

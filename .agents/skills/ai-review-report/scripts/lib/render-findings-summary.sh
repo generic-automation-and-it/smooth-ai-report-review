@@ -83,12 +83,26 @@ jq -r '
   # `extract-ai-analyse-scope.sh` (which only needs a non-empty, non-"None found"
   # line) while staying out of the flag count. They also carry no file:line —
   # they are not located defects, and inventing a location would be worse.
-  def soft_bullet($kind):
-    "- 🟡 \($kind): \(. | clean)";
+  # Numbered like findings, but in their OWN sequence with a class prefix
+  # (`#T1`, `#R1`), for one reason: adding a finding must not renumber a
+  # residual risk. Cross-round references live in the Skip Areas bullets of the
+  # PR body, which the gate reads to decide whether a finding is intentional —
+  # a shared sequence would silently repoint every one of them on the next run.
+  # The prefix also keeps the `#N` namespace exactly as it was for consumers
+  # that map a number onto an entry in the findings array; nothing matching
+  # `**#1**` can ever match `**#R1**`.
+  #
+  # NOTE for editors: this whole jq program is a single-quoted shell string, so
+  # an apostrophe anywhere in these comments terminates it and the script dies
+  # with a syntax error. Use "the PR body" rather than the possessive form.
+  #
+  # Input is a {key, value} entry so the array index supplies the number.
+  def soft_bullet($kind; $tag):
+    "- **#\($tag)\(.key + 1)** 🟡 \($kind): \(.value | clean)";
 
   def soft_items:
-    [ (.testing_gaps // [])[] | soft_bullet("Testing gap") ]
-    + [ (.residual_risks // [])[] | soft_bullet("Residual risk") ];
+    [ (.testing_gaps // []) | to_entries[] | soft_bullet("Testing gap"; "T") ]
+    + [ (.residual_risks // []) | to_entries[] | soft_bullet("Residual risk"; "R") ];
 
   def section($sev; $heading):
     "### \($heading)",
@@ -101,7 +115,7 @@ jq -r '
 
   "## 🔍 Issues Summary",
   "",
-  "**Note:** Findings are deduplicated across chunks and numbered stably (`#1`, `#2`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning.",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`#1`, `#2`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `#R` residual risks, `#T` testing gaps, `#P` pre-existing, `#H` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
   "",
   section("critical"; "🔴 Critical Issues"),
   section("high"; "🟠 High Priority Issues"),
@@ -114,9 +128,9 @@ jq -r '
   ( if (.pre_existing_findings | length) > 0 then
       ( "### 🗂️ Pre-existing (not introduced by this PR)",
         "",
-        ( .pre_existing_findings[]
-          | "- \(.severity | sev_emoji) \(.severity | sev_label): \(.title | clean) — `\(.file):\(.line)`"
-            + (.chunks // [] | chunk_ref) ),
+        ( .pre_existing_findings | to_entries[]
+          | "- **#P\(.key + 1)** \(.value.severity | sev_emoji) \(.value.severity | sev_label): \(.value.title | clean) — `\(.value.file):\(.value.line)`"
+            + (.value.chunks // [] | chunk_ref) ),
         "" )
     else empty end ),
 

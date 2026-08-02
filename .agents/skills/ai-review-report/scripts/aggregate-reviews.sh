@@ -580,6 +580,15 @@ fi
 balance_fences ci_temp/pr_summary_main.md
 balance_fences ci_temp/pr_summary_detailed.md
 
+# LADR-063: number the holistic items (`#H1`, `#H2`, …) so every item in the
+# posted review is addressable, not just the deduplicated findings. Runs AFTER
+# balance_fences because the numberer skips fenced blocks and needs the fences
+# to be balanced before it can tell which lines are inside one. Best-effort by
+# construction: the script leaves the file untouched on any problem, so an
+# unnumbered holistic section is the worst case.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/number-holistic-items.sh" \
+  ci_temp/pr_summary_detailed.md || true
+
 # Build final review comment with proper structure
 # Format SHAs to 7 characters
 SHORT_FROM_SHA="${FROM_SHA:0:7}"
@@ -760,7 +769,19 @@ cat >> ci_temp/final_review.md << EOF
 
 EOF
 
-# Add holistic analysis with header
+# Add holistic analysis with header.
+#
+# LADR-063: when the numbering pass actually assigned identifiers, say what they
+# mean right here rather than only in the Issues Summary legend — that legend is
+# rendered by render-findings-summary.sh, which runs ONLY on full sidecar
+# coverage, so on the fallback path a reader would meet `#H3` with nothing
+# anywhere explaining it. Emitted conditionally so a section that was left
+# unnumbered (no anchor, degraded run) does not carry a legend for numbers it
+# does not have.
+if grep -q '\*\*#H[0-9]' ci_temp/pr_summary_detailed.md 2>/dev/null; then
+  echo "> Cross-chunk items below are numbered \`#H1\`, \`#H2\`, … — a sequence of their own, separate from the \`#N\` findings in the Issues Summary. Quote the identifier when you fix or skip one." >> ci_temp/final_review.md
+  echo "" >> ci_temp/final_review.md
+fi
 cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md
 
 echo "" >> ci_temp/final_review.md
