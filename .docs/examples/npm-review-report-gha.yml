@@ -48,7 +48,7 @@ jobs:
       OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
     steps:
       - name: Checkout PR head (full history for base diff)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # local-review.sh diffs the current branch against --base (default: main),
           # so fetch full history and check out the PR head, not the merge ref.
@@ -57,7 +57,7 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 20
 
@@ -76,7 +76,13 @@ jobs:
       - name: Install review tooling (npm) + opencode CLI
         run: |
           set -eo pipefail
-          # Pin an exact version in real use, e.g. @1.2.3, so reviews are reproducible.
+          # Version policy — the npm analogue of the reusable workflow's
+          # "commit SHA or trusted floating ref" rule:
+          #   supply-chain pinned  → npm install …/smooth-ai-review@1.0.1
+          #   trusted floating     → the unpinned form below (resolves to latest)
+          # Unpinned is fine for tracking releases, but every run then reviews
+          # with whatever was published most recently. Pin the exact version
+          # when you need a review to be reproducible.
           npm install --no-save @generic-automation-and-it/smooth-ai-review
           # opencode is the model transport the scripts drive. The npm
           # package ships the skill files (and the shared installer) in its
