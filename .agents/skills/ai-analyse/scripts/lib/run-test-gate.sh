@@ -199,9 +199,13 @@ while IFS= read -r suite; do
     baseline_code="$(run_suite "$suite" "$pristine" "$baseline_out")"
     rm -f "$baseline_out"
     if [ "$baseline_code" -ne 0 ]; then
-      echo "  ~ ${suite} FAILED (exit ${exit_code}) — already failing at HEAD, not a regression"
-      preexisting+=("$suite")
-      continue
+      if [ "$baseline_code" -eq 124 ]; then
+        echo "  ! ${suite} baseline TIMED OUT — safety could not be established, treating as a regression (fail closed)"
+      else
+        echo "  ~ ${suite} FAILED (exit ${exit_code}) — already failing at HEAD, not a regression"
+        preexisting+=("$suite")
+        continue
+      fi
     fi
   else
     echo "  ! could not create a pristine worktree — treating ${suite} as a regression (fail closed)"
