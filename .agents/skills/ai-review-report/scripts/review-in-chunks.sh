@@ -32,6 +32,28 @@ echo "Model: $OPENCODE_MODEL_ID"
 echo "=========================================="
 echo ""
 
+# Per-chunk review budget. This wraps the WHOLE fallback chain
+# (lib/opencode-with-fallback.sh has no internal timeout of its own), so when it
+# fires the LADR-002 secondary model never gets to run — a timeout does not just
+# fail the chunk, it silently disables the two-tier rescue that exists for
+# exactly this case. Budget generously; the cost of a too-long timeout is a
+# slower job, the cost of a too-short one is a fail-closed REQUEST_CHANGES on a
+# chunk that would have reviewed fine.
+#
+# Default raised from the original hardcoded 300 to 900. The 300 was calibrated
+# before LADR-055 roughly tripled per-chunk model output (markdown ~2.9 KB ->
+# ~5.7 KB, plus ~3.4 KB of JSON sidecar); on PR #106 a 96 KB-prompt chunk hit
+# exactly 300 s and was killed, while a mid-size chunk in the same run took
+# 209 s. The margin was gone. Chunks run in parallel, so the wall-clock cost of
+# the higher ceiling is bounded by the slowest chunk, not their sum.
+OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-900}"
+if ! [[ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" -le 0 ]; then
+  echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT='${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}' (must be a positive integer). Using default: 900" >&2
+  OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900
+fi
+echo "⏱️  Per-chunk review timeout: ${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s"
+echo ""
+
 # LADR-055: structured findings — confidence anchors, the quote-the-line gate,
 # and the machine-readable per-chunk sidecar. Enabled by default; a falsy
 # OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS reverts the chunk prompt to
@@ -934,7 +956,7 @@ EOF
   # read_file context-loading works (with the diff also inline as a fallback),
   # but cannot self-activate this repo's ai-review-report skill. Fallback chain
   # preserves LADR-002.
-  if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if timeout "${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     # LADR-055: pull the structured-findings sidecar out and strip it from the
     # markdown. Runs BEFORE the empty-output floor below on purpose — the floor
     # must measure the markdown a human will actually read, so a model that
@@ -996,7 +1018,11 @@ EOF
       echo ""
       echo "**Exit Code:** ${exit_code}"
       if [ "$exit_code" -eq 124 ]; then
-        echo "**Reason:** Timeout (>5 minutes)"
+        # The timeout wraps the whole fallback chain, so on 124 the secondary
+        # model was never reached — say so rather than implying the chain was
+        # tried and exhausted. Raise OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT to
+        # give it room.
+        echo "**Reason:** Timeout (>${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s). The budget wraps the whole model chain, so the fallback model was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
       elif [ "$exit_code" -eq 137 ]; then
         echo "**Reason:** Out of memory or killed"
       else

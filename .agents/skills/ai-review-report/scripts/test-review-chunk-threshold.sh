@@ -205,3 +205,45 @@ echo ""
 echo "=========================================="
 echo "Chunk threshold tests passed"
 echo "=========================================="
+
+# --- Chunk timeout is configurable and validated (post-LADR-055) --------------
+# The budget wraps the whole model chain, so a wrong value here does not degrade
+# gracefully — it fail-closes a chunk that would have reviewed fine.
+echo ""
+echo "=========================================="
+echo "Testing OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT"
+echo "=========================================="
+_ct_fail=0
+_ric="$REPO_ROOT/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+_ct() { # _ct <label> <expected> <actual>
+  if [ "$3" = "$2" ]; then echo "  ✅ $1"; else echo "  ❌ $1 (expected '$2', got '$3')"; _ct_fail=1; fi
+}
+_ct "call site uses the variable, not a hardcoded 300s" "1" \
+  "$(grep -c 'timeout "\${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s"' "$_ric")"
+_ct "no hardcoded 300s chunk timeout remains" "0" \
+  "$(grep -c 'timeout 300s' "$_ric")"
+_ct "timeout marker reports the configured budget, not a hardcoded 5 minutes" "1" \
+  "$(grep -c 'Reason:\*\* Timeout' "$_ric")"
+# The validator must reject junk and fall back rather than pass it to `timeout`.
+for bad in "abc" "0" "-5" ""; do
+  out="$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="$bad" bash -c '
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-900}"
+    if ! [[ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" -le 0 ]; then
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900
+    fi
+    printf "%s" "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT"')"
+  _ct "invalid value '$bad' falls back to 900" "900" "$out"
+done
+_ct "valid override is honoured" "1200" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=1200 bash -c '
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-900}"
+    if ! [[ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" -le 0 ]; then
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900
+    fi
+    printf "%s" "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT"')"
+# Env-var parity: any var the entrypoint reads must be in BOTH packagings.
+_ct "declared in the reusable workflow" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
+_ct "declared in the local-job packaging" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+[ "$_ct_fail" -eq 0 ] || exit 1
