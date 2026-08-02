@@ -717,10 +717,22 @@ EOF
   cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
 
 **Signal-to-noise guidelines:**
-- **Be precise, not pedantic.** Every issue should matter to a senior developer. Do not flag minor style preferences, subjective naming choices, or trivial formatting. 3 actionable findings > 15 nitpicks.
+- **Advisory test.** Ask "what actually breaks if we do not fix this?". If the honest answer is "nothing breaks, but…", the item is **advisory** — an observation, not a defect. Never give an advisory item 🔴 Critical, 🟠 High, or 🟡 Medium; record it as 🔵 Low Priority, framed as an observation. Advisory shapes: a design asymmetry this PR improves but does not fully resolve; an opportunity to consolidate two similar helpers when neither is broken; a residual risk worth noting.
+- **Precedence.** The non-findings catalogue below is **stricter** than the advisory test. If a shape matches the catalogue it is a non-finding and must be suppressed entirely — do NOT re-route it to advisory.
 - **When intent is ambiguous**, note it as 🔵 Low Priority with question framing (e.g., "Intentional? If X happens, Y could be null") rather than flagging as a definitive bug.
 - **Passing checks are not issues.** If you verify that a contract, convention, file shape, permission, diagram, or cross-file relationship is correct, mention it under positive highlights only if useful, or omit it. Do NOT list "No issue", "consistent", "verified", or "flagging only because checked" items under **Issues Found**, and do NOT assign them a severity.
 - **Documentation drift is capped at 🟡 Medium** — when a PR modifies behavior described in any documentation file (AGENTS.md, README, HLDs, ADRs, LADRs, NFRs) but does NOT update that file, flag the stale documentation at Medium at most; never 🟠 High or 🔴 Critical (LADR-046).
+
+**Non-findings — do not emit at any anchor:**
+- **Pre-existing issues unrelated to this diff** (with the "newly relevant → secondary, not pre-existing" carve-out — see the classification rules below).
+- **Pedantic style nitpicks a linter or formatter would catch** — style belongs to the toolchain.
+- **Code that looks wrong but is intentional** — check comments, commit messages, PR description, surrounding code first.
+- **Issues already handled elsewhere** — callers, guards, middleware, framework defaults, parallel handlers.
+- **Suggestions that restate what the code already does** — "consider extracting a helper" when it is already a small helper.
+- **Generic "consider adding" advice with no named failure mode** — if you cannot name what breaks, the finding is not actionable.
+- **Code carrying a matching lint-disable comment** (`eslint-disable-next-line`, `# rubocop:disable`, `# noqa`, `#pragma warning disable`, `// ReSharper disable`) — the author already chose to suppress; re-flagging through a different reviewer overrides their decision.
+- **General code-quality concerns not codified in the loaded context files** — "this file is getting long", "too many parameters". Without a project rule to anchor it, it is subjective.
+- **Speculative future-work concerns with no current signal** — "might break under load", "what if requirements change".
 
 **Verification-Incomplete Suppression:**
 - If you did NOT receive a file in your review chunk (i.e., it is not listed in "Files in this chunk" above and its diff is not included below), do NOT flag test coverage, implementation concerns, or integration issues for that file at 🔴 Critical, 🟠 High, or 🟡 Medium priority. You may state that the file was not reviewed, but classify such observations at 🔵 Low Priority (informational) only.
@@ -803,16 +815,20 @@ EOF
    - GitHub Actions `branches:`/`tags:`/`paths:` filters are glob patterns, NOT regex. Dots are literal; never suggest regex-escaping them.
 5. Only flag if the issue is TRULY present after checking the current file state
 
-**Issue Classification Rules:**
-- 🔴🟠🟡 **Critical/High/Medium**: ONLY for issues in the CHANGED code (diff lines)
-- 🔵 **Low Priority**: Use for recommendations about UNCHANGED code you noticed while checking context
-  - Example: "While verifying context, noticed [existing issue] - consider addressing in future PR"
-  - These are suggestions, not blockers
+**Issue Classification Rules — three tiers:**
+
+- **Primary** — lines added or modified in the diff. Full severity range (🔴🟠🟡🔵).
+- **Secondary** — unchanged code *within the same function/block* as a changed line, where the change makes a bug visible only by reading surrounding context. Full severity range; treat it as introduced by this PR.
+- **Pre-existing** — unchanged code the diff neither touches nor interacts with. Report it under **Pre-existing (informational)** below; it does not count toward the verdict.
+
+The discriminator: if you would flag the same issue on an identical diff that did not include the surrounding file, it is **pre-existing**. If the diff makes the issue *newly relevant* (e.g. a new caller now reaches an existing buggy function), it is **secondary**.
+
+When unsure between secondary and pre-existing, choose secondary — conservative default in the safe direction. Pre-existing findings do not block the PR, so mislabeling a real regression as pre-existing silently disarms the gate.
 
 **What NOT to do:**
 - ❌ Don't review the entire file for issues unrelated to the diff
-- ❌ Don't flag existing code issues as Critical/High/Medium
 - ❌ Don't use file access to expand the review scope beyond the diff
+- ❌ Don't put pre-existing observations in the Low bucket — they belong in the Pre-existing section, not among actionable findings
 
 **Output Format:**
 For each file, use this structure:
@@ -827,7 +843,28 @@ For each file, use this structure:
 
 Only include real defects, risks, or actionable documentation/maintenance issues in **Issues Found**. Passing consistency checks belong outside this section or should be omitted.
 
+**Pre-existing (informational):**
+- Unchanged code the diff neither touches nor interacts with. Report only if the observation is genuinely useful (e.g. a known bug in a library the PR depends on). These do not count toward the verdict.
+- Example: "While verifying context, noticed [existing issue] — consider addressing in a future PR."
+
+**Writing the finding description (every finding, every severity):**
+1. **Lead with observable behaviour** — what a user, attacker, operator, or downstream caller experiences.
+   - Weak: "The `GetOrders` action does not validate that the account belongs to the caller before querying."
+   - Strong: "Any signed-in user can read another user's orders by pasting the target account ID into the URL."
+   The weak version describes the code; the strong version describes what goes wrong. Write the strong one.
+2. **Explain why the fix resolves it, and cite the parallel pattern already in this repo** — an existing guard, an established convention, at `file:line`. This grounds the recommendation in the project's own conventions instead of theoretical best practice, and lets a downstream fixer match house style.
+3. **Keep it tight** — 2 to 4 sentences plus minimum quoted code, as one paragraph. Longer framings get truncated by downstream display budgets, and a multi-paragraph description breaks the bullet structure the posted report is assembled from.
+4. **Always substantive** — an empty description or a single bare phrase is a validation failure.
+
 **Suggested Fixes:**
+- **Imperfect information is not grounds for omission.** When you do not have full context for the optimal fix, propose the most defensible default and **name the assumption**. *"I need `<specific input>` before I can commit"* is a **soft punt** — the question to ask instead is *"what code change would I propose if I had to choose now?"*, and propose that.
+- Worked examples:
+  - Pagination strategy unclear -> propose offset pagination matching the existing pattern at `file:line`, and say "assumes offset pagination, consistent with `OrdersController.cs:88`".
+  - Rate-limit value uncertain -> propose the value the neighbouring limits already use, and say which one you matched.
+  - Auth model unknown -> route the new endpoint through the existing middleware, and say "assumes the same middleware as the sibling endpoints in this file".
+- Genuine omission carve-out: omit the fix only when the finding is a question with no defaultable answer, or when the resolution is purely organisational.
+- Use `language` identifiers matching the file's language (e.g. `python`, `typescript`, `csharp`).
+
 ```language
 [corrected code if applicable]
 ```
@@ -879,10 +916,25 @@ Rules for the sidecar — a violated rule silently drops the finding from dedupl
 - `verified` is `true` for a `[VERIFIED]` finding and `false` for a `[SPECULATIVE]` one — it must agree with the tag you used in the markdown above.
 - `confidence` is one of the five anchors. `evidence` is an ARRAY of strings with at least one element, even when there is only one quote. At anchors `75`/`100` the first element must be the quoted motivating line, repeated in `first_evidence`.
 - `autofix_class` is one of `"gated_auto"`, `"manual"`, `"advisory"`; `owner` is one of `"downstream-resolver"`, `"human"`, `"release"`. Nothing acts on these yet — classify honestly, they are routing signal only. Default `owner` to `"downstream-resolver"` unless the item genuinely needs human judgment first or is release/rollout work.
+- `why_it_matters` is the finding's description, written to the **Writing the finding description** rules above.
+- `pre_existing` is `true` **only** for items you reported under **Pre-existing (informational)**; Primary and Secondary findings are both `false`. Pre-existing items still belong in the `findings` array — the merge partitions them out of the verdict on this flag, so omitting them here is what makes them disappear, not what keeps them out of the blocking count.
 - `suggested_fix`, `first_evidence` and `graph_evidence` are optional; every other field is required on every finding.
-- Emit **one** finding object per distinct defect. Every finding you listed under **Issues Found** above belongs here, and nothing that is not a finding does: no "None found" placeholders, no passing checks, no coverage notes.
+- Emit **one** finding object per distinct defect. Every item you listed under **Issues Found** or **Pre-existing (informational)** above belongs here, and nothing else does: no "None found" placeholders, no passing checks, no coverage notes.
 - If you found nothing, emit the block with `"findings": []`.
 - The block is the LAST thing in your output. Do not wrap it in extra prose, do not emit it twice, and do not put it before the markdown review.
+
+**Soft-bucket routing (LADR-055):**
+- An item that fails the **Advisory test** above — nothing breaks if it is not fixed — goes into `residual_risks` or `testing_gaps` rather than `findings`. They render as untagged 🟡 bullets, visible to humans and to the downstream fixer, but excluded from the verdict count and the confidence gate.
+- **Testing-flavoured 🟡 Medium / 🔵 Low advisories -> `testing_gaps`.** Maintainability, reliability and adversarial advisories -> `residual_risks`. The exception in both cases: if the item quotes an explicit violated contract or proves a current user-facing defect, it stays a finding.
+- **Coverage umbrella:** keep at most ONE primary finding per changed subsystem where lack of tests is itself material. Narrower case-by-case coverage findings move to `testing_gaps` regardless of severity.
+- **A current 🔴 Critical or 🟠 High is never demoted** merely because evidence is thin — that is what the confidence anchor is for, and `critical` is exempt from the suppression gate.
+- **Deployment-topology rule:** do not widen a repo contract with an assumed deployment topology. A claim requiring unproven restarts, multiple instances, or a specific scheduler is a **residual risk** unless the code establishes that operating condition.
+- `residual_risks` and `testing_gaps` are arrays of single-sentence strings. They carry no `file:line`, no severity, and no `confidence`.
+
+**Exhaustive-coverage honesty rule:**
+- No search tool is complete — dynamic dispatch, reflection, DI, string-keyed routes, generated code, and external consumers hide usages from all of them. This only bites a claim resting on **exhaustive** coverage: *"this symbol is unused"*, *"nothing else calls this"*, *"safe to change"*.
+- For such a claim, when your coverage is text-search-only, record the unresolved boundary in `residual_risks` (e.g. `callsite completeness: grep-only`) or step the finding down — rather than asserting absence or safety.
+- When `code-review-graph` evidence is available (LADR-049), it is the stronger answer. The honesty rule covers the residual cases the graph cannot see (reflection, string-keyed routes, generated code, external consumers).
 EOF
   fi
 
