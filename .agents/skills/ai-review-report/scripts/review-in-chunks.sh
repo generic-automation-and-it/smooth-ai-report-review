@@ -971,12 +971,23 @@ EOF
     # must measure the markdown a human will actually read, so a model that
     # returned nothing but a JSON block still trips it. Best-effort and never a
     # chunk failure: this call cannot write a `.failed` flag (LADR-031 owns that
-    # channel) and its exit code is deliberately ignored.
+    # channel) and its exit status never propagates.
+    #
+    # It is reported, though. The previous `|| true` discarded the status
+    # silently, and that is how the extractor went unexercised in the test
+    # sandbox from the day it landed — the lib was simply absent, every chunk
+    # errored to stderr, and nothing in the log said so. Non-blocking is the
+    # contract; invisible is not. `::warning::` annotates the run without
+    # failing it (and degrades to an ordinary log line outside GitHub Actions),
+    # so the next regression here shows up as a coverage question rather than as
+    # a merged summary that quietly renders from fewer chunks than it should.
     if structured_findings_enabled; then
-      bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-findings-json.sh" \
+      if ! bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-findings-json.sh" \
         "ci_temp/reviews/chunk_${chunk_num}.md" \
         "${chunk_num}" \
-        "ci_temp/reviews/chunk_${chunk_num}.findings.json" || true
+        "ci_temp/reviews/chunk_${chunk_num}.findings.json"; then
+        echo "::warning::extract-findings-json.sh failed for chunk ${chunk_num} — no structured sidecar; aggregation will fall back to the orchestrator's Issues Summary"
+      fi
     fi
 
     # Empty-output detection: opencode can exit 0 while producing no review

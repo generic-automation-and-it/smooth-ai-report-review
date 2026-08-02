@@ -63,8 +63,16 @@ if [ ! -s "$logfile" ]; then
   exit 0
 fi
 
+# Both are interpolated straight into the header below, so an empty value would
+# render as `last 40 of  lines,  bytes`. The `-s` guard above proves the file
+# existed a moment ago, but this script only ever runs while something is
+# ALREADY failing — a log the failing step is still writing, or one a parallel
+# cleanup has just unlinked, makes `wc` the second thing to go wrong. Default
+# rather than let a diagnostic become its own puzzle.
 size=$(wc -c < "$logfile" 2>/dev/null | tr -d ' ')
 total=$(wc -l < "$logfile" 2>/dev/null | tr -d ' ')
+size="${size:-0}"
+total="${total:-0}"
 
 # `::group::` is GitHub Actions syntax; plain headers everywhere else so local
 # runs stay readable.

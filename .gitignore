@@ -434,6 +434,15 @@ FodyWeavers.xsd
 # AI review gate working directory (created at run time)
 ci_temp/
 
+# Diagnostic stderr logs the gate preserves when a chunk or the summary call
+# fails (`lib/report-error-log.sh`). Deliberately a SIBLING of ci_temp/ rather
+# than a child: the workflow's cleanup step runs `rm -rf ci_temp` under
+# `if: always()`, so anything inside it is destroyed before the logs can be
+# read. Kept next to ci_temp/ here because the two are the same
+# CI-runtime-scratch pattern and the sibling relationship is the whole point.
+# See the "A failure that names a log path must also print it" Key Behavior.
+ci_temp_logs/
+
 # Conductor code-review-graph: workspace-local cache + generated instruction
 # file. Both are runtime artifacts and must not be committed. The instruction
 # file lives under .conductor/ to mirror the
@@ -444,7 +453,3 @@ ci_temp/
 # Also ignore the legacy .github/ location in case an older tool drops the
 # file there during the migration window.
 .github/code-review-graph.instruction.md
-# Diagnostic logs (sibling of ci_temp so the `if: always()` rm -rf ci_temp
-# cleanup cannot reach them — see lib/report-error-log.sh and the
-# A failure that names a log path must also print it Key Behavior).
-ci_temp_logs/
