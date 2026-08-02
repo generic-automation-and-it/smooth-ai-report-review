@@ -350,7 +350,13 @@ jobs:
       - name: Build analyse prompt
         run: |
           set -euo pipefail
-          mkdir -p ci_temp
+          mkdir -p ci_temp ci_temp/filter_reports
+          # Layer 1 deterministic filter: withhold failing-test findings
+          # before the model sees them.  The filter reads the section
+          # text on stdin, writes the filtered text on stdout, and
+          # writes withheld bullets to the report file (and stderr).
+          filtered_medium="$(printf '%s' "${MEDIUM_SECTION}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/medium_withheld)"
+          filtered_low="$(printf '%s' "${LOW_SECTION}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/low_withheld)"
           {
             echo "# ai-analyse headless execute"
             echo ""
@@ -363,10 +369,10 @@ jobs:
             echo "Apply only safe fixes for the following Medium and Low findings. Ignore any Critical or High content, including any Critical/High entries that appear in Suggested Fixes."
             echo ""
             echo "### Medium"
-            printf '%s\n' "${MEDIUM_SECTION}"
+            printf '%s\n' "${filtered_medium}"
             echo ""
             echo "### Low"
-            printf '%s\n' "${LOW_SECTION}"
+            printf '%s\n' "${filtered_low}"
             echo ""
             echo "### Suggested Fixes"
             printf '%s\n' "${SUGGESTED_FIXES}"
@@ -383,6 +389,16 @@ jobs:
                 echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is NOT enabled. Do NOT edit any test file (unit, component, integration, or e2e) or any test-framework/config file. The tests must stay an independent oracle that proves your fix did not break anything. If a finding's only viable fix would require changing a test, mark it SKIP with reason \"test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)\". Any test-file edits you make anyway will be reverted before commit."
                 ;;
             esac
+            echo ""
+            echo "## Failing tests are signals, not defects"
+            echo ""
+            echo "A failing test is a signal, not a defect. Never FIX a finding whose basis is that a test is failing, and never change production code in order to make a failing test pass. If a deliberate code change and a test disagree, the disagreement is what a human needs to see — resolving it silently destroys the evidence. SKIP with reason \"failing test is a signal — human decision required\"."
+            echo ""
+            # The Medium/Low sections above are filtered; Suggested Fixes is not,
+            # and its entries carry no severity, so a withheld finding's fix can
+            # still appear there. Close that by rule, the same way Critical/High
+            # entries in Suggested Fixes are already excluded by rule.
+            echo "This applies to the Suggested Fixes section too: if a suggested fix addresses something that is **not** listed in the Medium or Low sections above, do not apply it. Its finding was withheld deliberately — treat its absence from those sections as the decision, not as an oversight."
             echo ""
             echo "## Required output"
             echo ""
@@ -542,6 +558,35 @@ jobs:
               printf '%s\n' "${REVERTED_TESTS}" | while IFS= read -r p; do
                 [ -n "$p" ] && echo "- \`${p}\`"
               done
+            fi
+            # Layer 1 report: withheld failing-test findings so they are
+            # visible in the summary comment (invisible filtering is
+            # untrustworthy filtering — see LADR-056).
+            #
+            # Concatenate through a FILE, not `withheld+="$(cat ...)"`: command
+            # substitution strips trailing newlines, so appending the low report
+            # to the medium one joined the last medium bullet and the first low
+            # bullet onto a single line and undercounted the total.
+            withheld_all="ci_temp/filter_reports/all_withheld"
+            : > "$withheld_all"
+            for f in ci_temp/filter_reports/medium_withheld ci_temp/filter_reports/low_withheld; do
+              [ -s "$f" ] || continue
+              cat "$f" >> "$withheld_all"
+              # Guarantee a newline between reports even if one lacks a trailing one.
+              [ -n "$(tail -c 1 "$withheld_all")" ] && printf '\n' >> "$withheld_all"
+            done
+            if [ -s "$withheld_all" ]; then
+              # Same leading-whitespace tolerance as the filter's bullet detector.
+              withheld_count="$(grep -cE '^[[:space:]]*- ' "$withheld_all" || true)"
+              echo ""
+              echo "**Withheld ${withheld_count} failing-test finding(s)** — a failing test is a signal, not a defect, so these were kept out of the autonomous fixer's scope and need a human decision (LADR-056):"
+              echo ""
+              # Verbatim inside a fence. Wrapping each line as \`- <line>\` turned
+              # a multi-line finding into several bogus bullets and double-nested
+              # the bullet marker that is already in the text.
+              echo '```'
+              cat "$withheld_all"
+              echo '```'
             fi
             echo ""
             cat ci_temp/analyse_out.md

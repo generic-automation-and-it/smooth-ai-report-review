@@ -72,11 +72,13 @@ Two things about that input are worth knowing:
 - Real simplification with no trade-off: `FIX`
 - Speculative / "consider" language: `SKIP`
 - A finding whose only viable fix would edit a test or the test framework, while `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is off (the default): `SKIP` with reason "test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)"
+- A finding whose basis is that a test is failing (regardless of `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX`): `SKIP` with reason "failing test is a signal — human decision required"
 - A Critical or High finding itself (its own priority is 🔴/🟠), even if included in suggested fixes: **omit entirely — no row, neither FIX nor SKIP**
 
 ## Guardrails
 
 - **Test in the loop.** By default (`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` unset/off) never edit a test file — unit, component, integration, or e2e — or any test-framework/config file. The suite must stay an independent oracle that proves the fix did not break anything; a self-fix that also rewrites the tests can hide its own regression. Only when `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is truthy (`1`/`true`/`yes`/`on`) may a fix update tests and the test framework. The workflow enforces this deterministically — any test-file edit made while the setting is off is reverted before commit — so treat test files as read-only rather than relying on that safety net.
+- **Failing tests are signals, not defects.** A failing test is evidence that a human needs to decide which is right — the code change or the test. Never FIX a finding whose basis is that a test is failing, and never change production code to make a failing test pass. Resolving that disagreement silently destroys the only evidence it existed. The deterministic filter withholds such findings before the model sees them; the prompt rule reinforces this regardless of the `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` toggle.
 - Never touch 🔴 Critical or 🟠 High findings, and never list them in the summary table — omit them entirely (no FIX, no SKIP row).
 - Never add a `/ai-review` marker.
 - Keep every edit scoped to the supplied low/medium review text.
