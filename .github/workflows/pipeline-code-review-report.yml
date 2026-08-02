@@ -419,10 +419,10 @@ jobs:
       # to fall back to the orchestrator's free-text Issues Summary — the
       # markdown grammar is identical either way, so nothing downstream breaks.
       OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
-      # Per-chunk review budget, seconds (default 900). Wraps the WHOLE model
+      # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
       # chain, so on timeout the LADR-002 secondary is never reached. Raised
       # from a hardcoded 300 after LADR-055 tripled per-chunk output.
-      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '900' }}
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md

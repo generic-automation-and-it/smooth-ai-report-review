@@ -444,3 +444,4 @@ ci_temp/
 # Also ignore the legacy .github/ location in case an older tool drops the
 # file there during the migration window.
 .github/code-review-graph.instruction.md
+ci_temp_logs/

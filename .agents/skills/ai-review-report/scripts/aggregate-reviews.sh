@@ -529,9 +529,8 @@ if [ "$agg_ok" = "true" ]; then
   echo "✅ PR summary generated successfully (model: $ORCHESTRATOR_MODEL_ID)"
 else
   echo "❌ Summary generation failed/empty - using fallback"
-  if [ -s "ci_temp/summary_stderr.log" ]; then
-    echo "📋 Stderr log: ci_temp/summary_stderr.log"
-  fi
+  bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
+    "summary_generation" "ci_temp/summary_stderr.log" || true
   cat > ci_temp/pr_summary.md << EOF
 ## 📋 Overall Summary
 This PR was reviewed in $TOTAL_CHUNKS chunks. Summary generation encountered an error.

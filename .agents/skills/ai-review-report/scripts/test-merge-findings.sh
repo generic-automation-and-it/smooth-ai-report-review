@@ -483,6 +483,40 @@ check "Test 14d: append fallback branch present" "1" \
 check "Test 14e: splice output is checked before it replaces the summary" "1" \
   "$(grep -c 'if \[ -s ci_temp/pr_summary_main.rendered.md \]; then' "$AGG_SH")"
 
+# --- Test 15: diagnostic logs survive cleanup and reach the console ----------
+# The gate rm -rf's ci_temp on always() and uploads no artifact, so naming a
+# stderr path in the log pointed at a file that no longer existed by the time
+# anyone read it. PR #106 run 30756015689 lost the only evidence of why two
+# chunks failed. ci_temp_logs is a SIBLING of ci_temp so the cleanup cannot
+# reach it, and the tail goes to the console because workflow logs outlive the
+# workspace.
+REPORT_SH="$SCRIPT_DIR/lib/report-error-log.sh"
+_el="$TMP_DIR/errlog"; mkdir -p "$_el"
+printf 'line %s\n' $(seq 1 60) > "$_el/big.log"
+out="$(cd "$_el" && bash "$REPORT_SH" "chunk_9_scripts" big.log 3 2>&1)"
+check "Test 15a: preserved outside ci_temp (survives rm -rf ci_temp)" "true" \
+  "$([ -f "$_el/ci_temp_logs/chunk_9_scripts.log" ] && echo true || echo false)"
+check "Test 15b: tail printed to console" "3" \
+  "$(printf '%s\n' "$out" | grep -cE '^    line (58|59|60)$')"
+check "Test 15c: head of a long log is not dumped" "0" \
+  "$(printf '%s\n' "$out" | grep -cE '^    line 1$')"
+out_gha="$(cd "$_el" && GITHUB_ACTIONS=1 bash "$REPORT_SH" "chunk_9" big.log 2 2>&1)"
+check "Test 15d: collapsible group in Actions" "1" \
+  "$(printf '%s\n' "$out_gha" | grep -c '^::group::')"
+check "Test 15e: group is closed" "1" \
+  "$(printf '%s\n' "$out_gha" | grep -c '^::endgroup::$')"
+check "Test 15f: label sanitised into a safe filename" "true" \
+  "$(cd "$_el" && bash "$REPORT_SH" "a/b c" big.log 1 >/dev/null 2>&1; [ -f "$_el/ci_temp_logs/a_b_c.log" ] && echo true || echo false)"
+for _case in "missing:/nonexistent.log" "empty:$_el/empty.log"; do
+  : > "$_el/empty.log"
+  ( cd "$_el" && bash "$REPORT_SH" "${_case%%:*}" "${_case##*:}" >/dev/null 2>&1 )
+  check "Test 15g: ${_case%%:*} log never fails the caller" "0" "$?"
+done
+check "Test 15h: wired into the chunk-failure path" "1" \
+  "$(grep -c 'lib/report-error-log.sh' "$SCRIPT_DIR/aggregate-reviews.sh")"
+check "Test 15i: wired into both chunk failure branches" "2" \
+  "$(grep -c 'lib/report-error-log.sh' "$SCRIPT_DIR/review-in-chunks.sh")"
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"

@@ -227,18 +227,18 @@ _ct "timeout marker reports the configured budget, not a hardcoded 5 minutes" "1
 # The validator must reject junk and fall back rather than pass it to `timeout`.
 for bad in "abc" "0" "-5" ""; do
   out="$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="$bad" bash -c '
-    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-900}"
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-450}"
     if ! [[ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" -le 0 ]; then
-      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=450
     fi
     printf "%s" "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT"')"
-  _ct "invalid value '$bad' falls back to 900" "900" "$out"
+  _ct "invalid value '$bad' falls back to 450" "450" "$out"
 done
 _ct "valid override is honoured" "1200" \
   "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=1200 bash -c '
-    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-900}"
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-450}"
     if ! [[ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" -le 0 ]; then
-      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=450
     fi
     printf "%s" "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT"')"
 # Env-var parity: any var the entrypoint reads must be in BOTH packagings.

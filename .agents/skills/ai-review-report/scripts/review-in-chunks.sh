@@ -40,17 +40,22 @@ echo ""
 # slower job, the cost of a too-short one is a fail-closed REQUEST_CHANGES on a
 # chunk that would have reviewed fine.
 #
-# Default raised from the original hardcoded 300 to 900. The 300 was calibrated
-# before LADR-055 roughly tripled per-chunk model output (markdown ~2.9 KB ->
-# ~5.7 KB, plus ~3.4 KB of JSON sidecar); on PR #106 a 96 KB-prompt chunk hit
-# exactly 300 s and was killed, while a mid-size chunk in the same run took
-# 209 s. The margin was gone. Chunks run in parallel, so the wall-clock cost of
-# the higher ceiling is bounded by the slowest chunk, not their sum.
-OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-900}"
-if ! [[ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT" -le 0 ]; then
-  echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT='${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}' (must be a positive integer). Using default: 900" >&2
-  OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900
-fi
+# Default 450: raised from the original hardcoded 300, but deliberately NOT set
+# as high as it could be. The 300 was calibrated before LADR-055 roughly tripled
+# per-chunk model output and was demonstrably too tight (PR #106 killed a 96 KB
+# chunk on the ceiling). Measured headroom on the deployed pair: the slowest
+# chunk that ever SUCCEEDED took 209 s, so 450 is better than 2x the observed
+# worst case.
+#
+# The ceiling is a deadlock detector as much as a budget. Past roughly this
+# point a chunk is not "slow", it is stuck — a hung connection, a retry loop, a
+# model that will never return — and waiting it out buys nothing while holding
+# the job open. Failing at 450 and reporting it is more useful than succeeding
+# at 800. If chunks legitimately need more, the fix is less output per chunk,
+# not a higher ceiling.
+#
+# Chunks run in parallel, so the wall-clock cost is bounded by the slowest
+# chunk, not their sum.
 echo "⏱️  Per-chunk review timeout: ${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s"
 echo ""
 
@@ -1000,6 +1005,11 @@ EOF
       # marker string gets quoted into legitimate review bodies when the gate
       # reviews its own docs, which text-grepping false-matches (see LADR-031).
       echo "empty/tiny output (${review_size} bytes)" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+      # Exit 0 with no output is the quieter failure of the two — surface its
+      # stderr too, or the run reports "empty" with no way to learn why.
+      bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
+        "chunk_${chunk_num}_${chunk_dir}_empty" \
+        "ci_temp/reviews/chunk_${chunk_num}_stderr.log" || true
       # A failed chunk contributes no findings (LADR-055). Drop any sidecar the
       # extraction step managed to salvage, so the merged set and the failed-chunk
       # count can never disagree about which chunks were actually reviewed.
@@ -1010,9 +1020,13 @@ EOF
   else
     local exit_code=$?
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
-    if [ -s "ci_temp/reviews/chunk_${chunk_num}_stderr.log" ]; then
-      echo "  📋 Stderr log: ci_temp/reviews/chunk_${chunk_num}_stderr.log"
-    fi
+    # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
+    # step rm -rf's ci_temp on always(), so by the time anyone read the workflow
+    # log the file it pointed at was gone (PR #106 run 30756015689 lost the only
+    # evidence of why two chunks failed).
+    bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
+      "chunk_${chunk_num}_${chunk_dir}" \
+      "ci_temp/reviews/chunk_${chunk_num}_stderr.log" || true
     {
       echo "## ⚠️ Review Failed for Chunk: ${chunk_dir}"
       echo ""
