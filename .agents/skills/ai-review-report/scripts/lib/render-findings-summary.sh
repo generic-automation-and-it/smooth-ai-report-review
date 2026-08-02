@@ -119,9 +119,14 @@ jq -r '
   "",
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",
   "- **Demoted for missing quoted evidence:** \(.demoted_no_quote) (claimed confidence ≥ 75 without quoting the motivating line, stepped down to 50)",
+  # The buckets must be ordered HERE, not in merge-findings.py. Its keys are
+  # strings (`str(confidence)`) and it serialises with `sort_keys=True`, which
+  # re-sorts every nested object lexicographically — so 0, 100, 25, 50, 75.
+  # Sorting the dict on the Python side is a no-op the serializer undoes; the
+  # numeric order has to be re-imposed on read.
   "- **Suppressed below the actionable anchor:** \(.suppressed_findings | length)"
     + ( if (.suppressed_by_confidence | length) > 0
-        then " (" + ([ .suppressed_by_confidence | to_entries[] | "confidence \(.key): \(.value)" ] | join(", ")) + ")"
+        then " (" + ([ .suppressed_by_confidence | to_entries | sort_by(.key | tonumber) | .[] | "confidence \(.key): \(.value)" ] | join(", ")) + ")"
         else "" end ),
   "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
   "",
