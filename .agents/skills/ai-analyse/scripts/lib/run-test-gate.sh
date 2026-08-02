@@ -64,7 +64,9 @@ mkdir -p "$failures_dir"
 gate_start="$SECONDS"
 # Returns the seconds left in the whole-gate budget, or 0 when the budget is
 # exhausted. `run_suite` treats 0 as "skip, do not invoke `timeout`" and
-# returns 124; the main loop then fails the suite closed.
+# returns 125 (a sentinel distinct from `timeout`'s own 124) so the main loop
+# can tell a real timeout apart from "the budget was already gone when this
+# suite was reached"; either way the suite is failed closed.
 remaining_budget() {
   local left=$(( timeout_sec - (SECONDS - gate_start) ))
   [ "$left" -gt 0 ] || left=0
