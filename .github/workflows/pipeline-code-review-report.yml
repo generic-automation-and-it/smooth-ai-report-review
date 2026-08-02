@@ -136,7 +136,7 @@ on:
         type: string
         default: 'ubuntu-latest'
       tools_ref:
-        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from. Default: the same ref this reusable workflow was called at.'
+        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from — a full commit SHA (supply-chain pinned) or a trusted floating ref (main / latest / v1), never a branch. Default: the commit of this reusable workflow file.'
         required: false
         type: string
         default: ''
@@ -475,15 +475,21 @@ jobs:
       #    .agents/skills/ai-review-report (the README installer rewrites that
       #    literal when it targets a different skills dir — keep it literal here).
       # 2. Reusable-workflow mode: the caller repo has no skill installed, so fetch
-      #    the tooling repo as a side checkout, version-locked to the same ref this
-      #    workflow was called at (github.workflow_sha — the SHA of the workflow file
-      #    that defines this job), overridable via the tools_ref input.
+      #    the tooling repo as a side checkout, version-locked to the commit of
+      #    THIS workflow file in THIS repo (github.job_workflow_sha), overridable
+      #    via the tools_ref input or the SMOOTH_AI_REVIEW_TOOLS_REF Variable.
+      #
+      #    It must be `job_workflow_sha`, NOT `workflow_sha`: in a reusable call
+      #    the latter is the CALLER's workflow commit, which does not exist in
+      #    this repo, so the fetch dies on `upload-pack: not our ref`. Override
+      #    with a full commit SHA (supply-chain pinned) or a trusted floating ref
+      #    (main / v1) — never a branch.
       - name: Fetch review tooling
         if: "!hashFiles('.agents/skills/ai-review-report/scripts/review-in-chunks.sh')"
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.workflow_sha || 'v1' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.job_workflow_sha || 'v1' }}
           path: .smooth-ai-review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
