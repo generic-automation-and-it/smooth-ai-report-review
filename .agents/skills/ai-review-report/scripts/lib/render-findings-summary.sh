@@ -58,7 +58,7 @@ jq -r '
     + (if .verified == true then "[VERIFIED]" else "[SPECULATIVE]" end)
     + " \(.severity | sev_label): \(.title | clean)"
     + " — `\(.file)"
-    + (if (.line | type) == "number" then ":\(.line)" else ":\(.line)" end)
+    + ":\(.line)"
     + "`"
     + (.chunks // [] | chunk_ref)
     + (if (.why_it_matters // "") != "" then "\n  - \(.why_it_matters | clean)" else "" end);

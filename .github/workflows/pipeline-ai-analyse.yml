@@ -576,8 +576,10 @@ jobs:
               [ -n "$(tail -c 1 "$withheld_all")" ] && printf '\n' >> "$withheld_all"
             done
             if [ -s "$withheld_all" ]; then
-              # Same leading-whitespace tolerance as the filter's bullet detector.
-              withheld_count="$(grep -cE '^[[:space:]]*- ' "$withheld_all" || true)"
+              # Same leading-whitespace tolerance as the filter's bullet detector
+              # (filter-failing-test-findings.sh: new_bullet_re='^[[:space:]]{0,1}- '),
+              # so a parent + indented sub-bullet counts as ONE withheld finding.
+              withheld_count="$(grep -cE '^[[:space:]]{0,1}- ' "$withheld_all" || true)"
               echo ""
               echo "**Withheld ${withheld_count} failing-test finding(s)** — a failing test is a signal, not a defect, so these were kept out of the autonomous fixer's scope and need a human decision (LADR-056):"
               echo ""
