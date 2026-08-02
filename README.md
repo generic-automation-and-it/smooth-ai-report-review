@@ -20,7 +20,7 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 | Channel | What you get | Best for |
 |---|---|---|
 | [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~80-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v1`) |
-| [Local-job packaging](#local-job-packaging-allowed-actions-restricted-consumers) | A consumer-side job whose only `uses:` entries are `actions/checkout`; the gate's code is fetched at a pinned SHA. Same behavior as the reusable workflow. | Repos under `allowed_actions: "selected"` whose `generic-automation-and-it` is not on the allow-list |
+| [Local-job packaging](#local-job-packaging-allowed-actions-restricted-consumers) | A consumer-side job whose only `uses:` entries are `actions/checkout` and `actions/cache` (both GitHub-owned); the gate's code is fetched at a pinned SHA. Same behavior as the reusable workflow. | Repos under `allowed_actions: "selected"` whose `generic-automation-and-it` is not on the allow-list |
 | [Claude Code plugins](#install-as-a-claude-code-plugin) | A core plugin (`ai-review`, `git-commit-review-push`) plus optional plugins for `ai-review-report` and `ai-analyse` — **not** the CI gate | Developers who want the follow-up workflows by default and can opt into the heavier report/analyse skills only when needed |
 | [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same four skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
 | [npm package in GitHub Actions](#use-in-github-actions-via-npm) | The **same npm package**, but `npm install`ed in a GHA job and run straight from `node_modules/` (no vendoring, no side checkout) | Repos that want to run the review generator in CI pinned via a package manager / lockfile |
@@ -204,6 +204,8 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 2. **Local follow-up tooling**: the `smooth-ai-review` plugin (the core `ai-review` + `git-commit-review-push` skills) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 3. **Optional local extras**: if the repo also wants the local review generator and/or autonomous fixer in Claude Code, enable `smooth-ai-review-report` and/or `smooth-ai-analyse` from the same marketplace.
 
+**Choosing a different channel:** Steps 1–2 are the default (reusable workflow + plugin). If the target repo needs a different shape — an allow-list-restricted org, an opencode-driven team, or a package-manager-pinned CI job — pick the channel from [Five ways to consume this repo](#five-ways-to-consume-this-repo) first; each row links a ready-to-copy example under `.docs/examples/`.
+
 ### Step 1 — install the review gate (reusable-workflow caller)
 
 Run this **from the target repo's root**. If a previous **copy-installed** gate exists (the full 1,400-line workflow), it is stashed for diffing and replaced by the caller:
@@ -237,6 +239,8 @@ case "$OLD_RO" in
   *) echo "↻ previous gate ran on '$OLD_RO' — set \"runner: $OLD_RO\" under the caller's with: block" ;;
 esac
 ```
+
+**If the caller fails at startup with a workflow-file error**, the target org almost certainly runs `allowed_actions: "selected"` without `generic-automation-and-it/*` on the allow-list — GitHub refuses the cross-org `uses:` before the job starts, so nothing in the gate ever executes and there is no log to read. Two routes: ask the org admin to allow-list `generic-automation-and-it/smooth-ai-report-review@*`, or switch to the [local-job packaging](#local-job-packaging-allowed-actions-restricted-consumers) — [`.docs/examples/code-review-local.yml`](.docs/examples/code-review-local.yml), same review behaviour, whose only `uses:` entries are `actions/checkout` and `actions/cache`, with the gate's code fetched at a pinned SHA. Replace `$WF` with that file instead of the caller and bump its pinned SHA to the ref you want.
 
 **If `$PREV_SAVE` was created**, the repo is migrating from a copy-install: show the operator `diff -u "$PREV_SAVE" "$WF"`, re-express any prior workflow customizations as caller inputs (`runner`, `tools_ref`, `mandatory_context_files`, `agents_md_exempt_paths`, `disable_agents_md_check`, `bypass_mandatory_context_file`), and offer to delete the now-redundant vendored skill trees (`<skills-dir>/ai-review-report` and `<skills-dir>/ai-review`) — the reusable gate fetches its own scripts. Leaving them in place also works: same-repo PRs prefer a local skill tree over the fetched one, while fork PRs force pinned fetched tooling. The same local-then-fetched precedence applies to `pipeline-ai-analyse.yml` when it is copied into the consumer repo.
 

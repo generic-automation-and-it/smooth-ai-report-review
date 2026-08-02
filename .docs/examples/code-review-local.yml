@@ -1,7 +1,8 @@
 # Local-job packaging for smooth-ai-report-review.
 #
 # Copy this file into your repo as .github/workflows/pipeline-code-review-report.yml
-# (any name works). The job's only `uses:` entries are `actions/checkout` — already
+# (any name works). The job's only `uses:` entries are `actions/checkout` and
+# `actions/cache` — both GitHub-owned, so both are already
 # allow-listed by every org using `allowed_actions: "selected"` and `github_owned_allowed: true`
 # — and it checks out the upstream tooling repo at a pinned SHA, then invokes the
 # same `run-review.sh` entrypoint that the reusable-workflow packaging uses.
