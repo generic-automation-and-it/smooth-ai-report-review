@@ -576,10 +576,16 @@ jobs:
               [ -n "$(tail -c 1 "$withheld_all")" ] && printf '\n' >> "$withheld_all"
             done
             if [ -s "$withheld_all" ]; then
-              # Same leading-whitespace tolerance as the filter's bullet detector
-              # (filter-failing-test-findings.sh: new_bullet_re='^[[:space:]]{0,1}- '),
-              # so a parent + indented sub-bullet counts as ONE withheld finding.
-              withheld_count="$(grep -cE '^[[:space:]]{0,1}- ' "$withheld_all" || true)"
+              # Read the canonical count the filter published; never re-derive it
+              # here. A second copy of the bullet regex drifted from the first and
+              # counted indented `why_it_matters` sub-bullets as separate findings,
+              # so the comment announced two withheld findings where the filter's
+              # own log said one.
+              withheld_count=0
+              for c in ci_temp/filter_reports/medium_withheld.count ci_temp/filter_reports/low_withheld.count; do
+                [ -s "$c" ] || continue
+                withheld_count=$(( withheld_count + $(tr -dc '0-9' < "$c") ))
+              done
               echo ""
               echo "**Withheld ${withheld_count} failing-test finding(s)** — a failing test is a signal, not a defect, so these were kept out of the autonomous fixer's scope and need a human decision (LADR-056):"
               echo ""

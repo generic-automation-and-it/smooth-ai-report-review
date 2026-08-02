@@ -122,6 +122,14 @@ if [ -n "$withheld" ]; then
   withheld_count="$(printf '%s' "$withheld" | grep -cE "$new_bullet_re" || true)"
   if [ -n "$report_file" ]; then
     printf '%s' "$withheld" > "$report_file"
+    # Publish the canonical count alongside the report. The caller must NOT
+    # re-derive it: the workflow originally counted the report with its own
+    # `^[[:space:]]*- ` regex, which also matches indented sub-bullets, so a
+    # normal finding (parent + `why_it_matters` sub-bullet) was announced as
+    # two withheld findings while this script's own stderr said one. Two counts
+    # for one run, from two copies of a regex that must agree — so there is now
+    # one copy, and it lives here with the detector it has to match.
+    printf '%s\n' "$withheld_count" > "${report_file}.count"
   fi
   printf '%s' "$withheld" >&2
   echo "Withheld ${withheld_count} failing-test finding(s) (failing test is a signal — human decision required)." >&2

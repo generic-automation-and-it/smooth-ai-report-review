@@ -152,7 +152,14 @@ count13="$(grep -cE '^[[:space:]]{0,1}- ' "$report13" || true)"
 [ "$count13" = "1" ] || {
   echo "FAIL: a parent + sub-bullet is ONE withheld finding, got ${count13}" >&2; exit 1
 }
-echo "✓ indented sub-bullets stay with their parent finding"
+# The published count file is the ONE source the workflow may use. Re-deriving
+# the count in the workflow with its own regex is what produced two different
+# numbers for the same run (gate review of de45769, finding #5).
+[ -s "${report13}.count" ] || { echo "FAIL: no .count sidecar published" >&2; exit 1; }
+[ "$(cat "${report13}.count")" = "1" ] || {
+  echo "FAIL: published count should be 1 for parent+sub-bullet, got: $(cat "${report13}.count")" >&2; exit 1
+}
+echo "✓ indented sub-bullets stay with their parent finding, and the published count says 1"
 
 # ── 14. Medium + Low reports concatenate on separate lines ───────
 # Regression: the workflow joined the two reports with `withheld+="$(cat …)"`,
