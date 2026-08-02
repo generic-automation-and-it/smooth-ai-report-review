@@ -201,16 +201,21 @@ while IFS= read -r suite; do
     if [ "$baseline_code" -ne 0 ]; then
       if [ "$baseline_code" -eq 124 ]; then
         echo "  ! ${suite} baseline TIMED OUT — safety could not be established, treating as a regression (fail closed)"
-      else
-        echo "  ~ ${suite} FAILED (exit ${exit_code}) — already failing at HEAD, not a regression"
-        preexisting+=("$suite")
+        echo "  ✗ ${suite} REGRESSED (exit ${exit_code}) — could not establish safety at HEAD, treating as a regression"
+        regressions+=("$suite")
         continue
       fi
+      echo "  ~ ${suite} FAILED (exit ${exit_code}) — already failing at HEAD, not a regression"
+      preexisting+=("$suite")
+      continue
     fi
   else
     echo "  ! could not create a pristine worktree — treating ${suite} as a regression (fail closed)"
     printf '\n[gate] Could not verify against HEAD; classified as a regression.\n' \
       >> "${failures_dir}/${suite}.log"
+    echo "  ✗ ${suite} REGRESSED (exit ${exit_code}) — could not establish safety at HEAD, treating as a regression"
+    regressions+=("$suite")
+    continue
   fi
 
   echo "  ✗ ${suite} REGRESSED (exit ${exit_code}) — passes at HEAD, fails after the fixes"
