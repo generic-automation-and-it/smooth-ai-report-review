@@ -723,8 +723,8 @@ EOF
 - **Passing checks are not issues.** If you verify that a contract, convention, file shape, permission, diagram, or cross-file relationship is correct, mention it under positive highlights only if useful, or omit it. Do NOT list "No issue", "consistent", "verified", or "flagging only because checked" items under **Issues Found**, and do NOT assign them a severity.
 - **Documentation drift is capped at 🟡 Medium** — when a PR modifies behavior described in any documentation file (AGENTS.md, README, HLDs, ADRs, LADRs, NFRs) but does NOT update that file, flag the stale documentation at Medium at most; never 🟠 High or 🔴 Critical (LADR-046).
 
-**Non-findings — do not emit at any anchor:**
-- **Pre-existing issues unrelated to this diff** (with the "newly relevant → secondary, not pre-existing" carve-out — see the classification rules below).
+**Non-findings — do not raise these as actionable findings at any anchor:**
+- **Pre-existing issues unrelated to this diff.** Never give one a severity under **Issues Found**. If the observation is genuinely useful it has one home only — the **Pre-existing (informational)** section described in the classification rules below, which does not count toward the verdict. Carve-out: if the diff makes an existing issue *newly relevant* (a new caller now reaches an existing bug), it is **secondary**, not pre-existing, and is a normal finding.
 - **Pedantic style nitpicks a linter or formatter would catch** — style belongs to the toolchain.
 - **Code that looks wrong but is intentional** — check comments, commit messages, PR description, surrounding code first.
 - **Issues already handled elsewhere** — callers, guards, middleware, framework defaults, parallel handlers.
@@ -924,12 +924,16 @@ Rules for the sidecar — a violated rule silently drops the finding from dedupl
 - The block is the LAST thing in your output. Do not wrap it in extra prose, do not emit it twice, and do not put it before the markdown review.
 
 **Soft-bucket routing (LADR-055):**
-- An item that fails the **Advisory test** above — nothing breaks if it is not fixed — goes into `residual_risks` or `testing_gaps` rather than `findings`. They render as untagged 🟡 bullets, visible to humans and to the downstream fixer, but excluded from the verdict count and the confidence gate.
-- **Testing-flavoured 🟡 Medium / 🔵 Low advisories -> `testing_gaps`.** Maintainability, reliability and adversarial advisories -> `residual_risks`. The exception in both cases: if the item quotes an explicit violated contract or proves a current user-facing defect, it stays a finding.
-- **Coverage umbrella:** keep at most ONE primary finding per changed subsystem where lack of tests is itself material. Narrower case-by-case coverage findings move to `testing_gaps` regardless of severity.
+
+An item that fails the **Advisory test** above — nothing breaks if it is not fixed — is routed by whether it has a location:
+
+- **It has a `file:line`** -> keep it as a 🔵 Low entry under **Issues Found** and as a normal `findings` object, with `autofix_class: "advisory"`. It stays in both transports; the class records that it is report-only.
+- **It has no single location** — a systemic risk, a coverage gap across a subsystem, an operating-condition caveat -> put it in `residual_risks` or `testing_gaps` and **do not** list it under **Issues Found** or in `findings`. These render as untagged 🟡 bullets, visible to a reader and to the downstream fixer, but excluded from the verdict count and the confidence gate. Listing the same item in both places double-reports it.
+- **Testing-flavoured unlocated advisories -> `testing_gaps`.** Maintainability, reliability and adversarial ones -> `residual_risks`. The exception in both cases: if the item quotes an explicit violated contract or proves a current user-facing defect, it is a defect and stays a finding.
+- **Coverage umbrella:** keep at most ONE finding per changed subsystem where lack of tests is itself material. Narrower case-by-case coverage observations move to `testing_gaps` regardless of the severity you would have given them.
 - **A current 🔴 Critical or 🟠 High is never demoted** merely because evidence is thin — that is what the confidence anchor is for, and `critical` is exempt from the suppression gate.
 - **Deployment-topology rule:** do not widen a repo contract with an assumed deployment topology. A claim requiring unproven restarts, multiple instances, or a specific scheduler is a **residual risk** unless the code establishes that operating condition.
-- `residual_risks` and `testing_gaps` are arrays of single-sentence strings. They carry no `file:line`, no severity, and no `confidence`.
+- `residual_risks` and `testing_gaps` are arrays of single-sentence strings. They carry no `file:line`, no severity, and no `confidence` — which is why a located advisory belongs in `findings` instead.
 
 **Exhaustive-coverage honesty rule:**
 - No search tool is complete — dynamic dispatch, reflection, DI, string-keyed routes, generated code, and external consumers hide usages from all of them. This only bites a claim resting on **exhaustive** coverage: *"this symbol is unused"*, *"nothing else calls this"*, *"safe to change"*.
