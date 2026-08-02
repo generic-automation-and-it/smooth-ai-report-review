@@ -855,8 +855,14 @@ fi
 # has no per-chunk sidecar entry — still blocks. Structured findings can add a
 # reason to block; they can never remove one.
 if [ "${FINDINGS_SUMMARY_APPLIED:-false}" = "true" ] && [ "$REVIEW_DECISION" != "request_changes" ]; then
-  BLOCKING_FINDING_COUNT=$(jq '[.findings[] | select(.severity == "critical" or .severity == "high")] | length' \
-    "$MERGED_FINDINGS_FILE" 2>/dev/null || echo 0)
+  BLOCKING_FINDING_COUNT=$(jq '[(.findings // [])[] | select(.severity == "critical" or .severity == "high")] | length' \
+    "$MERGED_FINDINGS_FILE" 2>/dev/null || echo "INVALID")
+  if [ "$BLOCKING_FINDING_COUNT" = "INVALID" ]; then
+    # Cannot trust an unparseable count either way — preserve the orchestrator's
+    # decision rather than silently treating a malformed file as "0 blocking".
+    echo "⚠️ merged findings file is malformed — cannot count blocking findings, falling back to orchestrator decision"
+    BLOCKING_FINDING_COUNT=0
+  fi
   if [ "${BLOCKING_FINDING_COUNT:-0}" -gt 0 ]; then
     echo "⚠️ ${BLOCKING_FINDING_COUNT} Critical/High finding(s) in the rendered Issues Summary — forcing REQUEST_CHANGES, overriding '${REVIEW_DECISION:-unknown}' (body and posted state must agree)."
     REVIEW_DECISION="request_changes"

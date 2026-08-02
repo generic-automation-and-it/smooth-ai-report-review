@@ -517,6 +517,37 @@ check "Test 15h: wired into the chunk-failure path" "1" \
 check "Test 15i: wired into both chunk failure branches" "2" \
   "$(grep -c 'lib/report-error-log.sh' "$SCRIPT_DIR/review-in-chunks.sh")"
 
+# --- Test 16: escalation's blocking-finding count survives a malformed file --
+# aggregate-reviews.sh:857-864 re-counts Critical/High findings from
+# $MERGED_FINDINGS_FILE to force REQUEST_CHANGES when the rendered Issues
+# Summary disagrees with the orchestrator's decision (LADR-036). The jq filter
+# used to be `.findings[] | ...` with no `// []` guard: a `findings` key that
+# was missing or wrong-typed made jq error, and `2>/dev/null || echo 0` masked
+# that as an ordinary "0 blocking findings" — indistinguishable from a
+# genuinely clean file. Extract the real filter from the script (not a copy
+# that can drift) and exercise it directly against fixture files.
+_agg_jq_filter="$(sed -n "s/^[[:space:]]*BLOCKING_FINDING_COUNT=\$(jq '\(.*\)' \\\\\$/\1/p" "$SCRIPT_DIR/aggregate-reviews.sh")"
+check "Test 16a: escalation jq filter extracted from the script" "true" \
+  "$([ -n "$_agg_jq_filter" ] && echo true || echo false)"
+check "Test 16b: filter guards against a missing findings key" "1" \
+  "$(grep -c '(\.findings // \[\])' <<<"$_agg_jq_filter")"
+
+printf '%s' '{"schema_version":1,"findings":[{"severity":"high"},{"severity":"low"}]}' > "$TMP_DIR/agg-valid.json"
+check "Test 16c: counts only critical/high in a well-formed file" "1" \
+  "$(jq "$_agg_jq_filter" "$TMP_DIR/agg-valid.json" 2>/dev/null)"
+
+printf '%s' '{"schema_version":1}' > "$TMP_DIR/agg-missing-key.json"
+_agg_missing_err="$(jq "$_agg_jq_filter" "$TMP_DIR/agg-missing-key.json" 2>&1 >/dev/null)"
+check "Test 16d: a missing findings key does not error jq" "true" \
+  "$([ -z "$_agg_missing_err" ] && echo true || echo false)"
+check "Test 16e: a missing findings key counts as zero blocking findings" "0" \
+  "$(jq "$_agg_jq_filter" "$TMP_DIR/agg-missing-key.json" 2>/dev/null)"
+
+printf '%s' '{"schema_version":1,"findings":"not-an-array"}' > "$TMP_DIR/agg-malformed.json"
+_agg_out="$(jq "$_agg_jq_filter" "$TMP_DIR/agg-malformed.json" 2>/dev/null || echo "INVALID")"
+check "Test 16f: a wrong-typed findings field is surfaced as INVALID, not silently 0" "INVALID" \
+  "$_agg_out"
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
