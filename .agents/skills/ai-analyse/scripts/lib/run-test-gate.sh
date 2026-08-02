@@ -62,8 +62,9 @@ failures_dir="$(dirname "$report_file")/failures"
 mkdir -p "$failures_dir"
 
 gate_start="$SECONDS"
-# Seconds left in the whole-gate budget; never returns less than 1 so `timeout`
-# is always given a valid argument (an exhausted budget is handled by the caller).
+# Returns the seconds left in the whole-gate budget, or 0 when the budget is
+# exhausted. `run_suite` treats 0 as "skip, do not invoke `timeout`" and
+# returns 124; the main loop then fails the suite closed.
 remaining_budget() {
   local left=$(( timeout_sec - (SECONDS - gate_start) ))
   [ "$left" -gt 0 ] || left=0
@@ -130,7 +131,6 @@ pristine_root() {
   fi
   local candidate
   candidate="$(mktemp -d)"
-  rm -rf "$candidate"
   if git worktree add --detach "$candidate" HEAD >/dev/null 2>&1; then
     worktree_dir="$candidate"
     printf '%s' "$worktree_dir"
@@ -145,7 +145,10 @@ run_suite() {
   local suite="$1" root="$2" out="$3" budget rc=0
   budget="$(remaining_budget)"
   if [ "$budget" -le 0 ]; then
-    printf '124'
+    # Sentinel distinct from `timeout`'s own 124 so the main loop can tell a real
+    # timeout apart from "the budget was already gone when this suite was reached"
+    # — usually a sign an earlier suite ate the budget.
+    printf '125'
     return 0
   fi
   ( cd "$root" && timeout "${budget}s" bash "$suite" ) >"$out" 2>&1 || rc=$?
@@ -181,6 +184,9 @@ while IFS= read -r suite; do
   if [ "$exit_code" -eq 124 ]; then
     printf 'TIMEOUT — the whole-gate budget of %s seconds elapsed while this suite was running.\n' \
       "$timeout_sec" > "${failures_dir}/${suite}.log"
+  elif [ "$exit_code" -eq 125 ]; then
+    printf 'NOT RUN — the whole-gate budget of %s seconds was already exhausted when this suite was reached.\n' \
+      "$timeout_sec" > "${failures_dir}/${suite}.log"
   else
     tail -n "${log_lines}" "$tmp_out" > "${failures_dir}/${suite}.log"
   fi
@@ -188,8 +194,15 @@ while IFS= read -r suite; do
   # A timeout is never excused as pre-existing. It means the gate could not
   # establish whether the tree is safe, and "unknown" must fail closed —
   # otherwise a fix that introduces an infinite loop reads as "already slow".
+  # Exit 125 is a separate signal: the suite never ran at all because the
+  # whole-gate budget was already gone (usually an earlier suite ate it).
   if [ "$exit_code" -eq 124 ]; then
     echo "  ✗ ${suite} TIMED OUT — treated as a regression (safety could not be established)"
+    regressions+=("$suite")
+    continue
+  fi
+  if [ "$exit_code" -eq 125 ]; then
+    echo "  ✗ ${suite} TIMED OUT — never ran (budget exhausted) — treated as a regression"
     regressions+=("$suite")
     continue
   fi
@@ -201,6 +214,12 @@ while IFS= read -r suite; do
     if [ "$baseline_code" -ne 0 ]; then
       if [ "$baseline_code" -eq 124 ]; then
         echo "  ! ${suite} baseline TIMED OUT — safety could not be established, treating as a regression (fail closed)"
+        echo "  ✗ ${suite} REGRESSED (exit ${exit_code}) — could not establish safety at HEAD, treating as a regression"
+        regressions+=("$suite")
+        continue
+      fi
+      if [ "$baseline_code" -eq 125 ]; then
+        echo "  ! ${suite} baseline never ran (budget exhausted) — safety could not be established, treating as a regression (fail closed)"
         echo "  ✗ ${suite} REGRESSED (exit ${exit_code}) — could not establish safety at HEAD, treating as a regression"
         regressions+=("$suite")
         continue
