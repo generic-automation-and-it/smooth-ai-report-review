@@ -114,6 +114,24 @@ survives "does-not-pass on a validation helper" \
   '- 🔵 Low Priority: validate_input does not pass NULL through to the caller'
 echo "✓ generic failure phrasing without a test word survives"
 
+# ── 11b. The tier-2 test word is a WORD, not a substring ────────────
+# Regression: an autonomous pass tried to add word boundaries here, reached for
+# `grep -PE` (conflicting matchers — every call exited 2, so the whole filter
+# went dead), and anchored the left edge in a way that also stopped matching
+# `FooTests`. These fixtures pin both halves of the contract: English words that
+# merely CONTAIN a test word must survive, and test 12 below still withholds the
+# CamelCase identifiers. Keep them together — a change that greens one by
+# breaking the other is the failure mode.
+survives "'latest' is not a test word" \
+  '- 🟡 Medium Priority: the latest migration is failing to apply on a cold database'
+survives "'contest' is not a test word" \
+  '- 🔵 Low Priority: the lock contest window does not pass the fairness bound'
+survives "'attest' is not a test word" \
+  '- 🟡 Medium Priority: the attest step is failing when the signature is absent'
+survives "'testify' is not a test word" \
+  '- 🔵 Low Priority: the testify banner does not pass the caller-supplied theme'
+echo "✓ words that merely contain a test word survive"
+
 # ── 12. Generic phrasing WITH a test word is still withheld ──────
 for t in \
   '- 🟡 Medium Priority: FooTests.Bar is failing after this change' \

@@ -41,16 +41,32 @@ FAIL_RE_STRONG='(failing test|test fails|test failure|broken test|test is red|as
 # `is red` sits here rather than tier 1 so it also catches "BazSpec is red on
 # CI" and "the suite is red", not just the literal phrase "test is red".
 FAIL_RE_WEAK="(is failing|are failing|does not pass|doesn't pass|fails to pass|is red|are red)"
-# Anchor on word boundaries so 'contest' / 'latest' / 'attest' / 'testify' don't trip the tier-2 gate.
-TEST_WORD_RE='(^[0-9]+|)([^A-Za-z0-9_])(test|tests|spec|specs|suite|suites|fixture|fixtures)([^A-Za-z0-9_]|$)'
+# The tier-2 test word must be a word, not a substring: "the latest migration is
+# failing" and "contest/attest/testify" are ordinary English that would otherwise
+# withhold a real finding. Two alternations, because the boundary is asymmetric
+# and CANNOT be expressed with `-i`:
+#
+#   1. `(^|[^A-Za-z])[Tt]est…`  — a word start (line start or a non-letter).
+#   2. `[a-z](Test|Spec|…)`     — a CamelCase word start inside an identifier,
+#      which is how test names actually appear: FooTests, IntegrationTest,
+#      BazSpec. There is no non-letter before the capital, so alternation 1
+#      cannot reach it.
+#
+# Alternation 2 needs the case distinction to tell `FooTests` (a test class)
+# from `latest` (not), so this expression is matched CASE-SENSITIVELY — adding
+# `-i` folds the two apart and re-admits every substring false positive above.
+# The trailing `([^a-z]|$)` is the right-hand boundary: it keeps `Tests.` and
+# `spec ` while rejecting `testify`.
+TEST_WORD_RE='(^|[^A-Za-z])([Tt]est|[Ss]pec|[Ss]uite|[Ff]ixture)s?([^a-z]|$)|[a-z](Test|Spec|Suite|Fixture)s?([^a-z]|$)'
 
 # Withhold when a tier-1 signature is present, or a tier-2 signature appears
 # on a line that is actually about a test.
 is_failing_test_finding() {
   local line="$1"
-  printf '%s' "$line" | grep -qiPE "$FAIL_RE_STRONG" && return 0
-  if printf '%s' "$line" | grep -qiPE "$FAIL_RE_WEAK"; then
-    printf '%s' "$line" | grep -qiPE "$TEST_WORD_RE" && return 0
+  printf '%s' "$line" | grep -qiE "$FAIL_RE_STRONG" && return 0
+  if printf '%s' "$line" | grep -qiE "$FAIL_RE_WEAK"; then
+    # No `-i` here — see TEST_WORD_RE above; the CamelCase leg depends on case.
+    printf '%s' "$line" | grep -qE "$TEST_WORD_RE" && return 0
   fi
   return 1
 }
