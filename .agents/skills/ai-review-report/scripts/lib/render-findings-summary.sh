@@ -2,7 +2,12 @@
 # render-findings-summary.sh — render the posted review's `## 🔍 Issues Summary`
 # from the merged findings document (LADR-055). Writes markdown to stdout.
 #
-# Usage: render-findings-summary.sh <merged_json>
+# Usage: render-findings-summary.sh <merged_json> [failed_chunks] [total_chunks]
+#
+#   failed_chunks and total_chunks are optional integers sourced from the
+#   same flag-file counters as the LADR-036 coverage banner. They are not
+#   derived from the merged JSON — LADR-031's channel is the flag files,
+#   full stop.
 #
 # The output must stay byte-compatible with the grammar three consumers parse:
 #
@@ -23,6 +28,8 @@
 set -uo pipefail
 
 merged="${1:-}"
+failed_chunks="${2:-0}"
+total_chunks="${3:-0}"
 if [ -z "$merged" ] || [ ! -s "$merged" ]; then
   exit 1
 fi
@@ -129,7 +136,11 @@ jq -r '
         then " (" + ([ .suppressed_by_confidence | to_entries | sort_by(.key | tonumber) | .[] | "confidence \(.key): \(.value)" ] | join(", ")) + ")"
         else "" end ),
   "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
+  "- **Failed or timed-out chunks:** \($failed_chunks) of \($total_chunks)",
+  "- **Pre-existing findings (partitioned out of verdict):** \(.pre_existing_findings | length)",
+  "- **Soft buckets — residual risks:** \(.residual_risks | length)",
+  "- **Soft buckets — testing gaps:** \(.testing_gaps | length)",
   "",
   "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
   ""
-' "$merged"
+' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" "$merged"
