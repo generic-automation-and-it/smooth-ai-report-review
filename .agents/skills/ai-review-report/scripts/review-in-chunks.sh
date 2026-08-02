@@ -961,10 +961,10 @@ EOF
   # read_file context-loading works (with the diff also inline as a fallback),
   # but cannot self-activate this repo's ai-review-report skill. Fallback chain
   # preserves LADR-002.
-  _chunk_timeout="${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:-450}"
-  if ! [[ "$_chunk_timeout" =~ ^[1-9][0-9]*$ ]]; then
-    _chunk_timeout=450
-  fi
+  # Single source of truth for the budget — `lib/validate-chunk-timeout.sh` is
+  # also what the test exercises, so the fallback-on-bad-value contract cannot
+  # drift away from the code that enforces it.
+  _chunk_timeout="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/validate-chunk-timeout.sh")"
   if timeout "${_chunk_timeout}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     # LADR-055: pull the structured-findings sidecar out and strip it from the
     # markdown. Runs BEFORE the empty-output floor below on purpose — the floor

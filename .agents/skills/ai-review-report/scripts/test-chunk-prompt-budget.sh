@@ -22,6 +22,13 @@ SOURCE_CHUNKS_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/revie
 SOURCE_AGG_SCRIPT="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/aggregate-reviews.sh"
 SOURCE_BALANCE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/balance-fences.sh"
 SOURCE_COUNT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+# review-in-chunks.sh resolves its per-chunk budget through this validator and
+# runs the LADR-055 sidecar extractor after every chunk. Both are real
+# dependencies of the script under test, so the sandbox has to carry them —
+# omitting the extractor is what left its call path unexercised for its whole
+# lifetime, and omitting the validator aborts the run outright.
+SOURCE_TIMEOUT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
+SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -39,6 +46,8 @@ setup_repo() {
   cp "${SOURCE_AGG_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/aggregate-reviews.sh"
   cp "${SOURCE_BALANCE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/balance-fences.sh"
   cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+  cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
+  cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
