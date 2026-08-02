@@ -48,7 +48,7 @@
           "line": {
             "type": "integer",
             "minimum": 1,
-            "description": "Primary line number of the issue in the file's current state."
+            "description": "Primary line number of the issue in the file's current state. Emit an integer. Note that `scripts/lib/merge-findings.py` is deliberately more permissive than this schema and also accepts any non-empty string (e.g. \"42\", \"42-55\") so an otherwise complete finding is not dropped over the type of its line reference; a strict Schema validator will reject those, so do not rely on the looser form."
           },
           "why_it_matters": {
             "type": "string",
