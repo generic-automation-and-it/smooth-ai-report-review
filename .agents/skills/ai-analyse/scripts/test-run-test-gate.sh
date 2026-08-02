@@ -180,4 +180,34 @@ rc="$(OPENCODE_ANALYSE_TEST_TIMEOUT="not-a-number" OPENCODE_ANALYSE_TEST_LOG_LIN
 grep -q 'GATE_STATUS=pass' "$report" || { echo "FAIL Test10: expected pass" >&2; exit 1; }
 echo "✓ Test 10: invalid timeout / log-lines fall back to defaults"
 
+# ── Test 11: a baseline that cannot be produced fails CLOSED ──────────
+# The asymmetric case, and the one the unit tests originally missed: the suite
+# itself completes within budget and fails honestly (exit 1, not 124), so the
+# "a timeout is never excused" branch never fires — but by the time its HEAD
+# baseline runs, the budget is gone, `run_suite` returns 124 without running
+# anything, and a non-zero baseline reads as "already failing at HEAD".
+#
+# That excused a real regression. Safety that could not be established is not
+# safety, so an unproducible baseline must classify as a regression, exactly
+# like a failed `git worktree add`.
+#
+# Timings have margin in both directions: the suite sleeps 3s inside a 5s
+# whole-gate budget (so it exits 1 on its own, not 124), leaving ~2s for a
+# baseline that needs 3s (so that one does time out).
+git checkout -q -- . 2>/dev/null || true
+rm -f scripts/test-regress.sh
+printf '#!/bin/bash\nsleep 3\nexit 1\n' > scripts/test-a-slow.sh
+chmod +x scripts/test-a-slow.sh
+git add -A && git commit -qm budget-exhausted-baseline
+
+report="$tmp_dir/report11.txt"
+rc="$(OPENCODE_ANALYSE_TEST_TIMEOUT=5 run_gate "$report")"
+[ "$rc" = "1" ] || { echo "FAIL Test11: an unverifiable baseline must block, got exit $rc" >&2; exit 1; }
+grep -q 'GATE_STATUS=fail' "$report" || { echo "FAIL Test11: expected fail" >&2; exit 1; }
+grep -q 'FAILED_SUITE=scripts/test-a-slow.sh' "$report" || {
+  echo "FAIL Test11: suite with an unproducible baseline must be a regression" >&2; exit 1; }
+grep -q '^PREEXISTING_SUITE=' "$report" && {
+  echo "FAIL Test11: fail-open — a baseline that never ran was read as 'already failing at HEAD'" >&2; exit 1; }
+echo "✓ Test 11: a baseline that cannot be produced fails closed"
+
 echo "✓ run-test-gate.sh tests passed"
