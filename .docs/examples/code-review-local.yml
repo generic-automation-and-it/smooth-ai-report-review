@@ -388,6 +388,8 @@ jobs:
           OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
           # Per-chunk review budget, seconds — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
+          # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).
+          OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md

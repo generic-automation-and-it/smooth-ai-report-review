@@ -438,6 +438,10 @@ jobs:
       # chain, so on timeout the LADR-002 secondary is never reached. Raised
       # from a hardcoded 300 after LADR-055 tripled per-chunk output.
       OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
+      # Ceiling for the prompt-size-scaled chunk budget. The value above is the
+      # FLOOR (small chunks); a large prompt scales up toward this cap, which
+      # preserves the deadlock-detector property the fixed budget used to give.
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md

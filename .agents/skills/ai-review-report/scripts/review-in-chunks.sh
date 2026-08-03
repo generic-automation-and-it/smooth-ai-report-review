@@ -1107,7 +1107,13 @@ EOF
   # Single source of truth for the budget — `lib/validate-chunk-timeout.sh` is
   # also what the test exercises, so the fallback-on-bad-value contract cannot
   # drift away from the code that enforces it.
-  _chunk_timeout="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/validate-chunk-timeout.sh")"
+  #
+  # The prompt size is passed so the budget can scale with the work. A fixed
+  # budget against a variable prompt fail-closes honest chunks: PR #111 run
+  # 30792984316 lost 4 of 6 chunks to exit 124 at exactly 450 s on 135 KB
+  # prompts, while 88 KB prompts had never timed out. $prompt_size is already
+  # computed above for the oversize warning — this is the same number.
+  _chunk_timeout="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/validate-chunk-timeout.sh" "$prompt_size")"
   if timeout "${_chunk_timeout}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     # LADR-055: pull the structured-findings sidecar out and strip it from the
     # markdown. Runs BEFORE the empty-output floor below on purpose — the floor

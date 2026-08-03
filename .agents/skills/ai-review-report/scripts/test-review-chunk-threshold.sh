@@ -275,9 +275,46 @@ _ct "valid override is honoured" "1200" \
 _ct "the validated value is a bare integer on stdout" "1" \
   "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=abc bash "$_ct_lib" 2>/dev/null \
      | grep -cE '^[1-9][0-9]*$')"
+# --- Prompt-size scaling ----------------------------------------------------
+# A FIXED budget against VARIABLE work fail-closes honest chunks. PR #111 run
+# 30792984316 lost 4 of 6 chunks to exit 124 at exactly 450 s on 135 KB prompts,
+# while 88 KB prompts had never timed out — the 450 s was calibrated before
+# ~33 KB of instructions (LADR-055/058) started riding on top of a diff already
+# allowed up to MAX_CHUNK_SIZE. The budget now scales with the prompt.
+_ct "no prompt size given → unchanged base (every existing caller is safe)" "450" \
+  "$(bash "$_ct_lib" 2>/dev/null)"
+_ct "a small prompt does not scale" "450" \
+  "$(bash "$_ct_lib" 44032 2>/dev/null)"
+_ct "a prompt at the free allowance does not scale" "450" \
+  "$(bash "$_ct_lib" 65536 2>/dev/null)"
+_ct "a 135 KB prompt — the size that timed out — scales above the base" "1" \
+  "$(bash "$_ct_lib" 138412 2>/dev/null | awk '{print ($1 > 450) ? 1 : 0}')"
+_ct "scaling is bounded by the ceiling (deadlock detection survives)" "1200" \
+  "$(bash "$_ct_lib" 999999 2>/dev/null)"
+_ct "the ceiling is configurable" "700" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX=700 bash "$_ct_lib" 999999 2>/dev/null)"
+_ct "a junk ceiling falls back rather than disabling the cap" "1200" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX=abc bash "$_ct_lib" 999999 2>/dev/null)"
+_ct "a ceiling below the floor never shortens the base" "450" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX=10 bash "$_ct_lib" 999999 2>/dev/null)"
+_ct "a junk prompt size is ignored, not treated as zero-or-huge" "450" \
+  "$(bash "$_ct_lib" "not-a-number" 2>/dev/null)"
+_ct "an explicit base still scales from that base, not from the default" "1" \
+  "$(OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=600 bash "$_ct_lib" 138412 2>/dev/null | awk '{print ($1 > 600) ? 1 : 0}')"
+_ct "scaling is still a bare integer on stdout" "1" \
+  "$(bash "$_ct_lib" 138412 2>/dev/null | grep -cE '^[1-9][0-9]*$')"
+_ct "scaling is announced on stderr, not silent" "1" \
+  "$(bash "$_ct_lib" 138412 2>&1 >/dev/null | grep -c 'scaling the review budget')"
+_ct "the call site passes the prompt size to the validator" "1" \
+  "$(grep -c 'validate-chunk-timeout\.sh" "\$prompt_size"' "$_ric")"
+
 # Env-var parity: any var the entrypoint reads must be in BOTH packagings.
 _ct "declared in the reusable workflow" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
 _ct "declared in the local-job packaging" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+_ct "ceiling declared in the reusable workflow" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
+_ct "ceiling declared in the local-job packaging" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
 [ "$_ct_fail" -eq 0 ] || exit 1
