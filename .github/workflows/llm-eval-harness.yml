@@ -74,6 +74,10 @@ on:
         description: "Only run fixtures whose id contains this substring (blank = all)"
         required: false
         type: string
+      parallel:
+        description: "Fixtures evaluated concurrently (blank = EVAL_PARALLEL Variable, else 4). Each one is a live model call — raising this trades wall-clock for provider rate-limit risk, and a rate-limited fixture fails the run as an INFRA failure."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -137,6 +141,13 @@ jobs:
       EVAL_RECALL_THRESHOLD: ${{ github.event.inputs.recall_threshold || '80' }}
       EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
       EVAL_FILTER: ${{ github.event.inputs.filter || '' }}
+      # Fixtures in flight. The corpus is ~20 live model calls at ~35s-3min each,
+      # so serial is ~25 minutes of wall clock on a required PR check. 4 is the
+      # conservative default: it is the concurrency the endpoint has not been
+      # observed to rate-limit, and a rate-limited fixture fails the run outright
+      # (INFRA), so over-tuning this buys speed with flakiness. Raise via the
+      # EVAL_PARALLEL Variable once a real run shows headroom.
+      EVAL_PARALLEL: ${{ github.event.inputs.parallel || vars.EVAL_PARALLEL || '4' }}
       # Triage archive: run-evals.sh copies each fixture's review markdown here so
       # a precision FAIL is inspectable (the per-fixture sandbox is wiped on exit).
       # Uploaded by the post-run step below (if: always(), since a regression exits 1).

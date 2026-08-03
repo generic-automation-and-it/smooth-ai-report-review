@@ -159,6 +159,51 @@ H="$TMP_DIR/corpusH"
 make_fixture "$H" must-catch mc-high HIGH "$CAUGHT_MEDIUM"
 if run_corpus "$H"; then bad "min_severity HIGH should not be met by MEDIUM (see $H/out.log)"; else ok "min_severity HIGH not met by MEDIUM -> exit non-zero"; fi
 
+# Case I: the worker pool. The fixtures are evaluated concurrently, but the
+# report must be byte-identical to a serial run — same verdicts, same ORDER, same
+# exit status. Order is the part worth pinning: the driver tallies in launch
+# order rather than completion order precisely so a parallel run cannot reshuffle
+# the RESULTS table, and a regression there would look like flakiness rather
+# than like a bug.
+I="$TMP_DIR/corpusI"
+make_fixture "$I" must-not-flag dr-one   HIGH "$CLEAN_MNF"
+make_fixture "$I" must-not-flag dr-two   HIGH "$CLEAN_MNF"
+make_fixture "$I" must-not-flag dr-three HIGH "$CLEAN_MNF"
+make_fixture "$I" must-catch    mc-one   HIGH "$CAUGHT_HIGH"
+make_fixture "$I" must-catch    mc-two   HIGH "$CAUGHT_HIGH"
+
+table_of() {  # strip the RESULTS table out of a run log
+  awk '/^KIND /{f=1} f' "$1" | grep -E '^(must-not-flag|must-catch) ' || true
+}
+
+if run_corpus "$I" EVAL_PARALLEL=1; then
+  cp "$I/out.log" "$I/serial.log"
+  if run_corpus "$I" EVAL_PARALLEL=4; then
+    if [ "$(table_of "$I/serial.log")" = "$(table_of "$I/out.log")" ]; then
+      ok "parallel run reproduces the serial RESULTS table exactly (order + verdicts)"
+    else
+      bad "parallel run reordered or changed the RESULTS table"
+      diff <(table_of "$I/serial.log") <(table_of "$I/out.log") | sed 's/^/     /'
+    fi
+  else
+    bad "parallel run exited non-zero on an all-pass corpus (see $I/out.log)"
+  fi
+else
+  bad "serial baseline exited non-zero on an all-pass corpus (see $I/out.log)"
+fi
+
+# Case J: a regression must still fail the gate when found by a parallel worker —
+# the verdict has to survive the subshell boundary via the result file.
+J="$TMP_DIR/corpusJ"
+make_fixture "$J" must-not-flag dr-ok   HIGH "$CLEAN_MNF"
+make_fixture "$J" must-not-flag dr-bad  HIGH "$REGRESSION"
+make_fixture "$J" must-catch    mc-ok   HIGH "$CAUGHT_HIGH"
+if run_corpus "$J" EVAL_PARALLEL=4; then
+  bad "parallel precision regression should fail the gate (see $J/out.log)"
+else
+  ok "parallel precision regression still fails the gate"
+fi
+
 echo ""
 echo "=========================================="
 echo " Self-test: $pass passed, $fail failed"

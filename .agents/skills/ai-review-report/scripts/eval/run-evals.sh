@@ -248,16 +248,32 @@ manifests=( "$CORPUS_DIR"/must-not-flag/*/manifest.json "$CORPUS_DIR"/must-catch
 shopt -u nullglob
 [ "${#manifests[@]}" -gt 0 ] || die "no fixtures found under $CORPUS_DIR/{must-not-flag,must-catch}."
 
-for manifest in "${manifests[@]}"; do
+# ---------------------------------------------------------------------------
+# evaluate_fixture <manifest> <result-file> <log-file>
+#
+# One fixture, start to verdict. Runs in a BACKGROUND SUBSHELL, so it must not
+# touch the parent's arrays or counters — it communicates by writing exactly one
+# `kind|id|verdict|detail` line to <result-file>, and its console output to
+# <log-file>. The driver replays the logs and tallies the counters afterwards,
+# in manifest order, so a parallel run produces byte-identical output ordering
+# to a serial one and the report stays deterministic.
+#
+# Isolation was checked before this was parallelised, not assumed: run_fixture
+# builds its own `mktemp -d` sandbox and `cd`s into it inside a subshell, so the
+# `ci_temp/` that review-in-chunks.sh writes is per-fixture; artifact copies are
+# keyed on the unique fixture id; and nothing else is shared but the read-only
+# corpus. The one genuine cross-fixture resource is the model endpoint — see
+# EVAL_PARALLEL.
+# ---------------------------------------------------------------------------
+evaluate_fixture() {
+  local manifest="$1" result_file="$2" log_file="$3"
+  local id kind label min_sev
   id="$(jq -r '.id' "$manifest")"
   kind="$(jq -r '.kind' "$manifest")"
   label="$(jq -r '.label // .id' "$manifest")"
   min_sev="$(jq -r '.min_severity // "HIGH"' "$manifest" | tr '[:lower:]' '[:upper:]')"
 
-  if [ -n "$EVAL_FILTER" ] && [[ "$id" != *"$EVAL_FILTER"* ]]; then
-    continue
-  fi
-
+  {
   echo "▶ [$kind] $id ($label)"
 
   # Run EVAL_SAMPLES times; collect the blocking-severity set from each sample.
@@ -288,10 +304,9 @@ for manifest in "${manifests[@]}"; do
   done
 
   if [ "$sample_infra_fail" = true ]; then
-    infra_fail=$((infra_fail+1))
-    RESULTS+=("$kind|$id|INFRA|model/run failure — see logs in $WORK_ROOT")
+    printf '%s\n' "$kind|$id|INFRA|model/run failure — see logs in $WORK_ROOT" > "$result_file"
     echo "    ⚠️  INFRA FAILURE (no usable review)"
-    continue
+    return 0
   fi
 
   # Triage archive: keep the (last sample's) review so a precision FAIL can be
@@ -304,10 +319,8 @@ for manifest in "${manifests[@]}"; do
   fi
 
   if [ "$kind" = "must-not-flag" ]; then
-    precision_total=$((precision_total+1))
     if [ "$flagged_any" = true ]; then
-      precision_fail=$((precision_fail+1))
-      RESULTS+=("$kind|$id|FAIL|re-raised a known false positive (DR regression)")
+      printf '%s\n' "$kind|$id|FAIL|re-raised a known false positive (DR regression)" > "$result_file"
       echo "    ❌ FAIL — flagged at Critical/High/Medium on a must-not-flag fixture ($label)"
       # Print the offending finding labels inline. Without this the message names
       # only the DR, which reads as "the reviewer re-raised DR-XXX" even when it
@@ -322,21 +335,123 @@ for manifest in "${manifests[@]}"; do
           | cut -c1-160 | sed 's/^/       ↳ /' | head -5 || true
       fi
     else
-      RESULTS+=("$kind|$id|PASS|did not re-raise")
+      printf '%s\n' "$kind|$id|PASS|did not re-raise" > "$result_file"
       echo "    ✅ PASS"
     fi
   else
-    recall_total=$((recall_total+1))
+    local need
     need=$(majority "$EVAL_SAMPLES")
     if [ "$caught_count" -ge "$need" ]; then
-      recall_caught=$((recall_caught+1))
-      RESULTS+=("$kind|$id|PASS|caught seeded defect (>= $min_sev) in $caught_count/$EVAL_SAMPLES")
+      printf '%s\n' "$kind|$id|PASS|caught seeded defect (>= $min_sev) in $caught_count/$EVAL_SAMPLES" > "$result_file"
       echo "    ✅ PASS — caught >= $min_sev ($caught_count/$EVAL_SAMPLES)"
     else
-      RESULTS+=("$kind|$id|FAIL|missed seeded defect ($caught_count/$EVAL_SAMPLES caught, need $need)")
+      printf '%s\n' "$kind|$id|FAIL|missed seeded defect ($caught_count/$EVAL_SAMPLES caught, need $need)" > "$result_file"
       echo "    ❌ FAIL — missed seeded defect ($caught_count/$EVAL_SAMPLES)"
     fi
   fi
+  } > "$log_file" 2>&1
+}
+
+# ---------------------------------------------------------------------------
+# Driver: run fixtures with a bounded worker pool, then tally in manifest order.
+#
+# EVAL_PARALLEL is the number of fixtures in flight, and the ONLY thing it
+# trades is wall-clock against pressure on the model endpoint. Each in-flight
+# fixture is one live chunk-review call, so a high value can earn provider rate
+# limiting — which surfaces as INFRA failures and fails the run. That is a
+# flaky gate, which is the exact failure this harness was just rescued from, so
+# the default is deliberately conservative. Raise it only with evidence from a
+# real run. (review-in-chunks.sh caps its own chunk fan-out at 10 for the same
+# reason; eval fixtures are 1-2 files, so each is normally a single chunk.)
+# ---------------------------------------------------------------------------
+_eval_parallel_explicit="${EVAL_PARALLEL+set}"
+EVAL_PARALLEL="${EVAL_PARALLEL:-4}"
+case "$EVAL_PARALLEL" in
+  ''|*[!0-9]*) EVAL_PARALLEL=4 ;;
+esac
+[ "$EVAL_PARALLEL" -ge 1 ] || EVAL_PARALLEL=4
+# The self-test scores canned reviews with no network, so parallelism buys it
+# nothing by default. An EXPLICIT EVAL_PARALLEL still applies, which is how
+# test-evals.sh exercises the worker pool itself — otherwise the pool would be
+# reachable only by a paid run.
+if [ "$SELFTEST" = "1" ] && [ -z "$_eval_parallel_explicit" ]; then
+  EVAL_PARALLEL=1
+fi
+# The pool throttles with `wait -n`, which is bash 4.3+. macOS still ships bash
+# 3.2 as /bin/bash, and local-evals.sh is the documented macOS path — there,
+# `wait -n` fails immediately and the throttle would degrade to launching every
+# fixture at once. Fall back to serial rather than melting someone's rate limit.
+if [ "$EVAL_PARALLEL" -gt 1 ] && \
+   { [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] || \
+     { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -lt 3 ]; }; }; then
+  echo "ℹ️  bash ${BASH_VERSION:-?} lacks 'wait -n' (needs 4.3+) — running fixtures serially."
+  EVAL_PARALLEL=1
+fi
+
+[ "$EVAL_PARALLEL" -gt 1 ] && echo "Running up to ${EVAL_PARALLEL} fixtures concurrently (EVAL_PARALLEL)."
+echo ""
+
+declare -a PENDING=()          # manifests actually launched, in corpus order
+for manifest in "${manifests[@]}"; do
+  fid="$(jq -r '.id' "$manifest")"
+  if [ -n "$EVAL_FILTER" ] && [[ "$fid" != *"$EVAL_FILTER"* ]]; then
+    continue
+  fi
+  PENDING+=("$manifest")
+done
+
+RESULT_DIR="$WORK_ROOT/results"
+mkdir -p "$RESULT_DIR"
+
+slot=0
+for manifest in "${PENDING[@]}"; do
+  # Throttle: wait for a slot before launching. `wait -n` needs bash 4.3+; the
+  # runner ships bash 5 and the preflight already requires a modern bash.
+  while [ "$(jobs -rp | wc -l)" -ge "$EVAL_PARALLEL" ]; do
+    wait -n 2>/dev/null || break
+  done
+  evaluate_fixture "$manifest" "$RESULT_DIR/$slot.result" "$RESULT_DIR/$slot.log" &
+  slot=$((slot+1))
+done
+wait
+
+# Tally in launch order — never in completion order — so the printed log and the
+# RESULTS table are identical run to run regardless of which fixture finished
+# first. A missing result file means the worker died outright (OOM, kill); that
+# counts as an infra failure rather than being silently dropped.
+slot=0
+for manifest in "${PENDING[@]}"; do
+  fid="$(jq -r '.id' "$manifest")"
+  fkind="$(jq -r '.kind' "$manifest")"
+  [ -f "$RESULT_DIR/$slot.log" ] && cat "$RESULT_DIR/$slot.log"
+  line=""
+  [ -f "$RESULT_DIR/$slot.result" ] && line="$(cat "$RESULT_DIR/$slot.result")"
+  if [ -z "$line" ]; then
+    line="$fkind|$fid|INFRA|worker produced no result — see logs in $WORK_ROOT"
+    echo "    ⚠️  INFRA FAILURE (worker produced no result)"
+  fi
+  RESULTS+=("$line")
+
+  verdict="$(printf '%s' "$line" | cut -d'|' -f3)"
+  # An INFRA failure is counted ONLY as infra — never in the precision or recall
+  # denominators. The serial version reached this via `continue`; getting it
+  # wrong here would quietly inflate both denominators and understate the two
+  # rates the gate is judged on.
+  if [ "$verdict" = "INFRA" ]; then
+    infra_fail=$((infra_fail+1))
+  else
+    case "$fkind" in
+      must-not-flag)
+        precision_total=$((precision_total+1))
+        [ "$verdict" = "FAIL" ] && precision_fail=$((precision_fail+1))
+        ;;
+      *)
+        recall_total=$((recall_total+1))
+        [ "$verdict" = "PASS" ] && recall_caught=$((recall_caught+1))
+        ;;
+    esac
+  fi
+  slot=$((slot+1))
 done
 
 # ---------------------------------------------------------------------------
