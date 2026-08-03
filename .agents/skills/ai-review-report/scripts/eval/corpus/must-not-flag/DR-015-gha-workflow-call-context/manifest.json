@@ -1,6 +1,7 @@
 {
   "id": "DR-015-gha-workflow-call-context",
   "kind": "must-not-flag",
+  "fixture_note": "Kept deliberately minimal. This fixture has failed twice for incidental defects rather than for re-raising DR-015: a real ${{ inputs.pr_number }} script-injection vector, then a push:tags trigger the job if: filtered out. Fixing the second by making the trigger live only moved the defect (the Resolve step had no push branch, so number resolved empty), so the tags block is gone entirely, along with an unused GH_TOKEN and a head_ref output nothing consumed. Everything here now exists to carry the DR-015 bait — github.event.pull_request.* inside a workflow_call-able workflow, and an if: gate on caller event names. Do not add scaffolding to this fixture; a must-not-flag fixture is scored on ANY Critical/High/Medium finding, so every extra line is a way to fail it.",
   "label": "DR-015",
   "note": "Reusable workflows inherit the caller's github context — event_name is never 'workflow_call' and github.event.pull_request.* is populated for PR-triggered callers; reviewer must NOT flag if-gates or event-payload references as broken for workflow_call."
 }
