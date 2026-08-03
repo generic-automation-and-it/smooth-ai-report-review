@@ -2,7 +2,7 @@
 # render-findings-summary.sh — render the posted review's `## 🔍 Issues Summary`
 # from the merged findings document (LADR-055). Writes markdown to stdout.
 #
-# Usage: render-findings-summary.sh <merged_json> [failed_chunks] [total_chunks]
+# Usage: render-findings-summary.sh <merged_json> [failed_chunks] [total_chunks] [missing_chunks]
 #
 #   failed_chunks and total_chunks are optional integers sourced from the
 #   same flag-file counters as the LADR-036 coverage banner. They are not
@@ -30,6 +30,9 @@ set -uo pipefail
 merged="${1:-}"
 failed_chunks="${2:-0}"
 total_chunks="${3:-0}"
+# Comma-separated numbers of chunks that reviewed fine but contributed no
+# structured findings (truncated or malformed sidecar). Empty = full coverage.
+missing_chunks="${4:-}"
 if [ -z "$merged" ] || [ ! -s "$merged" ]; then
   exit 1
 fi
@@ -138,6 +141,14 @@ jq -r '
   # trust, so this block renders even when every count is zero.
   "### 📊 Coverage",
   "",
+  # Partial coverage is rendered rather than suppressed, so this warning is the
+  # thing that keeps it honest. It must come FIRST in the block and name the
+  # chunks, because the reader’s next question is always "which ones, and
+  # where do I look instead".
+  ( if $missing_chunks != "" then
+      ( "> \u26a0\ufe0f **Partial structured coverage.** Chunk(s) \($missing_chunks) reviewed successfully but produced no usable structured findings (a truncated or malformed sidecar), so anything they found is **not** in the deduplicated list above. Their full reviews are intact in the detailed sections below \u2014 open `### Chunk #\($missing_chunks)`. The verdict is unaffected: it is computed from the orchestrator summary, which saw every chunk.",
+        "" )
+    else empty end ),
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",
   "- **Demoted for missing quoted evidence:** \(.demoted_no_quote) (claimed confidence ≥ 75 without quoting the motivating line, stepped down to 50)",
   # The buckets must be ordered HERE, not in merge-findings.py. Its keys are
@@ -151,10 +162,13 @@ jq -r '
         else "" end ),
   "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
   "- **Failed or timed-out chunks:** \($failed_chunks) of \($total_chunks)",
+  "- **Reviewed chunks with no usable sidecar:** "
+    + (if $missing_chunks == "" then "0 (full structured coverage)" else "chunk(s) \($missing_chunks)" end),
   "- **Pre-existing findings (partitioned out of verdict):** \(.pre_existing_findings | length)",
   "- **Soft buckets — residual risks:** \(.residual_risks | length)",
   "- **Soft buckets — testing gaps:** \(.testing_gaps | length)",
   "",
   "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
   ""
-' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" "$merged"
+' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" \
+    --arg missing_chunks "$missing_chunks" "$merged"
