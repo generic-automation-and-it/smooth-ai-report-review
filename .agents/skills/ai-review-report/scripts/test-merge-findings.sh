@@ -673,6 +673,71 @@ if [ -x "$RENDER_SH" ]; then
     "$(grep -cE '^- [A-Z]?[0-9]+\) ' "$TMP_DIR/autolink.md" || true)"
 fi
 
+# --- Test 20: aggregate-reviews.sh's own identifier surfaces (LADR-067) ------
+# Test 19 covers render-findings-summary.sh, which is only the PRIMARY path.
+# Two identifier surfaces live in aggregate-reviews.sh instead, and both escaped
+# the LADR-067 rename because a grep for the rendered shape cannot see them:
+#
+#   1. The aggregation prompt's numbering instruction. On the fallback path
+#      (structured findings disabled, or the merge returning no document) the
+#      orchestrator's free-text Issues Summary is posted VERBATIM, so telling
+#      the model to reuse a `#` number reintroduces the autolink there. The
+#      instruction is prose inside a heredoc — invisible to any check that
+#      looks for the rendered `**#1**`.
+#   2. The holistic legend, whose guard greps for the shape
+#      `number-holistic-items.sh` emits. Renaming the emitter without the guard
+#      left dead code: the guard never matched, so the legend — the only
+#      explanation a reader gets for `H1)` on the fallback path — silently
+#      stopped rendering, and its text still taught the old shape.
+NUMBER_SH="$SCRIPT_DIR/lib/number-holistic-items.sh"
+
+check "Test 20a: aggregation prompt no longer teaches a \`#\` number" "0" \
+  "$(grep -cF 'Reuse one stable `#`' "$AGG_SH" || true)"
+check "Test 20b: aggregation prompt teaches the trailing-paren identifier" "1" \
+  "$(grep -cF 'Reuse one stable `1)` identifier' "$AGG_SH" || true)"
+
+# The legend guard is asserted BEHAVIOURALLY, not by restating its regex here:
+# the regex is extracted from the script and run against output from the real
+# numberer. Restating it would let guard and emitter drift apart again while
+# the test stayed green — which is exactly how this defect shipped. Same
+# single-source-of-truth technique as test-minimize-reviews.sh Test 5.
+# Accept `grep -q` and `grep -qE` alike. Matching only the current `-qE` form
+# made this extraction return empty against the pre-fix script, which skipped
+# the behavioural check below entirely — a test that quietly does not run is
+# worse than one that fails, so the pattern deliberately spans both forms.
+legend_re="$(grep -F 'ci_temp/pr_summary_detailed.md 2>/dev/null' "$AGG_SH" \
+  | sed -n "s/.*grep -q[E]* '\([^']*\)'.*/\1/p" | head -1)"
+check "Test 20c: the legend guard regex was extractable from the script" "1" \
+  "$([ -n "$legend_re" ] && echo 1 || echo 0)"
+if [ -n "$legend_re" ] && [ -f "$NUMBER_SH" ]; then
+  printf '**Cross-Chunk Issues Found:**\n\n- A real cross-chunk item.\n' \
+    > "$TMP_DIR/holistic.md"
+  bash "$NUMBER_SH" "$TMP_DIR/holistic.md"
+  check "Test 20d: the legend guard matches what number-holistic-items.sh emits" "1" \
+    "$(grep -cE "$legend_re" "$TMP_DIR/holistic.md" || true)"
+fi
+
+check "Test 20e: the legend text contains no autolinking #<digits>" "0" \
+  "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -coE '#[0-9]' || true)"
+
+# 20e alone cannot catch the defect this test exists for: the pre-fix legend
+# said `#H1` / `#N`, which is `#` followed by a LETTER and never autolinked.
+# Its actual defect was teaching a shape the emitter no longer produces, so a
+# reader quoting the legend into a skip bullet wrote an identifier matching
+# nothing. Assert the shape positively, not just the absence of the hazard.
+# Match on `H1)` without the surrounding backticks: they are backslash-escaped
+# inside the echo (\`H1)\`), so a pattern including them matches nothing.
+check "Test 20g: the legend text names the current H1) shape" "1" \
+  "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -cF 'H1)' || true)"
+
+# Blunt net over the whole posted body, mirroring test 19's intent one level up:
+# every literal line appended to final_review.md is text a reader sees on
+# GitHub, so none of them may carry `#<digits>`. Broader than the two surfaces
+# above on purpose — a future append is covered without anyone remembering to
+# extend this file.
+check "Test 20f: no line appended to the posted body carries #<digits>" "0" \
+  "$(grep -F '>> ci_temp/final_review.md' "$AGG_SH" | grep -cE '#[0-9]' || true)"
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
