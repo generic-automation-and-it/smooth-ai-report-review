@@ -60,6 +60,17 @@ _ver_eq() {
 }
 
 # --- Install check ------------------------------------------------------------
+# PATH repair must happen BEFORE the check: a workflow-cache-restored
+# ~/.local/pipx venv is invisible to `command -v` until ~/.local/bin is on
+# PATH, and the resulting miss would trigger a full pipx reinstall (`pipx
+# install --force` below) that silently defeats the cache every run.
+if [ -d "$HOME/.local/bin" ]; then
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH"
+       echo "$HOME/.local/bin" >> "${GITHUB_PATH:-/dev/null}" ;;
+  esac
+fi
 install_needed="false"
 if command -v code-review-graph >/dev/null 2>&1; then
   cached_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+)*' | head -1 || true)"

@@ -228,6 +228,29 @@ jobs:
           restore-keys: |
             crg-${{ runner.os }}-
 
+      # Cache the pipx-installed code-review-graph package itself — the graph
+      # cache above covers only the .code-review-graph/ DB; the ~13s pipx
+      # install still ran on every job. Gated on a version pin: with the pin
+      # unset ('latest'), a cached venv would silently freeze the version.
+      # The Python minor version is part of the key because pipx venvs embed
+      # the interpreter path — a runner-image Python bump becomes a cache miss
+      # (clean reinstall) instead of a broken venv. Even a stale hit degrades
+      # gracefully: build-code-graph.sh's version check fails and reinstalls,
+      # which is exactly the pre-cache behaviour.
+      - name: Resolve Python version for tool cache key
+        id: crg_py
+        if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1') && vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION != ''
+        run: echo "version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache code-review-graph tool install
+        if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1') && vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION != ''
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: |
+            ~/.local/pipx/venvs/code-review-graph
+            ~/.local/bin/code-review-graph
+          key: crg-pipx-${{ runner.os }}-py${{ steps.crg_py.outputs.version }}-${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION }}
+
       - name: Run review gate
         env:
           # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
