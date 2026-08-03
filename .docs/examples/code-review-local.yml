@@ -1,7 +1,8 @@
 # Local-job packaging for smooth-ai-report-review.
 #
 # Copy this file into your repo as .github/workflows/pipeline-code-review-report.yml
-# (any name works). The job's only `uses:` entries are `actions/checkout` — already
+# (any name works). The job's only `uses:` entries are `actions/checkout` and
+# `actions/cache` — both GitHub-owned, so both are already
 # allow-listed by every org using `allowed_actions: "selected"` and `github_owned_allowed: true`
 # — and it checks out the upstream tooling repo at a pinned SHA, then invokes the
 # same `run-review.sh` entrypoint that the reusable-workflow packaging uses.
@@ -193,9 +194,10 @@ jobs:
           # SHA pin (NOT a floating tag) — the whole point of the local-job
           # packaging is to preserve the supply-chain guarantee the allow-list
           # policy is after. Bump this in lockstep with the upstream ref you
-          # want to consume. The reusable-workflow's `workflow_sha` reference
+          # want to consume. The reusable-workflow's `job_workflow_sha` default
           # does not exist in this packaging (there is no reusable call), so
-          # pin a concrete commit SHA.
+          # pin a concrete commit SHA. A full 40-char SHA is also what the
+          # reusable workflow's own ref policy prefers (LADR-059).
           #
           # IMPORTANT: the SHA MUST be a commit on `main` that contains
           # `.agents/skills/ai-review-report/scripts/run-review.sh` — the
