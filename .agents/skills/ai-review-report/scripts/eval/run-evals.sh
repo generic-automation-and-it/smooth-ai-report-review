@@ -263,6 +263,7 @@ declare -a RESULTS=()          # "kind|id|verdict|detail"
 precision_total=0; precision_fail=0
 recall_total=0;    recall_caught=0
 infra_fail=0
+unrelated_total=0     # true findings unrelated to any DR claim (reported, never blocking)
 
 majority() { echo $(( ($1 / 2) + 1 )); }
 
@@ -295,6 +296,9 @@ evaluate_fixture() {
   kind="$(jq -r '.kind' "$manifest")"
   label="$(jq -r '.label // .id' "$manifest")"
   min_sev="$(jq -r '.min_severity // "HIGH"' "$manifest" | tr '[:lower:]' '[:upper:]')"
+  # ERE describing the WRONG claim this fixture forbids. Empty => strict mode.
+  local forbidden_claim
+  forbidden_claim="$(jq -r '.forbidden_claim // ""' "$manifest")"
 
   {
   echo "▶ [$kind] $id ($label)"
@@ -332,19 +336,60 @@ evaluate_fixture() {
     return 0
   fi
 
-  # Triage archive: keep the (last sample's) review so a precision FAIL can be
-  # inspected after the sandbox is wiped. Skipped under selftest (no real review).
+  # Path to the (last sample's) review. Assigned unconditionally: the DR-claim
+  # match below needs it on EVERY path, and it used to be set only inside the
+  # artifact-archive block — which is skipped under selftest, so the claim match
+  # silently fell back to strict mode there and no self-test could see it.
+  review_path="${out%|*}"
+
+  # Triage archive: keep the review so a precision FAIL can be inspected after
+  # the sandbox is wiped. Skipped under selftest (no real review).
   if [ -n "$EVAL_ARTIFACT_DIR" ] && [ "$SELFTEST" != "1" ]; then
-    review_path="${out%|*}"
     if [ -n "$review_path" ] && [ -f "$review_path" ]; then
       cp "$review_path" "$EVAL_ARTIFACT_DIR/$id.review.md" 2>/dev/null || true
     fi
   fi
 
   if [ "$kind" = "must-not-flag" ]; then
+    # A must-not-flag fixture exists to prove ONE thing: the reviewer does not
+    # re-raise this specific confirmed false positive. It was previously failed
+    # by ANY Critical/High/Medium finding, which measured something else
+    # entirely — "did a thorough reviewer find anything at all in realistic
+    # code" — and the answer to that is eventually always yes. Across five runs
+    # (30766652401 … 30795770815) every precision failure was a CORRECT finding
+    # and not one was a DR re-raise; five fixtures were repaired and the set
+    # never converged, because each run samples a different subset of what is
+    # findable.
+    #
+    # So the verdict is now the DR claim itself. `forbidden_claim` in the
+    # manifest is a case-insensitive ERE describing the WRONG claim; a flagged
+    # finding matching it fails the fixture. Unrelated true findings are counted
+    # and reported, and do not block — they are fixture-hygiene debt, not a
+    # precision regression.
+    #
+    # A manifest with NO forbidden_claim keeps the old strict behaviour. That is
+    # deliberate: where the wrong claim cannot be expressed as a pattern
+    # (DR-014, "do not flag the LADR-documented approach"), silently loosening
+    # to "never fails" would be worse than staying strict.
+    dr_hit=false
+    unrelated=0
     if [ "$flagged_any" = true ]; then
+      if [ -n "$forbidden_claim" ] && [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        flagged_lines="$(bash "$SCORE_SCRIPT" --lines "$review_path" 2>/dev/null || true)"
+        matched="$(printf '%s\n' "$flagged_lines" | grep -c . 2>/dev/null || true)"
+        dr_lines="$(printf '%s\n' "$flagged_lines" | grep -icE "$forbidden_claim" 2>/dev/null || true)"
+        [ "${dr_lines:-0}" -gt 0 ] && dr_hit=true
+        unrelated=$(( ${matched:-0} - ${dr_lines:-0} ))
+        [ "$unrelated" -lt 0 ] && unrelated=0
+      else
+        dr_hit=true
+      fi
+    fi
+    printf '%s\n' "$unrelated" > "${result_file%.result}.unrelated"
+
+    if [ "$dr_hit" = true ]; then
       printf '%s\n' "$kind|$id|FAIL|re-raised a known false positive (DR regression)" > "$result_file"
-      echo "    ❌ FAIL — flagged at Critical/High/Medium on a must-not-flag fixture ($label)"
+      echo "    ❌ FAIL — re-raised $label (finding matches the forbidden claim)"
       # Print the offending finding labels inline. Without this the message names
       # only the DR, which reads as "the reviewer re-raised DR-XXX" even when it
       # flagged something else entirely — diagnosing a failure meant downloading
@@ -356,6 +401,13 @@ evaluate_fixture() {
       if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
         grep -oE '^- (🔴|🟠|🟡) \[VERIFIED\][^—]*' "$review_path" 2>/dev/null \
           | cut -c1-160 | sed 's/^/       ↳ /' | head -5 || true
+      fi
+    elif [ "$unrelated" -gt 0 ]; then
+      printf '%s\n' "$kind|$id|PASS|did not re-raise (${unrelated} unrelated finding(s))" > "$result_file"
+      echo "    ✅ PASS — did not re-raise $label (${unrelated} unrelated finding(s), not blocking)"
+      if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        bash "$SCORE_SCRIPT" --lines "$review_path" 2>/dev/null \
+          | cut -f2- | cut -c1-150 | sed 's/^/       ↳ /' | head -3 || true
       fi
     else
       printf '%s\n' "$kind|$id|PASS|did not re-raise" > "$result_file"
@@ -460,6 +512,9 @@ for manifest in "${PENDING[@]}"; do
   # denominators. The serial version reached this via `continue`; getting it
   # wrong here would quietly inflate both denominators and understate the two
   # rates the gate is judged on.
+  if [ -f "$RESULT_DIR/$slot.unrelated" ]; then
+    unrelated_total=$(( unrelated_total + $(cat "$RESULT_DIR/$slot.unrelated") ))
+  fi
   if [ "$verdict" = "INFRA" ]; then
     infra_fail=$((infra_fail+1))
   else
@@ -515,6 +570,7 @@ recall_display="${recall_rate}%"
 [ "$recall_total" -eq 0 ] && recall_display="n/a — nothing scored"
 echo " Precision (must-not-flag): $precision_pass/$precision_total clean (${precision_display})  [zero-tolerance]"
 echo " Recall    (must-catch)   : $recall_caught/$recall_total caught (${recall_display})  [threshold ${EVAL_RECALL_THRESHOLD}%]"
+[ "$unrelated_total" -gt 0 ] && echo " Unrelated findings       : $unrelated_total (true, but not the DR claim — fixture hygiene, not blocking)"
 [ "$infra_fail" -gt 0 ] && echo " Infra failures           : $infra_fail (counted as run failure)"
 [ -n "$EVAL_ARTIFACT_DIR" ] && echo " Reviews archived to      : $EVAL_ARTIFACT_DIR (per-fixture <id>.review.md)"
 echo "------------------------------------------"

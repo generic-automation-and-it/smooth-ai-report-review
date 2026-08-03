@@ -98,6 +98,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    # REPORT-ONLY (temporary). The harness has never passed as a required check:
+    # every failure so far has been a fixture defect or a scorer bug, not a
+    # reviewer regression, and a check that is always red is a check everyone
+    # learns to ignore — while it blocks unrelated PRs. The run still executes
+    # and its logs and artifacts are still published; it just does not fail the
+    # PR. REVERT THIS (delete continue-on-error) once the eval has passed twice
+    # consecutively on main.
+    continue-on-error: true
+
     # Draft and fork PRs skip the whole job. A job skipped by `if:` still
     # reports its check as skipped, which branch protection counts as passing —
     # unlike a workflow that never triggers, which blocks forever. Non-PR events

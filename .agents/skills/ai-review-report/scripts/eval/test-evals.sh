@@ -101,12 +101,13 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "--- Part 2: aggregation + gating ---"
 
-make_fixture() {  # <corpus> <kind> <id> <min_severity> <review-markdown>
-  local corpus="$1" kind="$2" id="$3" minsev="$4" review="$5"
+make_fixture() {  # <corpus> <kind> <id> <min_severity> <review-markdown> [forbidden_claim]
+  local corpus="$1" kind="$2" id="$3" minsev="$4" review="$5" claim="${6:-}"
   local d="$corpus/$kind/$id"
   mkdir -p "$d"
-  jq -n --arg id "$id" --arg kind "$kind" --arg label "$id" --arg ms "$minsev" \
-    '{id:$id, kind:$kind, label:$label, min_severity:$ms, note:"selftest"}' > "$d/manifest.json"
+  jq -n --arg id "$id" --arg kind "$kind" --arg label "$id" --arg ms "$minsev" --arg fc "$claim" \
+    '{id:$id, kind:$kind, label:$label, min_severity:$ms, note:"selftest"}
+     + (if $fc == "" then {} else {forbidden_claim:$fc} end)' > "$d/manifest.json"
   printf '%s\n' "$review" > "$d/selftest-review.md"
 }
 
@@ -244,6 +245,31 @@ if grep -qE 'grep .*(Review Failed for Chunk|fallbacks exhausted)' "$RUNNER"; th
 else
   ok "no text-grep detection of chunk failure (LADR-031 channel respected)"
 fi
+
+# Case L: forbidden_claim rescoping. A must-not-flag fixture fails only when a
+# flagged finding matches the DR claim; a true finding about something else is
+# counted and reported, not blocking. Before this, ANY Critical/High/Medium
+# failed the fixture, which measured "did the reviewer find anything at all in
+# realistic code" — across five runs every failure was a correct finding and not
+# one was a DR re-raise.
+L="$TMP_DIR/corpusL"
+make_fixture "$L" must-not-flag dr-claim-hit  HIGH \
+  '- 🟠 [VERIFIED] High Priority: suggest a public constructor instead of the static factory' \
+  'public constructor|factory interface'
+if run_corpus "$L"; then bad "a finding matching forbidden_claim must fail (see $L/out.log)"; else ok "finding matching forbidden_claim fails the fixture"; fi
+
+M="$TMP_DIR/corpusM"
+make_fixture "$M" must-not-flag dr-unrelated  HIGH \
+  '- 🟠 [VERIFIED] High Priority: the retry path leaves the two stores inconsistent' \
+  'public constructor|factory interface'
+make_fixture "$M" must-catch    mc-ok         HIGH "$CAUGHT_HIGH"
+if run_corpus "$M"; then ok "unrelated true finding does not fail the fixture"; else bad "unrelated finding must not block (see $M/out.log)"; fi
+if grep -q "Unrelated findings" "$M/out.log"; then ok "unrelated findings are reported in the summary"; else bad "unrelated findings not reported"; fi
+
+N="$TMP_DIR/corpusN"
+make_fixture "$N" must-not-flag dr-no-pattern HIGH \
+  '- 🟠 [VERIFIED] High Priority: some unrelated true finding'
+if run_corpus "$N"; then bad "a manifest without forbidden_claim must stay strict (see $N/out.log)"; else ok "no forbidden_claim keeps the strict behaviour"; fi
 
 echo ""
 echo "=========================================="
