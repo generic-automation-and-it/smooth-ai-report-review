@@ -87,7 +87,7 @@ fi
 # That distinction is the whole ballgame here, because the section this filter
 # reads is produced by render-findings-summary.sh, which emits:
 #
-#   - **#1** 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing — `a.cs:42`
+#   - **1)** 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing — `a.cs:42`
 #     - The assertion no longer matches the new return shape.
 #
 # The `why_it_matters` line is an INDENTED sub-bullet. Treating any "- " line

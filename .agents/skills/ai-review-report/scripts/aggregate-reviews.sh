@@ -136,7 +136,11 @@ for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
       echo "---" >> ci_temp/combined_reviews.md
       echo "" >> ci_temp/combined_reviews.md
     fi
-    echo "### Chunk #${i}" >> ci_temp/combined_reviews.md
+    # No `#` before the number: GFM autolinks `#<digits>` to an issue/PR in the
+    # repo under review, so `### Chunk #3` rendered as a link and cross-posted a
+    # reference onto that repo's issue #3 (LADR-067). The heading slug is
+    # unchanged — GitHub strips `#` when slugifying, so `#chunk-3` still anchors.
+    echo "### Chunk ${i}" >> ci_temp/combined_reviews.md
     echo "" >> ci_temp/combined_reviews.md
     # Balanced per chunk so one chunk's open fence cannot corrupt the next
     # chunk, the aggregation prompt, or the posted <details> section.
@@ -296,7 +300,7 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 **Formatting Rules (MANDATORY):**
 - Use ASCII-safe characters in finding text: no box-drawing characters, no per-item horizontal rules, no Unicode arrows or middots. Write `->` instead of an arrow character.
 - **The severity emoji grammar is exempt and mandatory.** 🔴 🟠 🟡 🔵 🗂️ and the section headings below are parsed by downstream tooling — always emit them exactly as shown. The ASCII rule applies only to decorative characters inside the text of a finding.
-- Reuse one stable `#` number per finding across every section it appears in. Never re-derive numbering per severity block.
+- Reuse one stable `1)` identifier per finding across every section it appears in. Never re-derive numbering per severity block, and never write `#` before a number (LADR-067): GFM autolinks `#`+digits to an issue/PR in the repo under review.
 
 **Required Output Format:**
 
@@ -582,7 +586,7 @@ fi
 balance_fences ci_temp/pr_summary_main.md
 balance_fences ci_temp/pr_summary_detailed.md
 
-# LADR-063: number the holistic items (`#H1`, `#H2`, …) so every item in the
+# LADR-063: number the holistic items (`H1)`, `H2)`, …) so every item in the
 # posted review is addressable, not just the deduplicated findings. Runs AFTER
 # balance_fences because the numberer skips fenced blocks and needs the fences
 # to be balanced before it can tell which lines are inside one. Best-effort by
@@ -833,12 +837,12 @@ EOF
 # LADR-063: when the numbering pass actually assigned identifiers, say what they
 # mean right here rather than only in the Issues Summary legend — that legend is
 # rendered by render-findings-summary.sh, which runs ONLY on full sidecar
-# coverage, so on the fallback path a reader would meet `#H3` with nothing
+# coverage, so on the fallback path a reader would meet `H3)` with nothing
 # anywhere explaining it. Emitted conditionally so a section that was left
 # unnumbered (no anchor, degraded run) does not carry a legend for numbers it
 # does not have.
-if grep -q '\*\*#H[0-9]' ci_temp/pr_summary_detailed.md 2>/dev/null; then
-  echo "> Cross-chunk items below are numbered \`#H1\`, \`#H2\`, … — a sequence of their own, separate from the \`#N\` findings in the Issues Summary. Quote the identifier when you fix or skip one." >> ci_temp/final_review.md
+if grep -qE '\*\*H[0-9]+\)' ci_temp/pr_summary_detailed.md 2>/dev/null; then
+  echo "> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the \`1)\` findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)." >> ci_temp/final_review.md
   echo "" >> ci_temp/final_review.md
 fi
 cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md
@@ -859,7 +863,7 @@ EOF
 # deduplicated and numbered; the sections below are each reviewer's raw output
 # and are neither. Without this sentence a differing count between the two parts
 # reads as a bug rather than as dedup working. The chunk back-reference on each
-# numbered finding — "(chunk #3)" — names one of the `### Chunk #N` headings
+# numbered finding — "(chunk 3)" — names one of the `### Chunk N` headings
 # below, which is why those headings must stay stable and predictable.
 if [ "$FINDINGS_SUMMARY_APPLIED" = "true" ]; then
   cat >> ci_temp/final_review.md << 'EOF'

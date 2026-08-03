@@ -230,10 +230,10 @@ check "Test 8d: unanimous pre_existing is not actionable" "0" \
 printf '%s' "$out" > "$TMP_DIR/pe-merged.json"
 bash "$RENDER_SH" "$TMP_DIR/pe-merged.json" > "$TMP_DIR/pe-rendered.md"
 pe_section="$(awk '/^### 🗂️ Pre-existing/{c=1;next} c&&/^### /{exit} c' "$TMP_DIR/pe-rendered.md")"
-check "Test 8e: pre-existing items are numbered #P1..#Pn" "1" \
-  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#P[0-9]+\*\* ' || true)"
+check "Test 8e: pre-existing items are numbered P1)..Pn)" "1" \
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*P[0-9]+\)\*\* ' || true)"
 check "Test 8f: pre-existing numbering does not use the findings namespace" "0" \
-  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*[0-9]+\)\*\* ' || true)"
 if [ -x "$SCORE_SH" ]; then
   check "Test 8g: numbering a pre-existing item does not make it a flag" "" \
     "$(bash "$SCORE_SH" "$TMP_DIR/pe-rendered.md" | tr '\n' ',' | sed 's/,$//')"
@@ -478,14 +478,14 @@ check "Test 13g: Medium section is not None found when only soft items exist" "0
 # are independent: adding a finding must not repoint `#R1`, because the PR
 # description's Skip Areas bullets are read by the NEXT run's gate and a shifted
 # number silently rebinds a skip to a different item.
-check "Test 13j: testing gaps are numbered #T1..#Tn" "2" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#T[0-9]+\*\* ' || true)"
-check "Test 13k: residual risks are numbered #R1..#Rn" "1" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#R[0-9]+\*\* ' || true)"
+check "Test 13j: testing gaps are numbered T1)..Tn)" "2" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*T[0-9]+\)\*\* ' || true)"
+check "Test 13k: residual risks are numbered R1)..Rn)" "1" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*R[0-9]+\)\*\* ' || true)"
 check "Test 13l: each soft sequence starts at 1 (independent of findings)" "1,1" \
-  "$(printf '%s\n' "$soft_medium" | grep -oE '#[TR]1\b' | sed 's/#[TR]//' | tr '\n' ',' | sed 's/,$//')"
+  "$(printf '%s\n' "$soft_medium" | grep -oE '\b[TR]1\)' | sed 's/[TR]//;s/)//' | tr '\n' ',' | sed 's/,$//')"
 check "Test 13m: soft numbers never collide with the findings namespace" "0" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*[0-9]+\)\*\* ' || true)"
 
 if [ -x "$SCORE_SH" ]; then
   check "Test 13h: soft items alone are NOT scored as a flag (DR precision)" "" \
@@ -637,6 +637,106 @@ PJ
 else
   echo "⏭️  render-findings-summary.sh not executable — skipping partial-coverage tests"
 fi
+
+# --- Test 19: no identifier can autolink to a GitHub issue (LADR-067) --------
+# The bug this pins: GFM autolinks `#` followed by digits to an issue/PR in the
+# repo the review is posted on, and `**` does not suppress it. `**#1**` rendered
+# as a link carrying issue #1's TITLE — observed in production as a finding
+# bullet that began "chore: Initialize projects and folders…" — and each posted
+# review left a cross-reference on that repo's low-numbered issues.
+#
+# The assertion is deliberately blunt: NO `#<digit>` sequence anywhere in a
+# rendered summary, whatever produced it. A narrower regex per identifier class
+# would pass while some new emitter reintroduced the collision elsewhere.
+if [ -x "$RENDER_SH" ]; then
+  bash "$RENDER_SH" "$TMP_DIR/merged.json" > "$TMP_DIR/autolink.md"
+  check "Test 19a: rendered summary contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink.md" || true)"
+  bash "$RENDER_SH" "$TMP_DIR/soft-merged.json" > "$TMP_DIR/autolink-soft.md"
+  check "Test 19b: soft-bucket summary contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink-soft.md" || true)"
+  bash "$RENDER_SH" "$TMP_DIR/pe-merged.json" > "$TMP_DIR/autolink-pe.md"
+  check "Test 19c: pre-existing summary contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink-pe.md" || true)"
+  bash "$RENDER_SH" "$TMP_DIR/partial.json" 0 3 "1" > "$TMP_DIR/autolink-partial.md" 2>/dev/null
+  check "Test 19d: partial-coverage warning contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink-partial.md" || true)"
+
+  # The chunk heading emitted by aggregate-reviews.sh is the other posted site.
+  check "Test 19e: aggregate-reviews.sh emits '### Chunk N', not '### Chunk #N'" "0" \
+    "$(grep -c 'echo "### Chunk #' "$AGG_SH" || true)"
+
+  # `1)` is also a CommonMark ordered-list marker, so an unbolded identifier at
+  # the head of a bullet (`- 1) foo`) parses as a NESTED list and the number
+  # disappears from the rendered text. Every emitted identifier must be bolded.
+  check "Test 19f: every findings bullet bolds its identifier" "0" \
+    "$(grep -cE '^- [A-Z]?[0-9]+\) ' "$TMP_DIR/autolink.md" || true)"
+fi
+
+# --- Test 20: aggregate-reviews.sh's own identifier surfaces (LADR-067) ------
+# Test 19 covers render-findings-summary.sh, which is only the PRIMARY path.
+# Two identifier surfaces live in aggregate-reviews.sh instead, and both escaped
+# the LADR-067 rename because a grep for the rendered shape cannot see them:
+#
+#   1. The aggregation prompt's numbering instruction. On the fallback path
+#      (structured findings disabled, or the merge returning no document) the
+#      orchestrator's free-text Issues Summary is posted VERBATIM, so telling
+#      the model to reuse a `#` number reintroduces the autolink there. The
+#      instruction is prose inside a heredoc — invisible to any check that
+#      looks for the rendered `**#1**`.
+#   2. The holistic legend, whose guard greps for the shape
+#      `number-holistic-items.sh` emits. Renaming the emitter without the guard
+#      left dead code: the guard never matched, so the legend — the only
+#      explanation a reader gets for `H1)` on the fallback path — silently
+#      stopped rendering, and its text still taught the old shape.
+NUMBER_SH="$SCRIPT_DIR/lib/number-holistic-items.sh"
+
+check "Test 20a: aggregation prompt no longer teaches a \`#\` number" "0" \
+  "$(grep -cF 'Reuse one stable `#`' "$AGG_SH" || true)"
+check "Test 20b: aggregation prompt teaches the trailing-paren identifier" "1" \
+  "$(grep -cF 'Reuse one stable `1)` identifier' "$AGG_SH" || true)"
+
+# The legend guard is asserted BEHAVIOURALLY, not by restating its regex here:
+# the regex is extracted from the script and run against output from the real
+# numberer. Restating it would let guard and emitter drift apart again while
+# the test stayed green — which is exactly how this defect shipped. Same
+# single-source-of-truth technique as test-minimize-reviews.sh Test 5.
+# Accept `grep -q` and `grep -qE` alike. Matching only the current `-qE` form
+# made this extraction return empty against the pre-fix script, which skipped
+# the behavioural check below entirely — a test that quietly does not run is
+# worse than one that fails, so the pattern deliberately spans both forms.
+legend_re="$(grep -F 'ci_temp/pr_summary_detailed.md 2>/dev/null' "$AGG_SH" \
+  | sed -n "s/.*grep -q[E]* '\([^']*\)'.*/\1/p" | head -1)"
+check "Test 20c: the legend guard regex was extractable from the script" "1" \
+  "$([ -n "$legend_re" ] && echo 1 || echo 0)"
+if [ -n "$legend_re" ] && [ -f "$NUMBER_SH" ]; then
+  printf '**Cross-Chunk Issues Found:**\n\n- A real cross-chunk item.\n' \
+    > "$TMP_DIR/holistic.md"
+  bash "$NUMBER_SH" "$TMP_DIR/holistic.md"
+  check "Test 20d: the legend guard matches what number-holistic-items.sh emits" "1" \
+    "$(grep -cE "$legend_re" "$TMP_DIR/holistic.md" || true)"
+fi
+
+check "Test 20e: the legend text contains no autolinking #<digits>" "0" \
+  "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -coE '#[0-9]' || true)"
+
+# 20e alone cannot catch the defect this test exists for: the pre-fix legend
+# said `#H1` / `#N`, which is `#` followed by a LETTER and never autolinked.
+# Its actual defect was teaching a shape the emitter no longer produces, so a
+# reader quoting the legend into a skip bullet wrote an identifier matching
+# nothing. Assert the shape positively, not just the absence of the hazard.
+# Match on `H1)` without the surrounding backticks: they are backslash-escaped
+# inside the echo (\`H1)\`), so a pattern including them matches nothing.
+check "Test 20g: the legend text names the current H1) shape" "1" \
+  "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -cF 'H1)' || true)"
+
+# Blunt net over the whole posted body, mirroring test 19's intent one level up:
+# every literal line appended to final_review.md is text a reader sees on
+# GitHub, so none of them may carry `#<digits>`. Broader than the two surfaces
+# above on purpose — a future append is covered without anyone remembering to
+# extend this file.
+check "Test 20f: no line appended to the posted body carries #<digits>" "0" \
+  "$(grep -F '>> ci_temp/final_review.md' "$AGG_SH" | grep -cE '#[0-9]' || true)"
 
 echo ""
 echo "=========================================="
