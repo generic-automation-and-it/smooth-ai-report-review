@@ -21,9 +21,10 @@ permissions:
 jobs:
   review:
     # Caller event names only — never 'workflow_call'. The github context is the
-    # caller's, so a PR-triggered caller sees event_name=='pull_request' here and
-    # a manual caller sees 'workflow_dispatch'. (DR-015)
-    if: (github.event_name == 'pull_request') || (github.event_name == 'workflow_dispatch')
+    # caller's, so a PR-triggered caller sees event_name=='pull_request' here, a
+    # manual caller sees 'workflow_dispatch', and a tag-release caller sees
+    # 'push'. (DR-015)
+    if: (github.event_name == 'pull_request') || (github.event_name == 'workflow_dispatch') || (github.event_name == 'push')
     runs-on: ubuntu-latest
     steps:
       - name: Resolve PR number
@@ -35,9 +36,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          if [ -n "${{ inputs.pr_number }}" ]; then
-            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            echo "number=${INPUT_PR_NUMBER}" >> "$GITHUB_OUTPUT"
           else
             echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "head_ref=${HEAD_REF}" >> "$GITHUB_OUTPUT"

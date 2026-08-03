@@ -308,7 +308,19 @@ for manifest in "${manifests[@]}"; do
     if [ "$flagged_any" = true ]; then
       precision_fail=$((precision_fail+1))
       RESULTS+=("$kind|$id|FAIL|re-raised a known false positive (DR regression)")
-      echo "    ❌ FAIL — re-raised $label at Critical/High/Medium"
+      echo "    ❌ FAIL — flagged at Critical/High/Medium on a must-not-flag fixture ($label)"
+      # Print the offending finding labels inline. Without this the message names
+      # only the DR, which reads as "the reviewer re-raised DR-XXX" even when it
+      # flagged something else entirely — diagnosing a failure meant downloading
+      # the run artifact and reading the review by hand. Three of the three
+      # precision failures triaged on run 30766652401 turned out to be findings
+      # unrelated to their DR (an unrelated perf note, a real script-injection
+      # vector left in the fixture), which is a fixture defect rather than a
+      # precision regression, and the message actively pointed away from that.
+      if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        grep -oE '^- (🔴|🟠|🟡) \[VERIFIED\][^—]*' "$review_path" 2>/dev/null \
+          | cut -c1-160 | sed 's/^/       ↳ /' | head -5 || true
+      fi
     else
       RESULTS+=("$kind|$id|PASS|did not re-raise")
       echo "    ✅ PASS"
