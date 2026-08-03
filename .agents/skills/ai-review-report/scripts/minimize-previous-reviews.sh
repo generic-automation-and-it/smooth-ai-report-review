@@ -168,20 +168,39 @@ minimize_previous_analyse_comments() {
     return 0
   }
 
+  # Two comment shapes are superseded by the full review being posted right now:
+  # the ai-analyse auto-fix summaries, and the LADR-059 trivial-PR skip notices.
+  # The latter are posted with `gh pr comment` (an issue comment, not a review),
+  # so the review query above never sees them — on a PR with active dependency
+  # automation every skipped push left one behind, permanently.
+  #
+  # Matched on the gate header AND the distinctive `Trivial-PR skip` line, not on
+  # the header alone: the blocked-incremental notice (run-review.sh Step 16)
+  # carries the same header and is deliberately NOT minimized here, because
+  # select-ai-analyse-artifact.sh classifies it as a cycle artifact and counts it
+  # toward the incremental cap. Minimizing only sets isMinimized (the API still
+  # returns the body, so that count is unaffected either way) — but keeping the
+  # scope to the one shape the audit identified means this change cannot alter
+  # the analyse loop by accident. Both patterns anchor at `^`, so a quoted copy
+  # inside someone else's comment never matches.
   comment_node_ids=$(echo "$comments_json" | jq -r \
     '.data.repository.pullRequest.comments.nodes[]? |
-     select(.body | test("^#+ ai-analyse auto-fix (summary|limit exceeded)")) |
+     select(
+       (.body | test("^#+ ai-analyse auto-fix (summary|limit exceeded)"))
+       or ((.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
+           and (.body | test("Trivial-PR skip")))
+     ) |
      .id'
   )
 
   if [ -z "$comment_node_ids" ]; then
-    echo "✅ No previous ai-analyse auto-fix comments found to minimize"
+    echo "✅ No previous ai-analyse auto-fix or trivial-skip comments found to minimize"
     echo ""
     return 0
   fi
 
   comment_count=$(echo "$comment_node_ids" | wc -l | tr -d ' ')
-  echo "Found ${comment_count} previous ai-analyse auto-fix comment(s) to minimize"
+  echo "Found ${comment_count} previous ai-analyse auto-fix / trivial-skip comment(s) to minimize"
   echo ""
 
   while IFS= read -r node_id; do
