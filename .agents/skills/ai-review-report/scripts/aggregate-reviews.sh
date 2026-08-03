@@ -300,7 +300,7 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 **Formatting Rules (MANDATORY):**
 - Use ASCII-safe characters in finding text: no box-drawing characters, no per-item horizontal rules, no Unicode arrows or middots. Write `->` instead of an arrow character.
 - **The severity emoji grammar is exempt and mandatory.** 🔴 🟠 🟡 🔵 🗂️ and the section headings below are parsed by downstream tooling — always emit them exactly as shown. The ASCII rule applies only to decorative characters inside the text of a finding.
-- Reuse one stable `#` number per finding across every section it appears in. Never re-derive numbering per severity block.
+- Reuse one stable `1)` identifier per finding across every section it appears in. Never re-derive numbering per severity block, and never write `#` before a number (LADR-067): GFM autolinks `#`+digits to an issue/PR in the repo under review.
 
 **Required Output Format:**
 
@@ -841,8 +841,8 @@ EOF
 # anywhere explaining it. Emitted conditionally so a section that was left
 # unnumbered (no anchor, degraded run) does not carry a legend for numbers it
 # does not have.
-if grep -q '\*\*#H[0-9]' ci_temp/pr_summary_detailed.md 2>/dev/null; then
-  echo "> Cross-chunk items below are numbered \`#H1\`, \`#H2\`, … — a sequence of their own, separate from the \`#N\` findings in the Issues Summary. Quote the identifier when you fix or skip one." >> ci_temp/final_review.md
+if grep -qE '\*\*H[0-9]+\)' ci_temp/pr_summary_detailed.md 2>/dev/null; then
+  echo "> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the \`1)\` findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)." >> ci_temp/final_review.md
   echo "" >> ci_temp/final_review.md
 fi
 cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md
