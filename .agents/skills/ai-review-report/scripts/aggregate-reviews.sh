@@ -634,10 +634,23 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # about by number, so they know which detailed section to open.
   MISSING_SIDECAR_CHUNKS=""
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ]; then
+    # Failed/timed-out chunks (.failed flag, never in merged_chunks) are NOT
+    # "reviewed successfully but produced no usable structured findings" — they
+    # are covered by the adjacent 'Failed or timed-out chunks' ledger line and
+    # the LADR-031 fail-closed override. Excluding them keeps the warning's
+    # wording honest: "missing" means reviewed-but-sidecar-absent.
+    failed_sidecar_chunks=""
+    if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+      failed_sidecar_chunks=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null \
+        | sed -E 's/.*chunk_([0-9]+)\.failed/\1/' \
+        | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(tonumber)' 2>/dev/null || echo "[]")
+    fi
+    failed_arg="${failed_sidecar_chunks:-[]}"
     MISSING_SIDECAR_CHUNKS=$(
-      jq -r --argjson total "$TOTAL_CHUNKS" '
+      jq -r --argjson total "$TOTAL_CHUNKS" --argjson failed "$failed_arg" '
         (.merged_chunks // []) as $have
-        | [ range(0; $total) | select( . as $c | ($have | index($c)) == null ) ]
+        | ($failed // []) as $failed
+        | [ range(0; $total) | select( . as $c | ($have | index($c)) == null and ($failed | index($c)) == null ) ]
         | map(tostring) | join(", ")
       ' "$MERGED_FINDINGS_FILE" 2>/dev/null || echo ""
     )
