@@ -5,13 +5,27 @@
 # recall (must-catch / seeded real defects) — so prompt/model/LADR changes can be
 # regression-tested. See LADR-033 in .agents/skills/ai-review-report/SKILL.md.
 #
-# *** MAKES REAL, PAID MODEL CALLS. Triggers: manual (workflow_dispatch) + a
-#     POST-MERGE CANARY on push to main, path-filtered to the review-pipeline files
-#     that actually change the eval outcome (the prompt/transport/corpus under the
-#     skill, this workflow). It is deliberately NOT wired to
-#     pull_request — it never blocks a PR and is not in the default bash-test path.
-#     The eval scores the reviewer model against a fixed corpus, so an arbitrary
-#     PR's content cannot change the result; only the path-filtered files can. ***
+# *** MAKES REAL, PAID MODEL CALLS. Triggers: manual (workflow_dispatch), a
+#     POST-MERGE CANARY on push to main, and — since it became a required PR
+#     status check — pull_request on a NON-DRAFT PR (opened / reopened /
+#     ready_for_review / pushes to an already-ready PR).
+#
+#     The PR trigger deliberately carries NO `paths:` filter, and that is not an
+#     oversight. A workflow skipped by a path filter never reports a check run at
+#     all, so a required check would sit "Expected — waiting for status" forever
+#     on every PR that misses the filter, and the PR could never merge. The
+#     relevance test therefore moved INSIDE the job ("Scope check" below): the
+#     job always runs and always reports, but the paid model calls only happen
+#     when the PR actually touches the review pipeline. A doc-only PR costs one
+#     checkout and a `git diff --name-only`.
+#
+#     Two classes of PR skip the job entirely (a skipped job reports as success
+#     to branch protection, so neither can wedge a PR):
+#       - DRAFT PRs — the eval is a merge gate, not a work-in-progress signal.
+#       - FORK PRs — `pull_request` from a fork gets no secrets, so every provider
+#         key would be empty and the run would fail on the health probe. A
+#         permanently-red check on contributor PRs is worse than no check; those
+#         run post-merge on the canary instead. ***
 #
 # Workflow↔script path coupling (repo Non-Negotiable): this file invokes the
 # harness by hardcoded path (.agents/skills/ai-review-report/scripts/eval/...).
@@ -29,6 +43,13 @@ on:
     paths:
       - ".agents/skills/ai-review-report/**"
       - ".github/workflows/llm-eval-harness.yml"
+  # PR gate. `synchronize` covers "a push to a PR that is already ready for
+  # review"; `ready_for_review` covers the draft→ready transition, which is the
+  # first point at which the eval is meant to have an opinion. No `paths:` here —
+  # see the header: a path-skipped workflow reports no check at all, which would
+  # block a required check permanently. Relevance is decided in the job.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       provider:
@@ -57,6 +78,14 @@ on:
 permissions:
   contents: read
 
+# One in-flight eval per PR (or per branch/dispatch). A 20-minute paid run whose
+# commit has already been superseded by the next push is money spent on a status
+# nobody will read. Never cancels the post-merge canary on main — that group key
+# is the ref, and main pushes are serialised anyway.
+concurrency:
+  group: llm-evals-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   llm-evals:
     # Network-bound (chunked <100KB/call); the selected provider endpoint must be
@@ -64,6 +93,15 @@ jobs:
     # to self-hosted only if a private-network endpoint is ever used.
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
+    # Draft and fork PRs skip the whole job. A job skipped by `if:` still
+    # reports its check as skipped, which branch protection counts as passing —
+    # unlike a workflow that never triggers, which blocks forever. Non-PR events
+    # (push canary, dispatch) are unaffected.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository)
 
     env:
       # Provider selector — dispatch input wins, else repo Variable, else GEMINI.
@@ -107,8 +145,57 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The scope check below diffs against the PR base, so the base commit
+          # has to be present. Unconditional 0 — do NOT write this as
+          # `${{ github.event_name == 'pull_request' && 0 || 1 }}`: GitHub
+          # expressions treat 0 as falsy, so the `&& 0 ||` arm collapses to 1 and
+          # the PR path silently gets a shallow clone whose base commit is
+          # missing. The scope check would then fail its diff and fall back to
+          # "relevant", paying for a full eval on every PR.
+          fetch-depth: 0
+
+      - name: Scope check
+        id: scope
+        # The `paths:` filter this replaces for the PR trigger. Same path list as
+        # the push canary above — keep the two in sync; they answer the same
+        # question ("could this change move the eval result?") for the two events.
+        #
+        # The eval scores the reviewer against a FIXED corpus, so an arbitrary
+        # PR's product code cannot change the outcome — only the prompt-assembly,
+        # transport, corpus, or this workflow can. Everything else is a guaranteed
+        # no-op that would still cost ~20 minutes of paid model calls.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # push canary + dispatch: the trigger already decided relevance.
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Three-dot: files this PR changed relative to the merge base, not
+          # files that landed on the base branch meanwhile.
+          changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" 2>/dev/null || true)"
+          if [ -z "$changed" ]; then
+            # A diff we could not compute must not silently skip the gate.
+            echo "⚠️  Could not determine changed files — running the eval (fail-safe)."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if printf '%s\n' "$changed" | grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Review-pipeline files changed — running the eval."
+            printf '%s\n' "$changed" | grep -E '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$)' | sed 's/^/    /'
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️  No review-pipeline files changed — skipping the paid eval run."
+            echo "    The eval scores a fixed corpus; nothing in this PR can move the result."
+          fi
 
       - name: Install opencode
+        if: steps.scope.outputs.relevant == 'true'
         run: |
           set -e
           # Install opencode via the shared lib (LADR-048) so this workflow
@@ -120,6 +207,7 @@ jobs:
           opencode stats >/dev/null 2>&1 || true   # warm the SQLite store
 
       - name: Run LLM evals
+        if: steps.scope.outputs.relevant == 'true'
         # run-evals.sh sources lib/resolve-provider.sh (resolves provider-id +
         # creds, fails fast on a bad model chain), installs the managed
         # opencode.json (setup-opencode-config.sh), runs the provider-agnostic
@@ -134,7 +222,9 @@ jobs:
         # Always upload (the eval step exits non-zero on a precision/recall
         # regression) so the per-fixture review markdown — the only record of WHAT
         # the model flagged — survives for triage. No-op if the dir is empty.
-        if: always()
+        # `always()` alone would also fire on a scope-skipped run; the extra
+        # condition keeps those runs from uploading an empty artifact.
+        if: always() && steps.scope.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: llm-eval-reviews
