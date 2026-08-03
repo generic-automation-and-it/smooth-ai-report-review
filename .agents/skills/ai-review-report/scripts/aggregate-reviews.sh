@@ -586,7 +586,7 @@ fi
 balance_fences ci_temp/pr_summary_main.md
 balance_fences ci_temp/pr_summary_detailed.md
 
-# LADR-063: number the holistic items (`#H1`, `#H2`, …) so every item in the
+# LADR-063: number the holistic items (`H1)`, `H2)`, …) so every item in the
 # posted review is addressable, not just the deduplicated findings. Runs AFTER
 # balance_fences because the numberer skips fenced blocks and needs the fences
 # to be balanced before it can tell which lines are inside one. Best-effort by
@@ -837,7 +837,7 @@ EOF
 # LADR-063: when the numbering pass actually assigned identifiers, say what they
 # mean right here rather than only in the Issues Summary legend — that legend is
 # rendered by render-findings-summary.sh, which runs ONLY on full sidecar
-# coverage, so on the fallback path a reader would meet `#H3` with nothing
+# coverage, so on the fallback path a reader would meet `H3)` with nothing
 # anywhere explaining it. Emitted conditionally so a section that was left
 # unnumbered (no anchor, degraded run) does not carry a legend for numbers it
 # does not have.
