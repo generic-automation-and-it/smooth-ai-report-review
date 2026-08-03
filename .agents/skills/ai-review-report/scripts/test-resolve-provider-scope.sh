@@ -36,7 +36,7 @@ run_success review_go_anthropic env \
   OPENCODE_GO_ANTHROPIC_API_KEY=test-key \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=qwen3.7-plus \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=minimax-m2.7 \
-  OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=qwen3.6-pro
+  OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=qwen3.6-plus
 grep -q '^OPENCODE_REVIEW_REPORT_PROVIDER_ID=go-anthropic$' "${tmp_dir}/review_go_anthropic.env" || fail "review provider id was not go-anthropic"
 
 run_success analyse_go_openai env \
