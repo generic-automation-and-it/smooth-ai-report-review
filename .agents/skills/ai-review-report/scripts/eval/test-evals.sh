@@ -74,6 +74,16 @@ expect_score "word critical in a HIGH description does not become CRITICAL" \
 - 🟠 [VERIFIED] High Priority: this is a critical-path method, validate input' \
 'HIGH'
 
+expect_score "confidence parenthetical does not turn None found into a flag" \
+'- 🔴 [VERIFIED] Critical (confidence: 100): None found
+- 🟠 [VERIFIED] High Priority (confidence: 100): None found
+- 🟡 [VERIFIED] Medium Priority (confidence: 100): None found' \
+''
+
+expect_score "confidence parenthetical still scores a real finding" \
+'- 🟡 [VERIFIED] Medium Priority (confidence: 75): `x.yml:43` a real problem' \
+'MEDIUM'
+
 expect_score "colon in description still parses payload correctly" \
 '- 🟠 [VERIFIED] High Priority: bug: missing await on async call' \
 'HIGH'

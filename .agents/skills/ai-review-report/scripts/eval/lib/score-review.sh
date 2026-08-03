@@ -46,6 +46,21 @@ _is_none() {
 _sev_flagged() {
   local keyword="$1" line label payload
   while IFS= read -r line; do
+    # Strip a `(confidence: N)` parenthetical before splitting. The label is
+    # defined as everything before the FIRST colon, so a parenthetical that
+    # contains its own colon moves the split point and takes the payload with
+    # it: `- 🔴 [VERIFIED] Critical (confidence: 100): None found` split into
+    # label `- 🔴 [VERIFIED] Critical (confidence` — still matching [VERIFIED]
+    # and the severity — and payload ` 100): None found`, which _is_none does
+    # not recognise. Every "None found" placeholder then scored as a real flag,
+    # and DR-001 failed with three of them (run 30795770815).
+    #
+    # The reviewer is not told to emit this; it volunteers the anchor it was
+    # asked for by LADR-055 into the markdown label. Since model formatting
+    # cannot be relied on, the scorer normalises rather than the prompt
+    # forbidding — a prompt rule here would be model-trusted, and the failure
+    # mode is silent miscounting in the one instrument meant to catch that.
+    line="$(printf '%s' "$line" | sed -E 's/\([Cc]onfidence:[^)]*\)//g')"
     # Finding lines are "…: <payload>". No colon → not a finding line.
     label="${line%%:*}"
     [ "$label" = "$line" ] && continue
