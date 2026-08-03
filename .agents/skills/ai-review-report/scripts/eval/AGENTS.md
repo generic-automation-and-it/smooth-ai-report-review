@@ -1,6 +1,6 @@
 ---
 name: ai-review-report-eval
-description: LLM eval harness for the chunk-review model (LADR-033). Use when adding/editing fixtures in `corpus/`, scoring logic in `lib/score-review.sh`, the runners (`run-evals.sh` / `local-evals.sh`), the self-test (`test-evals.sh`), or the post-merge canary workflow. Do NOT use for the parent skill's review pipeline scripts (`review-in-chunks.sh` etc.) — those are governed by the parent `ai-review-report` skill.
+description: LLM eval harness for the chunk-review model (LADR-033). Use when adding/editing fixtures in `corpus/`, scoring logic in `lib/score-review.sh`, the runners (`run-evals.sh` / `local-evals.sh`), the self-test (`test-evals.sh`), or the eval workflow. Do NOT use for the parent skill's review pipeline scripts (`review-in-chunks.sh` etc.) — those are governed by the parent `ai-review-report` skill.
 ---
 
 # Eval Harness — chunk-review model
@@ -18,8 +18,8 @@ the DR-001…014 golden set — zero-tolerance at Crit/High/**Med** on the fixtu
 `forbidden_claim`; unrelated true findings are reported, not blocking) and **recall**
 (must-catch synthesized defects at ≥ labeled severity, threshold configurable).
 Drives the real `review-in-chunks.sh` per fixture, reuses the CI transport
-verbatim, makes paid model calls — opt-in only (local entrypoint or
-`workflow_dispatch` / post-merge canary, and a report-only `pull_request` run),
+verbatim, makes paid model calls — opt-in only (local entrypoint,
+`workflow_dispatch`, or the scope-checked `pull_request` required check),
 never in the default bash-test path.
 
 ## Non-Negotiables
@@ -32,7 +32,7 @@ never in the default bash-test path.
 - **`EVAL_PARALLEL` trades wall-clock for rate-limit risk, and nothing else.** Fixtures run in a bounded worker pool (default 4, `wait -n` throttle, serial fallback below bash 4.3 since macOS ships 3.2). Isolation is not the constraint — each fixture builds its own sandbox and `cd`s into it, so the `ci_temp/` review-in-chunks.sh writes is per-fixture, and artifact copies are keyed on the fixture id. The shared resource is the **model endpoint**: every in-flight fixture is one live chunk-review call, and a rate-limited call fails the run as an INFRA failure. That is a flaky required check, which is precisely the state this harness was just rescued from — so raise the default only with evidence from a real run, never on the theory that more concurrency is free.
 - **The driver tallies in launch order, never completion order.** A parallel run must produce a byte-identical RESULTS table to a serial one; `test-evals.sh` case I pins that by diffing the two tables. Workers cannot touch the parent's arrays or counters — each writes one `kind|id|verdict|detail` line to a result file and its console output to a log the driver replays in order. An INFRA verdict is counted as infra ONLY: putting it in the precision or recall denominator quietly understates both rates (the serial version avoided this with a `continue`, and it is the one thing to re-check if the counters are ever refactored again).
 - **Do not trim the installed provider block to "just the provider under eval".** It looks like free savings — the eval runs one provider (`OPENCODE_REVIEW_REPORT_PROVIDER`, e.g. `OPENCODE-GO-ANTHROPIC`) while `setup-opencode-config.sh` installs all seven. It is not: opencode resolves an `@ai-sdk/*` package only for the provider it actually uses, and a full eval run installs **no** SDK package at all (checked against run 30766652401 — the only install line is the opencode binary itself). So the saving is zero, while the cost is real: `opencode-with-fallback.sh` accepts provider-qualified model targets (`go-openai/kimi-k2.7-code`, `openrouter/deepseek/…`), and any target naming a provider that was filtered out of the config fails at run time. `setup-opencode-config.sh` is shared with the production gate; a filter added for the eval's benefit changes the gate too.
-- **Workflow ↔ script paths are coupled.** The canary workflow
+- **Workflow ↔ script paths are coupled.** The eval workflow
   (`.github/workflows/llm-eval-harness.yml`) invokes `scripts/eval/run-evals.sh`
   by hardcoded path, the same way the gate invokes `../review-in-chunks.sh`.
   Renaming or moving a file in this dir silently breaks the harness. Change
@@ -116,14 +116,16 @@ scripts/eval/
 
 **Triggers (CI workflow `llm-eval-harness.yml`):**
 - **`workflow_dispatch`** — manual.
-- **`push: branches: [main]`**, **path-filtered** to
-  `.agents/skills/ai-review-report/**`,
-  workflow itself. Post-merge canary: cannot block a merge; a regression
-  surfaces as a failed run on the merge commit. The path filter keeps it
-  cheap — the eval scores the reviewer against a fixed corpus, so arbitrary
-  PR content cannot change the result; only the path-filtered files can.
-- **NEVER on `pull_request`**. A PR touching the path-filtered files merges
-  without paying for an eval, and the canary fires on the merge commit.
+- **`pull_request`** — required status check (opened / synchronize / reopened /
+  ready_for_review; draft and fork PRs skip via the job `if:`). Relevance is
+  decided by the in-job `Scope check`, not a `paths:` filter (a path-skipped
+  required check reports nothing and wedges the PR): only changes under
+  `.agents/skills/ai-review-report/**` or the workflow itself pay for model
+  calls — the eval scores the reviewer against a fixed corpus, so arbitrary
+  PR content cannot change the result.
+- **No `push`-to-`main` canary.** Retired: the PR gate scores the same paths
+  before merge, so the canary re-ran the identical diff for a second paid
+  bill. A merged fork PR that touched the pipeline needs a manual dispatch.
 
 ## Key Behaviors
 
@@ -191,7 +193,7 @@ scripts/eval/
   stop — the test target is the existing transport, and adding a parallel
   path means the eval no longer exercises what production uses.
 - **No silent model transport changes.** `OPENCODE_REVIEW_REPORT_*` is the
-  full surface; the canary workflow exposes all the relevant env at job
+  full surface; the eval workflow exposes all the relevant env at job
   scope. Adding a new provider is a LADR-worthy change, not a one-line
   edit in `opencode.json`.
 
@@ -201,3 +203,4 @@ scripts/eval/
 |:-----|:-------|:----|
 | 2026-06-08 | Initial eval-dir AGENTS.md: fixture hygiene, `EVAL_ARTIFACT_DIR` triage archive, post-merge canary trigger, strict precision bar, and safe `test-evals.sh` path. | — |
 | 2026-07-30 | Move the retired `.github/instructions` DR standards into the eval corpus and assemble them into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox. | — |
+| 2026-08-03 | Retired the post-merge push-to-main canary trigger — the scope-checked `pull_request` required check scores the same paths before merge; merged fork PRs need a manual dispatch. | — |
