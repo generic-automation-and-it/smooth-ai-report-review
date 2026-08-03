@@ -208,6 +208,36 @@ else
   bad "the sidecar rules no longer ask for compact JSON"
 fi
 
+# --- No unescaped backticks inside an unquoted heredoc ----------------------
+# The chunk prompt is assembled with `cat >> ... << EOF` — UNQUOTED, because the
+# body interpolates shell variables. That also makes every backtick a command
+# substitution. Markdown prose is full of `code spans`, so an unescaped one is
+# executed by the runner and replaced with its (empty) output: the prompt the
+# model receives silently loses that text.
+#
+# Observed on run 30808166239, where the LADR-064 praise rule shipped
+# `IFS` and `🟠 [VERIFIED] High Priority` unescaped, and the non-findings
+# catalogue shipped five lint-disable examples the same way. The runner logged
+# "IFS: command not found", "//: Is a directory" — and the review continued with
+# a prompt whose concrete examples had been deleted. Nothing failed; the rules
+# were simply weaker than the source says they are.
+#
+# Escape every backtick in these heredocs as \` — or use a quoted delimiter when
+# the body needs no interpolation.
+_heredoc_offenders="$(
+  awk '
+    /<<[ ]*EOF/ && !/<<[ ]*.?"EOF/ && !/<<[ ]*.?'"'"'EOF/ { inh=1; next }
+    inh && /^[ \t]*EOF[ \t]*$/ { inh=0; next }
+    inh { line=$0; gsub(/\\`/,"",line); if (line ~ /`/) print NR": "substr($0,1,90) }
+  ' "$TARGET"
+)"
+if [ -n "$_heredoc_offenders" ]; then
+  printf '%s\n' "$_heredoc_offenders" >&2
+  bad "unescaped backticks in an unquoted heredoc — the runner executes them and strips the text from the prompt"
+else
+  ok "no unescaped backticks inside an unquoted heredoc"
+fi
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then
