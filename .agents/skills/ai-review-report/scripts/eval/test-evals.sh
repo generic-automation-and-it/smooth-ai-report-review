@@ -204,6 +204,37 @@ else
   ok "parallel precision regression still fails the gate"
 fi
 
+# Case K: a failed chunk must be an INFRA failure, never a clean review.
+# review-in-chunks.sh writes a NON-EMPTY stub when the model chain is exhausted
+# and drops a LADR-031 flag file beside it. Scored as an ordinary review that
+# stub has no [VERIFIED] findings, so a must-not-flag fixture PASSES — which is
+# how run 30791708130 reported precision 14/14 (100%) during a total provider
+# outage, having reviewed nothing at all. A precision-only corpus would have gone
+# green. Two properties are pinned here: the detection is by FLAG FILE (never by
+# grepping the stub text, per LADR-031, because a quoted marker in a real review
+# false-matched once), and it is checked BEFORE the emptiness test that the stub
+# slips past.
+echo "Case K: failed chunk is INFRA, not a clean review"
+if grep -q 'compgen -G "\$sandbox/ci_temp/reviews/chunk_\*\.failed"' "$RUNNER"; then
+  ok "run_fixture detects the LADR-031 flag file"
+else
+  bad "run_fixture no longer detects chunk_*.failed — a model outage will score as clean"
+fi
+
+flag_line="$(grep -n 'chunk_\*\.failed' "$RUNNER" | head -n1 | cut -d: -f1)"
+empty_line="$(grep -n 'if \[ ! -s "\$review_md" \]' "$RUNNER" | head -n1 | cut -d: -f1)"
+if [ -n "$flag_line" ] && [ -n "$empty_line" ] && [ "$flag_line" -lt "$empty_line" ]; then
+  ok "flag-file check precedes the emptiness check (the stub is non-empty)"
+else
+  bad "flag-file check must run before the emptiness check (flag=$flag_line, empty=$empty_line)"
+fi
+
+if grep -qE 'grep .*(Review Failed for Chunk|fallbacks exhausted)' "$RUNNER"; then
+  bad "chunk failure is detected by grepping stub text — LADR-031 requires the flag file"
+else
+  ok "no text-grep detection of chunk failure (LADR-031 channel respected)"
+fi
+
 echo ""
 echo "=========================================="
 echo " Self-test: $pass passed, $fail failed"

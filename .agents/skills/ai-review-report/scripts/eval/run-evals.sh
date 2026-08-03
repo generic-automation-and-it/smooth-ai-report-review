@@ -215,6 +215,29 @@ run_fixture() {
   local rc=$?
   [ "$rc" -eq 90 ] && { echo "__INFRA_FAIL__"; rm -rf "$sandbox"; return 1; }
 
+  # A chunk that failed to review is NOT a clean review. review-in-chunks.sh
+  # writes a NON-EMPTY stub on model failure ("## ⚠️ Review Failed for Chunk …
+  # all fallbacks exhausted") and drops a LADR-031 flag file beside it, so the
+  # emptiness check below never fires and the stub used to be scored like any
+  # other review: no [VERIFIED] findings, therefore "clean".
+  #
+  # That is a silent pass of the worst kind. On run 30791708130 the provider was
+  # down for the whole run, every one of the 20 fixtures got the stub, and the
+  # harness reported **precision 14/14 (100%)** while having reviewed exactly
+  # nothing. Only the recall half — 0/6 — made the outage visible at all; a
+  # precision-only corpus would have gone green.
+  #
+  # Detection is flag-file existence ONLY, never a grep for the stub text: that
+  # is LADR-031's rule, and it exists because a quoted marker inside a real
+  # review false-matched once already.
+  if compgen -G "$sandbox/ci_temp/reviews/chunk_*.failed" >/dev/null 2>&1; then
+    echo "__INFRA_FAIL__"
+    cp "$sandbox/ci_temp/review_run.log" "$WORK_ROOT/$(basename "$fdir").lastlog" 2>/dev/null || true
+    [ -n "${EVAL_ARTIFACT_DIR:-}" ] && cp "$sandbox/ci_temp/review_run.log" "$EVAL_ARTIFACT_DIR/$(basename "$fdir").lastlog" 2>/dev/null || true
+    rm -rf "$sandbox"
+    return 1
+  fi
+
   # Concatenate all chunk reviews (tiny fixtures -> 1 chunk, but be robust).
   local review_md="$sandbox/ci_temp/review_all.md"
   cat "$sandbox"/ci_temp/reviews/chunk_*.md > "$review_md" 2>/dev/null || true
