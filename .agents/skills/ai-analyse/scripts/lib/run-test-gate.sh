@@ -40,7 +40,19 @@ if [ -z "$report_file" ]; then
   exit 2
 fi
 
-mkdir -p "$(dirname "$report_file")"
+# All gate state is staged OUTSIDE the repository and published to
+# "$report_file" at the very end.
+#
+# The gate runs each suite from the repo root, and a suite is entitled to clean
+# up its own scratch directories there — test-code-graph.sh legitimately does
+# `rm -rf ci_temp`. While the gate kept its own working files under the
+# caller's `ci_temp/test_gate/`, the first such suite deleted them mid-run: the
+# NEXT suite's stdout redirect then failed, bash returned 1 without ever
+# running it, and the gate reported a phantom regression for a suite that
+# never executed. Staging out-of-tree makes the gate immune to whatever the
+# code under test does to the working tree.
+work_dir="$(mktemp -d)"
+staged_report="${work_dir}/report.txt"
 
 # Whole-gate budget. Non-integer / <= 0 falls back to the default, mirroring the
 # validation pattern used for OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT.
@@ -58,8 +70,38 @@ case "$log_raw" in
 esac
 [ "$log_lines" -gt 0 ] 2>/dev/null || log_lines=40
 
-failures_dir="$(dirname "$report_file")/failures"
+failures_dir="${work_dir}/failures"
 mkdir -p "$failures_dir"
+
+candidates_file="${work_dir}/candidates"
+sorted_file="${work_dir}/sorted"
+tmp_out="${work_dir}/suite.out"
+baseline_out="${work_dir}/baseline.out"
+worktree_dir=""
+
+# Publish from an EXIT trap rather than from each exit path: the gate has five
+# exits and `set -e` can add more, and the workflow renders its summary comment
+# from these files. Every command is guarded — a trap that fails under `set -e`
+# would overwrite the exit code the caller reads as pass/fail.
+publish_and_cleanup() {
+  local dest_dir
+  dest_dir="$(dirname "$report_file")"
+  mkdir -p "$dest_dir" 2>/dev/null || true
+  if [ -f "$staged_report" ]; then
+    cp "$staged_report" "$report_file" 2>/dev/null || true
+  fi
+  if [ -d "$failures_dir" ]; then
+    rm -rf "${dest_dir}/failures" 2>/dev/null || true
+    cp -R "$failures_dir" "${dest_dir}/failures" 2>/dev/null || true
+  fi
+  if [ -n "$worktree_dir" ] && [ -d "$worktree_dir" ]; then
+    git worktree remove --force "$worktree_dir" >/dev/null 2>&1 || true
+    rm -rf "$worktree_dir" 2>/dev/null || true
+  fi
+  rm -rf "$work_dir" 2>/dev/null || true
+  return 0
+}
+trap publish_and_cleanup EXIT
 
 gate_start="$SECONDS"
 # Returns the seconds left in the whole-gate budget, or 0 when the budget is
@@ -76,16 +118,16 @@ remaining_budget() {
 # Mode 1: explicit command overrides everything.
 if [ -n "${OPENCODE_ANALYSE_TEST_COMMAND:-}" ]; then
   echo "Running OPENCODE_ANALYSE_TEST_COMMAND (budget ${timeout_sec}s)"
-  tmp="${report_file}.tmp"
+  tmp="${work_dir}/command.out"
   exit_code=0
   timeout "${timeout_sec}s" bash -c "${OPENCODE_ANALYSE_TEST_COMMAND}" >"$tmp" 2>&1 || exit_code=$?
   if [ "$exit_code" -eq 0 ]; then
-    printf 'GATE_STATUS=pass\n' > "$report_file"
+    printf 'GATE_STATUS=pass\n' > "$staged_report"
     rm -f "$tmp"
     exit 0
   fi
-  printf 'GATE_STATUS=fail\n' > "$report_file"
-  printf 'FAILED_SUITE=OPENCODE_ANALYSE_TEST_COMMAND\n' >> "$report_file"
+  printf 'GATE_STATUS=fail\n' > "$staged_report"
+  printf 'FAILED_SUITE=OPENCODE_ANALYSE_TEST_COMMAND\n' >> "$staged_report"
   if [ "$exit_code" -eq 124 ]; then
     printf 'TIMEOUT after %s seconds\n' "$timeout_sec" > "${failures_dir}/OPENCODE_ANALYSE_TEST_COMMAND.log"
   else
@@ -103,23 +145,13 @@ fi
 # created, untracked test script is never run.
 #
 # A temp file rather than process substitution: /dev/fd is not always present.
-candidates_file="$(mktemp)"
-sorted_file="$(mktemp)"
-worktree_dir=""
-cleanup() {
-  rm -f "$candidates_file" "$sorted_file"
-  if [ -n "$worktree_dir" ] && [ -d "$worktree_dir" ]; then
-    git worktree remove --force "$worktree_dir" >/dev/null 2>&1 || rm -rf "$worktree_dir"
-  fi
-}
-trap cleanup EXIT
-
+# Both live in $work_dir (see above) so a suite cannot delete them mid-run.
 git ls-tree -r HEAD --name-only > "$candidates_file"
 grep -E '(^|/)test-[A-Za-z0-9][A-Za-z0-9_.-]*\.(sh|bash|bats|ps1|py|js|mjs|ts)$' \
   "$candidates_file" 2>/dev/null | LC_ALL=C sort > "$sorted_file" || true
 
 if [ ! -s "$sorted_file" ]; then
-  printf 'GATE_STATUS=no-suites\n' > "$report_file"
+  printf 'GATE_STATUS=no-suites\n' > "$staged_report"
   echo "No test suites detected. Set OPENCODE_ANALYSE_TEST_COMMAND to enable the test gate."
   exit 0
 fi
@@ -160,7 +192,6 @@ run_suite() {
 regressions=()
 preexisting=()
 repo_root="$(pwd)"
-tmp_out="${report_file}.tmp"
 
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
@@ -210,7 +241,6 @@ while IFS= read -r suite; do
   fi
 
   if pristine=$(pristine_root); then
-    baseline_out="${report_file}.baseline"
     baseline_code="$(run_suite "$suite" "$pristine" "$baseline_out")"
     rm -f "$baseline_out"
     if [ "$baseline_code" -ne 0 ]; then
@@ -257,7 +287,7 @@ rm -f "$tmp_out"
   for suite in ${preexisting[@]+"${preexisting[@]}"}; do
     printf 'PREEXISTING_SUITE=%s\n' "$suite"
   done
-} > "$report_file"
+} > "$staged_report"
 
 if [ "${#preexisting[@]}" -gt 0 ]; then
   echo "${#preexisting[@]} suite(s) were already failing at HEAD and did not block the push."
