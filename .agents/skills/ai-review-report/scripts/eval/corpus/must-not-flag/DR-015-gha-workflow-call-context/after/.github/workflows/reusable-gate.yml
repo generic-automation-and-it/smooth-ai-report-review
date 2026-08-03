@@ -5,6 +5,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review (required: a manual run has no github.event.pull_request to fall back on)'
+        required: true
+        type: string
   workflow_call:
     inputs:
       pr_number:
