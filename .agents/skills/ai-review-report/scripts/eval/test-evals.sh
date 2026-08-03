@@ -74,6 +74,16 @@ expect_score "word critical in a HIGH description does not become CRITICAL" \
 - 🟠 [VERIFIED] High Priority: this is a critical-path method, validate input' \
 'HIGH'
 
+expect_score "confidence parenthetical does not turn None found into a flag" \
+'- 🔴 [VERIFIED] Critical (confidence: 100): None found
+- 🟠 [VERIFIED] High Priority (confidence: 100): None found
+- 🟡 [VERIFIED] Medium Priority (confidence: 100): None found' \
+''
+
+expect_score "confidence parenthetical still scores a real finding" \
+'- 🟡 [VERIFIED] Medium Priority (confidence: 75): `x.yml:43` a real problem' \
+'MEDIUM'
+
 expect_score "colon in description still parses payload correctly" \
 '- 🟠 [VERIFIED] High Priority: bug: missing await on async call' \
 'HIGH'
@@ -91,12 +101,13 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "--- Part 2: aggregation + gating ---"
 
-make_fixture() {  # <corpus> <kind> <id> <min_severity> <review-markdown>
-  local corpus="$1" kind="$2" id="$3" minsev="$4" review="$5"
+make_fixture() {  # <corpus> <kind> <id> <min_severity> <review-markdown> [forbidden_claim]
+  local corpus="$1" kind="$2" id="$3" minsev="$4" review="$5" claim="${6:-}"
   local d="$corpus/$kind/$id"
   mkdir -p "$d"
-  jq -n --arg id "$id" --arg kind "$kind" --arg label "$id" --arg ms "$minsev" \
-    '{id:$id, kind:$kind, label:$label, min_severity:$ms, note:"selftest"}' > "$d/manifest.json"
+  jq -n --arg id "$id" --arg kind "$kind" --arg label "$id" --arg ms "$minsev" --arg fc "$claim" \
+    '{id:$id, kind:$kind, label:$label, min_severity:$ms, note:"selftest"}
+     + (if $fc == "" then {} else {forbidden_claim:$fc} end)' > "$d/manifest.json"
   printf '%s\n' "$review" > "$d/selftest-review.md"
 }
 
@@ -158,6 +169,107 @@ if run_corpus "$G"; then ok "min_severity MEDIUM met -> exit 0"; else bad "MEDIU
 H="$TMP_DIR/corpusH"
 make_fixture "$H" must-catch mc-high HIGH "$CAUGHT_MEDIUM"
 if run_corpus "$H"; then bad "min_severity HIGH should not be met by MEDIUM (see $H/out.log)"; else ok "min_severity HIGH not met by MEDIUM -> exit non-zero"; fi
+
+# Case I: the worker pool. The fixtures are evaluated concurrently, but the
+# report must be byte-identical to a serial run — same verdicts, same ORDER, same
+# exit status. Order is the part worth pinning: the driver tallies in launch
+# order rather than completion order precisely so a parallel run cannot reshuffle
+# the RESULTS table, and a regression there would look like flakiness rather
+# than like a bug.
+I="$TMP_DIR/corpusI"
+make_fixture "$I" must-not-flag dr-one   HIGH "$CLEAN_MNF"
+make_fixture "$I" must-not-flag dr-two   HIGH "$CLEAN_MNF"
+make_fixture "$I" must-not-flag dr-three HIGH "$CLEAN_MNF"
+make_fixture "$I" must-catch    mc-one   HIGH "$CAUGHT_HIGH"
+make_fixture "$I" must-catch    mc-two   HIGH "$CAUGHT_HIGH"
+
+table_of() {  # strip the RESULTS table out of a run log
+  awk '/^KIND /{f=1} f' "$1" | grep -E '^(must-not-flag|must-catch) ' || true
+}
+
+if run_corpus "$I" EVAL_PARALLEL=1; then
+  cp "$I/out.log" "$I/serial.log"
+  if run_corpus "$I" EVAL_PARALLEL=4; then
+    if [ "$(table_of "$I/serial.log")" = "$(table_of "$I/out.log")" ]; then
+      ok "parallel run reproduces the serial RESULTS table exactly (order + verdicts)"
+    else
+      bad "parallel run reordered or changed the RESULTS table"
+      diff <(table_of "$I/serial.log") <(table_of "$I/out.log") | sed 's/^/     /'
+    fi
+  else
+    bad "parallel run exited non-zero on an all-pass corpus (see $I/out.log)"
+  fi
+else
+  bad "serial baseline exited non-zero on an all-pass corpus (see $I/out.log)"
+fi
+
+# Case J: a regression must still fail the gate when found by a parallel worker —
+# the verdict has to survive the subshell boundary via the result file.
+J="$TMP_DIR/corpusJ"
+make_fixture "$J" must-not-flag dr-ok   HIGH "$CLEAN_MNF"
+make_fixture "$J" must-not-flag dr-bad  HIGH "$REGRESSION"
+make_fixture "$J" must-catch    mc-ok   HIGH "$CAUGHT_HIGH"
+if run_corpus "$J" EVAL_PARALLEL=4; then
+  bad "parallel precision regression should fail the gate (see $J/out.log)"
+else
+  ok "parallel precision regression still fails the gate"
+fi
+
+# Case K: a failed chunk must be an INFRA failure, never a clean review.
+# review-in-chunks.sh writes a NON-EMPTY stub when the model chain is exhausted
+# and drops a LADR-031 flag file beside it. Scored as an ordinary review that
+# stub has no [VERIFIED] findings, so a must-not-flag fixture PASSES — which is
+# how run 30791708130 reported precision 14/14 (100%) during a total provider
+# outage, having reviewed nothing at all. A precision-only corpus would have gone
+# green. Two properties are pinned here: the detection is by FLAG FILE (never by
+# grepping the stub text, per LADR-031, because a quoted marker in a real review
+# false-matched once), and it is checked BEFORE the emptiness test that the stub
+# slips past.
+echo "Case K: failed chunk is INFRA, not a clean review"
+if grep -q 'compgen -G "\$sandbox/ci_temp/reviews/chunk_\*\.failed"' "$RUNNER"; then
+  ok "run_fixture detects the LADR-031 flag file"
+else
+  bad "run_fixture no longer detects chunk_*.failed — a model outage will score as clean"
+fi
+
+flag_line="$(grep -n 'chunk_\*\.failed' "$RUNNER" | head -n1 | cut -d: -f1)"
+empty_line="$(grep -n 'if \[ ! -s "\$review_md" \]' "$RUNNER" | head -n1 | cut -d: -f1)"
+if [ -n "$flag_line" ] && [ -n "$empty_line" ] && [ "$flag_line" -lt "$empty_line" ]; then
+  ok "flag-file check precedes the emptiness check (the stub is non-empty)"
+else
+  bad "flag-file check must run before the emptiness check (flag=$flag_line, empty=$empty_line)"
+fi
+
+if grep -qE 'grep .*(Review Failed for Chunk|fallbacks exhausted)' "$RUNNER"; then
+  bad "chunk failure is detected by grepping stub text — LADR-031 requires the flag file"
+else
+  ok "no text-grep detection of chunk failure (LADR-031 channel respected)"
+fi
+
+# Case L: forbidden_claim rescoping. A must-not-flag fixture fails only when a
+# flagged finding matches the DR claim; a true finding about something else is
+# counted and reported, not blocking. Before this, ANY Critical/High/Medium
+# failed the fixture, which measured "did the reviewer find anything at all in
+# realistic code" — across five runs every failure was a correct finding and not
+# one was a DR re-raise.
+L="$TMP_DIR/corpusL"
+make_fixture "$L" must-not-flag dr-claim-hit  HIGH \
+  '- 🟠 [VERIFIED] High Priority: suggest a public constructor instead of the static factory' \
+  'public constructor|factory interface'
+if run_corpus "$L"; then bad "a finding matching forbidden_claim must fail (see $L/out.log)"; else ok "finding matching forbidden_claim fails the fixture"; fi
+
+M="$TMP_DIR/corpusM"
+make_fixture "$M" must-not-flag dr-unrelated  HIGH \
+  '- 🟠 [VERIFIED] High Priority: the retry path leaves the two stores inconsistent' \
+  'public constructor|factory interface'
+make_fixture "$M" must-catch    mc-ok         HIGH "$CAUGHT_HIGH"
+if run_corpus "$M"; then ok "unrelated true finding does not fail the fixture"; else bad "unrelated finding must not block (see $M/out.log)"; fi
+if grep -q "Unrelated findings" "$M/out.log"; then ok "unrelated findings are reported in the summary"; else bad "unrelated findings not reported"; fi
+
+N="$TMP_DIR/corpusN"
+make_fixture "$N" must-not-flag dr-no-pattern HIGH \
+  '- 🟠 [VERIFIED] High Priority: some unrelated true finding'
+if run_corpus "$N"; then bad "a manifest without forbidden_claim must stay strict (see $N/out.log)"; else ok "no forbidden_claim keeps the strict behaviour"; fi
 
 echo ""
 echo "=========================================="

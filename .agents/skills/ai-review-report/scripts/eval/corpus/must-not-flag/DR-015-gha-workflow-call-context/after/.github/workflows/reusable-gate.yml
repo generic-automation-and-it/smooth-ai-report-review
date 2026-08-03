@@ -1,49 +1,23 @@
-# do NOT flag: this workflow is callable via workflow_call — the github context is the caller's, so the if: gate and github.event.pull_request.* references below are correct as-is (DR-015); the tags filter is a glob, dots are literal.
+# do NOT flag: this workflow is callable via workflow_call — the github context is the caller's, so
+# event_name is never 'workflow_call' and github.event.pull_request.* is populated for a PR-triggered
+# caller. The if: gate and the payload reference below are correct as written (DR-015).
 name: Reusable Review Gate
 
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
   workflow_call:
-    inputs:
-      pr_number:
-        description: 'PR number (optional; defaults to github.event.pull_request.number when invoked from a PR-triggered caller)'
-        required: false
-        type: string
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
 
 jobs:
   review:
-    # Caller event names only — never 'workflow_call'. The github context is the
-    # caller's, so a PR-triggered caller sees event_name=='pull_request' here and
-    # a manual caller sees 'workflow_dispatch'. (DR-015)
-    if: (github.event_name == 'pull_request') || (github.event_name == 'workflow_dispatch')
+    # Caller event names only — never 'workflow_call'.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve PR number
-        id: pr
+      - name: Report the PR under review
         env:
-          # github.event.pull_request.* is fully populated when the caller was
-          # PR-triggered; the inputs.pr_number input is the documented fallback
-          # for non-PR callers. (DR-015)
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if [ -n "${{ inputs.pr_number }}" ]; then
-            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-            echo "head_ref=${HEAD_REF}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Run review
-        uses: ./scripts/reusable-review
-        with:
-          pr_number: ${{ steps.pr.outputs.number }}
+        run: echo "Reviewing PR ${PR_NUMBER}"

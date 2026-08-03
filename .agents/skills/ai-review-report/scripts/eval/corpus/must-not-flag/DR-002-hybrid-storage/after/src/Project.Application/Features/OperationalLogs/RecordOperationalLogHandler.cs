@@ -33,7 +33,6 @@ public sealed class RecordOperationalLogHandler
         await _repository.AddAsync(entry, ct);
 
         // Secondary write: object store for immutable archive and fallback replay.
-        // Both writes must succeed; the caller retries the full command on failure.
         await _objectStore.PutAsync(entry.Id, entry.Payload, ct);
 
         return new RecordOperationalLogResult(entry.Id);

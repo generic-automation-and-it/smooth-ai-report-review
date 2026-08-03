@@ -184,6 +184,34 @@ EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
 check_json "Test 10: comment with one skip-incremental phrase acts (no false-positive skip)" ".act" "true" "$result"
 
+# Test 11: LADR-059 trivial-PR skip comment must not become the selected
+# artifact. It carries the gate header but no Issues Summary, so the selector
+# must fall through to the older actionable review rather than treating the
+# skip notice as reviewable content.
+#
+# Falling through is SAFE, not a bug, and this test pins the reason: the
+# selected artifact then predates the triggering run, and the analyse guard's
+# `artifact_ts < run_created_at` check (pipeline-ai-analyse.yml, "no new review
+# was posted") declines to re-process it — the same path already used by the
+# no-changes, too-many-files and blocked-incremental skips. The assertion below
+# is on artifact_ts precisely because that timestamp is what that guard reads;
+# if a future edit made the skip comment itself selectable, artifact_ts would
+# jump to the newer date and the guard would silently start re-analysing stale
+# findings on every trivial dependency bump.
+cat > "$TMP_DIR/reviews.json" <<'EOF'
+[
+  {"id": 400, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
+]
+EOF
+cat > "$TMP_DIR/comments.json" <<'EOF'
+[
+  {"id": 401, "created_at": "2026-01-05T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\n⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest, and this PR reads as an automated or trivial change.\n\n**Why?** Trivial-PR skip (`model-veto`)."}
+]
+EOF
+result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
+check_json "Test 11: trivial-skip comment is not the selected artifact" ".artifact_id" "400" "$result"
+check_json "Test 11: selected artifact keeps its own (older) timestamp" ".artifact_ts" "2026-01-01T00:00:00Z" "$result"
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"

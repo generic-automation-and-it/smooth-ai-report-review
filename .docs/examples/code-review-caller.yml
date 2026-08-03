@@ -94,6 +94,7 @@ on:
           - 'OpenCode MiniMax M3'
           - 'OpenCode MiniMax M2.7'
           - 'OpenCode MiniMax M2.5'
+          - 'OpenCode Qwen3.8 Max'
           - 'OpenCode Qwen3.7 Max'
           - 'OpenCode Qwen3.7 Plus'
           - 'OpenCode Qwen3.6 Plus'
@@ -162,7 +163,10 @@ jobs:
       disable_agents_md_check: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
       bypass_mandatory_context_file: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}
       # runner: self-hosted          # uncomment for private-network gateways
-      # tools_ref: main              # override which ref the review scripts come from
+      # tools_ref: main              # override which ref the review scripts come from —
+      #                              # a full commit SHA (supply-chain pinned) or a trusted
+      #                              # floating ref (main / latest / v1), never a branch.
+      #                              # Default: the exact commit of the workflow called above.
       # mandatory_context_files: >-  # override the context files resolved in YOUR repo
       #   AGENTS.md
       #   .docs/nfr/PROJECT_SETUP_AGENTS.md

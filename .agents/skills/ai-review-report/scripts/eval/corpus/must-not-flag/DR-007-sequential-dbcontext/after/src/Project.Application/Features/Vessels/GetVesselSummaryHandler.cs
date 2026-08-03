@@ -18,15 +18,12 @@ public sealed class GetVesselSummaryHandler
         var vessel = await _db.Vessels
             .FirstAsync(v => v.Id == request.VesselId, ct);
 
-        var voyages = await _db.Voyages
-            .Where(v => v.VesselId == request.VesselId)
-            .OrderByDescending(v => v.DepartureUtc)
-            .Take(10)
-            .ToListAsync(ct);
+        var voyageCount = await _db.Voyages
+            .CountAsync(v => v.VesselId == request.VesselId, ct);
 
         var openClaims = await _db.Claims
             .CountAsync(c => c.VesselId == request.VesselId && !c.IsClosed, ct);
 
-        return new VesselSummary(vessel.Name, voyages.Count, openClaims);
+        return new VesselSummary(vessel.Name, voyageCount, openClaims);
     }
 }

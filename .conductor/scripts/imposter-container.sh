@@ -1,95 +1,128 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Conductor sets CONDUCTOR_IS_LOCAL=1 when the script is invoked from a local
-# Mac/Conductor desktop workspace (not a cloud sandbox); both run scripts
-# short-circuit on it so they no-op on the local developer's machine, where
-# the imposter container is already started by the user's own Docker Desktop.
-# See `.conductor/AGENTS.md` ("Precedence gotcha" + this file's role entry).
-if [ "$CONDUCTOR_IS_LOCAL" = "1" ]; then
-  exit 0
-fi
+# Container lifecycle only. No CONDUCTOR_IS_LOCAL guard, deliberately: a manual
+# trigger must always act and report. See .conductor/AGENTS.md.
 
 PORT="${PORT:-5080}"
 IMAGE="${SMOOTH_LLM_IMAGE:-ghcr.io/generic-automation-and-it/smooth-llm-imposter:latest}"
 CONTAINER_NAME="smooth-llm-imposter"
-export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+DOCKERD_LOG="/tmp/dockerd.log"
+# Lets diagnose() distinguish "the daemon said nothing" from "not our daemon".
+DOCKERD_STARTED_BY_US=0
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is missing. Build this workspace from the documented snapshot." >&2
   exit 1
 fi
 
-# Background daemons do not survive snapshot restoration or workspace resume.
-# Test the unprivileged Docker socket first; only require passwordless sudo
-# if the privileged path is actually needed.
-if ! docker info >/dev/null 2>&1; then
-  if ! sudo -n true 2>/dev/null; then
-    echo "sudo requires a password; configure NOPASSWD for dockerd or run interactively." >&2
-    exit 1
-  fi
-  if ! sudo docker info >/dev/null 2>&1; then
-    sudo nohup dockerd </dev/null >/tmp/dockerd.log 2>&1 &
+# Linux-only: no systemd as PID 1, so dockerd must be started by hand after a
+# restart. On macOS Docker Desktop owns it, and exporting DOCKER_HOST would
+# override the docker context that resolves its socket.
+if [ "$(uname -s)" = "Linux" ]; then
+  export DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
 
-    for _ in $(seq 1 30); do
-      sudo docker info >/dev/null 2>&1 && break
-      sleep 1
-    done
-  fi
+  # Unprivileged socket first; only need sudo if that fails.
+  if ! docker info >/dev/null 2>&1; then
+    if ! sudo -n true 2>/dev/null; then
+      echo "sudo requires a password; configure NOPASSWD for dockerd or run interactively." >&2
+      exit 1
+    fi
+    if ! sudo -n docker info >/dev/null 2>&1; then
+      # setsid, not just nohup: nohup covers SIGHUP but not a process-group
+      # teardown when the caller exits.
+      sudo -n setsid nohup dockerd </dev/null >"$DOCKERD_LOG" 2>&1 &
+      DOCKERD_STARTED_BY_US=1
 
-  sudo docker info >/dev/null 2>&1 || {
-    echo "Docker failed to start; inspect /tmp/dockerd.log." >&2
-    exit 1
-  }
+      for _ in $(seq 1 30); do
+        sudo -n docker info >/dev/null 2>&1 && break
+        sleep 1
+      done
+    fi
+
+    sudo -n docker info >/dev/null 2>&1 || {
+      echo "Docker failed to start." >&2
+      [ -s "$DOCKERD_LOG" ] && { echo "--- last 40 lines of $DOCKERD_LOG ---" >&2; tail -40 "$DOCKERD_LOG" >&2; }
+      exit 1
+    }
+  fi
 fi
 
-# Conductor injects these only into the workspace lifecycle, not snapshot
-# construction. Alias OPENCODE_API_KEY to the shared prefix resolved by both
-# OpenCode Go dialect providers; OPENROUTER_API_KEY feeds the OpenRouter
-# Anthropic-dialect haiku route.
+# Injected by Conductor into the workspace lifecycle only.
 export OPENCODE_GO_API_KEY="${OPENCODE_GO_API_KEY:-${OPENCODE_API_KEY:-}}"
 : "${OPENCODE_GO_API_KEY:?Set OPENCODE_API_KEY or OPENCODE_GO_API_KEY in the workspace environment.}"
-# Export so docker `-e OPENROUTER_API_KEY` can inherit the value (name-only pass-through).
+# Exported so `-e NAME` forwards the value without putting it on the command line.
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in the workspace environment.}"
-# Image default is SessionForwarding=opencode-go on both opencode-go-* providers.
-# Uncomment the exports and -e flags below to stop OpenCode session token usage
-# (matched routes will no longer stamp session_id / x-opencode-session).
+# Uncomment (plus --preserve-env and the -e flags) to stop OpenCode session
+# token usage. Image default is SessionForwarding=opencode-go.
 #export OPENCODE_GO_ANTHROPIC_SESSION_FORWARDING="${OPENCODE_GO_ANTHROPIC_SESSION_FORWARDING:-none}"
 #export OPENCODE_GO_OPENAI_SESSION_FORWARDING="${OPENCODE_GO_OPENAI_SESSION_FORWARDING:-none}"
 
-# Prefer unprivileged Docker when the snapshot's docker-group membership is
-# active. Otherwise preserve the secrets through sudo so `-e NAME` remains a
-# name-only pass-through and the values do not appear in the command line.
+# Prefer unprivileged docker; through sudo, preserve the secrets by name.
 if docker info >/dev/null 2>&1; then
   DOCKER=(docker)
-elif sudo docker info >/dev/null 2>&1; then
-  DOCKER=(sudo --preserve-env=OPENCODE_GO_API_KEY,OPENROUTER_API_KEY docker)
+elif sudo -n docker info >/dev/null 2>&1; then
+  DOCKER=(sudo -n --preserve-env=OPENCODE_GO_API_KEY,OPENROUTER_API_KEY docker)
 else
-  echo "Docker failed to start; inspect /tmp/dockerd.log." >&2
+  echo "Docker is not reachable; on Linux the daemon is down, on macOS start Docker Desktop." >&2
   exit 1
 fi
 
-# Create/recreate the container now that workspace secrets exist. --pull=always
-# re-checks GHCR for a newer image on every start (network round-trip; a slow
-# or unreachable registry will block container creation — start with the
-# network available or pin SMOOTH_LLM_IMAGE to a known tag). openrouter-* is
-# absent from the published base image, so define the Anthropic OpenRouter
-# provider fully here (same env-var shape, but defines a new provider because
-# the base image omits it).
-#
-# To stop OpenCode session token usage: uncomment the two exports above (~line
-# 57-58), add OPENCODE_GO_ANTHROPIC_SESSION_FORWARDING and
-# OPENCODE_GO_OPENAI_SESSION_FORWARDING to --preserve-env, and add
-# "-e OPENCODE_GO_ANTHROPIC_SESSION_FORWARDING \" / "-e OPENCODE_GO_OPENAI_SESSION_FORWARDING \"
-# below, just before "$IMAGE". Do NOT add a "#"-commented placeholder line inside
-# the docker run continuation below — a "#" mid-backslash-continuation swallows
-# the rest of that logical line (including any trailing "\"), which silently
-# drops "$IMAGE" from the command.
+# Prints to the terminal, because the operator has no filesystem access.
+# Daemon checked FIRST: a bare `docker logs` reports "Cannot connect to the
+# Docker daemon" in exactly the case that matters, hiding the real cause.
+diagnose() {
+  echo "================ imposter diagnostics ================" >&2
+  if "${DOCKER[@]}" info >/dev/null 2>&1; then
+    echo "[daemon]    reachable" >&2
+    echo "[container] $("${DOCKER[@]}" ps -a --filter "name=^/${CONTAINER_NAME}$" \
+      --format '{{.Status}} | image {{.Image}}' 2>/dev/null || echo 'not found')" >&2
+    echo "[container] last 100 log lines:" >&2
+    "${DOCKER[@]}" logs --tail 100 "$CONTAINER_NAME" 2>&1 | sed 's/^/    /' >&2 || true
+  else
+    echo "[daemon]    UNREACHABLE at ${DOCKER_HOST:-the default socket}." >&2
+    echo "[daemon]    The container cannot outlive its daemon, so this — not the" >&2
+    echo "[daemon]    router — is the failure. Container logs are unavailable." >&2
+    if pgrep -x dockerd >/dev/null 2>&1; then
+      echo "[daemon]    a dockerd process exists but is not answering" >&2
+    else
+      echo "[daemon]    no dockerd process is running (it exited or was killed)" >&2
+    fi
+    if [ -s "$DOCKERD_LOG" ]; then
+      echo "[daemon]    last 40 lines of $DOCKERD_LOG:" >&2
+      tail -40 "$DOCKERD_LOG" | sed 's/^/    /' >&2
+    elif [ "$DOCKERD_STARTED_BY_US" = "1" ]; then
+      echo "[daemon]    $DOCKERD_LOG is empty — the daemon died without writing anything" >&2
+    else
+      echo "[daemon]    this script did not start that daemon, so $DOCKERD_LOG is not" >&2
+      echo "[daemon]    its log; the sandbox boot owns it and its output is elsewhere" >&2
+    fi
+    echo "[kernel]    recent OOM/kill messages (empty means no OOM kill):" >&2
+    { dmesg 2>/dev/null || sudo -n dmesg 2>/dev/null || true; } |
+      grep -iE "out of memory|oom-kill|killed process" | tail -10 | sed 's/^/    /' >&2 || true
+  fi
+  echo "======================================================" >&2
+}
+
+# Pull BEFORE `docker rm -f`, and tolerate failure. Never use
+# `docker run --pull=always`: it exits 125 on an unreachable registry even with
+# the image cached, after the container has already been destroyed.
+if ! "${DOCKER[@]}" pull "$IMAGE"; then
+  echo "Image pull failed; falling back to the locally cached image." >&2
+  if ! "${DOCKER[@]}" image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "No local copy of $IMAGE either — leaving the existing container untouched." >&2
+    diagnose
+    exit 1
+  fi
+fi
+
+# openrouter-* is absent from the published image, so it is defined in full here.
+# Never put a "#" comment inside the backslash continuation below: it swallows
+# the rest of the logical line, silently dropping "$IMAGE".
 "${DOCKER[@]}" rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 "${DOCKER[@]}" run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
-  --pull=always \
   -p "127.0.0.1:${PORT}:5080" \
   -e "Imposter__Providers__opencode-go-anthropic__Dialect=anthropic" \
   -e "Imposter__Providers__opencode-go-anthropic__BaseUrl=https://opencode.ai/zen/go" \
@@ -123,14 +156,27 @@ fi
   -e OPENROUTER_API_KEY \
   "$IMAGE" >/dev/null
 
-for _ in $(seq 1 30); do
+# Wait for health, tolerating a daemon that goes away mid-wait. `--restart
+# unless-stopped` brings the container back once a daemon returns, so a daemon
+# blip is recoverable and must not be reported as a dead router — but it does
+# need saying out loud, because it is a completely different fault from the
+# container failing to serve.
+daemon_blipped=0
+for _ in $(seq 1 60); do
   if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+    if [ "$daemon_blipped" = "1" ]; then
+      echo "Note: the Docker daemon was briefly unreachable during startup; the container recovered." >&2
+    fi
     echo "SmoothLlmImposter is ready on http://127.0.0.1:$PORT"
     exit 0
+  fi
+  if ! "${DOCKER[@]}" info >/dev/null 2>&1; then
+    [ "$daemon_blipped" = "1" ] || echo "Docker daemon went unreachable while waiting for health; still waiting..." >&2
+    daemon_blipped=1
   fi
   sleep 1
 done
 
-echo "SmoothLlmImposter did not become healthy." >&2
-"${DOCKER[@]}" logs "$CONTAINER_NAME" >&2
+echo "SmoothLlmImposter did not become healthy after 60s." >&2
+diagnose
 exit 1

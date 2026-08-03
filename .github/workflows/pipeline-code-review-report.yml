@@ -47,6 +47,7 @@ on:
           - 'OpenCode MiniMax M3'
           - 'OpenCode MiniMax M2.7'
           - 'OpenCode MiniMax M2.5'
+          - 'OpenCode Qwen3.8 Max'
           - 'OpenCode Qwen3.7 Max'
           - 'OpenCode Qwen3.7 Plus'
           - 'OpenCode Qwen3.6 Plus'
@@ -136,7 +137,7 @@ on:
         type: string
         default: 'ubuntu-latest'
       tools_ref:
-        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from. Default: the same ref this reusable workflow was called at.'
+        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from — a full commit SHA (supply-chain pinned) or a trusted floating ref (main / latest / v1), never a branch. Default: the commit of this reusable workflow file.'
         required: false
         type: string
         default: ''
@@ -269,6 +270,7 @@ jobs:
         (inputs.model_preset == 'OpenCode MiniMax M3' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'OPENCODE-GO-ANTHROPIC') ||
+        (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
         (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'OPENCODE-GO-ANTHROPIC') ||
@@ -282,7 +284,7 @@ jobs:
         ((inputs.model_preset == 'Anthropic Claude Opus 4.8' || inputs.model_preset == 'Anthropic Claude Sonnet 4.6' || inputs.model_preset == 'Anthropic Claude Haiku 4.5') && 'anthropic') ||
         (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
         ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'go-openai') ||
-        ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'go-anthropic') ||
+        ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.8 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'go-anthropic') ||
         ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'openrouter') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
@@ -328,6 +330,7 @@ jobs:
         (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'qwen3.8-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
         (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
@@ -356,6 +359,7 @@ jobs:
         (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'qwen3.8-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
         (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
@@ -384,6 +388,7 @@ jobs:
         (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
         (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+        (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'qwen3.8-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
         (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
         (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
@@ -412,6 +417,31 @@ jobs:
       # Variable, matching the opencode_config precedence pattern.
       OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
       OPENCODE_TOOL_RTK_VERSION: ${{ inputs.rtk_version || vars.OPENCODE_TOOL_RTK_VERSION || '' }}
+      # Structured findings (LADR-055) — each chunk emits a machine-readable
+      # sidecar alongside its markdown; the sidecars are deduplicated and gated
+      # by scripts/lib/merge-findings.py, and the posted Issues Summary is
+      # rendered from the merged result. Set to a falsy value (0/false/no/off)
+      # to fall back to the orchestrator's free-text Issues Summary — the
+      # markdown grammar is identical either way, so nothing downstream breaks.
+      OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+      # Trivial-PR skip (LADR-059) — on by default. A deterministic
+      # lockfile/manifest-only precondition plus an orchestrator-model veto may
+      # skip the whole review. Never fires for `/ai-review` comments or
+      # workflow_dispatch — those set force_full_review. Set to a falsy value
+      # (0/false/no/off) to review every PR unconditionally.
+      OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
+      # Run artifacts (LADR-062) — on by default. Assembles ci_temp/run/
+      # (report.md, per-chunk reviews, findings.merged.json, metadata.json) for
+      # the upload step below. Set to a falsy value to skip assembly.
+      OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
+      # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
+      # chain, so on timeout the LADR-002 secondary is never reached. Raised
+      # from a hardcoded 300 after LADR-055 tripled per-chunk output.
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
+      # Ceiling for the prompt-size-scaled chunk budget. The value above is the
+      # FLOOR (small chunks); a large prompt scales up toward this cap, which
+      # preserves the deadlock-detector property the fixed budget used to give.
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md
@@ -464,15 +494,21 @@ jobs:
       #    .agents/skills/ai-review-report (the README installer rewrites that
       #    literal when it targets a different skills dir — keep it literal here).
       # 2. Reusable-workflow mode: the caller repo has no skill installed, so fetch
-      #    the tooling repo as a side checkout, version-locked to the same ref this
-      #    workflow was called at (github.workflow_sha — the SHA of the workflow file
-      #    that defines this job), overridable via the tools_ref input.
+      #    the tooling repo as a side checkout, version-locked to the commit of
+      #    THIS workflow file in THIS repo (github.job_workflow_sha), overridable
+      #    via the tools_ref input or the SMOOTH_AI_REVIEW_TOOLS_REF Variable.
+      #
+      #    It must be `job_workflow_sha`, NOT `workflow_sha`: in a reusable call
+      #    the latter is the CALLER's workflow commit, which does not exist in
+      #    this repo, so the fetch dies on `upload-pack: not our ref`. Override
+      #    with a full commit SHA (supply-chain pinned) or a trusted floating ref
+      #    (main / v1) — never a branch.
       - name: Fetch review tooling
         if: "!hashFiles('.agents/skills/ai-review-report/scripts/review-in-chunks.sh')"
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.workflow_sha || 'v1' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.job_workflow_sha || 'v1' }}
           path: .smooth-ai-review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
@@ -554,6 +590,26 @@ jobs:
           EOF
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi
+
+      # Upload per-run artifacts (LADR-062) — mirrored in the local-job
+      # packaging (.docs/examples/code-review-local.yml). The directory is
+      # assembled by run-review.sh's EXIT trap (Step 4.5) and holds the
+      # rendered report, the per-chunk reviews, findings.merged.json, and
+      # metadata.json. Must sit between the gate and the cleanup step: after
+      # `rm -rf ci_temp` there is nothing left to upload.
+      # if: always() so a failed run — the one you most want to explain
+      # afterwards — still leaves a record.
+      # if-no-files-found: ignore because the trap is a no-op when the run
+      # exits before any output exists (bad config, unsupported event). A
+      # `warn` here would fail nothing but would misreport a healthy skip.
+      - name: Upload review run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-run-${{ github.run_id }}
+          path: ci_temp/run/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Clean up temporary files
         if: always()

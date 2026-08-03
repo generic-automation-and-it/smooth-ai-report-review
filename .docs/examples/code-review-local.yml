@@ -1,7 +1,8 @@
 # Local-job packaging for smooth-ai-report-review.
 #
 # Copy this file into your repo as .github/workflows/pipeline-code-review-report.yml
-# (any name works). The job's only `uses:` entries are `actions/checkout` — already
+# (any name works). The job's only `uses:` entries are `actions/checkout` and
+# `actions/cache` — both GitHub-owned, so both are already
 # allow-listed by every org using `allowed_actions: "selected"` and `github_owned_allowed: true`
 # — and it checks out the upstream tooling repo at a pinned SHA, then invokes the
 # same `run-review.sh` entrypoint that the reusable-workflow packaging uses.
@@ -107,6 +108,7 @@ on:
           - 'OpenCode MiniMax M3'
           - 'OpenCode MiniMax M2.7'
           - 'OpenCode MiniMax M2.5'
+          - 'OpenCode Qwen3.8 Max'
           - 'OpenCode Qwen3.7 Max'
           - 'OpenCode Qwen3.7 Plus'
           - 'OpenCode Qwen3.6 Plus'
@@ -193,9 +195,10 @@ jobs:
           # SHA pin (NOT a floating tag) — the whole point of the local-job
           # packaging is to preserve the supply-chain guarantee the allow-list
           # policy is after. Bump this in lockstep with the upstream ref you
-          # want to consume. The reusable-workflow's `workflow_sha` reference
+          # want to consume. The reusable-workflow's `job_workflow_sha` default
           # does not exist in this packaging (there is no reusable call), so
-          # pin a concrete commit SHA.
+          # pin a concrete commit SHA. A full 40-char SHA is also what the
+          # reusable workflow's own ref policy prefers (LADR-059).
           #
           # IMPORTANT: the SHA MUST be a commit on `main` that contains
           # `.agents/skills/ai-review-report/scripts/run-review.sh` — the
@@ -245,14 +248,14 @@ jobs:
             (inputs.model_preset == 'Anthropic Claude Haiku 4.5' && 'ANTHROPIC') ||
             (inputs.model_preset == 'OpenAI GPT-5.5' && 'OPENAI') ||
             ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'OPENCODE-GO-OPENAI') ||
-            ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'OPENCODE-GO-ANTHROPIC') ||
+            ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.8 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'OPENCODE-GO-ANTHROPIC') ||
             ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'OPEN_ROUTER') ||
             vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
           OPENCODE_REVIEW_REPORT_PROVIDER_ID: ${{
             ((inputs.model_preset == 'Anthropic Claude Opus 4.8' || inputs.model_preset == 'Anthropic Claude Sonnet 4.6' || inputs.model_preset == 'Anthropic Claude Haiku 4.5') && 'anthropic') ||
             (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
             ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'go-openai') ||
-            ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'go-anthropic') ||
+            ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.8 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'go-anthropic') ||
             ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'openrouter') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'COPILOT' && 'github-copilot') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENAI' && 'openai') ||
@@ -293,6 +296,7 @@ jobs:
             (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
             (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
             (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+            (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'qwen3.8-max') ||
             (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
             (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
             (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
@@ -329,6 +333,7 @@ jobs:
             (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
             (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
             (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+            (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'qwen3.8-max') ||
             (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
             (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
             (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
@@ -357,6 +362,7 @@ jobs:
             (inputs.model_preset == 'OpenCode MiniMax M3' && 'minimax-m3') ||
             (inputs.model_preset == 'OpenCode MiniMax M2.7' && 'minimax-m2.7') ||
             (inputs.model_preset == 'OpenCode MiniMax M2.5' && 'minimax-m2.5') ||
+            (inputs.model_preset == 'OpenCode Qwen3.8 Max' && 'qwen3.8-max') ||
             (inputs.model_preset == 'OpenCode Qwen3.7 Max' && 'qwen3.7-max') ||
             (inputs.model_preset == 'OpenCode Qwen3.7 Plus' && 'qwen3.7-plus') ||
             (inputs.model_preset == 'OpenCode Qwen3.6 Plus' && 'qwen3.6-plus') ||
@@ -374,6 +380,16 @@ jobs:
           # RTK token optimization (LADR-054) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
           OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}
+          # Structured findings (LADR-055) — mirrors the reusable workflow's env var.
+          OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+          # Trivial-PR skip (LADR-059) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
+          # Run artifacts (LADR-062) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
+          # Per-chunk review budget, seconds — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
+          # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).
+          OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md
@@ -442,6 +458,16 @@ jobs:
           EOF
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi
+
+      # Upload per-run artifacts (LADR-062) — mirrors the reusable workflow.
+      - name: Upload review run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-run-${{ github.run_id }}
+          path: ci_temp/run/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Clean up temporary files
         if: always()

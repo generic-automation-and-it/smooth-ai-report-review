@@ -1,20 +1,23 @@
 #!/bin/bash
 # filter-test-self-fix.sh — enforce the "test in the loop" policy for ai-analyse.
 #
-# The autonomous low/medium auto-fixer must NOT modify tests or the test
-# framework by default. Tests are the independent oracle that proves (or
-# disproves) that an automated fix did not break anything; if the same run that
-# applies a fix is also free to rewrite the tests, a wrong fix can silently
-# rewrite the very tests that would have caught it and still go green.
+# The autonomous low/medium auto-fixer must NOT modify tests, the test
+# framework, or eval harnesses by default. Tests are the independent oracle that
+# proves (or disproves) that an automated fix did not break anything; if the
+# same run that applies a fix is also free to rewrite the tests, a wrong fix can
+# silently rewrite the very tests that would have caught it and still go green.
+# Eval corpora, manifests and scorers are the same oracle one level up — they
+# are what proves the *reviewer* still works — so they are covered too.
 #
 # This is the DETERMINISTIC guard: the analyse model is untrusted, so the SKILL
 # prompt asking it to leave tests alone is only advisory. This script runs in
 # the workflow after the model edits and, unless self-fix of tests is explicitly
-# enabled, reverts any change the model made to a test or test-framework file
+# enabled, reverts any change the model made to a test, test-framework, or eval
+# file
 # (restoring tracked files to HEAD, deleting newly-created untracked ones)
 # BEFORE the commit step stages anything. Non-test edits are left untouched.
 #
-# Enable test self-fix by setting the GitHub Variable
+# Enable test/eval self-fix by setting the GitHub Variable
 # OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX to a truthy value (1/true/yes/on).
 #
 # Operates on the git working tree in the current directory. Prints one reverted
@@ -25,7 +28,7 @@ set -euo pipefail
 allow_raw="${OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX:-}"
 case "$(printf '%s' "$allow_raw" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on)
-    echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is enabled; test/test-framework edits are permitted." >&2
+    echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is enabled; test/eval edits are permitted." >&2
     exit 0
     ;;
 esac
@@ -35,10 +38,27 @@ PATHSPEC=( . ':(exclude)ci_temp' ':(exclude).context' ':(exclude).smooth-ai-revi
 
 # Case-insensitive matcher: test directories, JS/TS/Python test-file naming, and
 # common test-framework config/setup files.
-CI_RE='(^|/)(__tests__|__mocks__|tests?|specs?|e2e|cypress|playwright|\.storybook)/'
+#
+# `evals?/` is in the same list, and for the same reason. An eval harness is a
+# test of the reviewer: its corpus fixtures are the inputs, its manifests are
+# the expected results, and its scorer decides pass/fail. A fixer free to edit
+# them can turn a failing eval green by relabelling the expectation, which is
+# the eval-side twin of making a red test pass — already forbidden for tests by
+# LADR-056. Measured before this rule existed, 50 of the 51 files under this
+# repo's own `scripts/eval/` were unguarded (only `test-evals.sh`, and only by
+# accident of the `test-` prefix rule below).
+#
+# Matching the DIRECTORY segment rather than filenames is deliberate: harness,
+# scorer, corpus and manifests all live under `eval/` and share no naming
+# convention. It is deliberately broad — a consumer's production `src/eval/`
+# is caught too. For an edit guard that is the safe direction: the failure mode
+# is "a Medium/Low fix was not applied", it is reported in the summary comment,
+# and a human or /ai-review can still make the change.
+CI_RE='(^|/)(__tests__|__mocks__|tests?|specs?|evals?|e2e|cypress|playwright|\.storybook)/'
 CI_RE+='|\.(test|spec)\.[A-Za-z0-9.]+$'
 CI_RE+='|(^|/)test_[A-Za-z0-9][A-Za-z0-9_]*\.py$'
 CI_RE+='|(^|/)[A-Za-z0-9][A-Za-z0-9_.-]*_test\.[A-Za-z0-9]+$'
+CI_RE+='|(^|/)test-[A-Za-z0-9][A-Za-z0-9_.-]*\.(sh|bash|bats|ps1|py|js|mjs|ts)$'
 CI_RE+='|(^|/)(conftest\.py|pytest\.ini|tox\.ini|phpunit\.xml(\.dist)?'
 CI_RE+='|jest\.(config|setup)\.[A-Za-z0-9.]+|vitest\.(config|setup|workspace)\.[A-Za-z0-9.]+'
 CI_RE+='|playwright\.config\.[A-Za-z0-9.]+|cypress\.(config\.[A-Za-z0-9.]+|json)'
@@ -104,11 +124,11 @@ for p in "${untracked[@]:-}"; do
 done
 
 if [ "${#reverted[@]}" -eq 0 ]; then
-  echo "No test/test-framework edits to revert." >&2
+  echo "No test/eval edits to revert." >&2
   exit 0
 fi
 
-echo "Reverted ${#reverted[@]} test/test-framework edit(s) (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off):" >&2
+echo "Reverted ${#reverted[@]} test/eval edit(s) (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off):" >&2
 for p in "${reverted[@]}"; do
   echo " - $p" >&2
   printf '%s\n' "$p"

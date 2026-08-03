@@ -215,6 +215,29 @@ run_fixture() {
   local rc=$?
   [ "$rc" -eq 90 ] && { echo "__INFRA_FAIL__"; rm -rf "$sandbox"; return 1; }
 
+  # A chunk that failed to review is NOT a clean review. review-in-chunks.sh
+  # writes a NON-EMPTY stub on model failure ("## ⚠️ Review Failed for Chunk …
+  # all fallbacks exhausted") and drops a LADR-031 flag file beside it, so the
+  # emptiness check below never fires and the stub used to be scored like any
+  # other review: no [VERIFIED] findings, therefore "clean".
+  #
+  # That is a silent pass of the worst kind. On run 30791708130 the provider was
+  # down for the whole run, every one of the 20 fixtures got the stub, and the
+  # harness reported **precision 14/14 (100%)** while having reviewed exactly
+  # nothing. Only the recall half — 0/6 — made the outage visible at all; a
+  # precision-only corpus would have gone green.
+  #
+  # Detection is flag-file existence ONLY, never a grep for the stub text: that
+  # is LADR-031's rule, and it exists because a quoted marker inside a real
+  # review false-matched once already.
+  if compgen -G "$sandbox/ci_temp/reviews/chunk_*.failed" >/dev/null 2>&1; then
+    echo "__INFRA_FAIL__"
+    cp "$sandbox/ci_temp/review_run.log" "$WORK_ROOT/$(basename "$fdir").lastlog" 2>/dev/null || true
+    [ -n "${EVAL_ARTIFACT_DIR:-}" ] && cp "$sandbox/ci_temp/review_run.log" "$EVAL_ARTIFACT_DIR/$(basename "$fdir").lastlog" 2>/dev/null || true
+    rm -rf "$sandbox"
+    return 1
+  fi
+
   # Concatenate all chunk reviews (tiny fixtures -> 1 chunk, but be robust).
   local review_md="$sandbox/ci_temp/review_all.md"
   cat "$sandbox"/ci_temp/reviews/chunk_*.md > "$review_md" 2>/dev/null || true
@@ -240,6 +263,7 @@ declare -a RESULTS=()          # "kind|id|verdict|detail"
 precision_total=0; precision_fail=0
 recall_total=0;    recall_caught=0
 infra_fail=0
+unrelated_total=0     # true findings unrelated to any DR claim (reported, never blocking)
 
 majority() { echo $(( ($1 / 2) + 1 )); }
 
@@ -248,16 +272,35 @@ manifests=( "$CORPUS_DIR"/must-not-flag/*/manifest.json "$CORPUS_DIR"/must-catch
 shopt -u nullglob
 [ "${#manifests[@]}" -gt 0 ] || die "no fixtures found under $CORPUS_DIR/{must-not-flag,must-catch}."
 
-for manifest in "${manifests[@]}"; do
+# ---------------------------------------------------------------------------
+# evaluate_fixture <manifest> <result-file> <log-file>
+#
+# One fixture, start to verdict. Runs in a BACKGROUND SUBSHELL, so it must not
+# touch the parent's arrays or counters — it communicates by writing exactly one
+# `kind|id|verdict|detail` line to <result-file>, and its console output to
+# <log-file>. The driver replays the logs and tallies the counters afterwards,
+# in manifest order, so a parallel run produces byte-identical output ordering
+# to a serial one and the report stays deterministic.
+#
+# Isolation was checked before this was parallelised, not assumed: run_fixture
+# builds its own `mktemp -d` sandbox and `cd`s into it inside a subshell, so the
+# `ci_temp/` that review-in-chunks.sh writes is per-fixture; artifact copies are
+# keyed on the unique fixture id; and nothing else is shared but the read-only
+# corpus. The one genuine cross-fixture resource is the model endpoint — see
+# EVAL_PARALLEL.
+# ---------------------------------------------------------------------------
+evaluate_fixture() {
+  local manifest="$1" result_file="$2" log_file="$3"
+  local id kind label min_sev
   id="$(jq -r '.id' "$manifest")"
   kind="$(jq -r '.kind' "$manifest")"
   label="$(jq -r '.label // .id' "$manifest")"
   min_sev="$(jq -r '.min_severity // "HIGH"' "$manifest" | tr '[:lower:]' '[:upper:]')"
+  # ERE describing the WRONG claim this fixture forbids. Empty => strict mode.
+  local forbidden_claim
+  forbidden_claim="$(jq -r '.forbidden_claim // ""' "$manifest")"
 
-  if [ -n "$EVAL_FILTER" ] && [[ "$id" != *"$EVAL_FILTER"* ]]; then
-    continue
-  fi
-
+  {
   echo "▶ [$kind] $id ($label)"
 
   # Run EVAL_SAMPLES times; collect the blocking-severity set from each sample.
@@ -288,43 +331,205 @@ for manifest in "${manifests[@]}"; do
   done
 
   if [ "$sample_infra_fail" = true ]; then
-    infra_fail=$((infra_fail+1))
-    RESULTS+=("$kind|$id|INFRA|model/run failure — see logs in $WORK_ROOT")
+    printf '%s\n' "$kind|$id|INFRA|model/run failure — see logs in $WORK_ROOT" > "$result_file"
     echo "    ⚠️  INFRA FAILURE (no usable review)"
-    continue
+    return 0
   fi
 
-  # Triage archive: keep the (last sample's) review so a precision FAIL can be
-  # inspected after the sandbox is wiped. Skipped under selftest (no real review).
+  # Path to the (last sample's) review. Assigned unconditionally: the DR-claim
+  # match below needs it on EVERY path, and it used to be set only inside the
+  # artifact-archive block — which is skipped under selftest, so the claim match
+  # silently fell back to strict mode there and no self-test could see it.
+  review_path="${out%|*}"
+
+  # Triage archive: keep the review so a precision FAIL can be inspected after
+  # the sandbox is wiped. Skipped under selftest (no real review).
   if [ -n "$EVAL_ARTIFACT_DIR" ] && [ "$SELFTEST" != "1" ]; then
-    review_path="${out%|*}"
     if [ -n "$review_path" ] && [ -f "$review_path" ]; then
       cp "$review_path" "$EVAL_ARTIFACT_DIR/$id.review.md" 2>/dev/null || true
     fi
   fi
 
   if [ "$kind" = "must-not-flag" ]; then
-    precision_total=$((precision_total+1))
+    # A must-not-flag fixture exists to prove ONE thing: the reviewer does not
+    # re-raise this specific confirmed false positive. It was previously failed
+    # by ANY Critical/High/Medium finding, which measured something else
+    # entirely — "did a thorough reviewer find anything at all in realistic
+    # code" — and the answer to that is eventually always yes. Across five runs
+    # (30766652401 … 30795770815) every precision failure was a CORRECT finding
+    # and not one was a DR re-raise; five fixtures were repaired and the set
+    # never converged, because each run samples a different subset of what is
+    # findable.
+    #
+    # So the verdict is now the DR claim itself. `forbidden_claim` in the
+    # manifest is a case-insensitive ERE describing the WRONG claim; a flagged
+    # finding matching it fails the fixture. Unrelated true findings are counted
+    # and reported, and do not block — they are fixture-hygiene debt, not a
+    # precision regression.
+    #
+    # A manifest with NO forbidden_claim keeps the old strict behaviour. That is
+    # deliberate: where the wrong claim cannot be expressed as a pattern
+    # (DR-014, "do not flag the LADR-documented approach"), silently loosening
+    # to "never fails" would be worse than staying strict.
+    dr_hit=false
+    unrelated=0
     if [ "$flagged_any" = true ]; then
-      precision_fail=$((precision_fail+1))
-      RESULTS+=("$kind|$id|FAIL|re-raised a known false positive (DR regression)")
-      echo "    ❌ FAIL — re-raised $label at Critical/High/Medium"
+      if [ -n "$forbidden_claim" ] && [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        flagged_lines="$(bash "$SCORE_SCRIPT" --lines "$review_path" 2>/dev/null || true)"
+        matched="$(printf '%s\n' "$flagged_lines" | grep -c . 2>/dev/null || true)"
+        dr_lines="$(printf '%s\n' "$flagged_lines" | grep -icE "$forbidden_claim" 2>/dev/null || true)"
+        [ "${dr_lines:-0}" -gt 0 ] && dr_hit=true
+        unrelated=$(( ${matched:-0} - ${dr_lines:-0} ))
+        [ "$unrelated" -lt 0 ] && unrelated=0
+      else
+        dr_hit=true
+      fi
+    fi
+    printf '%s\n' "$unrelated" > "${result_file%.result}.unrelated"
+
+    if [ "$dr_hit" = true ]; then
+      printf '%s\n' "$kind|$id|FAIL|re-raised a known false positive (DR regression)" > "$result_file"
+      echo "    ❌ FAIL — re-raised $label (finding matches the forbidden claim)"
+      # Print the offending finding labels inline. Without this the message names
+      # only the DR, which reads as "the reviewer re-raised DR-XXX" even when it
+      # flagged something else entirely — diagnosing a failure meant downloading
+      # the run artifact and reading the review by hand. Three of the three
+      # precision failures triaged on run 30766652401 turned out to be findings
+      # unrelated to their DR (an unrelated perf note, a real script-injection
+      # vector left in the fixture), which is a fixture defect rather than a
+      # precision regression, and the message actively pointed away from that.
+      if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        grep -oE '^- (🔴|🟠|🟡) \[VERIFIED\][^—]*' "$review_path" 2>/dev/null \
+          | cut -c1-160 | sed 's/^/       ↳ /' | head -5 || true
+      fi
+    elif [ "$unrelated" -gt 0 ]; then
+      printf '%s\n' "$kind|$id|PASS|did not re-raise (${unrelated} unrelated finding(s))" > "$result_file"
+      echo "    ✅ PASS — did not re-raise $label (${unrelated} unrelated finding(s), not blocking)"
+      if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        bash "$SCORE_SCRIPT" --lines "$review_path" 2>/dev/null \
+          | cut -f2- | cut -c1-150 | sed 's/^/       ↳ /' | head -3 || true
+      fi
     else
-      RESULTS+=("$kind|$id|PASS|did not re-raise")
+      printf '%s\n' "$kind|$id|PASS|did not re-raise" > "$result_file"
       echo "    ✅ PASS"
     fi
   else
-    recall_total=$((recall_total+1))
+    local need
     need=$(majority "$EVAL_SAMPLES")
     if [ "$caught_count" -ge "$need" ]; then
-      recall_caught=$((recall_caught+1))
-      RESULTS+=("$kind|$id|PASS|caught seeded defect (>= $min_sev) in $caught_count/$EVAL_SAMPLES")
+      printf '%s\n' "$kind|$id|PASS|caught seeded defect (>= $min_sev) in $caught_count/$EVAL_SAMPLES" > "$result_file"
       echo "    ✅ PASS — caught >= $min_sev ($caught_count/$EVAL_SAMPLES)"
     else
-      RESULTS+=("$kind|$id|FAIL|missed seeded defect ($caught_count/$EVAL_SAMPLES caught, need $need)")
+      printf '%s\n' "$kind|$id|FAIL|missed seeded defect ($caught_count/$EVAL_SAMPLES caught, need $need)" > "$result_file"
       echo "    ❌ FAIL — missed seeded defect ($caught_count/$EVAL_SAMPLES)"
     fi
   fi
+  } > "$log_file" 2>&1
+}
+
+# ---------------------------------------------------------------------------
+# Driver: run fixtures with a bounded worker pool, then tally in manifest order.
+#
+# EVAL_PARALLEL is the number of fixtures in flight, and the ONLY thing it
+# trades is wall-clock against pressure on the model endpoint. Each in-flight
+# fixture is one live chunk-review call, so a high value can earn provider rate
+# limiting — which surfaces as INFRA failures and fails the run. That is a
+# flaky gate, which is the exact failure this harness was just rescued from, so
+# the default is deliberately conservative. Raise it only with evidence from a
+# real run. (review-in-chunks.sh caps its own chunk fan-out at 10 for the same
+# reason; eval fixtures are 1-2 files, so each is normally a single chunk.)
+# ---------------------------------------------------------------------------
+_eval_parallel_explicit="${EVAL_PARALLEL+set}"
+EVAL_PARALLEL="${EVAL_PARALLEL:-4}"
+case "$EVAL_PARALLEL" in
+  ''|*[!0-9]*) EVAL_PARALLEL=4 ;;
+esac
+[ "$EVAL_PARALLEL" -ge 1 ] || EVAL_PARALLEL=4
+# The self-test scores canned reviews with no network, so parallelism buys it
+# nothing by default. An EXPLICIT EVAL_PARALLEL still applies, which is how
+# test-evals.sh exercises the worker pool itself — otherwise the pool would be
+# reachable only by a paid run.
+if [ "$SELFTEST" = "1" ] && [ -z "$_eval_parallel_explicit" ]; then
+  EVAL_PARALLEL=1
+fi
+# The pool throttles with `wait -n`, which is bash 4.3+. macOS still ships bash
+# 3.2 as /bin/bash, and local-evals.sh is the documented macOS path — there,
+# `wait -n` fails immediately and the throttle would degrade to launching every
+# fixture at once. Fall back to serial rather than melting someone's rate limit.
+if [ "$EVAL_PARALLEL" -gt 1 ] && \
+   { [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] || \
+     { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -lt 3 ]; }; }; then
+  echo "ℹ️  bash ${BASH_VERSION:-?} lacks 'wait -n' (needs 4.3+) — running fixtures serially."
+  EVAL_PARALLEL=1
+fi
+
+[ "$EVAL_PARALLEL" -gt 1 ] && echo "Running up to ${EVAL_PARALLEL} fixtures concurrently (EVAL_PARALLEL)."
+echo ""
+
+declare -a PENDING=()          # manifests actually launched, in corpus order
+for manifest in "${manifests[@]}"; do
+  fid="$(jq -r '.id' "$manifest")"
+  if [ -n "$EVAL_FILTER" ] && [[ "$fid" != *"$EVAL_FILTER"* ]]; then
+    continue
+  fi
+  PENDING+=("$manifest")
+done
+
+RESULT_DIR="$WORK_ROOT/results"
+mkdir -p "$RESULT_DIR"
+
+slot=0
+for manifest in "${PENDING[@]}"; do
+  # Throttle: wait for a slot before launching. `wait -n` needs bash 4.3+; the
+  # runner ships bash 5 and the preflight already requires a modern bash.
+  while [ "$(jobs -rp | wc -l)" -ge "$EVAL_PARALLEL" ]; do
+    wait -n 2>/dev/null || break
+  done
+  evaluate_fixture "$manifest" "$RESULT_DIR/$slot.result" "$RESULT_DIR/$slot.log" &
+  slot=$((slot+1))
+done
+wait
+
+# Tally in launch order — never in completion order — so the printed log and the
+# RESULTS table are identical run to run regardless of which fixture finished
+# first. A missing result file means the worker died outright (OOM, kill); that
+# counts as an infra failure rather than being silently dropped.
+slot=0
+for manifest in "${PENDING[@]}"; do
+  fid="$(jq -r '.id' "$manifest")"
+  fkind="$(jq -r '.kind' "$manifest")"
+  [ -f "$RESULT_DIR/$slot.log" ] && cat "$RESULT_DIR/$slot.log"
+  line=""
+  [ -f "$RESULT_DIR/$slot.result" ] && line="$(cat "$RESULT_DIR/$slot.result")"
+  if [ -z "$line" ]; then
+    line="$fkind|$fid|INFRA|worker produced no result — see logs in $WORK_ROOT"
+    echo "    ⚠️  INFRA FAILURE (worker produced no result)"
+  fi
+  RESULTS+=("$line")
+
+  verdict="$(printf '%s' "$line" | cut -d'|' -f3)"
+  # An INFRA failure is counted ONLY as infra — never in the precision or recall
+  # denominators. The serial version reached this via `continue`; getting it
+  # wrong here would quietly inflate both denominators and understate the two
+  # rates the gate is judged on.
+  if [ -f "$RESULT_DIR/$slot.unrelated" ]; then
+    unrelated_total=$(( unrelated_total + $(cat "$RESULT_DIR/$slot.unrelated") ))
+  fi
+  if [ "$verdict" = "INFRA" ]; then
+    infra_fail=$((infra_fail+1))
+  else
+    case "$fkind" in
+      must-not-flag)
+        precision_total=$((precision_total+1))
+        [ "$verdict" = "FAIL" ] && precision_fail=$((precision_fail+1))
+        ;;
+      *)
+        recall_total=$((recall_total+1))
+        [ "$verdict" = "PASS" ] && recall_caught=$((recall_caught+1))
+        ;;
+    esac
+  fi
+  slot=$((slot+1))
 done
 
 # ---------------------------------------------------------------------------
@@ -355,8 +560,17 @@ precision_rate=100
 
 echo ""
 echo "------------------------------------------"
-echo " Precision (must-not-flag): $precision_pass/$precision_total clean (${precision_rate}%)  [zero-tolerance]"
-echo " Recall    (must-catch)   : $recall_caught/$recall_total caught (${recall_rate}%)  [threshold ${EVAL_RECALL_THRESHOLD}%]"
+# A rate over a zero denominator is not 100%, it is "nothing was measured".
+# Printing "Precision … 0/0 clean (100%)" under a total provider outage is a
+# line someone will screenshot out of context, and it says the opposite of what
+# happened. The run already fails on the infra count; the summary should agree.
+precision_display="${precision_rate}%"
+recall_display="${recall_rate}%"
+[ "$precision_total" -eq 0 ] && precision_display="n/a — nothing scored"
+[ "$recall_total" -eq 0 ] && recall_display="n/a — nothing scored"
+echo " Precision (must-not-flag): $precision_pass/$precision_total clean (${precision_display})  [zero-tolerance]"
+echo " Recall    (must-catch)   : $recall_caught/$recall_total caught (${recall_display})  [threshold ${EVAL_RECALL_THRESHOLD}%]"
+[ "$unrelated_total" -gt 0 ] && echo " Unrelated findings       : $unrelated_total (true, but not the DR claim — fixture hygiene, not blocking)"
 [ "$infra_fail" -gt 0 ] && echo " Infra failures           : $infra_fail (counted as run failure)"
 [ -n "$EVAL_ARTIFACT_DIR" ] && echo " Reviews archived to      : $EVAL_ARTIFACT_DIR (per-fixture <id>.review.md)"
 echo "------------------------------------------"

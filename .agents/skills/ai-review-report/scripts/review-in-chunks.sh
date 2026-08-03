@@ -32,6 +32,58 @@ echo "Model: $OPENCODE_MODEL_ID"
 echo "=========================================="
 echo ""
 
+# Per-chunk review budget. This wraps the WHOLE fallback chain
+# (lib/opencode-with-fallback.sh has no internal timeout of its own), so when it
+# fires the LADR-002 secondary model never gets to run — a timeout does not just
+# fail the chunk, it silently disables the two-tier rescue that exists for
+# exactly this case. Budget generously; the cost of a too-long timeout is a
+# slower job, the cost of a too-short one is a fail-closed REQUEST_CHANGES on a
+# chunk that would have reviewed fine.
+#
+# Default 450: raised from the original hardcoded 300, but deliberately NOT set
+# as high as it could be. The 300 was calibrated before LADR-055 roughly tripled
+# per-chunk model output and was demonstrably too tight (PR #106 killed a 96 KB
+# chunk on the ceiling). Measured headroom on the deployed pair: the slowest
+# chunk that ever SUCCEEDED took 209 s, so 450 is better than 2x the observed
+# worst case.
+#
+# The ceiling is a deadlock detector as much as a budget. Past roughly this
+# point a chunk is not "slow", it is stuck — a hung connection, a retry loop, a
+# model that will never return — and waiting it out buys nothing while holding
+# the job open. Failing at 450 and reporting it is more useful than succeeding
+# at 800. If chunks legitimately need more, the fix is less output per chunk,
+# not a higher ceiling.
+#
+# Chunks run in parallel, so the wall-clock cost is bounded by the slowest
+# chunk, not their sum.
+echo "⏱️  Per-chunk review timeout: ${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s"
+echo ""
+
+# LADR-055: structured findings — confidence anchors, the quote-the-line gate,
+# and the machine-readable per-chunk sidecar. Enabled by default; a falsy
+# OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS reverts the chunk prompt to
+# its pre-LADR-055 shape exactly, which is what makes an eval A/B meaningful.
+#
+# The anchors and the sidecar are gated together on purpose. The anchors are only
+# load-bearing because merge-findings.py enforces them mechanically (demotion
+# without a quote, suppression below the actionable anchor); with the sidecar off
+# there is nothing to enforce them, and unenforced rubric prose is prompt weight
+# with an unmeasured effect on output.
+#
+# Same tokenized truthy test as the graph-analysis (LADR-049) and rtk (LADR-054)
+# gates, so pathological values like `1true` land on the same side of the line
+# everywhere.
+structured_findings_enabled() {
+  local v="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
+  printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
+}
+if structured_findings_enabled; then
+  echo "🧩 Structured findings enabled (LADR-055)"
+else
+  echo "🧩 Structured findings disabled (OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS)"
+fi
+echo ""
+
 # Testing rules are now discovered dynamically via *AGENTS.md pattern (Implementation #89)
 # No hardcoded path - Testing_Rules_AGENTS.md is found by find-context-files.sh
 
@@ -541,6 +593,36 @@ EOF
     esac
   done
 
+  # Detect verification-mechanism chunks (CI/CD gating, build/deploy,
+  # coverage/lint, test infrastructure). These are fidelity risks —
+  # "if this mechanism is wrong, does it fail loudly or silently
+  # pass?" — not blast-radius risks. The lens fires on the
+  # mechanism, not on ordinary per-feature test assertions.
+  # Position: after is_migration (migration schema changes are a
+  # different concern), before is_doc_only (YAML-only chunks that
+  # happen to be workflow files must NOT fall through to the
+  # documentation prompt which caps drift at Medium).
+  local is_verification=false
+  for f in "${files[@]}"; do
+    case "$f" in
+      .github/workflows/*) is_verification=true; break ;;
+      .github/actions/*) is_verification=true; break ;;
+      .gitlab-ci.yml) is_verification=true; break ;;
+      azure-pipelines*.yml) is_verification=true; break ;;
+      Jenkinsfile) is_verification=true; break ;;
+      .agents/skills/*/scripts/*) is_verification=true; break ;;
+      .pre-commit-config.yaml) is_verification=true; break ;;
+      codecov.yml) is_verification=true; break ;;
+      sonar-project.properties) is_verification=true; break ;;
+      jest.config.*) is_verification=true; break ;;
+      vitest.config.*) is_verification=true; break ;;
+      playwright.config.*) is_verification=true; break ;;
+      pytest.ini) is_verification=true; break ;;
+      conftest.py) is_verification=true; break ;;
+      *.runsettings) is_verification=true; break ;;
+    esac
+  done
+
   # Detect documentation-only chunks (all files are *.md, *.yml, *.yaml, *.json config)
   local is_doc_only=true
   for f in "${files[@]}"; do
@@ -597,6 +679,29 @@ This chunk contains database migration or schema files. Apply a migration-focuse
 - **Use 🟠 High** for migrations that lack a rollback path or have risky existing-data handling.
 - **Use 🟡 Medium** for missing indexes, style issues, or suboptimal but safe choices.
 - **Do NOT flag**: EF migration boilerplate, auto-generated designer code, timestamp-prefixed file naming.
+EOF
+  elif [ "$is_verification" = true ]; then
+    echo "  🔍 Verification-mechanism chunk detected — using fidelity-focused review"
+    cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+
+## 🔍 REVIEW INSTRUCTIONS (VERIFICATION MECHANISM CHUNK)
+
+This chunk contains CI/CD gating, build/deploy, coverage/lint, or test-infrastructure configuration. Its risk is **fidelity** — "if this mechanism is wrong, does it fail loudly or silently pass?" — not blast radius.
+
+**Scope guard:** this lens applies to the *mechanism* — the gating, CI, build/deploy, coverage/lint and test-harness machinery that decides whether other code is allowed through. It is not a reason to escalate ordinary per-feature test assertions that happen to sit in this chunk; review those as you normally would.
+
+**Focus on (in priority order):**
+
+1. **Silent-pass risk** — does the change make a gating check pass when it should fail? CI/CD logic, merge-blocking checks, build/deploy steps, coverage/lint gates, and test-harness config that could mask production bugs are the highest-risk shape in this repo's own PRs.
+2. **Fidelity of the gate** — does the mechanism correctly detect the condition it claims to guard? A coverage threshold that is too lenient, a lint rule that is never enforced, or a build step that skips on certain paths are all fidelity failures.
+3. **Correctness of the mechanism** — syntax errors, wrong targets, missing steps, or misconfigured triggers in the gating infrastructure.
+
+**Signal-to-noise guidelines:**
+- **Fidelity risk warrants full attention regardless of changed-line count.** A ten-line edit to a workflow or test harness can silently green a broken gate.
+- **Do NOT flag style, naming, or formatting concerns** in verification-mechanism files.
+- **LADR-046 documentation drift cap does NOT apply here** — verification mechanisms are not documentation. A drift finding in a CI config is a real fidelity risk, not a stale-context observation.
+
+**Severity threshold:** Use 🔴 Critical for silent-pass failures that could mask production defects, 🟠 High for fidelity risks that could produce false confidence, and 🟡 Medium for configuration drift or correctness issues that do not directly create a silent-pass path.
 EOF
   elif [ "$is_doc_only" = true ]; then
     echo "  📝 Documentation-only chunk detected — using documentation review focus"
@@ -665,10 +770,23 @@ EOF
   cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
 
 **Signal-to-noise guidelines:**
-- **Be precise, not pedantic.** Every issue should matter to a senior developer. Do not flag minor style preferences, subjective naming choices, or trivial formatting. 3 actionable findings > 15 nitpicks.
+- **Advisory test.** Ask "what actually breaks if we do not fix this?". If the honest answer is "nothing breaks, but…", the item is **advisory** — an observation, not a defect. Never give an advisory item 🔴 Critical, 🟠 High, or 🟡 Medium; record it as 🔵 Low Priority, framed as an observation. Advisory shapes: a design asymmetry this PR improves but does not fully resolve; an opportunity to consolidate two similar helpers when neither is broken; a residual risk worth noting.
+- **Precedence.** The non-findings catalogue below is **stricter** than the advisory test. If a shape matches the catalogue it is a non-finding and must be suppressed entirely — do NOT re-route it to advisory.
 - **When intent is ambiguous**, note it as 🔵 Low Priority with question framing (e.g., "Intentional? If X happens, Y could be null") rather than flagging as a definitive bug.
 - **Passing checks are not issues.** If you verify that a contract, convention, file shape, permission, diagram, or cross-file relationship is correct, mention it under positive highlights only if useful, or omit it. Do NOT list "No issue", "consistent", "verified", or "flagging only because checked" items under **Issues Found**, and do NOT assign them a severity.
+- **Praise is not a finding either — this is the same rule, and it is the one that actually gets broken.** A severity line is a request to change something. If the sentence you are about to write says the code is *correct*, *well-documented*, *a good fix*, *load-bearing and right*, or "without this the feature would not work", it is **not a finding at any severity** — it belongs in positive highlights or nowhere. Concrete failure this rule exists for: a review of this repo filed *"The \`IFS\` fix at lines 1241-1259 is the chunk's load-bearing bug fix … documents the root cause clearly enough that a future reader won't simplify it back"* as a \`🟠 [VERIFIED] High Priority\` item. Nothing was wrong; the reviewer was complimenting the diff. Downstream that line is indistinguishable from a real blocker: the eval scorer counts it as a High flag, and a severity heading is the one place a reader cannot tell approval from alarm. **Test before writing any severity line: name what a maintainer must change. If the honest answer is "nothing — this is right", delete the line.**
 - **Documentation drift is capped at 🟡 Medium** — when a PR modifies behavior described in any documentation file (AGENTS.md, README, HLDs, ADRs, LADRs, NFRs) but does NOT update that file, flag the stale documentation at Medium at most; never 🟠 High or 🔴 Critical (LADR-046).
+
+**Non-findings — do not raise these as actionable findings at any anchor:**
+- **Pre-existing issues unrelated to this diff.** Never give one a severity under **Issues Found**. If the observation is genuinely useful it has one home only — the **Pre-existing (informational)** section described in the classification rules below, which does not count toward the verdict. Carve-out: if the diff makes an existing issue *newly relevant* (a new caller now reaches an existing bug), it is **secondary**, not pre-existing, and is a normal finding.
+- **Pedantic style nitpicks a linter or formatter would catch** — style belongs to the toolchain.
+- **Code that looks wrong but is intentional** — check comments, commit messages, PR description, surrounding code first.
+- **Issues already handled elsewhere** — callers, guards, middleware, framework defaults, parallel handlers.
+- **Suggestions that restate what the code already does** — "consider extracting a helper" when it is already a small helper.
+- **Generic "consider adding" advice with no named failure mode** — if you cannot name what breaks, the finding is not actionable.
+- **Code carrying a matching lint-disable comment** (\`eslint-disable-next-line\`, \`# rubocop:disable\`, \`# noqa\`, \`#pragma warning disable\`, \`// ReSharper disable\`) — the author already chose to suppress; re-flagging through a different reviewer overrides their decision.
+- **General code-quality concerns not codified in the loaded context files** — "this file is getting long", "too many parameters". Without a project rule to anchor it, it is subjective.
+- **Speculative future-work concerns with no current signal** — "might break under load", "what if requirements change".
 
 **Verification-Incomplete Suppression:**
 - If you did NOT receive a file in your review chunk (i.e., it is not listed in "Files in this chunk" above and its diff is not included below), do NOT flag test coverage, implementation concerns, or integration issues for that file at 🔴 Critical, 🟠 High, or 🟡 Medium priority. You may state that the file was not reviewed, but classify such observations at 🔵 Low Priority (informational) only.
@@ -679,6 +797,96 @@ EOF
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
 - **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via \`webfetch\`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
+EOF
+
+  # LADR-055: confidence anchors + quote-the-line gate. Quoted heredoc — this
+  # block is full of backticks and JSON braces, and none of it may expand.
+  if structured_findings_enabled; then
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+
+**Confidence Anchors (MANDATORY, in addition to the tag above):**
+
+Give every finding a `confidence` anchor — one of exactly `0`, `25`, `50`, `75`, `100`. Discrete anchors only: `72`, `0.85` and `"high"` are all invalid. Pick the single anchor whose behavioural criterion you can honestly self-apply. The rubric is anchored on behaviour you actually performed, not on a vague sense of certainty — if you cannot truthfully attach the behavioural claim to the finding, step down to the next anchor.
+
+- **`0` — Not confident at all.** A false positive that does not stand up to light scrutiny, or a pre-existing issue this PR did not introduce. **Never emit.**
+- **`25` — Somewhat confident.** Might be a real issue but could also be a false positive; you could not verify from the diff and surrounding code alone. **Never emit** — either gather more evidence (`read_file` the related files, resolve call sites with `grep`) until you can honestly anchor at `50` or higher, or suppress entirely.
+- **`50` — Moderately confident.** You verified this is a real issue but it is a nitpick, narrow edge case, or has minimal practical impact. Style preferences and subjective improvements land here.
+- **`75` — Highly confident.** You double-checked the diff and surrounding code and confirmed the issue will affect users, downstream callers, or runtime behavior in normal usage. The bug, vulnerability, or contract violation is clearly present and actionable. Anchor `75` requires **naming a concrete observable consequence** — a wrong result, an unhandled error path, a contract mismatch, a security exposure, missing coverage a real test scenario would surface. "This could be cleaner" or "I would have written this differently" do not meet this bar; they are anchor `50`. When torn between `50` and `75`, ask: **"will a user, caller, or operator concretely encounter this in normal usage, or is this my opinion about the code's quality?"** The former is `75`; the latter is `50`.
+- **`100` — Absolutely certain.** The issue is verifiable from the code itself — compile error, type mismatch, definitive logic bug (off-by-one in a tested algorithm, wrong return type, swapped arguments), or an explicit project-standards violation with a quotable rule. No interpretation required.
+
+**Anchor and severity are independent axes.** A 🟡 Medium finding can be anchor `100` if the evidence is airtight; a 🔴 Critical finding can be anchor `50` if it is an important concern you could not fully verify. The anchor gates *where* the finding surfaces; the severity orders it *within* the surfaced set. Do not raise an anchor to make a finding look important, and do not lower a severity because your anchor is low.
+
+**Relationship to the tag above:** `[SPECULATIVE]` implies `confidence` of `50` or less — you cannot be highly confident in something you did not verify. `[VERIFIED]` means you read the code; the anchor then says how much it matters and how airtight the evidence is. A `[VERIFIED]` nitpick is anchor `50`, and that is the correct, expected outcome — it is not a failure to have verified something small.
+
+**Quote-the-line gate (MANDATORY for anchors `75` and `100`):**
+
+Before you anchor a finding at `75` or `100`, quote the verbatim line(s) that make it true, with `file:line`, as the **first** evidence item:
+
+- "field X doesn't exist on model Y" → quote the class / `Meta` / migration where X would be defined.
+- "`dict.get()` may return None" → quote the dict's initialization.
+- "race between A and B" → quote both A and B.
+- "swapped argument / wrong return" → quote the call site **and** the signature.
+
+**If you cannot quote the motivating line, you cannot claim `75`+ — step down to `50`.** This is enforced mechanically after the review, not on trust: a finding at `75` or `100` with no quoted first evidence is demoted to `50` automatically, and the demotion is counted in the posted report.
+
+**Framework carve-out — read this before flagging a "missing" symbol.** When the symbol is generated by a framework metaclass, ORM configuration, decorator, source generator, or migration history (EF Core fluent configuration / `DbSet` / migration snapshots, Rails `has_many`/`scope`, Django `Meta`, SQLAlchemy `Column`/`relationship`, Prisma client, TypeORM/Sequelize decorators), quote the **generating construct** — reading the source that generates the symbol satisfies the gate. **A failed `grep` for the literal name does NOT satisfy the gate and is not evidence that the symbol is absent.** This is the same rule as DR-012 (EF Core expression trees are translated to SQL, not executed as runtime C#) seen from the evidence side: in both cases the code that decides the behaviour is not the code the literal name appears in.
+EOF
+  fi
+
+  # LADR-061: precomputed blame provenance. The digest is built in bash and
+  # handed to the model as data — the `review` agent is bash-denied (LADR-029)
+  # and stays that way.
+  #
+  # Every one of these is reset per chunk on purpose: they were plain globals in
+  # the first implementation, so a chunk with no digest inherited the previous
+  # chunk's — provenance about files it never saw.
+  local _blame_digest="" _blame_inline="" _blame_truncated=""
+  local _blame_file="ci_temp/chunk_${chunk_num}_blame.md"
+  local _blame_lib
+  _blame_lib="$(dirname "${BASH_SOURCE[0]}")/lib/build-blame-digest.sh"
+  # $LIB_DIR is not set in this script (run-review.sh defines it for itself and
+  # does not export it) and the head SHA is $TO_SHA here, not $HEAD_SHA — the
+  # first implementation guarded on both of those names, so it never ran once.
+  if [ -f "$_blame_lib" ] && [ -n "${TO_SHA:-}" ] && [ -n "${FROM_SHA:-}" ]; then
+    _blame_digest="$(printf '%s\0' "${files[@]}" \
+      | HEAD_SHA="$TO_SHA" FROM_SHA="$FROM_SHA" timeout 30s bash "$_blame_lib" 2>/dev/null || true)"
+    if [ -n "$_blame_digest" ]; then
+      printf '%s\n' "$_blame_digest" > "$_blame_file"
+      _blame_inline="$(printf '%s' "$_blame_digest" | head -c 4096)"
+      if [ "$(printf '%s' "$_blame_digest" | wc -c | tr -d ' ')" -gt 4096 ]; then
+        _blame_truncated="… (older commits omitted — full digest at ${_blame_file})"
+      fi
+    fi
+  fi
+
+  # Emitted ONLY when there is a digest to cite. Emitting the rules with no
+  # digest tells the model to quote "the digest below" when there is nothing
+  # below it — an instruction it cannot follow, on every chunk, charged against
+  # the LADR-035 prompt budget.
+  if [ -n "$_blame_inline" ]; then
+    cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+
+## 📜 Git Blame Provenance (LADR-061)
+
+When a finding's claim depends on line history — a pre-existing issue, intentional/historical design, or a judgment about whether this diff introduced the behaviour — append one concise provenance item drawn from the digest below:
+
+provenance: <shortsha> <author> <date> - <subject>
+
+**Rules:**
+1. Provenance is **additional** to the quote-the-line evidence item — never a replacement.
+2. **Omit it** when the finding is justified from the diff alone. No blame theater on diff-local bugs.
+3. Never request or reproduce full-file blame. The digest below is the whole of what is available.
+
+Commits touching the changed lines in this chunk:
+
+\`\`\`
+${_blame_inline}
+${_blame_truncated}
+\`\`\`
+EOF
+  fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
 
 ## ⚠️ CRITICAL: REVIEW SCOPE AND FILE ACCESS
 
@@ -714,16 +922,20 @@ EOF
    - GitHub Actions `branches:`/`tags:`/`paths:` filters are glob patterns, NOT regex. Dots are literal; never suggest regex-escaping them.
 5. Only flag if the issue is TRULY present after checking the current file state
 
-**Issue Classification Rules:**
-- 🔴🟠🟡 **Critical/High/Medium**: ONLY for issues in the CHANGED code (diff lines)
-- 🔵 **Low Priority**: Use for recommendations about UNCHANGED code you noticed while checking context
-  - Example: "While verifying context, noticed [existing issue] - consider addressing in future PR"
-  - These are suggestions, not blockers
+**Issue Classification Rules — three tiers:**
+
+- **Primary** — lines added or modified in the diff. Full severity range (🔴🟠🟡🔵).
+- **Secondary** — unchanged code *within the same function/block* as a changed line, where the change makes a bug visible only by reading surrounding context. Full severity range; treat it as introduced by this PR.
+- **Pre-existing** — unchanged code the diff neither touches nor interacts with. Report it under **Pre-existing (informational)** below; it does not count toward the verdict.
+
+The discriminator: if you would flag the same issue on an identical diff that did not include the surrounding file, it is **pre-existing**. If the diff makes the issue *newly relevant* (e.g. a new caller now reaches an existing buggy function), it is **secondary**.
+
+When unsure between secondary and pre-existing, choose secondary — conservative default in the safe direction. Pre-existing findings do not block the PR, so mislabeling a real regression as pre-existing silently disarms the gate.
 
 **What NOT to do:**
 - ❌ Don't review the entire file for issues unrelated to the diff
-- ❌ Don't flag existing code issues as Critical/High/Medium
 - ❌ Don't use file access to expand the review scope beyond the diff
+- ❌ Don't put pre-existing observations in the Low bucket — they belong in the Pre-existing section, not among actionable findings
 
 **Output Format:**
 For each file, use this structure:
@@ -738,10 +950,86 @@ For each file, use this structure:
 
 Only include real defects, risks, or actionable documentation/maintenance issues in **Issues Found**. Passing consistency checks belong outside this section or should be omitted.
 
+**Pre-existing (informational):**
+- Unchanged code the diff neither touches nor interacts with. Report only if the observation is genuinely useful (e.g. a known bug in a library the PR depends on). These do not count toward the verdict.
+- Example: "While verifying context, noticed [existing issue] — consider addressing in a future PR."
+
+**Writing the finding description (every finding, every severity):**
+1. **Lead with observable behaviour** — what a user, attacker, operator, or downstream caller experiences.
+   - Weak: "The `GetOrders` action does not validate that the account belongs to the caller before querying."
+   - Strong: "Any signed-in user can read another user's orders by pasting the target account ID into the URL."
+   The weak version describes the code; the strong version describes what goes wrong. Write the strong one.
+2. **Explain why the fix resolves it, and cite the parallel pattern already in this repo** — an existing guard, an established convention, at `file:line`. This grounds the recommendation in the project's own conventions instead of theoretical best practice, and lets a downstream fixer match house style.
+3. **Keep it tight** — 2 to 4 sentences plus minimum quoted code, as one paragraph. Longer framings get truncated by downstream display budgets, and a multi-paragraph description breaks the bullet structure the posted report is assembled from.
+4. **Always substantive** — an empty description or a single bare phrase is a validation failure.
+
 **Suggested Fixes:**
+- **Imperfect information is not grounds for omission.** When you do not have full context for the optimal fix, propose the most defensible default and **name the assumption**. *"I need `<specific input>` before I can commit"* is a **soft punt** — the question to ask instead is *"what code change would I propose if I had to choose now?"*, and propose that.
+- Worked examples:
+  - Pagination strategy unclear -> propose offset pagination matching the existing pattern at `file:line`, and say "assumes offset pagination, consistent with `OrdersController.cs:88`".
+  - Rate-limit value uncertain -> propose the value the neighbouring limits already use, and say which one you matched.
+  - Auth model unknown -> route the new endpoint through the existing middleware, and say "assumes the same middleware as the sibling endpoints in this file".
+- Genuine omission carve-out: omit the fix only when the finding is a question with no defaultable answer, or when the resolution is purely organisational.
+- Use `language` identifiers matching the file's language (e.g. `python`, `typescript`, `csharp`).
+
 ```language
 [corrected code if applicable]
 ```
+EOF
+
+  # LADR-055: the machine-readable sidecar instruction, gated with the anchors.
+  if structured_findings_enabled; then
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+
+**Structured findings sidecar (LADR-055) — emit AFTER all of the markdown above:**
+
+Once the human-readable review above is complete, append **one** block in exactly this shape as the very last thing in your output. The markdown above is the review; this block is a machine-readable mirror of the same findings for deduplication across chunks. It is stripped out before the review is posted, so it never appears to a human reader.
+
+**Keep it small, and emit it COMPACT — one line per finding, no pretty-printing, no indentation.** This block is the last thing you write, so it is the first thing lost if your output is cut short — and a truncated block is worth nothing. Every byte you spend re-formatting JSON is a byte of finding you might not get to emit. Do not repeat code snippets here that you already quoted in the markdown above.
+
+<!-- FINDINGS_JSON_BEGIN -->
+```json
+{"chunk":0,"findings":[
+{"title":"Order lookup trusts a user-supplied account id","severity":"critical","file":"src/Controllers/OrdersController.cs","line":42,"why_it_matters":"Any signed-in user can read another user's orders by changing the account id in the URL. The action loads the account and returns its orders without checking the caller owns it; ShipmentsController:38 already guards the same attack class.","confidence":100,"verified":true,"first_evidence":"src/Controllers/OrdersController.cs:42 -- var account = await _db.Accounts.FindAsync(accountId);","pre_existing":false,"requires_verification":true,"autofix_class":"gated_auto","owner":"downstream-resolver","suggested_fix":"Add the CurrentUser.Owns(account) guard before the lookup, matching ShipmentsController.cs:38."}
+],"residual_risks":[],"testing_gaps":[]}
+```
+<!-- FINDINGS_JSON_END -->
+
+Rules for the sidecar — a violated rule silently drops the finding from deduplication, it does not fail your review:
+
+- `chunk` is this chunk's number, shown in the `## 📁 CHUNK #N` heading at the top of this prompt.
+- `severity` is one of `"critical"`, `"high"`, `"medium"`, `"low"` — lower-case words, never emoji and never P0/P1/P2/P3.
+- `verified` is `true` for a `[VERIFIED]` finding and `false` for a `[SPECULATIVE]` one — it must agree with the tag you used in the markdown above.
+- `confidence` is one of the five anchors. At anchors `75`/`100`, `first_evidence` must carry the verbatim motivating line with `file:line` — that single field IS the quote-the-line gate, and a 75/100 finding without it is demoted to 50 automatically.
+- Do **not** emit an `evidence` array. Your supporting quotes belong in the markdown review above, where a human reads them; repeating them here only makes the block bigger and more likely to be truncated. (An `evidence` array is still accepted for compatibility, but omit it.)
+- `autofix_class` is one of `"gated_auto"`, `"manual"`, `"advisory"`; `owner` is one of `"downstream-resolver"`, `"human"`, `"release"`. Nothing acts on these yet — classify honestly, they are routing signal only. Default `owner` to `"downstream-resolver"` unless the item genuinely needs human judgment first or is release/rollout work.
+- `why_it_matters` is the finding's description, written to the **Writing the finding description** rules above.
+- `pre_existing` is `true` **only** for items you reported under **Pre-existing (informational)**; Primary and Secondary findings are both `false`. Pre-existing items still belong in the `findings` array — the merge partitions them out of the verdict on this flag, so omitting them here is what makes them disappear, not what keeps them out of the blocking count.
+- `suggested_fix`, `first_evidence` and `graph_evidence` are optional; every other field is required on every finding.
+- Emit **one** finding object per distinct defect. Every item you listed under **Issues Found** or **Pre-existing (informational)** above belongs here, and nothing else does: no "None found" placeholders, no passing checks, no coverage notes.
+- If you found nothing, emit the block with `"findings": []`.
+- The block is the LAST thing in your output. Do not wrap it in extra prose, do not emit it twice, and do not put it before the markdown review.
+
+**Soft-bucket routing (LADR-055):**
+
+An item that fails the **Advisory test** above — nothing breaks if it is not fixed — is routed by whether it has a location:
+
+- **It has a `file:line`** -> keep it as a 🔵 Low entry under **Issues Found** and as a normal `findings` object, with `autofix_class: "advisory"`. It stays in both transports; the class records that it is report-only.
+- **It has no single location** — a systemic risk, a coverage gap across a subsystem, an operating-condition caveat -> put it in `residual_risks` or `testing_gaps` and **do not** list it under **Issues Found** or in `findings`. These render as untagged 🟡 bullets, visible to a reader and to the downstream fixer, but excluded from the verdict count and the confidence gate. Listing the same item in both places double-reports it.
+- **Testing-flavoured unlocated advisories -> `testing_gaps`.** Maintainability, reliability and adversarial ones -> `residual_risks`. The exception in both cases: if the item quotes an explicit violated contract or proves a current user-facing defect, it is a defect and stays a finding.
+- **Coverage umbrella:** keep at most ONE finding per changed subsystem where lack of tests is itself material. Narrower case-by-case coverage observations move to `testing_gaps` regardless of the severity you would have given them.
+- **A current 🔴 Critical or 🟠 High is never demoted** merely because evidence is thin — that is what the confidence anchor is for, and `critical` is exempt from the suppression gate.
+- **Deployment-topology rule:** do not widen a repo contract with an assumed deployment topology. A claim requiring unproven restarts, multiple instances, or a specific scheduler is a **residual risk** unless the code establishes that operating condition.
+- `residual_risks` and `testing_gaps` are arrays of single-sentence strings. They carry no `file:line`, no severity, and no `confidence` — which is why a located advisory belongs in `findings` instead.
+
+**Exhaustive-coverage honesty rule:**
+- No search tool is complete — dynamic dispatch, reflection, DI, string-keyed routes, generated code, and external consumers hide usages from all of them. This only bites a claim resting on **exhaustive** coverage: *"this symbol is unused"*, *"nothing else calls this"*, *"safe to change"*.
+- For such a claim, when your coverage is text-search-only, record the unresolved boundary in `residual_risks` (e.g. `callsite completeness: grep-only`) or step the finding down — rather than asserting absence or safety.
+- When `code-review-graph` evidence is available (LADR-049), it is the stronger answer. The honesty rule covers the residual cases the graph cannot see (reflection, string-keyed routes, generated code, external consumers).
+EOF
+  fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
 
 ## 📝 DIFF TO REVIEW
 
@@ -816,7 +1104,41 @@ EOF
   # read_file context-loading works (with the diff also inline as a fallback),
   # but cannot self-activate this repo's ai-review-report skill. Fallback chain
   # preserves LADR-002.
-  if timeout 300s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  # Single source of truth for the budget — `lib/validate-chunk-timeout.sh` is
+  # also what the test exercises, so the fallback-on-bad-value contract cannot
+  # drift away from the code that enforces it.
+  #
+  # The prompt size is passed so the budget can scale with the work. A fixed
+  # budget against a variable prompt fail-closes honest chunks: PR #111 run
+  # 30792984316 lost 4 of 6 chunks to exit 124 at exactly 450 s on 135 KB
+  # prompts, while 88 KB prompts had never timed out. $prompt_size is already
+  # computed above for the oversize warning — this is the same number.
+  _chunk_timeout="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/validate-chunk-timeout.sh" "$prompt_size")"
+  if timeout "${_chunk_timeout}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+    # LADR-055: pull the structured-findings sidecar out and strip it from the
+    # markdown. Runs BEFORE the empty-output floor below on purpose — the floor
+    # must measure the markdown a human will actually read, so a model that
+    # returned nothing but a JSON block still trips it. Best-effort and never a
+    # chunk failure: this call cannot write a `.failed` flag (LADR-031 owns that
+    # channel) and its exit status never propagates.
+    #
+    # It is reported, though. The previous `|| true` discarded the status
+    # silently, and that is how the extractor went unexercised in the test
+    # sandbox from the day it landed — the lib was simply absent, every chunk
+    # errored to stderr, and nothing in the log said so. Non-blocking is the
+    # contract; invisible is not. `::warning::` annotates the run without
+    # failing it (and degrades to an ordinary log line outside GitHub Actions),
+    # so the next regression here shows up as a coverage question rather than as
+    # a merged summary that quietly renders from fewer chunks than it should.
+    if structured_findings_enabled; then
+      if ! bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-findings-json.sh" \
+        "ci_temp/reviews/chunk_${chunk_num}.md" \
+        "${chunk_num}" \
+        "ci_temp/reviews/chunk_${chunk_num}.findings.json"; then
+        echo "::warning::extract-findings-json.sh failed for chunk ${chunk_num} — no structured sidecar; aggregation will fall back to the orchestrator's Issues Summary"
+      fi
+    fi
+
     # Empty-output detection: opencode can exit 0 while producing no review
     # text (e.g. provider silently failing, agent misconfiguration). A real
     # chunk review is always at least a few hundred bytes of markdown with
@@ -847,21 +1169,38 @@ EOF
       # marker string gets quoted into legitimate review bodies when the gate
       # reviews its own docs, which text-grepping false-matches (see LADR-031).
       echo "empty/tiny output (${review_size} bytes)" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+      # Exit 0 with no output is the quieter failure of the two — surface its
+      # stderr too, or the run reports "empty" with no way to learn why.
+      bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
+        "chunk_${chunk_num}_${chunk_dir}_empty" \
+        "ci_temp/reviews/chunk_${chunk_num}_stderr.log" || true
+      # A failed chunk contributes no findings (LADR-055). Drop any sidecar the
+      # extraction step managed to salvage, so the merged set and the failed-chunk
+      # count can never disagree about which chunks were actually reviewed.
+      rm -f "ci_temp/reviews/chunk_${chunk_num}.findings.json"
     else
       echo "  ✅ Chunk ${chunk_num} review completed (${review_size} bytes)"
     fi
   else
     local exit_code=$?
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
-    if [ -s "ci_temp/reviews/chunk_${chunk_num}_stderr.log" ]; then
-      echo "  📋 Stderr log: ci_temp/reviews/chunk_${chunk_num}_stderr.log"
-    fi
+    # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
+    # step rm -rf's ci_temp on always(), so by the time anyone read the workflow
+    # log the file it pointed at was gone (PR #106 run 30756015689 lost the only
+    # evidence of why two chunks failed).
+    bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
+      "chunk_${chunk_num}_${chunk_dir}" \
+      "ci_temp/reviews/chunk_${chunk_num}_stderr.log" || true
     {
       echo "## ⚠️ Review Failed for Chunk: ${chunk_dir}"
       echo ""
       echo "**Exit Code:** ${exit_code}"
       if [ "$exit_code" -eq 124 ]; then
-        echo "**Reason:** Timeout (>5 minutes)"
+        # The timeout wraps the whole fallback chain, so on 124 the secondary
+        # model was never reached — say so rather than implying the chain was
+        # tried and exhausted. Raise OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT to
+        # give it room.
+        echo "**Reason:** Timeout (>${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s). The budget wraps the whole model chain, so the fallback model was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
       elif [ "$exit_code" -eq 137 ]; then
         echo "**Reason:** Out of memory or killed"
       else
@@ -873,6 +1212,8 @@ EOF
     } > ci_temp/reviews/chunk_${chunk_num}.md
     # LADR-031: out-of-band failure signal (see comment at the empty/tiny site).
     echo "exit code ${exit_code}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+    # LADR-055: a failed chunk contributes no findings — clear any stale sidecar.
+    rm -f "ci_temp/reviews/chunk_${chunk_num}.findings.json"
   fi
 
   echo ""
@@ -887,7 +1228,24 @@ MAX_PARALLEL=${MAX_PARALLEL:-10}
 declare -a CHUNK_DIRS
 declare -a CHUNK_FILE_LISTS
 
-while IFS='::' read -r dir file; do
+# file_groups_sorted.txt lines are `group-name::path/to/file`.
+#
+# This used to read `while IFS='::' read -r dir file`, which does NOT split on
+# the two-character string `::` — IFS is a SET of delimiter characters, so that
+# is just `IFS=':'`, and the trailing delimiter of the `::` pair ends up at the
+# front of the last field. Every path in `files[]` therefore arrived as
+# `:path/to/file`.
+#
+# Suffix globs (`*.sql`, `*.md`) and `git diff -- :path` both tolerate the stray
+# colon, which is why it survived unnoticed: the only visible symptom was the
+# leading `:` in the prompt's "Files in this chunk" list. Prefix matching does
+# not tolerate it — the chunk-context ancestor test (`$f == $ctx_dir/*`) and the
+# LADR-060 verification-path detection (`.github/workflows/*`) can never match a
+# colon-prefixed path, and LADR-061's blame digest cannot stat one.
+while IFS= read -r _group_line; do
+  [ -z "$_group_line" ] && continue
+  dir="${_group_line%%::*}"
+  file="${_group_line#*::}"
   if [ "$dir" != "$CURRENT_DIR" ] && [ -n "$CURRENT_DIR" ]; then
     CHUNK_DIRS+=("$CURRENT_DIR")
     # Store files as newline-separated string for this chunk
