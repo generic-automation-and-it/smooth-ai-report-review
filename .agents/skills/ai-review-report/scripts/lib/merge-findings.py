@@ -60,7 +60,6 @@ REQUIRED_FINDING = {
     "file": str,
     "why_it_matters": str,
     "confidence": int,
-    "evidence": list,
     "pre_existing": bool,
     "requires_verification": bool,
     "autofix_class": str,
@@ -109,10 +108,19 @@ def valid_finding(value):
         return False
     if value["owner"] not in OWNERS:
         return False
-    # At least one evidence item, and every item a non-empty string. A bare
-    # string instead of a list is caught by the type check above.
-    if not value["evidence"] or not all(nonempty_string(e) for e in value["evidence"]):
-        return False
+    # `evidence` is optional as of the sidecar-slimming change: the chunk prompt
+    # no longer asks for it, because the quotes already appear in the markdown a
+    # human reads and repeating them here inflated the block that is emitted last
+    # and truncated first. Nothing in this module ever read it — `first_evidence`
+    # alone carries the quote-the-line gate. When a producer does send it, it must
+    # still be a non-empty list of non-empty strings; a present-but-junk field is
+    # a malformed finding, an absent one is not.
+    if "evidence" in value:
+        evidence = value["evidence"]
+        if not isinstance(evidence, list) or not evidence:
+            return False
+        if not all(nonempty_string(e) for e in evidence):
+            return False
     # `line` is intentionally more forgiving than the schema, which asks for an
     # integer: models routinely emit "42" or "42-55", and dropping an otherwise
     # complete finding over the type of its line reference trades a real finding

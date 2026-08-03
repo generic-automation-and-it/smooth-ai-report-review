@@ -168,6 +168,46 @@ else
   bad "blame digest call is missing from review-in-chunks.sh"
 fi
 
+# --- Praise must not be filed under a severity heading ----------------------
+# PR #111 review 4840983861: the single non-placeholder finding in the whole
+# body was a `🟠 [VERIFIED] High Priority` line COMPLIMENTING the diff ("is the
+# chunk's load-bearing bug fix ... documents the root cause clearly"). Nothing
+# was wrong. score-review.sh reads that body as HIGH, and under a severity
+# heading a reader cannot tell approval from alarm. The generic "passing checks
+# are not issues" rule was already present and did not prevent it, so the prompt
+# now carries an explicit praise clause with the concrete failure.
+if grep -q 'Praise is not a finding' "$TARGET"; then
+  ok "chunk prompt carries the explicit praise-is-not-a-finding rule"
+else
+  bad "chunk prompt lost the praise-is-not-a-finding rule (PR #111 regression class)"
+fi
+if grep -q 'name what a maintainer must change' "$TARGET"; then
+  ok "the praise rule states an actionable test, not just a prohibition"
+else
+  bad "the praise rule has no actionable test — a bare prohibition did not work last time"
+fi
+
+# --- The sidecar must stay small -------------------------------------------
+# It is emitted last, so it is the first casualty of truncation; every field it
+# carries that the merge never reads is a finding it might not get to emit.
+# `evidence` duplicated quotes already in the markdown and is now dropped.
+_sidecar_block="$(sed -n '/Structured findings sidecar/,/FINDINGS_JSON_END/p' "$TARGET")"
+if printf '%s' "$_sidecar_block" | grep -q '"evidence"'; then
+  bad "the sidecar example still emits an \"evidence\" array (re-inflates the truncation-prone block)"
+else
+  ok "the sidecar example does not emit an evidence array"
+fi
+if grep -q 'Do \*\*not\*\* emit an `evidence` array' "$TARGET"; then
+  ok "the sidecar rules tell the model not to emit evidence"
+else
+  bad "the sidecar rules no longer tell the model to omit evidence"
+fi
+if grep -q 'emit it COMPACT' "$TARGET"; then
+  ok "the sidecar rules ask for compact JSON"
+else
+  bad "the sidecar rules no longer ask for compact JSON"
+fi
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then

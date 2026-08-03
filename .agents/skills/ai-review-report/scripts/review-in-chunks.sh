@@ -774,6 +774,7 @@ EOF
 - **Precedence.** The non-findings catalogue below is **stricter** than the advisory test. If a shape matches the catalogue it is a non-finding and must be suppressed entirely — do NOT re-route it to advisory.
 - **When intent is ambiguous**, note it as 🔵 Low Priority with question framing (e.g., "Intentional? If X happens, Y could be null") rather than flagging as a definitive bug.
 - **Passing checks are not issues.** If you verify that a contract, convention, file shape, permission, diagram, or cross-file relationship is correct, mention it under positive highlights only if useful, or omit it. Do NOT list "No issue", "consistent", "verified", or "flagging only because checked" items under **Issues Found**, and do NOT assign them a severity.
+- **Praise is not a finding either — this is the same rule, and it is the one that actually gets broken.** A severity line is a request to change something. If the sentence you are about to write says the code is *correct*, *well-documented*, *a good fix*, *load-bearing and right*, or "without this the feature would not work", it is **not a finding at any severity** — it belongs in positive highlights or nowhere. Concrete failure this rule exists for: a review of this repo filed *"The `IFS` fix at lines 1241-1259 is the chunk's load-bearing bug fix … documents the root cause clearly enough that a future reader won't simplify it back"* as a `🟠 [VERIFIED] High Priority` item. Nothing was wrong; the reviewer was complimenting the diff. Downstream that line is indistinguishable from a real blocker: the eval scorer counts it as a High flag, and a severity heading is the one place a reader cannot tell approval from alarm. **Test before writing any severity line: name what a maintainer must change. If the honest answer is "nothing — this is right", delete the line.**
 - **Documentation drift is capped at 🟡 Medium** — when a PR modifies behavior described in any documentation file (AGENTS.md, README, HLDs, ADRs, LADRs, NFRs) but does NOT update that file, flag the stale documentation at Medium at most; never 🟠 High or 🔴 Critical (LADR-046).
 
 **Non-findings — do not raise these as actionable findings at any anchor:**
@@ -984,34 +985,13 @@ EOF
 
 Once the human-readable review above is complete, append **one** block in exactly this shape as the very last thing in your output. The markdown above is the review; this block is a machine-readable mirror of the same findings for deduplication across chunks. It is stripped out before the review is posted, so it never appears to a human reader.
 
+**Keep it small, and emit it COMPACT — one line per finding, no pretty-printing, no indentation.** This block is the last thing you write, so it is the first thing lost if your output is cut short — and a truncated block is worth nothing. Every byte you spend re-formatting JSON is a byte of finding you might not get to emit. Do not repeat code snippets here that you already quoted in the markdown above.
+
 <!-- FINDINGS_JSON_BEGIN -->
 ```json
-{
-  "chunk": 0,
-  "findings": [
-    {
-      "title": "Order lookup trusts a user-supplied account id",
-      "severity": "critical",
-      "file": "src/Controllers/OrdersController.cs",
-      "line": 42,
-      "why_it_matters": "Any signed-in user can read another user's orders by changing the account id in the URL. The action loads the account and returns its orders without checking the caller owns it. ShipmentsController:38 already guards the same attack class with CurrentUser.Owns(account); matching that guard fixes this.",
-      "confidence": 100,
-      "verified": true,
-      "evidence": [
-        "src/Controllers/OrdersController.cs:42 -- var account = await _db.Accounts.FindAsync(accountId);",
-        "src/Controllers/ShipmentsController.cs:38 -- if (!CurrentUser.Owns(account)) return Forbid();"
-      ],
-      "first_evidence": "src/Controllers/OrdersController.cs:42 -- var account = await _db.Accounts.FindAsync(accountId);",
-      "pre_existing": false,
-      "requires_verification": true,
-      "autofix_class": "gated_auto",
-      "owner": "downstream-resolver",
-      "suggested_fix": "Add the CurrentUser.Owns(account) guard before the lookup, matching ShipmentsController.cs:38."
-    }
-  ],
-  "residual_risks": [],
-  "testing_gaps": []
-}
+{"chunk":0,"findings":[
+{"title":"Order lookup trusts a user-supplied account id","severity":"critical","file":"src/Controllers/OrdersController.cs","line":42,"why_it_matters":"Any signed-in user can read another user's orders by changing the account id in the URL. The action loads the account and returns its orders without checking the caller owns it; ShipmentsController:38 already guards the same attack class.","confidence":100,"verified":true,"first_evidence":"src/Controllers/OrdersController.cs:42 -- var account = await _db.Accounts.FindAsync(accountId);","pre_existing":false,"requires_verification":true,"autofix_class":"gated_auto","owner":"downstream-resolver","suggested_fix":"Add the CurrentUser.Owns(account) guard before the lookup, matching ShipmentsController.cs:38."}
+],"residual_risks":[],"testing_gaps":[]}
 ```
 <!-- FINDINGS_JSON_END -->
 
@@ -1020,7 +1000,8 @@ Rules for the sidecar — a violated rule silently drops the finding from dedupl
 - `chunk` is this chunk's number, shown in the `## 📁 CHUNK #N` heading at the top of this prompt.
 - `severity` is one of `"critical"`, `"high"`, `"medium"`, `"low"` — lower-case words, never emoji and never P0/P1/P2/P3.
 - `verified` is `true` for a `[VERIFIED]` finding and `false` for a `[SPECULATIVE]` one — it must agree with the tag you used in the markdown above.
-- `confidence` is one of the five anchors. `evidence` is an ARRAY of strings with at least one element, even when there is only one quote. At anchors `75`/`100` the first element must be the quoted motivating line, repeated in `first_evidence`.
+- `confidence` is one of the five anchors. At anchors `75`/`100`, `first_evidence` must carry the verbatim motivating line with `file:line` — that single field IS the quote-the-line gate, and a 75/100 finding without it is demoted to 50 automatically.
+- Do **not** emit an `evidence` array. Your supporting quotes belong in the markdown review above, where a human reads them; repeating them here only makes the block bigger and more likely to be truncated. (An `evidence` array is still accepted for compatibility, but omit it.)
 - `autofix_class` is one of `"gated_auto"`, `"manual"`, `"advisory"`; `owner` is one of `"downstream-resolver"`, `"human"`, `"release"`. Nothing acts on these yet — classify honestly, they are routing signal only. Default `owner` to `"downstream-resolver"` unless the item genuinely needs human judgment first or is release/rollout work.
 - `why_it_matters` is the finding's description, written to the **Writing the finding description** rules above.
 - `pre_existing` is `true` **only** for items you reported under **Pre-existing (informational)**; Primary and Secondary findings are both `false`. Pre-existing items still belong in the `findings` array — the merge partitions them out of the verdict on this flag, so omitting them here is what makes them disappear, not what keeps them out of the blocking count.

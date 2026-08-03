@@ -23,7 +23,6 @@
           "line",
           "why_it_matters",
           "confidence",
-          "evidence",
           "pre_existing",
           "requires_verification",
           "autofix_class",
@@ -64,7 +63,7 @@
             "type": "array",
             "minItems": 1,
             "items": { "type": "string" },
-            "description": "Code-grounded evidence: verbatim snippets with file:line, or precise pattern descriptions. At least one item; a bare string instead of an array is a validation failure. For any finding at anchor 75 or 100 the FIRST item must be the verbatim motivating line(s) with file:line — the exact code text that makes the finding true — mirrored into `first_evidence`."
+            "description": "OPTIONAL and deliberately no longer requested. The chunk prompt tells the model NOT to emit this: the supporting quotes already appear in the markdown review a human reads, and repeating them here inflated the sidecar — which is emitted last and is therefore the first thing lost when model output is cut short. Observed twice in production: the richest chunk truncated its own sidecar mid-block. Still accepted when present (older producers, and any caller that wants the full set), and still validated as an array of non-empty strings, but `first_evidence` alone carries the quote-the-line gate."
           },
           "first_evidence": {
             "type": "string",
