@@ -5,10 +5,12 @@
 # recall (must-catch / seeded real defects) — so prompt/model/LADR changes can be
 # regression-tested. See LADR-033 in .agents/skills/ai-review-report/SKILL.md.
 #
-# *** MAKES REAL, PAID MODEL CALLS. Triggers: manual (workflow_dispatch), a
-#     POST-MERGE CANARY on push to main, and — since it became a required PR
-#     status check — pull_request on a NON-DRAFT PR (opened / reopened /
-#     ready_for_review / pushes to an already-ready PR).
+# *** MAKES REAL, PAID MODEL CALLS. Triggers: manual (workflow_dispatch) and —
+#     since it became a required PR status check — pull_request on a NON-DRAFT
+#     PR (opened / reopened / ready_for_review / pushes to an already-ready PR).
+#     The former post-merge canary (push to main) was removed once the PR gate
+#     covered the same paths: every same-repo change is now evaluated BEFORE
+#     merge, so the canary re-ran the identical diff for a second paid bill.
 #
 #     The PR trigger deliberately carries NO `paths:` filter, and that is not an
 #     oversight. A workflow skipped by a path filter never reports a check run at
@@ -24,8 +26,9 @@
 #       - DRAFT PRs — the eval is a merge gate, not a work-in-progress signal.
 #       - FORK PRs — `pull_request` from a fork gets no secrets, so every provider
 #         key would be empty and the run would fail on the health probe. A
-#         permanently-red check on contributor PRs is worse than no check; those
-#         run post-merge on the canary instead. ***
+#         permanently-red check on contributor PRs is worse than no check. With
+#         the post-merge canary removed, a merged fork PR that touched the
+#         review pipeline needs a manual workflow_dispatch to be scored. ***
 #
 # Workflow↔script path coupling (repo Non-Negotiable): this file invokes the
 # harness by hardcoded path (.agents/skills/ai-review-report/scripts/eval/...).
@@ -33,16 +36,9 @@
 name: LLM Eval Harness
 
 on:
-  # Post-merge canary: run after a change lands on main, but ONLY when it touches
-  # the review pipeline (the prompt-assembly + transport + corpus the eval scores,
-  # or this workflow). Cannot block a merge —
-  # a regression surfaces as a failed run on main. Arbitrary product/doc PRs that
-  # do not touch these paths never trigger a paid run.
-  push:
-    branches: [main]
-    paths:
-      - ".agents/skills/ai-review-report/**"
-      - ".github/workflows/llm-eval-harness.yml"
+  # No push-to-main trigger: the post-merge canary was retired in favour of the
+  # PR gate below — same paths, same question, evaluated before merge instead of
+  # after, and only paid for once per diff.
   # PR gate. `synchronize` covers "a push to a PR that is already ready for
   # review"; `ready_for_review` covers the draft→ready transition, which is the
   # first point at which the eval is meant to have an opinion. No `paths:` here —
@@ -82,10 +78,9 @@ on:
 permissions:
   contents: read
 
-# One in-flight eval per PR (or per branch/dispatch). A 20-minute paid run whose
-# commit has already been superseded by the next push is money spent on a status
-# nobody will read. Never cancels the post-merge canary on main — that group key
-# is the ref, and main pushes are serialised anyway.
+# One in-flight eval per PR (or per ref for dispatch). A 20-minute paid run
+# whose commit has already been superseded by the next push is money spent on a
+# status nobody will read. Dispatch runs (ref group key) are never cancelled.
 concurrency:
   group: llm-evals-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -110,7 +105,7 @@ jobs:
     # Draft and fork PRs skip the whole job. A job skipped by `if:` still
     # reports its check as skipped, which branch protection counts as passing —
     # unlike a workflow that never triggers, which blocks forever. Non-PR events
-    # (push canary, dispatch) are unaffected.
+    # (dispatch) are unaffected.
     if: >-
       github.event_name != 'pull_request' ||
       (github.event.pull_request.draft == false &&
@@ -177,9 +172,9 @@ jobs:
 
       - name: Scope check
         id: scope
-        # The `paths:` filter this replaces for the PR trigger. Same path list as
-        # the push canary above — keep the two in sync; they answer the same
-        # question ("could this change move the eval result?") for the two events.
+        # The `paths:` filter this replaces for the PR trigger: only changes to
+        # `.agents/skills/ai-review-report/**` or this workflow can move the
+        # eval result, so everything else skips the paid steps.
         #
         # The eval scores the reviewer against a FIXED corpus, so an arbitrary
         # PR's product code cannot change the outcome — only the prompt-assembly,
@@ -191,7 +186,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            # push canary + dispatch: the trigger already decided relevance.
+            # dispatch: relevance is the operator's call, not the diff's.
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

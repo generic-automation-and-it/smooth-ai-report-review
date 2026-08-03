@@ -74,6 +74,47 @@ minimize_node() {
   return 1
 }
 
+# Minimize a newline-separated list of node IDs with bounded parallelism.
+# Sequential one-mutation-plus-0.5s-sleep loops cost ~1s per node — 15 stale
+# reviews/comments took ~16s on run 30817404772, and the list grows with PR
+# age. Four concurrent mutations keep well under GitHub's secondary rate
+# limits while collapsing that to ~2-3s. Each minimize_node runs in a
+# subshell, so tallies go through files, not shell variables.
+minimize_ids_parallel() {
+  local label="$1" node_ids="$2"
+  local results_dir node_id idx=0
+  local pids=()
+  results_dir="$(mktemp -d)"
+
+  while IFS= read -r node_id; do
+    [ -z "$node_id" ] && continue
+    (
+      if minimize_node "$node_id" "$label"; then
+        : > "${results_dir}/ok_${idx}"
+      else
+        : > "${results_dir}/fail_${idx}"
+      fi
+    ) &
+    pids+=($!)
+    idx=$((idx + 1))
+    # Rolling window of 4: wait on the oldest before launching a fifth.
+    # (`wait -n` is avoided — local runs may be on macOS bash 3.2.)
+    if [ "${#pids[@]}" -ge 4 ]; then
+      wait "${pids[0]}" 2>/dev/null || true
+      pids=("${pids[@]:1}")
+    fi
+  done <<< "$node_ids"
+
+  local pid
+  for pid in "${pids[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+
+  SUCCESS_COUNT=$((SUCCESS_COUNT + $(find "$results_dir" -name 'ok_*' | wc -l | tr -d ' ')))
+  FAIL_COUNT=$((FAIL_COUNT + $(find "$results_dir" -name 'fail_*' | wc -l | tr -d ' ')))
+  rm -rf "$results_dir"
+}
+
 minimize_previous_reviews() {
   local reviews_json
   local review_node_ids
@@ -122,20 +163,7 @@ minimize_previous_reviews() {
   echo "Found ${review_count} previous AI review(s) to minimize"
   echo ""
 
-  while IFS= read -r node_id; do
-    if [ -z "$node_id" ]; then
-      continue
-    fi
-
-    if minimize_node "$node_id" "review"; then
-      SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-    else
-      FAIL_COUNT=$((FAIL_COUNT + 1))
-    fi
-
-    # Small delay to avoid rate limiting
-    sleep 0.5
-  done <<< "$review_node_ids"
+  minimize_ids_parallel "review" "$review_node_ids"
   echo ""
 }
 
@@ -203,20 +231,7 @@ minimize_previous_analyse_comments() {
   echo "Found ${comment_count} previous ai-analyse auto-fix / trivial-skip comment(s) to minimize"
   echo ""
 
-  while IFS= read -r node_id; do
-    if [ -z "$node_id" ]; then
-      continue
-    fi
-
-    if minimize_node "$node_id" "ai-analyse comment"; then
-      SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-    else
-      FAIL_COUNT=$((FAIL_COUNT + 1))
-    fi
-
-    # Small delay to avoid rate limiting
-    sleep 0.5
-  done <<< "$comment_node_ids"
+  minimize_ids_parallel "ai-analyse comment" "$comment_node_ids"
   echo ""
 }
 

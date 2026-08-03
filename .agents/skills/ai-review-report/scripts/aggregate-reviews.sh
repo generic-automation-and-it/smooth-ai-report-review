@@ -111,9 +111,11 @@ OPENCODE_PROVIDER_DISPLAY_NAME=$(get_provider_display_name)
 
 # LADR-022: aggregation / summarisation is not deep analysis — run it on the
 # cheap ORCHESTRATOR model, falling back to the resolved review model if the
-# orchestrator is down (it is intentionally not probed at startup). The
-# orchestrator id is an explicit, independently-tunable env var — no longer
-# derived from the review model.
+# orchestrator is down. LADR-066: run-review.sh probes the orchestrator in the
+# background and rewrites this env var to the resolved review model on a failed
+# probe, so the dead-orchestrator case normally never reaches this chain's
+# fallback. The orchestrator id is an explicit, independently-tunable env var
+# — no longer derived from the review model.
 ORCHESTRATOR_MODEL_ID="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
 
 echo "Orchestrator model: $ORCHESTRATOR_MODEL_ID (review model was $OPENCODE_MODEL_ID)"
