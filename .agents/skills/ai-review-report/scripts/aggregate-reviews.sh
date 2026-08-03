@@ -136,7 +136,11 @@ for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
       echo "---" >> ci_temp/combined_reviews.md
       echo "" >> ci_temp/combined_reviews.md
     fi
-    echo "### Chunk #${i}" >> ci_temp/combined_reviews.md
+    # No `#` before the number: GFM autolinks `#<digits>` to an issue/PR in the
+    # repo under review, so `### Chunk #3` rendered as a link and cross-posted a
+    # reference onto that repo's issue #3 (LADR-067). The heading slug is
+    # unchanged — GitHub strips `#` when slugifying, so `#chunk-3` still anchors.
+    echo "### Chunk ${i}" >> ci_temp/combined_reviews.md
     echo "" >> ci_temp/combined_reviews.md
     # Balanced per chunk so one chunk's open fence cannot corrupt the next
     # chunk, the aggregation prompt, or the posted <details> section.
@@ -859,7 +863,7 @@ EOF
 # deduplicated and numbered; the sections below are each reviewer's raw output
 # and are neither. Without this sentence a differing count between the two parts
 # reads as a bug rather than as dedup working. The chunk back-reference on each
-# numbered finding — "(chunk #3)" — names one of the `### Chunk #N` headings
+# numbered finding — "(chunk 3)" — names one of the `### Chunk N` headings
 # below, which is why those headings must stay stable and predictable.
 if [ "$FINDINGS_SUMMARY_APPLIED" = "true" ]; then
   cat >> ci_temp/final_review.md << 'EOF'

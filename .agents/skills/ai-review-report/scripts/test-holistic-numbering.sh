@@ -84,29 +84,41 @@ before_lines="$(wc -l < "$f")"
 bash "$NUMBER_SH" "$f"
 
 check "Test 1a: three real items numbered" "3" \
-  "$(grep -cE '^- \*\*#H[0-9]+\*\* ' "$f")"
+  "$(grep -cE '^- \*\*H[0-9]+\)\*\* ' "$f")"
 check "Test 1b: numbering is sequential from 1" "1,2,3" \
-  "$(grep -oE '#H[0-9]+' "$f" | sed 's/#H//' | tr '\n' ',' | sed 's/,$//')"
+  "$(grep -oE '\bH[0-9]+\)' "$f" | sed 's/H//;s/)//' | tr '\n' ',' | sed 's/,$//')"
 check "Test 1c: the What-we-looked-for checklist is untouched" "0" \
-  "$(awk '/^\*\*Cross-Chunk Issues Found/{exit} /^- \*\*#H/{c++} END{print c+0}' "$f")"
+  "$(awk '/^\*\*Cross-Chunk Issues Found/{exit} /^- \*\*H[0-9]+\)/{c++} END{print c+0}' "$f")"
 check "Test 1d: line count is preserved" "$before_lines" "$(wc -l < "$f")"
 
 # --- Test 2: placeholders and continuations stay unnumbered ------------------
 check "Test 2a: a bare N/A bullet is not numbered" "0" \
-  "$(grep -c '^- \*\*#H[0-9]*\*\* N/A' "$f" || true)"
+  "$(grep -c '^- \*\*H[0-9]*)\*\* N/A' "$f" || true)"
 check "Test 2b: 'Not applicable' analysis line is not numbered" "0" \
-  "$(grep -c '#H[0-9]*\*\* \*\*Dependency Injection' "$f" || true)"
+  "$(grep -c 'H[0-9]*)\*\* \*\*Dependency Injection' "$f" || true)"
 check "Test 2c: indented continuation bullet is not numbered" "0" \
-  "$(grep -cE '^[[:space:]]+- \*\*#H' "$f" || true)"
+  "$(grep -cE '^[[:space:]]+- \*\*H[0-9]+\)' "$f" || true)"
 check "Test 2d: substantive analysis line IS numbered" "1" \
-  "$(grep -c '#H[0-9]*\*\* \*\*Consistency:' "$f" || true)"
+  "$(grep -c 'H[0-9]*)\*\* \*\*Consistency:' "$f" || true)"
 
 # --- Test 3: idempotence -----------------------------------------------------
 # aggregate-reviews.sh calls this once, but a retry or a future second call must
-# not produce `#H1 #H1` or restart the sequence.
+# not produce `H1) H1)` or restart the sequence.
 cp "$f" "$TMP_DIR/once.md"
 bash "$NUMBER_SH" "$f"
 check "Test 3: re-running is a no-op" "$(cat "$TMP_DIR/once.md")" "$(cat "$f")"
+
+# LADR-067 renamed `**#H1**` to `**H1)**`. A holistic section rendered by an
+# older gate — replayed from an artifact, or mid-rollout — must not be
+# double-numbered into `**H1)** **#H1** …`, so the guard still recognises the
+# old shape as "already numbered".
+legacy="$TMP_DIR/legacy.md"
+printf '**Cross-Chunk Issues Found:**\n\n- **#H1** An item numbered by the old scheme.\n- A fresh item.\n' > "$legacy"
+bash "$NUMBER_SH" "$legacy"
+check "Test 3b: a pre-LADR-067 #H number is not re-numbered" "1" \
+  "$(grep -c '^- \*\*#H1\*\* An item numbered by the old scheme\.$' "$legacy")"
+check "Test 3c: the unnumbered item beside it still gets a number" "1" \
+  "$(grep -cE '^- \*\*H[0-9]+\)\*\* A fresh item\.$' "$legacy")"
 
 # --- Test 4: no anchor → nothing is touched ----------------------------------
 # The anchor is the only structural promise the template makes. Without it the
@@ -137,7 +149,7 @@ bash "$NUMBER_SH" "$fenced"
 check "Test 5a: bullet inside a fence is untouched" "1" \
   "$(grep -c '^- An example bullet inside a fence.$' "$fenced")"
 check "Test 5b: real items either side of the fence are numbered" "2" \
-  "$(grep -cE '^- \*\*#H[0-9]+\*\* ' "$fenced")"
+  "$(grep -cE '^- \*\*H[0-9]+\)\*\* ' "$fenced")"
 
 # --- Test 6: degradation -----------------------------------------------------
 bash "$NUMBER_SH" "$TMP_DIR/does-not-exist.md"

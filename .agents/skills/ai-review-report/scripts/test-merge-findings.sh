@@ -230,10 +230,10 @@ check "Test 8d: unanimous pre_existing is not actionable" "0" \
 printf '%s' "$out" > "$TMP_DIR/pe-merged.json"
 bash "$RENDER_SH" "$TMP_DIR/pe-merged.json" > "$TMP_DIR/pe-rendered.md"
 pe_section="$(awk '/^### 🗂️ Pre-existing/{c=1;next} c&&/^### /{exit} c' "$TMP_DIR/pe-rendered.md")"
-check "Test 8e: pre-existing items are numbered #P1..#Pn" "1" \
-  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#P[0-9]+\*\* ' || true)"
+check "Test 8e: pre-existing items are numbered P1)..Pn)" "1" \
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*P[0-9]+\)\*\* ' || true)"
 check "Test 8f: pre-existing numbering does not use the findings namespace" "0" \
-  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*[0-9]+\)\*\* ' || true)"
 if [ -x "$SCORE_SH" ]; then
   check "Test 8g: numbering a pre-existing item does not make it a flag" "" \
     "$(bash "$SCORE_SH" "$TMP_DIR/pe-rendered.md" | tr '\n' ',' | sed 's/,$//')"
@@ -478,14 +478,14 @@ check "Test 13g: Medium section is not None found when only soft items exist" "0
 # are independent: adding a finding must not repoint `#R1`, because the PR
 # description's Skip Areas bullets are read by the NEXT run's gate and a shifted
 # number silently rebinds a skip to a different item.
-check "Test 13j: testing gaps are numbered #T1..#Tn" "2" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#T[0-9]+\*\* ' || true)"
-check "Test 13k: residual risks are numbered #R1..#Rn" "1" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#R[0-9]+\*\* ' || true)"
+check "Test 13j: testing gaps are numbered T1)..Tn)" "2" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*T[0-9]+\)\*\* ' || true)"
+check "Test 13k: residual risks are numbered R1)..Rn)" "1" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*R[0-9]+\)\*\* ' || true)"
 check "Test 13l: each soft sequence starts at 1 (independent of findings)" "1,1" \
-  "$(printf '%s\n' "$soft_medium" | grep -oE '#[TR]1\b' | sed 's/#[TR]//' | tr '\n' ',' | sed 's/,$//')"
+  "$(printf '%s\n' "$soft_medium" | grep -oE '\b[TR]1\)' | sed 's/[TR]//;s/)//' | tr '\n' ',' | sed 's/,$//')"
 check "Test 13m: soft numbers never collide with the findings namespace" "0" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*[0-9]+\)\*\* ' || true)"
 
 if [ -x "$SCORE_SH" ]; then
   check "Test 13h: soft items alone are NOT scored as a flag (DR precision)" "" \
@@ -636,6 +636,41 @@ PJ
     "$(grep -c 'full structured coverage' "$TMP_DIR/full.md" || true)"
 else
   echo "⏭️  render-findings-summary.sh not executable — skipping partial-coverage tests"
+fi
+
+# --- Test 19: no identifier can autolink to a GitHub issue (LADR-067) --------
+# The bug this pins: GFM autolinks `#` followed by digits to an issue/PR in the
+# repo the review is posted on, and `**` does not suppress it. `**#1**` rendered
+# as a link carrying issue #1's TITLE — observed in production as a finding
+# bullet that began "chore: Initialize projects and folders…" — and each posted
+# review left a cross-reference on that repo's low-numbered issues.
+#
+# The assertion is deliberately blunt: NO `#<digit>` sequence anywhere in a
+# rendered summary, whatever produced it. A narrower regex per identifier class
+# would pass while some new emitter reintroduced the collision elsewhere.
+if [ -x "$RENDER_SH" ]; then
+  bash "$RENDER_SH" "$TMP_DIR/merged.json" > "$TMP_DIR/autolink.md"
+  check "Test 19a: rendered summary contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink.md" || true)"
+  bash "$RENDER_SH" "$TMP_DIR/soft-merged.json" > "$TMP_DIR/autolink-soft.md"
+  check "Test 19b: soft-bucket summary contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink-soft.md" || true)"
+  bash "$RENDER_SH" "$TMP_DIR/pe-merged.json" > "$TMP_DIR/autolink-pe.md"
+  check "Test 19c: pre-existing summary contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink-pe.md" || true)"
+  bash "$RENDER_SH" "$TMP_DIR/partial.json" 0 3 "1" > "$TMP_DIR/autolink-partial.md" 2>/dev/null
+  check "Test 19d: partial-coverage warning contains no autolinking #<digits>" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/autolink-partial.md" || true)"
+
+  # The chunk heading emitted by aggregate-reviews.sh is the other posted site.
+  check "Test 19e: aggregate-reviews.sh emits '### Chunk N', not '### Chunk #N'" "0" \
+    "$(grep -c 'echo "### Chunk #' "$AGG_SH" || true)"
+
+  # `1)` is also a CommonMark ordered-list marker, so an unbolded identifier at
+  # the head of a bullet (`- 1) foo`) parses as a NESTED list and the number
+  # disappears from the rendered text. Every emitted identifier must be bolded.
+  check "Test 19f: every findings bullet bolds its identifier" "0" \
+    "$(grep -cE '^- [A-Z]?[0-9]+\) ' "$TMP_DIR/autolink.md" || true)"
 fi
 
 echo ""

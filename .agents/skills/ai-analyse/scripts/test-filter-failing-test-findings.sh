@@ -180,10 +180,10 @@ echo "✓ generic phrasing with a test word is still withheld"
 # `why_it_matters` as a two-space-indented sub-bullet, so treating every "- "
 # line as a new finding withheld the parent and leaked its sub-bullet into the
 # model's scope as an orphan fragment carrying the failing-test detail.
-input13='- **#1** 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing after this change — `src/A.cs:42` (chunk #0)
+input13='- **1)** 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing after this change — `src/A.cs:42` (chunk 0)
   - The assertion no longer matches the new return shape.
-- **#2** 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk #1)'
-expected13='- **#2** 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk #1)'
+- **2)** 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk 1)'
+expected13='- **2)** 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk 1)'
 report13="${tmp_dir}/withheld13"
 filtered13="$(printf '%s' "$input13" | bash "$HELPER" "$report13" 2>/dev/null)"
 [ "$filtered13" = "$expected13" ] || {
