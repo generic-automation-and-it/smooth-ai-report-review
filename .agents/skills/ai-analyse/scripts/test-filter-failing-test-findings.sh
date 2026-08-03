@@ -180,10 +180,10 @@ echo "✓ generic phrasing with a test word is still withheld"
 # `why_it_matters` as a two-space-indented sub-bullet, so treating every "- "
 # line as a new finding withheld the parent and leaked its sub-bullet into the
 # model's scope as an orphan fragment carrying the failing-test detail.
-input13='- **1)** 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing after this change — `src/A.cs:42` (chunk 0)
-  - The assertion no longer matches the new return shape.
-- **2)** 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk 1)'
-expected13='- **2)** 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk 1)'
+input13='1. 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing after this change — `src/A.cs:42` (chunk 0)
+   - The assertion no longer matches the new return shape.
+2. 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk 1)'
+expected13='2. 🟡 [VERIFIED] Medium Priority: resolve_provider does not pass the scope flag — `lib/rp.sh:10` (chunk 1)'
 report13="${tmp_dir}/withheld13"
 filtered13="$(printf '%s' "$input13" | bash "$HELPER" "$report13" 2>/dev/null)"
 [ "$filtered13" = "$expected13" ] || {
@@ -195,7 +195,12 @@ filtered13="$(printf '%s' "$input13" | bash "$HELPER" "$report13" 2>/dev/null)"
 grep -q 'The assertion no longer matches' "$report13" || {
   echo "FAIL: the parent's sub-bullet should be in the withheld report" >&2; exit 1
 }
-count13="$(grep -cE '^[[:space:]]{0,1}- ' "$report13" || true)"
+# Item-start regex extracted from the helper rather than restated, so this
+# count cannot drift from the production grouping rule. Restating it as `- `
+# silently counted 0 once findings became ordered-list items (LADR-068).
+item_re="$(sed -n "s/^new_bullet_re='\(.*\)'$/\1/p" "$HELPER")"
+[ -n "$item_re" ] || { echo "FAIL: could not extract new_bullet_re from helper" >&2; exit 1; }
+count13="$(grep -cE "$item_re" "$report13" || true)"
 [ "$count13" = "1" ] || {
   echo "FAIL: a parent + sub-bullet is ONE withheld finding, got ${count13}" >&2; exit 1
 }
