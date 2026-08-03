@@ -505,8 +505,16 @@ precision_rate=100
 
 echo ""
 echo "------------------------------------------"
-echo " Precision (must-not-flag): $precision_pass/$precision_total clean (${precision_rate}%)  [zero-tolerance]"
-echo " Recall    (must-catch)   : $recall_caught/$recall_total caught (${recall_rate}%)  [threshold ${EVAL_RECALL_THRESHOLD}%]"
+# A rate over a zero denominator is not 100%, it is "nothing was measured".
+# Printing "Precision … 0/0 clean (100%)" under a total provider outage is a
+# line someone will screenshot out of context, and it says the opposite of what
+# happened. The run already fails on the infra count; the summary should agree.
+precision_display="${precision_rate}%"
+recall_display="${recall_rate}%"
+[ "$precision_total" -eq 0 ] && precision_display="n/a — nothing scored"
+[ "$recall_total" -eq 0 ] && recall_display="n/a — nothing scored"
+echo " Precision (must-not-flag): $precision_pass/$precision_total clean (${precision_display})  [zero-tolerance]"
+echo " Recall    (must-catch)   : $recall_caught/$recall_total caught (${recall_display})  [threshold ${EVAL_RECALL_THRESHOLD}%]"
 [ "$infra_fail" -gt 0 ] && echo " Infra failures           : $infra_fail (counted as run failure)"
 [ -n "$EVAL_ARTIFACT_DIR" ] && echo " Reviews archived to      : $EVAL_ARTIFACT_DIR (per-fixture <id>.review.md)"
 echo "------------------------------------------"
