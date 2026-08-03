@@ -103,7 +103,7 @@ Examples:
 | # | File | AI PR Review Recommendation | Priority | AI Coder Recommendation | AI Reviewer Reasoning |
 |---|------|----------------------------|----------|------------------------|-----------------------|
 
-   The `#` column reuses the review's own identifier verbatim when the item has one — `#1`, `#2`, … for findings, and `#R1` / `#T1` / `#P1` / `#H1` for residual risks, testing gaps, pre-existing items and holistic cross-chunk items (LADR-063). Those are five independent sequences: `#R1` is not `#1`, and renumbering them into one list breaks the match with the skip bullets the next review round reads. Number rows yourself only for items the review left unnumbered.
+   The `#` column reuses the review's own identifier verbatim when the item has one — `#1`, `#2`, … for findings, and `#T1` / `#R1` / `#P1` / `#H1` for testing gaps, residual risks, pre-existing items and holistic cross-chunk items (LADR-063). Those are five independent sequences: `#R1` is not `#1`, and renumbering them into one list breaks the match with the skip bullets the next review round reads. Number rows yourself only for items the review left unnumbered.
 
    For the Copilot flow, retain the `commentId` / `threadId` mapping per row (used by execute) — it need not be printed in the table.
 
