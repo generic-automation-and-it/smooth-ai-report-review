@@ -71,6 +71,20 @@ if [ -d "$HOME/.local/bin" ]; then
        echo "$HOME/.local/bin" >> "${GITHUB_PATH:-/dev/null}" ;;
   esac
 fi
+# A cache-restored venv may arrive without its ~/.local/bin shim (the shim is
+# a symlink and is saved/restored separately). If the venv's own binary exists
+# — modern pipx XDG layout first, legacy layout second — put its bin dir on
+# PATH so the version check below still sees it and skips the reinstall.
+if ! command -v code-review-graph >/dev/null 2>&1; then
+  for _crg_venv_bin in "$HOME/.local/share/pipx/venvs/code-review-graph/bin" "$HOME/.local/pipx/venvs/code-review-graph/bin"; do
+    if [ -x "$_crg_venv_bin/code-review-graph" ]; then
+      export PATH="$_crg_venv_bin:$PATH"
+      echo "$_crg_venv_bin" >> "${GITHUB_PATH:-/dev/null}"
+      break
+    fi
+  done
+  unset _crg_venv_bin
+fi
 install_needed="false"
 if command -v code-review-graph >/dev/null 2>&1; then
   cached_version="$(code-review-graph --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+)*' | head -1 || true)"

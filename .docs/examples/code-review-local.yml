@@ -246,7 +246,12 @@ jobs:
         if: contains('1 true yes on', vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1') && vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION != ''
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
+          # ~/.local/share/pipx is modern pipx's XDG layout (what `pip install
+          # --user pipx` yields on ubuntu-latest); ~/.local/pipx is the legacy
+          # layout kept for PIPX_HOME overrides. Run 30824422125 cached nothing
+          # ("Path Validation Error") with only the legacy path listed.
           path: |
+            ~/.local/share/pipx/venvs/code-review-graph
             ~/.local/pipx/venvs/code-review-graph
             ~/.local/bin/code-review-graph
           key: crg-pipx-${{ runner.os }}-py${{ steps.crg_py.outputs.version }}-${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION }}
