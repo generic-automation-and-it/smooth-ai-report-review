@@ -1,6 +1,6 @@
 ---
 name: git-commit-review-push
-description: Commit current changes with conventional commits format, append the /ai-review trigger to the final commit, and push to remote repository. Use when committing and pushing changes so the pushed PR gets a full AI review.
+description: Commit current changes with conventional commits format, include the /ai-review trigger in the final commit while preserving Git trailers, and push to remote repository. Use when committing and pushing changes so the pushed PR gets a full AI review.
 allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
@@ -22,7 +22,15 @@ Commit current changes using conventional commits format, embed the `/ai-review`
 2. If there are changes, analyze the diff and group it into **logical units of work** (chunks). Commit each chunk separately with a [Conventional Commits](https://www.conventionalcommits.org) message — `<type>[optional scope]: <description>` with type one of `feat`/`fix`/`chore`/`docs`/`refactor`/`test`/`ci`/`perf`/`build`; subject lowercase, imperative, no trailing period, ≤ 72 chars:
    - If a commit message was provided as an argument, use it (single-chunk commit)
    - Otherwise generate an appropriate conventional commit message per chunk from the staged diff
-3. **Review trigger (mandatory)**: the **last** chunk commit — or the only commit when there is a single chunk — MUST end with `/ai-review` as the final line of the commit message body. The review gate (`pipeline-code-review-report.yml`) greps PR commit messages for `/ai-review` and forces a full PR review when found. Keep the subject line clean; the trigger goes in the body:
+3. **Review trigger (mandatory)**: the **last** chunk commit — or the only commit when there is a single chunk — MUST include `/ai-review`. The review gate (`pipeline-code-review-report.yml`) greps the whole commit message and forces a full PR review when found, so its position does not matter. It may be in the subject, on its own body line, or have trailing text:
+
+   Trigger in the subject (the natural shape when the whole commit *is* the review request):
+
+   ```
+   ci: /ai-review
+   ```
+
+   Trigger on its own body line:
 
    ```
    feat(auth): add user authentication system
@@ -30,34 +38,47 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    /ai-review
    ```
 
-   Earlier chunk commits must NOT carry the trigger — only the final one.
-4. If a commit was made in step 2, verify the trigger is the final non-empty line of the
-   commit body before pushing. Skip this check for merge commits — detect them via
-   `git log -1 --format=%P | wc -w` > 1 (more than one parent) or by a `Merge` subject
-   prefix — because `git log -1 --format=%b` returns the merged-branches list, not a
-   usable commit body. The outer "If a commit was made in step 2" guard already excludes
-   the no-commit path. The regex tolerates trailing whitespace / CRLF, unlike a strict string compare:
+   Trigger with trailing text:
 
-   ```bash
-   # Merge commits (>1 parent, or a "Merge…" subject) have no usable %b body — skip the check entirely.
-   subject="$(git log -1 --format=%s)"
-   if [ "$(git log -1 --format=%P | wc -w)" -gt 1 ] || [[ "$subject" == Merge* ]]; then
-      echo "Merge commit detected — skipping /ai-review trigger check."
-   else
-      git log -1 --format='%b' | awk 'NF { last=$0 } END { exit (last ~ "^[[:space:]]*/ai-review[[:space:]]*$") ? 0 : 1 }'
-   fi
+   ```
+   feat(auth): add user authentication system
+
+   /ai-review — full sweep after the provider swap
    ```
 
-   If the check fails, echo the full commit message (helps diagnose missing-vs-misplaced trigger — the check passes only when `/ai-review` is the last non-empty line, optionally followed by trailing whitespace):
+   Prefer a body line immediately before any `Co-authored-by:` / `Signed-off-by:` / `Refs:` trailer block, so Git continues to parse those trailers.
+
+   Earlier chunk commits must NOT carry the trigger — only the final one.
+4. If a commit was made in step 2, verify the trigger using the gate's matcher over the full commit message before pushing. The outer "If a commit was made in step 2" guard already excludes the no-commit path:
+
+   ```bash
+   git log -1 --format='%B' | grep -qiE '/ai-review'
+   ```
+
+   If the check fails, echo the full commit message:
 
    ```bash
    git log -1 --format='%B'
    ```
 
-   then amend the final commit to add the trigger. Reuse the **full** existing message (`%B` — subject, body, and any `Co-authored-by:` / `Signed-off-by:` / `Refs:` trailers) and append the trigger as a new paragraph; do **not** rebuild from `%s`, which would drop the body and every trailer. The check above only fails when `/ai-review` is absent from the final line, so appending is safe:
+   then amend the final commit to add the trigger. Reuse the **full** existing message (`%B` — subject, body, and any `Co-authored-by:` / `Signed-off-by:` / `Refs:` trailers); do **not** rebuild from `%s`, which would drop the body and every trailer. If the message has trailers, insert the trigger immediately before their final paragraph so Git continues to parse them. Otherwise, append it as a new paragraph:
 
    ```bash
-   git commit --amend -m "$(git log -1 --format='%B')" -m "/ai-review"
+   if git log -1 --format='%(trailers)' | grep -q .; then
+     git log -1 --format='%B' | awk '
+       BEGIN { RS=""; ORS="\n\n" }
+       { para[NR]=$0 }
+       END {
+         # Single-paragraph message: inserting "before the last paragraph"
+         # would put the trigger above the subject — append instead.
+         if (NR < 2) { printf "%s\n\n/ai-review\n", para[1]; exit }
+         for (i = 1; i < NR; i++) print para[i]
+         print "/ai-review"
+         printf "%s\n", para[NR]
+       }' | git commit --amend -F -
+   else
+     git commit --amend -m "$(git log -1 --format='%B')" -m "/ai-review"
+   fi
    ```
 5. If there are no changes to commit, skip to step 6
 6. **If `--issue <number>` was passed** — rename the local branch before pushing (see Branch Rename below)
