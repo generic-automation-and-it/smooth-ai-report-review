@@ -556,8 +556,36 @@ echo "false" > "$ALL_MODELS_FAILED_FILE"
 echo ""
 echo "Primary review:   ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
 echo "Secondary review: ${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}"
-echo "Orchestrator:     ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} (not probed — falls back to the resolved review model at runtime)"
+echo "Orchestrator:     ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} (probing in background — a failed probe reroutes orchestrator calls to the resolved review model)"
 echo ""
+
+# 5g-bis. Probe the orchestrator model in the BACKGROUND so it costs no wall
+# time (the graph install and diff generation below cover its latency). The
+# result is collected right before the chunked review (Step 17). Without this,
+# a dead/hung orchestrator burns each orchestrator call's own timeout before
+# its fallback runs — run 30817404772 lost semantic grouping's entire 60s
+# budget this way. Output is fully detached (>/dev/null) so an orphaned probe
+# can never hold the workflow step's log pipe open on an early-exit path.
+# Deliberately NOT collected before the Step 12.5 trivial-PR veto: that veto
+# runs seconds after this probe launches, fails open on timeout (LADR-059),
+# and only fires on all-lockfile PRs — waiting there would serialize the
+# probe onto the critical path for every run to protect a rare 30s worst case.
+ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
+: > "$ORCH_PROBE_FILE"
+(
+  _orch_out="$(timeout 60s opencode run \
+    --agent review \
+    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
+    --format default \
+    --log-level WARN \
+    "Say 'OK'" 2>&1 || true)"
+  if [ -z "$_orch_out" ] || echo "$_orch_out" | grep -iqE "$ERROR_PATTERN"; then
+    echo "failed" > "$ORCH_PROBE_FILE"
+  else
+    echo "ok" > "$ORCH_PROBE_FILE"
+  fi
+) >/dev/null 2>&1 &
+ORCH_PROBE_PID=$!
 output="$(run_probe "$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY")"
 if echo "$output" | grep -iqE "$ERROR_PATTERN"; then
   echo "⚠️  Primary review unavailable, quota exceeded, or API key error — trying secondary"
@@ -1138,6 +1166,22 @@ if [ -z "$SELECTED_MODEL" ]; then
   # type explicit; the script cannot reach here when all_models_failed=true.
   echo "❌ No selected model — review cannot proceed." >&2
   exit 1
+fi
+
+# Collect the background orchestrator probe (5g-bis). On a failed probe,
+# rewrite the orchestrator to the resolved review model so downstream
+# orchestrator calls (semantic grouping in review-in-chunks.sh, the PR
+# summary in aggregate-reviews.sh) never spend their timeout budgets on a
+# dead first hop.
+if [ -n "${ORCH_PROBE_PID:-}" ]; then
+  wait "$ORCH_PROBE_PID" 2>/dev/null || true
+  if [ "$(cat "$ORCH_PROBE_FILE" 2>/dev/null)" = "ok" ]; then
+    echo "✓ Orchestrator model works: ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}"
+  else
+    echo "⚠️ Orchestrator model ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} failed its probe — routing orchestrator calls to ${SELECTED_MODEL}"
+    OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="$SELECTED_MODEL"
+    export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
+  fi
 fi
 
 bash "$SCRIPT_DIR/review-in-chunks.sh" \

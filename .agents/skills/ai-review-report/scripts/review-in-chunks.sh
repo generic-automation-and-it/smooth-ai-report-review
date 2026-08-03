@@ -245,11 +245,29 @@ SEMANTIC_PROMPT_EOF
   # Append file list
   tr '\0' '\n' < ci_temp/changed_files.txt >> ci_temp/semantic_grouping_prompt.txt
 
-  # Call the model for semantic grouping (60s timeout, no file access needed)
+  # Call the model for semantic grouping (no file access needed).
   # LADR-022: semantic grouping is file classification, not code analysis — use the
   # ORCHESTRATOR (cheap) model, falling back to the resolved review model if it's down.
   # LADR-023: CLI transport is opencode; helper preserves the fallback chain.
-  if timeout 60s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}" "$OPENCODE_MODEL_ID" "" -- ci_temp/semantic_grouping_prompt.txt > ci_temp/semantic_grouping_raw.txt 2>/dev/null; then
+  #
+  # The 60s budget is SPLIT across the chain (35s orchestrator, 25s review
+  # model), not wrapped around it: a single outer timeout means a hung
+  # orchestrator consumes the entire budget and the review-model fallback
+  # never runs — run 30817404772 lost the full 60s exactly this way and fell
+  # back to directory grouping, which then produced an oversized chunk. When
+  # the orchestrator already IS the review model (e.g. run-review.sh rewrote
+  # it after a failed probe), the second stage is skipped — same model, same
+  # outcome.
+  _grouping_orch="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+  _grouping_ok=false
+  if timeout 35s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_grouping_orch" "" "" -- ci_temp/semantic_grouping_prompt.txt > ci_temp/semantic_grouping_raw.txt 2>/dev/null; then
+    _grouping_ok=true
+  elif [ "$_grouping_orch" != "$OPENCODE_MODEL_ID" ] && \
+       timeout 25s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "" "" -- ci_temp/semantic_grouping_prompt.txt > ci_temp/semantic_grouping_raw.txt 2>/dev/null; then
+    echo "  ⚠️ Orchestrator grouping call failed — review model fallback succeeded"
+    _grouping_ok=true
+  fi
+  if [ "$_grouping_ok" = true ]; then
     # Extract only valid group::file lines, strip whitespace and backticks
     grep '::' ci_temp/semantic_grouping_raw.txt \
       | sed 's/^[[:space:]`]*//;s/[[:space:]`]*$//' \
@@ -298,7 +316,7 @@ SEMANTIC_PROMPT_EOF
       echo "  ⚠️ Validation failed - falling back to directory grouping"
     fi
   else
-    echo "  ⚠️ Gemini call failed (timeout or API error) - falling back to directory grouping"
+    echo "  ⚠️ Grouping model calls failed (timeout or API error) - falling back to directory grouping"
   fi
 else
   echo "Skipping semantic grouping (${file_count} files < ${SEMANTIC_GROUPING_THRESHOLD} threshold)"
