@@ -2,7 +2,7 @@
 # render-findings-summary.sh — render the posted review's `## 🔍 Issues Summary`
 # from the merged findings document (LADR-055). Writes markdown to stdout.
 #
-# Usage: render-findings-summary.sh <merged_json> [failed_chunks] [total_chunks]
+# Usage: render-findings-summary.sh <merged_json> [failed_chunks] [total_chunks] [missing_chunks]
 #
 #   failed_chunks and total_chunks are optional integers sourced from the
 #   same flag-file counters as the LADR-036 coverage banner. They are not
@@ -30,6 +30,9 @@ set -uo pipefail
 merged="${1:-}"
 failed_chunks="${2:-0}"
 total_chunks="${3:-0}"
+# Comma-separated numbers of chunks that reviewed fine but contributed no
+# structured findings (truncated or malformed sidecar). Empty = full coverage.
+missing_chunks="${4:-}"
 if [ -z "$merged" ] || [ ! -s "$merged" ]; then
   exit 1
 fi
@@ -83,12 +86,26 @@ jq -r '
   # `extract-ai-analyse-scope.sh` (which only needs a non-empty, non-"None found"
   # line) while staying out of the flag count. They also carry no file:line —
   # they are not located defects, and inventing a location would be worse.
-  def soft_bullet($kind):
-    "- 🟡 \($kind): \(. | clean)";
+  # Numbered like findings, but in their OWN sequence with a class prefix
+  # (`#T1`, `#R1`), for one reason: adding a finding must not renumber a
+  # residual risk. Cross-round references live in the Skip Areas bullets of the
+  # PR body, which the gate reads to decide whether a finding is intentional —
+  # a shared sequence would silently repoint every one of them on the next run.
+  # The prefix also keeps the `#N` namespace exactly as it was for consumers
+  # that map a number onto an entry in the findings array; nothing matching
+  # `**#1**` can ever match `**#R1**`.
+  #
+  # NOTE for editors: this whole jq program is a single-quoted shell string, so
+  # an apostrophe anywhere in these comments terminates it and the script dies
+  # with a syntax error. Use "the PR body" rather than the possessive form.
+  #
+  # Input is a {key, value} entry so the array index supplies the number.
+  def soft_bullet($kind; $tag):
+    "- **#\($tag)\(.key + 1)** 🟡 \($kind): \(.value | clean)";
 
   def soft_items:
-    [ (.testing_gaps // [])[] | soft_bullet("Testing gap") ]
-    + [ (.residual_risks // [])[] | soft_bullet("Residual risk") ];
+    [ (.testing_gaps // []) | to_entries[] | soft_bullet("Testing gap"; "T") ]
+    + [ (.residual_risks // []) | to_entries[] | soft_bullet("Residual risk"; "R") ];
 
   def section($sev; $heading):
     "### \($heading)",
@@ -101,7 +118,7 @@ jq -r '
 
   "## 🔍 Issues Summary",
   "",
-  "**Note:** Findings are deduplicated across chunks and numbered stably (`#1`, `#2`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning.",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`#1`, `#2`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `#R` residual risks, `#T` testing gaps, `#P` pre-existing, `#H` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
   "",
   section("critical"; "🔴 Critical Issues"),
   section("high"; "🟠 High Priority Issues"),
@@ -114,9 +131,9 @@ jq -r '
   ( if (.pre_existing_findings | length) > 0 then
       ( "### 🗂️ Pre-existing (not introduced by this PR)",
         "",
-        ( .pre_existing_findings[]
-          | "- \(.severity | sev_emoji) \(.severity | sev_label): \(.title | clean) — `\(.file):\(.line)`"
-            + (.chunks // [] | chunk_ref) ),
+        ( .pre_existing_findings | to_entries[]
+          | "- **#P\(.key + 1)** \(.value.severity | sev_emoji) \(.value.severity | sev_label): \(.value.title | clean) — `\(.value.file):\(.value.line)`"
+            + (.value.chunks // [] | chunk_ref) ),
         "" )
     else empty end ),
 
@@ -124,6 +141,14 @@ jq -r '
   # trust, so this block renders even when every count is zero.
   "### 📊 Coverage",
   "",
+  # Partial coverage is rendered rather than suppressed, so this warning is the
+  # thing that keeps it honest. It must come FIRST in the block and name the
+  # chunks, because the reader’s next question is always "which ones, and
+  # where do I look instead".
+  ( if $missing_chunks != "" then
+      ( "> \u26a0\ufe0f **Partial structured coverage.** Chunk(s) \($missing_chunks) reviewed successfully but produced no usable structured findings (a truncated or malformed sidecar), so anything they found is **not** in the deduplicated list above. Their full reviews are intact in the detailed sections below \u2014 open `### Chunk #\($missing_chunks)`. The verdict is unaffected: it is computed from the orchestrator summary, which saw every chunk.",
+        "" )
+    else empty end ),
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",
   "- **Demoted for missing quoted evidence:** \(.demoted_no_quote) (claimed confidence ≥ 75 without quoting the motivating line, stepped down to 50)",
   # The buckets must be ordered HERE, not in merge-findings.py. Its keys are
@@ -137,10 +162,13 @@ jq -r '
         else "" end ),
   "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
   "- **Failed or timed-out chunks:** \($failed_chunks) of \($total_chunks)",
+  "- **Reviewed chunks with no usable sidecar:** "
+    + (if $missing_chunks == "" then "0 (full structured coverage)" else "chunk(s) \($missing_chunks)" end),
   "- **Pre-existing findings (partitioned out of verdict):** \(.pre_existing_findings | length)",
   "- **Soft buckets — residual risks:** \(.residual_risks | length)",
   "- **Soft buckets — testing gaps:** \(.testing_gaps | length)",
   "",
   "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
   ""
-' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" "$merged"
+' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" \
+    --arg missing_chunks "$missing_chunks" "$merged"

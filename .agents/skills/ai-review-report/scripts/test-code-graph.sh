@@ -16,10 +16,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/lib"
 
 tmp_dir="$(mktemp -d)"
-# Clean up both the temp dir and any CWD side-effects from tests
+
+# Every test below drives build-code-graph.sh / detect-changes-graph.sh, which
+# write `.code-review-graph/` and `ci_temp/` RELATIVE TO THE CURRENT DIRECTORY,
+# and which reset between tests with `rm -rf ci_temp`. Run all of that inside a
+# throwaway repo rather than wherever the caller happened to be.
+#
+# This is not cosmetic. Under ai-analyse's test gate (LADR-057) the suites run
+# from the repo root, where the gate used to keep its own `ci_temp/test_gate/`
+# state — so this suite deleted it mid-run and the next suite in sort order was
+# reported as a phantom regression without ever executing. The gate now stages
+# out-of-tree too; both halves are needed, since any suite could do this.
+#
+# A `git init` sandbox is sufficient: the only git the scripts under test need
+# is `rev-parse --show-toplevel` for path relativization, and the base ref is
+# handed to a mocked CLI rather than to real git.
+sandbox="${tmp_dir}/sandbox"
+mkdir -p "$sandbox"
+git -c init.defaultBranch=main init -q "$sandbox"
+cd "$sandbox"
+
 cleanup() {
+  cd / || true
   rm -rf "$tmp_dir"
-  rm -rf "$PWD/.code-review-graph" "$PWD/ci_temp"
 }
 trap cleanup EXIT
 

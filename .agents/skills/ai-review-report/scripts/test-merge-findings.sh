@@ -223,6 +223,22 @@ check "Test 8c: unanimous pre_existing is partitioned out" "1" \
 check "Test 8d: unanimous pre_existing is not actionable" "0" \
   "$(printf '%s' "$out" | jq '.findings | length')"
 
+# LADR-063: pre-existing items are numbered too, in their own `#P` sequence.
+# They are reported and never counted toward the verdict, so they must not draw
+# from the findings sequence — but an unnumbered item cannot be referenced in a
+# skip decision, which is the whole reason the section exists.
+printf '%s' "$out" > "$TMP_DIR/pe-merged.json"
+bash "$RENDER_SH" "$TMP_DIR/pe-merged.json" > "$TMP_DIR/pe-rendered.md"
+pe_section="$(awk '/^### 🗂️ Pre-existing/{c=1;next} c&&/^### /{exit} c' "$TMP_DIR/pe-rendered.md")"
+check "Test 8e: pre-existing items are numbered #P1..#Pn" "1" \
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#P[0-9]+\*\* ' || true)"
+check "Test 8f: pre-existing numbering does not use the findings namespace" "0" \
+  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+if [ -x "$SCORE_SH" ]; then
+  check "Test 8g: numbering a pre-existing item does not make it a flag" "" \
+    "$(bash "$SCORE_SH" "$TMP_DIR/pe-rendered.md" | tr '\n' ',' | sed 's/,$//')"
+fi
+
 # --- Test 9: determinism -----------------------------------------------------
 # Same input twice → byte-identical output, including `#` assignment. The eval
 # harness and any future run-to-run diff depend on this.
@@ -455,6 +471,22 @@ check "Test 13f: soft bullets carry no [VERIFIED] tag" "0" \
 check "Test 13g: Medium section is not None found when only soft items exist" "0" \
   "$(printf '%s\n' "$soft_medium" | grep -c '^None found$' || true)"
 
+# LADR-063: soft items are numbered in their OWN sequences (#T1…, #R1…), not in
+# the findings' #N sequence. Two separate contracts are pinned here. First, they
+# ARE numbered — an unnumbered item cannot be referenced in a fix/skip decision,
+# which is what made residual risks invisible in practice. Second, the sequences
+# are independent: adding a finding must not repoint `#R1`, because the PR
+# description's Skip Areas bullets are read by the NEXT run's gate and a shifted
+# number silently rebinds a skip to a different item.
+check "Test 13j: testing gaps are numbered #T1..#Tn" "2" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#T[0-9]+\*\* ' || true)"
+check "Test 13k: residual risks are numbered #R1..#Rn" "1" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#R[0-9]+\*\* ' || true)"
+check "Test 13l: each soft sequence starts at 1 (independent of findings)" "1,1" \
+  "$(printf '%s\n' "$soft_medium" | grep -oE '#[TR]1\b' | sed 's/#[TR]//' | tr '\n' ',' | sed 's/,$//')"
+check "Test 13m: soft numbers never collide with the findings namespace" "0" \
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*#[0-9]+\*\* ' || true)"
+
 if [ -x "$SCORE_SH" ]; then
   check "Test 13h: soft items alone are NOT scored as a flag (DR precision)" "" \
     "$(bash "$SCORE_SH" "$TMP_DIR/soft-rendered.md" | tr '\n' ',' | sed 's/,$//')"
@@ -547,6 +579,64 @@ printf '%s' '{"schema_version":1,"findings":"not-an-array"}' > "$TMP_DIR/agg-mal
 _agg_out="$(jq "$_agg_jq_filter" "$TMP_DIR/agg-malformed.json" 2>/dev/null || echo "INVALID")"
 check "Test 16f: a wrong-typed findings field is surfaced as INVALID, not silently 0" "INVALID" \
   "$_agg_out"
+
+# --- Test 17: `evidence` is optional (sidecar slimming) ---------------------
+# The chunk prompt no longer asks for an `evidence` array: it duplicated quotes
+# already in the markdown and inflated the block that is emitted last and
+# truncated first (PR #106 run 30756015689 at 5/6, PR #111 run 30786473904 at
+# 4/5 — the richest chunk truncating its own sidecar both times). `first_evidence`
+# alone carries the quote-the-line gate. Older producers that still send
+# `evidence` must keep working, and a present-but-junk one is still malformed.
+_ev_base='"title":"t","severity":"high","file":"f","line":1,"why_it_matters":"w","confidence":100,"verified":true,"first_evidence":"f:1 -- q","pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"downstream-resolver"'
+
+out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base}")" | merge)"
+check "Test 17a: a finding with no evidence array is valid" "1" "$(printf '%s' "$out" | jq '.findings | length')"
+check "Test 17b: and is not counted malformed" "0" "$(printf '%s' "$out" | jq -r .malformed_findings)"
+check "Test 17c: it keeps confidence 100 (first_evidence satisfies the gate)" "100" \
+  "$(printf '%s' "$out" | jq -r '.findings[0].confidence')"
+
+out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":[\"f:1 -- q\"]}")" | merge)"
+check "Test 17d: a legacy finding WITH evidence still validates" "1" "$(printf '%s' "$out" | jq '.findings | length')"
+
+out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":[]}")" | merge)"
+check "Test 17e: an empty evidence array is still malformed" "1" "$(printf '%s' "$out" | jq -r .malformed_findings)"
+out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":\"a string\"}")" | merge)"
+check "Test 17f: a wrong-typed evidence field is still malformed" "1" "$(printf '%s' "$out" | jq -r .malformed_findings)"
+
+# A finding with neither evidence nor first_evidence must still be demoted —
+# dropping the array must not have opened a hole in the quote-the-line gate.
+_ev_noquote='"title":"t","severity":"high","file":"f","line":1,"why_it_matters":"w","confidence":100,"verified":true,"pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"downstream-resolver"'
+out="$(printf '[ %s ]' "$(doc 0 "{$_ev_noquote}")" | merge)"
+check "Test 17g: no evidence AND no first_evidence is still demoted to 50" "50" \
+  "$(printf '%s' "$out" | jq -r '.suppressed_findings[0].confidence')"
+check "Test 17h: that demotion is still counted" "1" "$(printf '%s' "$out" | jq -r .demoted_no_quote)"
+
+# --- Test 18: partial-coverage rendering ------------------------------------
+# Partial coverage is now RENDERED rather than suppressed, so the warning that
+# keeps it honest is load-bearing. It must name the missing chunks, and it must
+# be absent on full coverage.
+if [ -x "$RENDER_SH" ]; then
+  cat > "$TMP_DIR/partial.json" <<'PJ'
+{"status":"complete","merged_chunks":[0,2],"findings":[{"#":1,"title":"Guard missing","severity":"high","file":"a.cs","line":42,"why_it_matters":"Callers bypass the check.","confidence":100,"verified":true,"first_evidence":"a.cs:42 -- q","pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"downstream-resolver","chunks":[0]}],"pre_existing_findings":[],"suppressed_findings":[],"residual_risks":[],"testing_gaps":[],"suppressed_by_confidence":{},"demoted_no_quote":0,"merged_duplicates":0,"malformed_findings":0,"malformed_returns":0}
+PJ
+  bash "$RENDER_SH" "$TMP_DIR/partial.json" 0 3 "1" > "$TMP_DIR/partial.md" 2>/dev/null
+  check "Test 18a: partial coverage renders a warning" "1" \
+    "$(grep -c 'Partial structured coverage' "$TMP_DIR/partial.md" || true)"
+  check "Test 18b: the warning names the missing chunk" "1" \
+    "$(grep -c 'Chunk(s) 1 reviewed successfully' "$TMP_DIR/partial.md" || true)"
+  check "Test 18c: the Coverage block lists the gap as a line item" "1" \
+    "$(grep -c 'Reviewed chunks with no usable sidecar:\*\* chunk(s) 1' "$TMP_DIR/partial.md" || true)"
+  check "Test 18d: the surviving finding is still rendered" "1" \
+    "$(grep -c 'Guard missing' "$TMP_DIR/partial.md" || true)"
+
+  bash "$RENDER_SH" "$TMP_DIR/partial.json" 0 3 "" > "$TMP_DIR/full.md" 2>/dev/null
+  check "Test 18e: full coverage renders NO warning" "0" \
+    "$(grep -c 'Partial structured coverage' "$TMP_DIR/full.md" || true)"
+  check "Test 18f: full coverage says so explicitly" "1" \
+    "$(grep -c 'full structured coverage' "$TMP_DIR/full.md" || true)"
+else
+  echo "⏭️  render-findings-summary.sh not executable — skipping partial-coverage tests"
+fi
 
 echo ""
 echo "=========================================="

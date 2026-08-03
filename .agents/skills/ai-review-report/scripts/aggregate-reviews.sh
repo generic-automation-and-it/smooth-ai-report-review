@@ -580,6 +580,15 @@ fi
 balance_fences ci_temp/pr_summary_main.md
 balance_fences ci_temp/pr_summary_detailed.md
 
+# LADR-063: number the holistic items (`#H1`, `#H2`, …) so every item in the
+# posted review is addressable, not just the deduplicated findings. Runs AFTER
+# balance_fences because the numberer skips fenced blocks and needs the fences
+# to be balanced before it can tell which lines are inside one. Best-effort by
+# construction: the script leaves the file untouched on any problem, so an
+# unnumbered holistic section is the worst case.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/number-holistic-items.sh" \
+  ci_temp/pr_summary_detailed.md || true
+
 # Build final review comment with proper structure
 # Format SHAs to 7 characters
 SHORT_FROM_SHA="${FROM_SHA:0:7}"
@@ -620,9 +629,60 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # merge's own answer to "whose findings are in here"; nothing else is.
   SIDECAR_COUNT=$(jq -r '(.merged_chunks // []) | length' "$MERGED_FINDINGS_FILE" 2>/dev/null || echo 0)
   EXPECTED_SIDECARS=$((TOTAL_CHUNKS - FAILED_CHUNK_COUNT))
-  if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -eq "$EXPECTED_SIDECARS" ]; then
+  # Which reviewed chunks contributed nothing. `merged_chunks` is the merge's own
+  # list; anything reviewed-but-absent from it is a gap the reader must be told
+  # about by number, so they know which detailed section to open.
+  MISSING_SIDECAR_CHUNKS=""
+  if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ]; then
+    # Failed/timed-out chunks (.failed flag, never in merged_chunks) are NOT
+    # "reviewed successfully but produced no usable structured findings" — they
+    # are covered by the adjacent 'Failed or timed-out chunks' ledger line and
+    # the LADR-031 fail-closed override. Excluding them keeps the warning's
+    # wording honest: "missing" means reviewed-but-sidecar-absent.
+    failed_sidecar_chunks=""
+    if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+      failed_sidecar_chunks=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null \
+        | sed -E 's/.*chunk_([0-9]+)\.failed/\1/' \
+        | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(tonumber)' 2>/dev/null || echo "[]")
+    fi
+    failed_arg="${failed_sidecar_chunks:-[]}"
+    MISSING_SIDECAR_CHUNKS=$(
+      jq -r --argjson total "$TOTAL_CHUNKS" --argjson failed "$failed_arg" '
+        (.merged_chunks // []) as $have
+        | ($failed // []) as $failed
+        | [ range(0; $total) | select( . as $c | ($have | index($c)) == null and ($failed | index($c)) == null ) ]
+        | map(tostring) | join(", ")
+      ' "$MERGED_FINDINGS_FILE" 2>/dev/null || echo ""
+    )
+  fi
+  #
+  # PARTIAL COVERAGE IS RENDERED, LOUDLY — amended after the original all-or-
+  # nothing rule cost more than it saved.
+  #
+  # The rule used to be: render only when every reviewed chunk contributed a
+  # sidecar, else fall back entirely. The hazard it guarded is real — a partial
+  # render drops whole chunks from the decision surface. But the guard was
+  # all-or-nothing, and the sidecar is emitted LAST, so it is the first casualty
+  # when a model's output is cut short. In production that combination meant ONE
+  # truncated block discarded the merged summary for the entire PR: PR #106 run
+  # 30756015689 lost it at 5/6, PR #111 run 30786473904 lost it at 4/5 — the
+  # richest chunk truncating its own sidecar both times. The feature was disabled
+  # by truncation more often than it rendered.
+  #
+  # The hazard was never "partial" — it was "SILENTLY partial". So: render from
+  # what the merge actually ingested, and make the gap impossible to miss. The
+  # renderer prints the missing chunk numbers in the Coverage block, and the
+  # detailed per-chunk sections below still carry every one of those findings
+  # verbatim (LADR-005), so nothing is lost from the document — only from the
+  # deduplicated view, and the reader is told exactly where to look.
+  #
+  # The decision is unaffected either way: it is parsed from the orchestrator's
+  # own summary, which saw every chunk, and the structured-findings escalation
+  # below is one-directional (it can only force request_changes). A partial
+  # render can therefore never make a review greener than it would have been.
+  if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -gt 0 ]; then
     if bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
-         "$MERGED_FINDINGS_FILE" "$FAILED_CHUNK_COUNT" "$TOTAL_CHUNKS" > ci_temp/issues_summary.md 2>/dev/null \
+         "$MERGED_FINDINGS_FILE" "$FAILED_CHUNK_COUNT" "$TOTAL_CHUNKS" "$MISSING_SIDECAR_CHUNKS" > ci_temp/issues_summary.md 2>/dev/null \
        && [ -s ci_temp/issues_summary.md ]; then
       # Replace the orchestrator's `## 🔍 Issues Summary` section — heading
       # through to the next `## ` heading — with the rendered one. Anything
@@ -674,7 +734,11 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         # removed may have been where its parity flipped. Re-balance.
         balance_fences ci_temp/pr_summary_main.md
         FINDINGS_SUMMARY_APPLIED="true"
-        echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars) — ${_fs_mode}"
+        if [ -n "$MISSING_SIDECAR_CHUNKS" ]; then
+          echo "⚠️ Issues Summary rendered from PARTIAL merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars; chunk(s) ${MISSING_SIDECAR_CHUNKS} contributed none) — ${_fs_mode}"
+        else
+          echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars) — ${_fs_mode}"
+        fi
       else
         rm -f ci_temp/pr_summary_main.rendered.md
         echo "⚠️ Issues Summary splice produced no output — keeping the orchestrator's"
@@ -684,7 +748,9 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
       echo "⚠️ Could not render Issues Summary from merged findings — keeping the orchestrator's"
     fi
   else
-    echo "ℹ️ Structured findings cover ${SIDECAR_COUNT:-0} of ${EXPECTED_SIDECARS:-0} reviewed chunk(s) — keeping the orchestrator's Issues Summary (partial coverage would drop findings)"
+    # Nothing at all was ingested (or every chunk failed) — there is no
+    # deduplicated view to render, so the orchestrator's summary stands.
+    echo "ℹ️ Structured findings cover ${SIDECAR_COUNT:-0} of ${EXPECTED_SIDECARS:-0} reviewed chunk(s) — keeping the orchestrator's Issues Summary (nothing to render from)"
   fi
 fi
 
@@ -760,7 +826,19 @@ cat >> ci_temp/final_review.md << EOF
 
 EOF
 
-# Add holistic analysis with header
+# Add holistic analysis with header.
+#
+# LADR-063: when the numbering pass actually assigned identifiers, say what they
+# mean right here rather than only in the Issues Summary legend — that legend is
+# rendered by render-findings-summary.sh, which runs ONLY on full sidecar
+# coverage, so on the fallback path a reader would meet `#H3` with nothing
+# anywhere explaining it. Emitted conditionally so a section that was left
+# unnumbered (no anchor, degraded run) does not carry a legend for numbers it
+# does not have.
+if grep -q '\*\*#H[0-9]' ci_temp/pr_summary_detailed.md 2>/dev/null; then
+  echo "> Cross-chunk items below are numbered \`#H1\`, \`#H2\`, … — a sequence of their own, separate from the \`#N\` findings in the Issues Summary. Quote the identifier when you fix or skip one." >> ci_temp/final_review.md
+  echo "" >> ci_temp/final_review.md
+fi
 cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md
 
 echo "" >> ci_temp/final_review.md

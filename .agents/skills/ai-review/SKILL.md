@@ -103,6 +103,8 @@ Examples:
 | # | File | AI PR Review Recommendation | Priority | AI Coder Recommendation | AI Reviewer Reasoning |
 |---|------|----------------------------|----------|------------------------|-----------------------|
 
+   The `#` column reuses the review's own identifier verbatim when the item has one — `#1`, `#2`, … for findings, and `#T1` / `#R1` / `#P1` / `#H1` for testing gaps, residual risks, pre-existing items and holistic cross-chunk items (LADR-063). Those are five independent sequences: `#R1` is not `#1`, and renumbering them into one list breaks the match with the skip bullets the next review round reads. Number rows yourself only for items the review left unnumbered.
+
    For the Copilot flow, retain the `commentId` / `threadId` mapping per row (used by execute) — it need not be printed in the table.
 
 7. **Print summary** and suggested next command
@@ -166,7 +168,8 @@ Do **all** of the following, in order:
 2. **MANDATORY — update the "Skip Areas / Known Issues" bullets in the PR description.** For **every** `skip` decision, add (or merge into) a bullet in that section so the next review round sees it:
    - Fetch the current PR description body: `gh pr view <pr> --json body -q .body`
    - Locate the section. Accept any of these headings (case-insensitive): `Skip Areas / Known Issues`, `Skip Areas`, `Known Issues`, `Known Skip Areas`, `Areas to Skip`. If none exists, **create** the section with heading `## Skip Areas / Known Issues` immediately above `## AI Review Notes` (or append at the end if that section is also missing).
-   - For each skipped finding, add a bullet of the form: `- <file>:<line-or-range> — <one-line issue summary> — **skip reason:** <why it's intentional>`. If a bullet for the same file+line already exists with matching content, update it rather than duplicating.
+   - For each skipped finding, add a bullet of the form: `- <identifier> <file>:<line-or-range> — <one-line issue summary> — **skip reason:** <why it's intentional>`. If a bullet for the same file+line already exists with matching content, update it rather than duplicating.
+   - **Lead the bullet with the review's identifier, verbatim, when the item has one.** The gate numbers every item it posts, in five independent sequences (LADR-055/063): `#1`, `#2`, … findings; `#R1` residual risks; `#T1` testing gaps; `#P1` pre-existing; `#H1` holistic cross-chunk items. The sequences are separate, so `#R1` and `#1` are different items — never renumber, never convert one prefix to another, and never invent a number for an item the review left unnumbered. Items with no `file:line` of their own (`#R`/`#T`/`#H` carry none by design) still need a bullet: use the identifier plus the subsystem or area in place of the anchor, e.g. `- #R2 export path — no rate limiting — **skip reason:** …`.
    - Write the updated body back with `gh pr edit <pr> --body "$NEW_BODY"` (or pipe via `--body-file @-`). Preserve **all** other sections verbatim.
 3. **Verify the edit landed** — immediately after `gh pr edit`, re-fetch the body, extract the Skip Areas section, and grep **that section** (not the full body — the appended fix/skip summary table contains the same `<file>:<line>` anchor and would mask a missing bullet):
    ```bash

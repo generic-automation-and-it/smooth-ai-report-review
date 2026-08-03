@@ -210,4 +210,37 @@ grep -q '^PREEXISTING_SUITE=' "$report" && {
   echo "FAIL Test11: fail-open — a baseline that never ran was read as 'already failing at HEAD'" >&2; exit 1; }
 echo "✓ Test 11: a baseline that cannot be produced fails closed"
 
+# ── Test 12: a suite that deletes the gate's directory is not a regression ──
+# The observed failure: test-code-graph.sh cleans up after itself with
+# `rm -rf ci_temp` from the repo root, which is where the gate used to keep its
+# own working files. The NEXT suite in sort order could then not be launched at
+# all — its stdout redirect had no parent directory, bash returned 1 without
+# running it, `tail` on the missing capture file tripped `set -e`, and the gate
+# exited 1 before writing any report. The workflow rendered that as
+# "test-suite-failed" naming a suite that never ran and listing no failures.
+#
+# Suite names matter: the gate iterates in LC_ALL=C sort order, so test-a-*
+# (the destroyer) must sort before test-z-* (the victim).
+git checkout -q -- . 2>/dev/null || true
+rm -f scripts/test-a-slow.sh
+printf '#!/bin/bash\nrm -rf ci_temp\nexit 0\n' > scripts/test-a-nukes-ci-temp.sh
+printf '#!/bin/bash\nexit 0\n' > scripts/test-z-victim.sh
+chmod +x scripts/test-a-nukes-ci-temp.sh scripts/test-z-victim.sh
+git add -A && git commit -qm ci-temp-destroyer
+
+# Report under ci_temp/, exactly as pipeline-ai-analyse.yml invokes the gate.
+mkdir -p ci_temp/test_gate
+report="${repo}/ci_temp/test_gate/report.txt"
+rc="$(run_gate "$report")"
+[ "$rc" = "0" ] || {
+  echo "FAIL Test12: a suite cleaning up its own ci_temp must not fail the gate, got exit $rc" >&2; exit 1; }
+[ -f "$report" ] || { echo "FAIL Test12: the report must survive the suite deleting ci_temp" >&2; exit 1; }
+grep -q 'GATE_STATUS=pass' "$report" || {
+  cat "$report" >&2; echo "FAIL Test12: expected pass" >&2; exit 1; }
+grep -q '^FAILED_SUITE=' "$report" && {
+  cat "$report" >&2
+  echo "FAIL Test12: phantom regression — no suite actually failed" >&2; exit 1; }
+rm -rf ci_temp
+echo "✓ Test 12: a suite deleting ci_temp does not produce a phantom regression"
+
 echo "✓ run-test-gate.sh tests passed"

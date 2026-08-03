@@ -94,6 +94,7 @@ on:
           - 'OpenCode MiniMax M3'
           - 'OpenCode MiniMax M2.7'
           - 'OpenCode MiniMax M2.5'
+          - 'OpenCode Qwen3.8 Max'
           - 'OpenCode Qwen3.7 Max'
           - 'OpenCode Qwen3.7 Plus'
           - 'OpenCode Qwen3.6 Plus'

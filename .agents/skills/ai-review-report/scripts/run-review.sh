@@ -127,6 +127,17 @@ OPENCODE_TOOL_RTK_VERSION="${OPENCODE_TOOL_RTK_VERSION:-}"
 export OPENCODE_REVIEW_REPORT_ENABLE_RTK
 export OPENCODE_TOOL_RTK_VERSION
 
+# Trivial-PR skip (LADR-059) — opt-in. When truthy, a lightweight
+# deterministic precondition + orchestrator-model veto may skip the
+# full chunked review for lockfile/manifest-only PRs.
+OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP="${OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP:-1}"
+
+# Run artifacts (LADR-062) — opt-in. When truthy, assembles a
+# per-run artifact directory (ci_temp/run/) containing the rendered
+# report, per-chunk reviews, findings.merged.json when it exists,
+# and metadata.json. Uploaded as a GitHub Actions artifact.
+OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS="${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}"
+
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
 OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
@@ -335,6 +346,86 @@ esac
 echo "PR: #${pr_number} | ${head_repo}:${head_ref} → ${base_repo}:${base_ref}"
 echo "Head SHA: ${head_sha:0:7} | Base SHA: ${base_sha:0:7}"
 echo "Force full review: ${force_full_review}"
+
+# --- Step 4.5: Run-artifact assembly (LADR-062) -------------------------------
+# Assembles ci_temp/run/ — the rendered report, the per-chunk reviews, the
+# merged findings sidecar, and metadata.json — for the workflow's
+# upload-artifact step. Today it exists for post-hoc debuggability; the
+# consumer migration (giving ai-analyse a machine input instead of scraping the
+# PR timeline, LADR-042) is deliberately a separate piece of work.
+#
+# Registered as an EXIT trap rather than called inline after aggregation,
+# because the gate has five exits that never reach aggregation — too many
+# files (Step 10), no changes (Step 11), trivial skip (Step 12.5), blocked
+# incremental (Step 16), and any hard failure. An inline call would mean the
+# runs you most want to explain afterwards are exactly the ones that leave no
+# record. Every field is defaulted: at the earliest covered exit most of them
+# are still unset.
+#
+# Best-effort by construction: `set +e` inside, and the trap restores the
+# original exit status, so a broken artifact can never change a review's
+# outcome.
+assemble_run_artifacts() {
+  set +e
+  local enabled="${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}"
+  printf '%s' "${enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' || return 0
+
+  local dir="$WORK_DIR/run"
+  mkdir -p "$dir" 2>/dev/null || return 0
+
+  # report.md is the posted body byte-for-byte, so the rendered format and the
+  # finding numbering stay auditable after the fact.
+  [ -f "$WORK_DIR/final_review.md" ] && cp "$WORK_DIR/final_review.md" "$dir/report.md" 2>/dev/null
+  if [ -d "$WORK_DIR/reviews" ]; then
+    mkdir -p "$dir/reviews" 2>/dev/null
+    cp -r "$WORK_DIR/reviews"/. "$dir/reviews/" 2>/dev/null
+  fi
+  [ -f "$WORK_DIR/findings.merged.json" ] && cp "$WORK_DIR/findings.merged.json" "$dir/findings.merged.json" 2>/dev/null
+
+  # skip_reason is a JSON null when the run was not skipped — not the string
+  # "null", which a consumer would have to special-case.
+  local skip_reason_json='null'
+  local skip=""
+  if [ -n "${TRIVIAL_SKIP_REASON:-}" ]; then
+    skip="trivial:${TRIVIAL_SKIP_REASON}"
+  elif [ "${review_type:-}" = "no_changes" ]; then
+    skip="no_changes"
+  elif [ -n "${TOO_MANY_FILES:-}" ]; then
+    skip="too_many_files"
+  elif [ -n "${BLOCKED_INCREMENTAL:-}" ]; then
+    skip="blocked_incremental"
+  fi
+  [ -n "$skip" ] && skip_reason_json="\"${skip}\""
+
+  local verdict
+  verdict="$(grep '^review_action=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2)"
+  verdict="${verdict:-unknown}"
+
+  local failed_chunks=0
+  if [ -d "$WORK_DIR/reviews" ]; then
+    failed_chunks="$(find "$WORK_DIR/reviews" -maxdepth 1 -name 'chunk_*.failed' 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+
+  cat > "$dir/metadata.json" <<METADATA_EOF
+{
+  "run_id": "${GITHUB_RUN_ID:-local}",
+  "pr_number": ${pr_number:-0},
+  "branch": "${head_ref:-unknown}",
+  "head_sha": "${head_sha:-unknown}",
+  "base_sha": "${base_sha:-unknown}",
+  "review_type": "${review_type:-unknown}",
+  "verdict": "${verdict}",
+  "total_chunks": ${TOTAL_CHUNKS:-0},
+  "failed_chunks": ${failed_chunks:-0},
+  "provider": "${OPENCODE_REVIEW_REPORT_PROVIDER:-unknown}",
+  "model": "${SELECTED_MODEL:-unknown}",
+  "skip_reason": ${skip_reason_json},
+  "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+METADATA_EOF
+  return 0
+}
+trap '_rc=$?; assemble_run_artifacts; exit $_rc' EXIT
 
 # --- Step 5: Provider / model resolution + opencode health probe --------------
 # Mirrors the reusable workflow's `Install Dependencies` step + the
@@ -723,6 +814,7 @@ fi
 # --- Step 10: Block on too-many-files -----------------------------------------
 if [ "$FILES_CHANGED" -gt "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" ]; then
   echo "⚠️  Too many files (${FILES_CHANGED} > ${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}) — posting REQUEST_CHANGES"
+  TOO_MANY_FILES=1  # read by assemble_run_artifacts (Step 4.5) for skip_reason
   cat > "$WORK_DIR/too_many_files_review.md" <<EOF
 ## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
 
@@ -771,6 +863,55 @@ pr_author="$(echo "$PR_JSON" | jq -r .user.login)"
 pr_body="$(echo "$PR_JSON" | jq -r '.body // ""')"
 echo "$pr_body" > "$WORK_DIR/pr_description.txt"
 echo "PR: ${pr_title} by @${pr_author}"
+
+# --- Step 12.5: Trivial-PR skip (LADR-059) -------------------------------
+# Two stages, deterministic first: lib/detect-trivial-pr.sh only consults a
+# model when EVERY changed path is a lockfile or dependency manifest. Anything
+# other than a `trivial:` verdict — including a non-zero exit, an empty answer,
+# or a model timeout — proceeds with the full review. Fail open, never closed.
+#
+# Human overrides bypass this entirely: force_full_review is true for exactly
+# the issue_comment (`/ai-review`) and workflow_dispatch shapes, which are
+# explicit review requests, not automated pushes.
+#
+# Placed after Step 10 on purpose — the max-file-count gate must not be
+# reachable-around by a 300-file "trivial" changeset.
+_trivial_skip_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP:-1}"
+if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+  # `-f`, not `-x`: a lost executable bit in a consumer's checkout would
+  # otherwise disable the feature silently. Same idiom as merge-findings.sh.
+  if [ "$force_full_review" != "true" ] && [ -f "$LIB_DIR/detect-trivial-pr.sh" ]; then
+    _trivial_result="$(bash "$LIB_DIR/detect-trivial-pr.sh" \
+      "$WORK_DIR/changed_files.txt" \
+      "$pr_title" \
+      "$pr_body" 2>/dev/null || echo "not_trivial")"
+    case "$_trivial_result" in
+      trivial:*)
+        TRIVIAL_SKIP_REASON="${_trivial_result#trivial:}"
+        echo "⏭️ Trivial PR detected (${TRIVIAL_SKIP_REASON}) — skipping review"
+        cat > "$WORK_DIR/trivial_skip_comment.md" <<EOF
+## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+
+⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest, and this PR reads as an automated or trivial change.
+
+**Why?** Trivial-PR skip (\`${TRIVIAL_SKIP_REASON}\`). Set the \`OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP\` repository Variable to \`0\` to disable this check.
+
+**Want a review anyway?** Comment \`/ai-review\` — an explicit request always bypasses this skip.
+
+---
+*Automated check by OpenCode CLI Code Review*
+EOF
+        gh pr comment "${pr_number}" \
+          --body-file "$WORK_DIR/trivial_skip_comment.md"
+        exit 0
+        ;;
+      *)
+        echo "Trivial-PR skip: not trivial — proceeding with the review."
+        ;;
+    esac
+  fi
+fi
+unset _trivial_skip_enabled
 
 # --- Step 13: Find context files (mandatory + *AGENTS.md ancestor walk) ------
 # When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
@@ -970,6 +1111,7 @@ fi
 # --- Step 16: Skip if blocking review exists (incremental only) ---------------
 if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANGES_REQUESTED" ]; then
   echo "Most recent full review is CHANGES_REQUESTED — skipping incremental review"
+  BLOCKED_INCREMENTAL=1  # read by assemble_run_artifacts (Step 4.5) for skip_reason
   cat > "$WORK_DIR/skip_blocking_review_comment.md" <<EOF
 ## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
 

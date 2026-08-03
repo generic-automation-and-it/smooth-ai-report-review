@@ -114,6 +114,50 @@ else
 fi
 echo ""
 
+# Test 6: the LADR-059 trivial-skip notice is minimized; the blocked-incremental
+# notice — same gate header, different body — is deliberately left alone. Both
+# patterns are extracted from the script so this fails if either drifts.
+echo "Test 6: trivial-skip comment selector (LADR-059)"
+TRIVIAL_SELECT=$(awk '/comment_node_ids=\$\(echo "\$comments_json"/,/^  \)$/' \
+  .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh)
+
+if ! printf '%s' "$TRIVIAL_SELECT" | grep -q 'Trivial-PR skip'; then
+  echo "❌ Test 6 failed: trivial-skip marker missing from the comment selector"
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "⚠️  Test 6 skipped: jq not available"
+else
+  TRIVIAL_BODY='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
+
+⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest.
+
+**Why?** Trivial-PR skip (`model-veto`).'
+  BLOCKED_BODY='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
+
+⏭️ **Skipping incremental review** - Existing blocking review from @github-actions[bot] requires full review for clearance.'
+  QUOTED_TRIVIAL='> ## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
+> **Why?** Trivial-PR skip (`model-veto`).'
+
+  # Mirror the script selector: gate header anchored at ^ AND the trivial marker.
+  sel() {
+    printf '%s' "$1" | jq -Rs \
+      '(test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) and (test("Trivial-PR skip"))'
+  }
+  T_MATCH=$(sel "$TRIVIAL_BODY")
+  B_MATCH=$(sel "$BLOCKED_BODY")
+  Q_MATCH=$(sel "$QUOTED_TRIVIAL")
+
+  if [ "$T_MATCH" = "true" ] && [ "$B_MATCH" = "false" ] && [ "$Q_MATCH" = "false" ]; then
+    echo "✅ Test 6 passed: minimizes the trivial-skip notice, leaves blocked-incremental and quoted copies alone"
+  else
+    echo "❌ Test 6 failed: trivial=$T_MATCH (want true), blocked=$B_MATCH (want false), quoted=$Q_MATCH (want false)"
+    exit 1
+  fi
+fi
+echo ""
+
 echo "=========================================="
 echo "All basic tests passed!"
 echo "=========================================="

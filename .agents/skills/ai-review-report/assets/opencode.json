@@ -59,9 +59,17 @@
         "apiKey": "{env:OPENCODE_GO_OPENAI_API_KEY}"
       },
       "models": {
-        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "grok-4.5":          { "name": "Grok 4.5" },
+        "glm-5.2":           { "name": "GLM-5.2" },
+        "glm-5.1":           { "name": "GLM-5.1" },
+        "kimi-k3":           { "name": "Kimi K3" },
+        "kimi-k2.7-code":    { "name": "Kimi K2.7 Code" },
+        "kimi-k2.6":         { "name": "Kimi K2.6" },
         "deepseek-v4-pro":   { "name": "DeepSeek V4 Pro" },
-        "glm-5.1":           { "name": "GLM-5.1" }
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "mimo-v2.5":         { "name": "MiMo V2.5" },
+        "mimo-v2.5-pro":     { "name": "MiMo V2.5 Pro" },
+        "hy3":               { "name": "Hy3" }
       }
     },
     "go-anthropic": {
@@ -74,8 +82,11 @@
       "models": {
         "minimax-m3":   { "name": "MiniMax M3" },
         "minimax-m2.7": { "name": "MiniMax M2.7" },
+        "minimax-m2.5": { "name": "MiniMax M2.5" },
+        "qwen3.8-max":  { "name": "Qwen3.8 Max" },
+        "qwen3.7-max":  { "name": "Qwen3.7 Max" },
         "qwen3.7-plus": { "name": "Qwen3.7 Plus" },
-        "qwen3.6-pro":  { "name": "Qwen3.6 Pro" }
+        "qwen3.6-plus": { "name": "Qwen3.6 Plus" }
       }
     },
     "openrouter": {

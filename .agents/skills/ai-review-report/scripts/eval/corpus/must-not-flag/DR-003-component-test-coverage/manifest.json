@@ -2,5 +2,6 @@
   "id": "DR-003-component-test-coverage",
   "kind": "must-not-flag",
   "label": "DR-003",
-  "note": "Simple domain models are covered through the component-test layer rather than isolated unit tests; the absence of a dedicated unit-test file is intentional and reviewer must NOT flag it as missing unit tests."
+  "note": "Simple domain models are covered through the component-test layer rather than isolated unit tests; the absence of a dedicated unit-test file is intentional and reviewer must NOT flag it as missing unit tests.",
+  "forbidden_claim": "(missing|no|lacks?|absent|add|without).{0,40}unit test"
 }
