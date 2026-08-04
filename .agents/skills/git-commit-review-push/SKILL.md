@@ -49,7 +49,7 @@ Commit current changes using conventional commits format, embed the `/ai-review`
    Prefer a body line immediately before any `Co-authored-by:` / `Signed-off-by:` / `Refs:` trailer block, so Git continues to parse those trailers.
 
    Earlier chunk commits must NOT carry the trigger — only the final one.
-4. If a commit was made in step 2, verify the trigger using the gate's matcher over the full commit message before pushing. The outer "If a commit was made in step 2" guard already excludes the no-commit path:
+4. If a commit was made in step 2, verify the trigger using the gate's matcher over the full commit message before pushing (the no-commit path is handled by step 5 instead):
 
    ```bash
    git log -1 --format='%B' | grep -qiE '/ai-review'
@@ -80,10 +80,18 @@ Commit current changes using conventional commits format, embed the `/ai-review`
      git commit --amend -m "$(git log -1 --format='%B')" -m "/ai-review"
    fi
    ```
-5. If there are no changes to commit, skip to step 6
+5. If there are no changes to commit, check for unpushed commits before going anywhere near `git push`:
+
+   ```bash
+   git log @{u}..HEAD --oneline
+   ```
+
+   (If the branch has no upstream yet, this command fails — treat that as "unpushed commits exist": everything local is unpushed.)
+
+   - **Unpushed commits exist**: run step 4's trigger check on HEAD. If the trigger is missing, amend HEAD with step 4's recipe — safe precisely because the commit is unpushed — so the pushed HEAD still triggers a full review. Then continue to step 6.
+   - **No unpushed commits either**: report to the user that there is nothing to commit or push and **stop** — do not push (this is not an error).
 6. **If `--issue <number>` was passed** — rename the local branch before pushing (see Branch Rename below)
 7. Push to remote repository using `git push` (use `git push --set-upstream origin <new-branch>` if the branch was renamed)
-8. If there's nothing to commit or push, report this to the user and continue gracefully (this is not an error)
 
 **Note**: This command ONLY commits and pushes. It does not create or update PRs.
 
