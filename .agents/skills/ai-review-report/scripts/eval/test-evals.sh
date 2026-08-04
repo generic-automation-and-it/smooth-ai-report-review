@@ -271,6 +271,66 @@ make_fixture "$N" must-not-flag dr-no-pattern HIGH \
   '- 🟠 [VERIFIED] High Priority: some unrelated true finding'
 if run_corpus "$N"; then bad "a manifest without forbidden_claim must stay strict (see $N/out.log)"; else ok "no forbidden_claim keeps the strict behaviour"; fi
 
+# --- Case O: multi-sample precision uses a MAJORITY, judged per sample -------
+# Two properties, and the second is the one that matters most.
+#
+# 1. A minority re-raise passes. One sample from a non-deterministic model
+#    against a zero-tolerance gate is measurement noise: on run 30891074256
+#    DR-002 re-raised and MC-003 was missed, and BOTH flipped on a rerun of the
+#    same commit with the same model.
+#
+# 2. A MAJORITY re-raise fails even when the LAST sample is clean. This is the
+#    discriminating case. Precision used to be judged against `${out%|*}` —
+#    the last sample only — so re-raising in samples 1 and 2 and coming back
+#    clean in sample 3 reported PASS and threw away a real regression. Both the
+#    old code and the majority rule return PASS for a 1-of-3 hit, so a
+#    minority-only test would NOT have caught that bug; it takes a 2-of-3 hit
+#    with a clean tail to tell them apart.
+#
+# Per-sample canned reviews come from the `selftest-review.<N>.md` seam.
+sample_review() {  # <corpus> <kind> <id> <sample-index> <review-markdown>
+  printf '%s\n' "$5" > "$1/$2/$3/selftest-review.$4.md"
+}
+
+O="$TMP_DIR/corpusO"
+make_fixture "$O" must-not-flag dr-minority HIGH "$CLEAN_MNF" 'known false positive'
+sample_review "$O" must-not-flag dr-minority 1 "$REGRESSION"
+sample_review "$O" must-not-flag dr-minority 2 "$CLEAN_MNF"
+sample_review "$O" must-not-flag dr-minority 3 "$CLEAN_MNF"
+if run_corpus "$O" EVAL_SAMPLES=3; then
+  ok "a minority DR re-raise (1/3) passes the gate"
+else
+  bad "1-of-3 re-raise must not fail under the majority rule (see $O/out.log)"
+fi
+if grep -q "PASS (flaky)" "$O/out.log"; then
+  ok "a minority re-raise is reported as flaky, not silently passed"
+else
+  bad "minority re-raise must be surfaced in the log (see $O/out.log)"
+fi
+
+P="$TMP_DIR/corpusP"
+make_fixture "$P" must-not-flag dr-majority HIGH "$CLEAN_MNF" 'known false positive'
+sample_review "$P" must-not-flag dr-majority 1 "$REGRESSION"
+sample_review "$P" must-not-flag dr-majority 2 "$REGRESSION"
+sample_review "$P" must-not-flag dr-majority 3 "$CLEAN_MNF"
+if run_corpus "$P" EVAL_SAMPLES=3; then
+  bad "2-of-3 re-raise with a clean LAST sample must fail — the pre-fix code passed this (see $P/out.log)"
+else
+  ok "a majority DR re-raise fails even when the last sample is clean"
+fi
+if grep -q "2/3 sample" "$P/out.log"; then
+  ok "the failure names how many samples re-raised"
+else
+  bad "failure detail must report the hit count (see $P/out.log)"
+fi
+
+# NOT tested here: that the archived triage artifact is the OFFENDING sample
+# rather than whatever ran last. Artifact archiving is deliberately skipped
+# under EVAL_SELFTEST (there is no real review to keep), so any assertion on it
+# in this harness would pass unconditionally — which is worse than no test,
+# because it implies coverage that does not exist. Verified by reading
+# `review_path="${dr_review_path:-${out%|*}}"` in run-evals.sh instead.
+
 echo ""
 echo "=========================================="
 echo " Self-test: $pass passed, $fail failed"
