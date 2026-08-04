@@ -233,7 +233,7 @@ pe_section="$(awk '/^### 🗂️ Pre-existing/{c=1;next} c&&/^### /{exit} c' "$T
 check "Test 8e: pre-existing items are numbered P1)..Pn)" "1" \
   "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*P[0-9]+\)\*\* ' || true)"
 check "Test 8f: pre-existing numbering does not use the findings namespace" "0" \
-  "$(printf '%s\n' "$pe_section" | grep -cE '^- \*\*[0-9]+\)\*\* ' || true)"
+  "$(printf '%s\n' "$pe_section" | grep -cE '^[0-9]+\. ' || true)"
 if [ -x "$SCORE_SH" ]; then
   check "Test 8g: numbering a pre-existing item does not make it a flag" "" \
     "$(bash "$SCORE_SH" "$TMP_DIR/pe-rendered.md" | tr '\n' ',' | sed 's/,$//')"
@@ -485,7 +485,7 @@ check "Test 13k: residual risks are numbered R1)..Rn)" "1" \
 check "Test 13l: each soft sequence starts at 1 (independent of findings)" "1,1" \
   "$(printf '%s\n' "$soft_medium" | grep -oE '\b[TR]1\)' | sed 's/[TR]//;s/)//' | tr '\n' ',' | sed 's/,$//')"
 check "Test 13m: soft numbers never collide with the findings namespace" "0" \
-  "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*[0-9]+\)\*\* ' || true)"
+  "$(printf '%s\n' "$soft_medium" | grep -cE '^[0-9]+\. ' || true)"
 
 if [ -x "$SCORE_SH" ]; then
   check "Test 13h: soft items alone are NOT scored as a flag (DR precision)" "" \
@@ -669,8 +669,12 @@ if [ -x "$RENDER_SH" ]; then
   # `1)` is also a CommonMark ordered-list marker, so an unbolded identifier at
   # the head of a bullet (`- 1) foo`) parses as a NESTED list and the number
   # disappears from the rendered text. Every emitted identifier must be bolded.
-  check "Test 19f: every findings bullet bolds its identifier" "0" \
-    "$(grep -cE '^- [A-Z]?[0-9]+\) ' "$TMP_DIR/autolink.md" || true)"
+  # LADR-068: findings are ordered-list items, so the bolding rule no longer
+  # applies to them. It still binds the prefixed classes, which remain bullets:
+  # `- T1) foo` unbolded is fine (it starts with a letter, not a list marker),
+  # but keeping every class bolded means that distinction never has to hold.
+  check "Test 19f: prefixed-class bullets bold their identifier" "0" \
+    "$(grep -cE '^- [A-Z][0-9]+\) ' "$TMP_DIR/autolink-soft.md" || true)"
 fi
 
 # --- Test 20: aggregate-reviews.sh's own identifier surfaces (LADR-067) ------
@@ -729,6 +733,154 @@ check "Test 20e: the legend text contains no autolinking #<digits>" "0" \
 # inside the echo (\`H1)\`), so a pattern including them matches nothing.
 check "Test 20g: the legend text names the current H1) shape" "1" \
   "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -cF 'H1)' || true)"
+
+# --- Test 22: the holistic legend names the shape of the path it ships beside -
+# The gate posts ONE body containing both the Issues Summary and the holistic
+# legend, and the two are rendered by different code on different paths:
+#
+#   primary  (FINDINGS_SUMMARY_APPLIED=true)  render-findings-summary.sh -> `1.`
+#   fallback (FINDINGS_SUMMARY_APPLIED=false) orchestrator free text      -> `1)`
+#
+# The fallback keeps `1)` deliberately: that summary is model prose, so its
+# per-section numbering is NOT guaranteed contiguous, and an ordered list there
+# would silently renumber. Bold literal text cannot.
+#
+# LADR-068 changed the primary path and left the legend asserting `1)`, so a
+# single posted review contradicted itself on the identifier shape — caught in
+# production on PR 115, not by this suite. Tests 20b/20g did not cover it: 20g
+# greps the legend for `H1)`, which never stopped matching. Nothing asserted the
+# findings-shape reference in either branch, which is why the drift was silent.
+#
+# Executed, not pattern-matched: the block is lifted from the script and run
+# under both values, so a future edit to the branch logic is caught rather than
+# a future edit to its wording.
+_shape_first="$(grep -n '_findings_shape=' "$AGG_SH" | head -1 | cut -d: -f1)"
+_shape_last="$(grep -n 'Cross-chunk items below are numbered' "$AGG_SH" | head -1 | cut -d: -f1)"
+check "Test 22a: the conditional legend block is present and extractable" "1" \
+  "$([ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ] && echo 1 || echo 0)"
+
+if [ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ]; then
+  # Start one line above the first assignment to capture the `if` itself, and
+  # strip the redirect so the echo lands on stdout.
+  sed -n "$((_shape_first - 1)),${_shape_last}p" "$AGG_SH" \
+    | sed 's| >> ci_temp/final_review.md||' > "$TMP_DIR/legend_block.sh"
+
+  legend_true="$(FINDINGS_SUMMARY_APPLIED=true  bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
+  legend_false="$(FINDINGS_SUMMARY_APPLIED=false bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
+
+  check "Test 22b: on the primary path the legend names the 1. findings shape" "1" \
+    "$(printf '%s' "$legend_true" | grep -cF '`1.` findings' || true)"
+  check "Test 22c: on the primary path it does NOT name the 1) shape" "0" \
+    "$(printf '%s' "$legend_true" | grep -cF '`1)` findings' || true)"
+  check "Test 22d: on the fallback path the legend names the 1) findings shape" "1" \
+    "$(printf '%s' "$legend_false" | grep -cF '`1)` findings' || true)"
+  check "Test 22e: on the fallback path it does NOT name the 1. shape" "0" \
+    "$(printf '%s' "$legend_false" | grep -cF '`1.` findings' || true)"
+
+  # Both branches keep the holistic sequence and stay autolink-free. The
+  # backticks travel through a variable expansion here; bash does not re-scan an
+  # expansion for command substitution, but an editor who rewrites this with an
+  # unquoted heredoc would silently delete the text (see the repo-wide rule).
+  check "Test 22f: both branches still name the H1) holistic sequence" "2" \
+    "$(printf '%s\n%s\n' "$legend_true" "$legend_false" | grep -cF 'H1)' || true)"
+  check "Test 22g: neither branch emits an autolinking #<digits>" "0" \
+    "$(printf '%s\n%s\n' "$legend_true" "$legend_false" | grep -coE '#[0-9]' || true)"
+
+  # An unset variable must fall to the literal form, never to the ordered-list
+  # form: the fallback path is where a wrong shape is unrecoverable.
+  legend_unset="$(env -u FINDINGS_SUMMARY_APPLIED bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
+  check "Test 22h: an unset flag defaults to the safe literal 1) shape" "1" \
+    "$(printf '%s' "$legend_unset" | grep -cF '`1)` findings' || true)"
+fi
+
+# --- Test 21: findings render as an ordered list, contiguously (LADR-068) ----
+# Two assertions that did not exist before and whose absence was the real gap:
+# every check on the findings shape was NEGATIVE ("no `- **N)**` here"), so
+# after the LADR-068 rename they all passed vacuously and a regression to the
+# old shape would have gone unnoticed.
+#
+# 21c is the load-bearing one. `N.` is only safe because CommonMark takes the
+# start number of an ordered list from its FIRST item and disregards the rest:
+# a section holding a non-contiguous subset renders wrong numbers with no error
+# anywhere. Contiguity per section is guaranteed by merge-findings.py sorting on
+# severity FIRST and numbering only after suppression/partitioning — an
+# invariant in a DIFFERENT FILE from the renderer. Reordering that sort_key to
+# group by file reads like a harmless improvement and silently rebinds every
+# identifier in the posted review. This test is the only thing that catches it.
+if [ -x "$RENDER_SH" ] && [ -f "$TMP_DIR/multi.json" ]; then :; fi
+cat > "$TMP_DIR/ordered.json" <<'OJ'
+{"status":"complete","merged_chunks":[0],"findings":[
+{"#":1,"title":"Crit one","severity":"critical","file":"a.sh","line":1,"why_it_matters":"Impact.","confidence":100,"verified":true,"first_evidence":"q","pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"x","chunks":[0]},
+{"#":2,"title":"High one","severity":"high","file":"b.sh","line":2,"why_it_matters":"","confidence":100,"verified":true,"first_evidence":"q","pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"x","chunks":[0]},
+{"#":3,"title":"High two","severity":"high","file":"c.sh","line":3,"why_it_matters":"","confidence":100,"verified":true,"first_evidence":"q","pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"x","chunks":[0]},
+{"#":4,"title":"Med one","severity":"medium","file":"d.sh","line":4,"why_it_matters":"","confidence":100,"verified":true,"first_evidence":"q","pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"x","chunks":[0]}],
+"pre_existing_findings":[],"suppressed_findings":[],"residual_risks":[],"testing_gaps":[],"suppressed_by_confidence":{},"demoted_no_quote":0,"merged_duplicates":0,"malformed_findings":0,"malformed_returns":0}
+OJ
+bash "$RENDER_SH" "$TMP_DIR/ordered.json" 0 1 "" > "$TMP_DIR/ordered.md"
+
+check "Test 21a: findings render as ordered-list items, not bullets" "4" \
+  "$(grep -cE '^[0-9]+\. ' "$TMP_DIR/ordered.md" || true)"
+check "Test 21b: no finding renders as the pre-LADR-068 bullet" "0" \
+  "$(grep -cE '^- \*\*[0-9]+\)\*\* ' "$TMP_DIR/ordered.md" || true)"
+
+# Per severity section, the numbers must form an unbroken ascending run.
+#
+# This drives the REAL merge over deliberately scrambled input rather than a
+# pre-numbered fixture. A hand-numbered fixture is contiguous by construction,
+# so it would assert nothing about merge-findings.py — and the invariant being
+# pinned IS the sort key in that file. Input order below is low/critical/medium/
+# high across two chunks, so only a severity-leading sort can produce a
+# contiguous rendering.
+# The FILE NAMES are chosen so that sorting by file and sorting by severity
+# produce DIFFERENT orders. An earlier version of this fixture named the
+# critical finding a.sh and the low one z.sh, which made the two sorts
+# coincide — the test passed even with the sort key deliberately broken. Here
+# a-file/n-file are high, m-file is medium, z-file is critical, b-file is low,
+# so a file-first sort both reorders the sections (caught by 21c3) and puts a
+# gap inside the High section (caught by 21c2).
+scrambled="[ $(doc 0 "$(finding 'Alpha high' high 'a-file.sh' 1 100 false 'a-file.sh:1 -- q')"),
+             $(doc 0 "$(finding 'Bravo low' low 'b-file.sh' 2 100 false 'b-file.sh:2 -- q')"),
+             $(doc 1 "$(finding 'Mike med' medium 'm-file.sh' 5 100 false 'm-file.sh:5 -- q')"),
+             $(doc 1 "$(finding 'November high' high 'n-file.sh' 6 100 false 'n-file.sh:6 -- q')"),
+             $(doc 1 "$(finding 'Zulu crit' critical 'z-file.sh' 9 100 false 'z-file.sh:9 -- q')") ]"
+printf '%s' "$scrambled" | merge > "$TMP_DIR/scrambled.json"
+bash "$RENDER_SH" "$TMP_DIR/scrambled.json" 0 2 "" > "$TMP_DIR/scrambled.md"
+
+check "Test 21c1: the merge numbered every finding" "5" \
+  "$(grep -cE '^[0-9]+\. ' "$TMP_DIR/scrambled.md" || true)"
+
+# Within each `### ` section, numbers must ascend by exactly 1 with no gap.
+contig="$(awk '
+  /^### /      { prev = 0; next }
+  /^[0-9]+\. / { n = $0 + 0; if (prev != 0 && n != prev + 1) bad++; prev = n }
+  END          { print bad + 0 }' "$TMP_DIR/scrambled.md")"
+check "Test 21c2: each severity section holds a contiguous run of numbers" "0" "$contig"
+
+# And the run must be globally ascending in severity order, which is what makes
+# the per-section runs contiguous in the first place.
+check "Test 21c3: numbering follows severity order across sections" "1,2,3,4,5" \
+  "$(grep -oE '^[0-9]+\.' "$TMP_DIR/scrambled.md" | tr -d '.' | tr '\n' ',' | sed 's/,$//')"
+
+# The continuation line must indent to the content column of `N. ` (3 spaces),
+# not the 2 a `- ` bullet used, or it detaches from its item.
+check "Test 21d: why_it_matters indents to the ordered-item content column" "1" \
+  "$(grep -cE '^   - Impact\.' "$TMP_DIR/ordered.md" || true)"
+
+# The ai-analyse filter groups findings by "what starts a new item". It matched
+# only `- ` before LADR-068; against ordered items that silently collapsed the
+# whole section into one item and disabled the LADR-056 failing-test guard.
+FILTER_SH="$SCRIPT_DIR/../../ai-analyse/scripts/lib/filter-failing-test-findings.sh"
+if [ -f "$FILTER_SH" ]; then
+  filtered="$(printf '%s\n' \
+    '1. 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing — `a.cs:42` (chunk 0)' \
+    '   - The assertion no longer matches.' \
+    '2. 🟡 [VERIFIED] Medium Priority: resolve_provider drops the scope flag — `b.sh:1` (chunk 0)' \
+    | bash "$FILTER_SH" 2>/dev/null)"
+  check "Test 21e: the analyse filter still detects ordered findings as items" "1" \
+    "$(printf '%s' "$filtered" | grep -cE '^2\. ' || true)"
+  check "Test 21f: the failing-test finding is withheld with its continuation" "0" \
+    "$(printf '%s' "$filtered" | grep -cE 'FooTests|assertion no longer' || true)"
+fi
 
 # Blunt net over the whole posted body, mirroring test 19's intent one level up:
 # every literal line appended to final_review.md is text a reader sees on

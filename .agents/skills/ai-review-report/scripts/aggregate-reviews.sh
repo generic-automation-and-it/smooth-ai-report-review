@@ -842,7 +842,19 @@ EOF
 # unnumbered (no anchor, degraded run) does not carry a legend for numbers it
 # does not have.
 if grep -qE '\*\*H[0-9]+\)' ci_temp/pr_summary_detailed.md 2>/dev/null; then
-  echo "> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the \`1)\` findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)." >> ci_temp/final_review.md
+  # LADR-068: on the primary structured-findings path the Issues Summary above
+  # renders findings as a `1.` ordered list; on the fallback path (structured
+  # findings disabled, or no merged document) the orchestrator's free-text
+  # summary is posted verbatim and instructed to write `1)`. The legend must
+  # match the path it ships beside, or a single posted review contradicts itself
+  # on the identifier shape — and a reader quoting the legend into a skip
+  # bullet writes an identifier matching nothing.
+  if [ "$FINDINGS_SUMMARY_APPLIED" = "true" ]; then
+    _findings_shape='`1.`'
+  else
+    _findings_shape='`1)`'
+  fi
+  echo "> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the ${_findings_shape} findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)." >> ci_temp/final_review.md
   echo "" >> ci_temp/final_review.md
 fi
 cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md

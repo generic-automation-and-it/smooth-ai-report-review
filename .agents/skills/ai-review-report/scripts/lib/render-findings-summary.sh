@@ -76,18 +76,43 @@ jq -r '
     else " (chunks " + ([.[] | "\(.)"] | join(", ")) + ")"
     end;
 
-  # One finding, one bullet. The label — everything before the first colon —
-  # carries the number, the emoji, the [VERIFIED]/[SPECULATIVE] tag and the
-  # severity keyword, in that order, because that is what score-review.sh reads.
+  # One finding, one ORDERED-LIST item. The label — everything before the first
+  # colon — carries the number, the emoji, the [VERIFIED]/[SPECULATIVE] tag and
+  # the severity keyword, in that order, because that is what score-review.sh
+  # reads.
+  #
+  # LADR-068: `N.` rather than `- **N)**`. A bullet AND a number is redundant,
+  # and `N.` is the idiomatic markdown for an enumerated list. It is safe here
+  # for one non-obvious reason that MUST hold: CommonMark takes the start number
+  # of an ordered list from its FIRST item and DISREGARDS the rest, so a section
+  # holding a non-contiguous subset (say findings 2 and 5) would render "2." and
+  # "3." — silently rebinding an identifier, the exact failure stable numbering
+  # exists to prevent. It cannot happen because merge-findings.py sorts by
+  # severity FIRST (SEVERITIES.index is the leading sort key) and numbers 1..N
+  # only after suppression and pre-existing partitioning, so every severity
+  # section holds a strictly contiguous run.
+  #
+  # That invariant lives in a DIFFERENT FILE from this renderer. Reordering the
+  # sort_key in merge-findings.py — e.g. to group by file, which reads like a
+  # harmless improvement — breaks the numbering here with no error anywhere.
+  # test-merge-findings.sh test 21 pins per-section contiguity for that reason;
+  # if you ever need a non-contiguous sequence, revert this to bold literal
+  # `**N)**` text rather than trying to make the ordered list cope.
+  #
+  # NOTE for editors: apostrophes are forbidden in these comments — see the
+  # warning above soft_bullet. This block was written with two and the script
+  # died on a shell syntax error.
+  #
+  # Continuation is indented 3 spaces to the content column of `N. `, not 2.
   def bullet:
-    "- **\(.["#"]))** \(.severity | sev_emoji) "
+    "\(.["#"]). \(.severity | sev_emoji) "
     + (if .verified == true then "[VERIFIED]" else "[SPECULATIVE]" end)
     + " \(.severity | sev_label): \(.title | clean)"
     + " — `\(.file)"
     + ":\(.line)"
     + "`"
     + (.chunks // [] | chunk_ref)
-    + (if (.why_it_matters // "") != "" then "\n  - \(.why_it_matters | clean)" else "" end);
+    + (if (.why_it_matters // "") != "" then "\n   - \(.why_it_matters | clean)" else "" end);
 
   # Residual risks and testing gaps render into the Medium tier as ordinary
   # bullets. They are real work the reviewer identified, and the Medium section
@@ -134,7 +159,7 @@ jq -r '
 
   "## 🔍 Issues Summary",
   "",
-  "**Note:** Findings are deduplicated across chunks and numbered stably (`1)`, `2)`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
   "",
   section("critical"; "🔴 Critical Issues"),
   section("high"; "🟠 High Priority Issues"),

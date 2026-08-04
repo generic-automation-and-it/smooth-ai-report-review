@@ -87,8 +87,8 @@ fi
 # That distinction is the whole ballgame here, because the section this filter
 # reads is produced by render-findings-summary.sh, which emits:
 #
-#   - **1)** 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing — `a.cs:42`
-#     - The assertion no longer matches the new return shape.
+#   1. 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing — `a.cs:42`
+#      - The assertion no longer matches the new return shape.
 #
 # The `why_it_matters` line is an INDENTED sub-bullet. Treating any "- " line
 # as a new finding split that pair apart: the parent was withheld and its
@@ -96,7 +96,14 @@ fi
 # nonsensical finding, carrying the very failing-test detail the parent was
 # withheld for. Under-indented sub-bullets are the common case in this
 # pipeline, not an edge case.
-new_bullet_re='^[[:space:]]{0,1}- '
+# LADR-068: findings render as an ORDERED list (`1. `, `2. `) while the soft
+# buckets, pre-existing and holistic items stay `- ` bullets, so both forms open
+# a new item. Matching only `- ` silently stopped detecting every finding when
+# the renderer changed — the whole section collapsed into one item and this
+# filter became a no-op, disabling the LADR-056 failing-test guard with no error
+# anywhere. Continuation lines are indented 2+ (bullets) or 3 (ordered items),
+# and both are excluded by the leading-space bound.
+new_bullet_re='^[[:space:]]{0,1}(- |[0-9]+\. )'
 withheld=""
 output=""
 current_bullet=""
