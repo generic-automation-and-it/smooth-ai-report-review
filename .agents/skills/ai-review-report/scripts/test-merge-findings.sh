@@ -734,6 +734,65 @@ check "Test 20e: the legend text contains no autolinking #<digits>" "0" \
 check "Test 20g: the legend text names the current H1) shape" "1" \
   "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -cF 'H1)' || true)"
 
+# --- Test 22: the holistic legend names the shape of the path it ships beside -
+# The gate posts ONE body containing both the Issues Summary and the holistic
+# legend, and the two are rendered by different code on different paths:
+#
+#   primary  (FINDINGS_SUMMARY_APPLIED=true)  render-findings-summary.sh -> `1.`
+#   fallback (FINDINGS_SUMMARY_APPLIED=false) orchestrator free text      -> `1)`
+#
+# The fallback keeps `1)` deliberately: that summary is model prose, so its
+# per-section numbering is NOT guaranteed contiguous, and an ordered list there
+# would silently renumber. Bold literal text cannot.
+#
+# LADR-068 changed the primary path and left the legend asserting `1)`, so a
+# single posted review contradicted itself on the identifier shape — caught in
+# production on PR 115, not by this suite. Tests 20b/20g did not cover it: 20g
+# greps the legend for `H1)`, which never stopped matching. Nothing asserted the
+# findings-shape reference in either branch, which is why the drift was silent.
+#
+# Executed, not pattern-matched: the block is lifted from the script and run
+# under both values, so a future edit to the branch logic is caught rather than
+# a future edit to its wording.
+_shape_first="$(grep -n '_findings_shape=' "$AGG_SH" | head -1 | cut -d: -f1)"
+_shape_last="$(grep -n 'Cross-chunk items below are numbered' "$AGG_SH" | head -1 | cut -d: -f1)"
+check "Test 22a: the conditional legend block is present and extractable" "1" \
+  "$([ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ] && echo 1 || echo 0)"
+
+if [ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ]; then
+  # Start one line above the first assignment to capture the `if` itself, and
+  # strip the redirect so the echo lands on stdout.
+  sed -n "$((_shape_first - 1)),${_shape_last}p" "$AGG_SH" \
+    | sed 's| >> ci_temp/final_review.md||' > "$TMP_DIR/legend_block.sh"
+
+  legend_true="$(FINDINGS_SUMMARY_APPLIED=true  bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
+  legend_false="$(FINDINGS_SUMMARY_APPLIED=false bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
+
+  check "Test 22b: on the primary path the legend names the 1. findings shape" "1" \
+    "$(printf '%s' "$legend_true" | grep -cF '`1.` findings' || true)"
+  check "Test 22c: on the primary path it does NOT name the 1) shape" "0" \
+    "$(printf '%s' "$legend_true" | grep -cF '`1)` findings' || true)"
+  check "Test 22d: on the fallback path the legend names the 1) findings shape" "1" \
+    "$(printf '%s' "$legend_false" | grep -cF '`1)` findings' || true)"
+  check "Test 22e: on the fallback path it does NOT name the 1. shape" "0" \
+    "$(printf '%s' "$legend_false" | grep -cF '`1.` findings' || true)"
+
+  # Both branches keep the holistic sequence and stay autolink-free. The
+  # backticks travel through a variable expansion here; bash does not re-scan an
+  # expansion for command substitution, but an editor who rewrites this with an
+  # unquoted heredoc would silently delete the text (see the repo-wide rule).
+  check "Test 22f: both branches still name the H1) holistic sequence" "2" \
+    "$(printf '%s\n%s\n' "$legend_true" "$legend_false" | grep -cF 'H1)' || true)"
+  check "Test 22g: neither branch emits an autolinking #<digits>" "0" \
+    "$(printf '%s\n%s\n' "$legend_true" "$legend_false" | grep -coE '#[0-9]' || true)"
+
+  # An unset variable must fall to the literal form, never to the ordered-list
+  # form: the fallback path is where a wrong shape is unrecoverable.
+  legend_unset="$(env -u FINDINGS_SUMMARY_APPLIED bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
+  check "Test 22h: an unset flag defaults to the safe literal 1) shape" "1" \
+    "$(printf '%s' "$legend_unset" | grep -cF '`1)` findings' || true)"
+fi
+
 # --- Test 21: findings render as an ordered list, contiguously (LADR-068) ----
 # Two assertions that did not exist before and whose absence was the real gap:
 # every check on the findings shape was NEGATIVE ("no `- **N)**` here"), so
