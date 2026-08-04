@@ -39,7 +39,11 @@
 #
 # Eval config:
 #   EVAL_RECALL_THRESHOLD   min must-catch catch-rate %% to pass        (default 80)
-#   EVAL_SAMPLES            runs per fixture; precision fails if flagged in ANY
+#   EVAL_SAMPLES            runs per fixture. BOTH precision and recall use a
+#                           majority rule: a fixture fails only if it re-raises
+#                           its DR (or misses its seeded defect) in a majority
+#                           of samples. At the default of 1, majority(1)=1 and
+#                           behaviour is identical to a single strict run.
 #                           sample, recall passes if caught in a MAJORITY (default 1)
 #   EVAL_CORPUS_DIR         corpus root override                  (default ./corpus)
 #   EVAL_FILTER             only run fixtures whose id matches this substring
@@ -152,8 +156,16 @@ run_fixture() {
   local fdir; fdir="$(dirname "$manifest")"
 
   # Self-test seam: score a canned review instead of calling the model.
+  #
+  # `selftest-review.<N>.md` (N = 1-based sample index) overrides the shared
+  # canned review for that sample, so a test can make sample 1 re-raise a DR
+  # and sample 2 come back clean. Without per-sample variation the harness
+  # returns identical output every sample and the majority rule is untestable —
+  # which is how the last-sample precision bug survived unnoticed.
   if [ "$SELFTEST" = "1" ]; then
     local canned="$fdir/selftest-review.md"
+    local per_sample="$fdir/selftest-review.${SELFTEST_SAMPLE:-1}.md"
+    [ -f "$per_sample" ] && canned="$per_sample"
     [ -f "$canned" ] || { echo "__INFRA_FAIL__"; return 1; }
     local sevs; sevs="$(bash "$SCORE_SCRIPT" "$canned" | paste -sd, -)"
     echo "$canned|$sevs"
@@ -306,8 +318,14 @@ evaluate_fixture() {
   # Run EVAL_SAMPLES times; collect the blocking-severity set from each sample.
   flagged_any=false           # precision: did ANY sample flag Crit/High/Med?
   caught_count=0              # recall: how many samples caught >= min_sev?
+  dr_hit_count=0              # precision: how many samples re-raised the DR?
+  unrelated_max=0             # worst-case unrelated findings across samples
+  dr_review_path=""           # review of the FIRST offending sample, for triage
   sample_infra_fail=false
   for ((s=1; s<=EVAL_SAMPLES; s++)); do
+    # Exposed to the self-test seam so a test can vary the canned review per
+    # sample; ignored entirely on the real path.
+    SELFTEST_SAMPLE="$s"
     out="$(run_fixture "$manifest")" || { sample_infra_fail=true; break; }
     if [ "$out" = "__INFRA_FAIL__" ]; then sample_infra_fail=true; break; fi
     sevs="${out#*|}"          # e.g. "HIGH,MEDIUM" or ""
@@ -319,6 +337,37 @@ evaluate_fixture() {
     # confirmed false positive, so the eval fails on it too. Low/none is allowed.
     if printf '%s' "$sevs" | grep -qE '(CRITICAL|HIGH|MEDIUM)'; then
       flagged_any=true
+    fi
+
+    # Judge the DR claim PER SAMPLE. This used to run once after the loop
+    # against `review_path="${out%|*}"` — the LAST sample only — which made
+    # multi-sample precision quietly wrong in both directions: a fixture that
+    # re-raised its DR in sample 1 and came back clean in sample 3 reported
+    # PASS, discarding a real regression, while the one fixture with no
+    # forbidden_claim (DR-014) tripped on ANY sample and so grew flakier with
+    # every extra sample. Raising EVAL_SAMPLES was therefore unsafe before this.
+    if [ "$kind" = "must-not-flag" ]; then
+      sample_review="${out%|*}"
+      sample_dr_hit=false
+      sample_unrelated=0
+      if printf '%s' "$sevs" | grep -qE '(CRITICAL|HIGH|MEDIUM)'; then
+        if [ -n "$forbidden_claim" ] && [ -n "$sample_review" ] && [ -f "$sample_review" ]; then
+          sample_lines="$(bash "$SCORE_SCRIPT" --lines "$sample_review" 2>/dev/null || true)"
+          sample_matched="$(printf '%s\n' "$sample_lines" | grep -c . 2>/dev/null || true)"
+          sample_dr_lines="$(printf '%s\n' "$sample_lines" | grep -icE "$forbidden_claim" 2>/dev/null || true)"
+          [ "${sample_dr_lines:-0}" -gt 0 ] && sample_dr_hit=true
+          sample_unrelated=$(( ${sample_matched:-0} - ${sample_dr_lines:-0} ))
+          [ "$sample_unrelated" -lt 0 ] && sample_unrelated=0
+        else
+          # No claim pattern (DR-014): any blocking finding is the verdict.
+          sample_dr_hit=true
+        fi
+      fi
+      if [ "$sample_dr_hit" = true ]; then
+        dr_hit_count=$((dr_hit_count + 1))
+        [ -z "$dr_review_path" ] && dr_review_path="$sample_review"
+      fi
+      [ "$sample_unrelated" -gt "$unrelated_max" ] && unrelated_max="$sample_unrelated"
     fi
     # recall: caught if a flag at >= min_sev is present
     case "$min_sev" in
@@ -336,11 +385,10 @@ evaluate_fixture() {
     return 0
   fi
 
-  # Path to the (last sample's) review. Assigned unconditionally: the DR-claim
-  # match below needs it on EVERY path, and it used to be set only inside the
-  # artifact-archive block — which is skipped under selftest, so the claim match
-  # silently fell back to strict mode there and no self-test could see it.
-  review_path="${out%|*}"
+  # Review kept for triage. Prefer the FIRST sample that re-raised the DR over
+  # the last sample run: with >1 sample the last one may be clean, and archiving
+  # it means the artifact does not contain the finding the failure is about.
+  review_path="${dr_review_path:-${out%|*}}"
 
   # Triage archive: keep the review so a precision FAIL can be inspected after
   # the sandbox is wiped. Skipped under selftest (no real review).
@@ -371,25 +419,23 @@ evaluate_fixture() {
     # deliberate: where the wrong claim cannot be expressed as a pattern
     # (DR-014, "do not flag the LADR-documented approach"), silently loosening
     # to "never fails" would be worse than staying strict.
-    dr_hit=false
-    unrelated=0
-    if [ "$flagged_any" = true ]; then
-      if [ -n "$forbidden_claim" ] && [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
-        flagged_lines="$(bash "$SCORE_SCRIPT" --lines "$review_path" 2>/dev/null || true)"
-        matched="$(printf '%s\n' "$flagged_lines" | grep -c . 2>/dev/null || true)"
-        dr_lines="$(printf '%s\n' "$flagged_lines" | grep -icE "$forbidden_claim" 2>/dev/null || true)"
-        [ "${dr_lines:-0}" -gt 0 ] && dr_hit=true
-        unrelated=$(( ${matched:-0} - ${dr_lines:-0} ))
-        [ "$unrelated" -lt 0 ] && unrelated=0
-      else
-        dr_hit=true
-      fi
-    fi
+    # Majority rule, symmetric with recall below. A single sample from a
+    # non-deterministic model against a zero-tolerance gate is measurement
+    # noise, not a regression: on run 30891074256 DR-002 re-raised and MC-003
+    # was missed, and BOTH flipped on a rerun of the same commit with the same
+    # model. Zero-tolerance still means "any Critical/High/Medium re-raise of
+    # the DR counts" — no grading on a curve — it just no longer means "one
+    # unlucky draw fails the build".
+    #
+    # At EVAL_SAMPLES=1 majority(1)=1, so this is byte-identical to the old
+    # behaviour. The rule only starts doing work once samples are raised.
+    unrelated="$unrelated_max"
+    need_clean=$(majority "$EVAL_SAMPLES")
     printf '%s\n' "$unrelated" > "${result_file%.result}.unrelated"
 
-    if [ "$dr_hit" = true ]; then
-      printf '%s\n' "$kind|$id|FAIL|re-raised a known false positive (DR regression)" > "$result_file"
-      echo "    ❌ FAIL — re-raised $label (finding matches the forbidden claim)"
+    if [ "$dr_hit_count" -ge "$need_clean" ]; then
+      printf '%s\n' "$kind|$id|FAIL|re-raised a known false positive in $dr_hit_count/$EVAL_SAMPLES sample(s) (DR regression)" > "$result_file"
+      echo "    ❌ FAIL — re-raised $label in $dr_hit_count/$EVAL_SAMPLES sample(s) (need $need_clean to fail)"
       # Print the offending finding labels inline. Without this the message names
       # only the DR, which reads as "the reviewer re-raised DR-XXX" even when it
       # flagged something else entirely — diagnosing a failure meant downloading
@@ -401,6 +447,19 @@ evaluate_fixture() {
       if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
         grep -oE '^- (🔴|🟠|🟡) \[VERIFIED\][^—]*' "$review_path" 2>/dev/null \
           | cut -c1-160 | sed 's/^/       ↳ /' | head -5 || true
+      fi
+    elif [ "$dr_hit_count" -gt 0 ]; then
+      # A MINORITY re-raise. The majority rule exists to absorb sampling noise,
+      # not to hide it: a fixture re-raising its DR in a minority of samples is
+      # drifting toward a real failure, and reporting a bare "PASS" would make
+      # that invisible until the day it crosses the threshold. Passes the gate,
+      # names itself in the results table. Unreachable at EVAL_SAMPLES=1, where
+      # any hit is already a majority.
+      printf '%s\n' "$kind|$id|PASS|re-raised in $dr_hit_count/$EVAL_SAMPLES sample(s) — below the $need_clean-sample majority" > "$result_file"
+      echo "    ⚠️  PASS (flaky) — re-raised $label in $dr_hit_count/$EVAL_SAMPLES sample(s), below the $need_clean needed to fail"
+      if [ -n "${review_path:-}" ] && [ -f "$review_path" ]; then
+        bash "$SCORE_SCRIPT" --lines "$review_path" 2>/dev/null \
+          | cut -f2- | cut -c1-150 | sed 's/^/       ↳ /' | head -3 || true
       fi
     elif [ "$unrelated" -gt 0 ]; then
       printf '%s\n' "$kind|$id|PASS|did not re-raise (${unrelated} unrelated finding(s))" > "$result_file"

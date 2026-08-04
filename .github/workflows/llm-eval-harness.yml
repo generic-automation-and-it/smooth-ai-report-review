@@ -62,10 +62,10 @@ on:
         type: string
         default: "80"
       samples:
-        description: "Runs per fixture (1 = single-shot; >1 = precision worst-case, recall majority)"
+        description: "Runs per fixture (blank = EVAL_SAMPLES Variable, else 1). Both precision and recall use a majority rule, so >1 absorbs single-sample model noise; cost scales linearly with this."
         required: false
         type: string
-        default: "1"
+        default: ""
       filter:
         description: "Only run fixtures whose id contains this substring (blank = all)"
         required: false
@@ -143,7 +143,18 @@ jobs:
       OPENCODE_DISABLE_CLAUDE_CODE: ${{ vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
       # Eval config (from dispatch inputs; run-evals.sh has its own defaults).
       EVAL_RECALL_THRESHOLD: ${{ github.event.inputs.recall_threshold || '80' }}
-      EVAL_SAMPLES: ${{ github.event.inputs.samples || '1' }}
+      # Runs per fixture. Both precision and recall use a MAJORITY rule, so a
+      # fixture fails only if it re-raises its DR (or misses its seeded defect)
+      # in a majority of samples. At 1 — the default — majority(1)=1 and this is
+      # a single strict run, so raising it is opt-in and costs nothing until set.
+      #
+      # Worth raising because a single sample against a zero-tolerance gate is
+      # measurement noise: on run 30891074256 DR-002 re-raised and MC-003 was
+      # missed, and BOTH flipped on a rerun of the same commit and model. The
+      # cost is linear — 3 samples is ~3x the paid model calls for the corpus —
+      # which is why this is a Variable to turn on deliberately rather than a
+      # raised default. 3 is the first value where a lone wobble cannot fail.
+      EVAL_SAMPLES: ${{ github.event.inputs.samples || vars.EVAL_SAMPLES || '1' }}
       EVAL_FILTER: ${{ github.event.inputs.filter || '' }}
       # Fixtures in flight. The corpus is ~20 live model calls at ~35s-3min each,
       # so serial is ~25 minutes of wall clock on a required PR check. 4 is the
