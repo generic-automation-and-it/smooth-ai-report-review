@@ -65,7 +65,7 @@ on:
         description: "Runs per fixture (blank = EVAL_SAMPLES Variable, else 1). Both precision and recall use a majority rule, so >1 absorbs single-sample model noise; cost scales linearly with this."
         required: false
         type: string
-        default: "1"
+        default: ""
       filter:
         description: "Only run fixtures whose id contains this substring (blank = all)"
         required: false
