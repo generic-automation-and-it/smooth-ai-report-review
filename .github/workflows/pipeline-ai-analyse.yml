@@ -337,7 +337,7 @@ jobs:
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           bash "${REVIEW_SKILL_DIR}/scripts/lib/install-opencode.sh"
-          bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
+          . "${REVIEW_SKILL_DIR}/scripts/lib/prepare-opencode-config.sh"
           opencode stats >/dev/null || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
