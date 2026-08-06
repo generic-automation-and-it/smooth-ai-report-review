@@ -16,7 +16,7 @@
 # It drives the REAL review-in-chunks.sh per fixture (the genuine eval target —
 # prompt assembly + the two-tier opencode chain), so prompt/LADR edits are
 # regression-tested, not reimplemented. Transport is reused verbatim: the same
-# lib/resolve-provider.sh + lib/opencode-with-fallback.sh + setup-opencode-config.sh
+# lib/resolve-provider.sh + lib/opencode-with-fallback.sh + prepare-opencode-config.sh
 # + opencode-health.sh the gate and local-review.sh use. NO new model transport.
 #
 # *** MAKES REAL, PAID MODEL CALLS. Opt-in only — never in the default test path. ***
@@ -127,7 +127,7 @@ if [ "$SELFTEST" != "1" ]; then
   # check — the exact preflight the gate and local-review.sh use (LADR-026/028).
   # shellcheck source=../lib/resolve-provider.sh
   source "$SKILL_SCRIPTS_DIR/lib/resolve-provider.sh"
-  bash "$SKILL_SCRIPTS_DIR/lib/setup-opencode-config.sh"
+  . "$SKILL_SCRIPTS_DIR/lib/prepare-opencode-config.sh"
   bash "$SKILL_SCRIPTS_DIR/lib/opencode-health.sh" || die "opencode health check failed — cannot run evals."
 fi
 

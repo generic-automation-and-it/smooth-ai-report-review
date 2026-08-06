@@ -189,7 +189,8 @@ source "$SCRIPT_DIR/lib/resolve-provider.sh"
 
 # Install opencode.json so the selected provider resolves, THEN health-check.
 # (Config must be in place before `opencode serve` starts.)
-bash "$SCRIPT_DIR/lib/setup-opencode-config.sh"
+# Must be sourced so OPENCODE_CONFIG is exported into this shell.
+. "$SCRIPT_DIR/lib/prepare-opencode-config.sh"
 
 # Health check (provider-agnostic): start `opencode serve`, hit its
 # /global/health, tear it down (lib/opencode-health.sh). This replaced the old

@@ -757,6 +757,45 @@ assert_step_forwards_github_token "local-job caller" \
 fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
 
+# ── prepare-opencode-config.sh source-safety (LADR-071) ────────────────────
+# The lib is SOURCED into run-review.sh / local-review.sh / run-evals.sh, so
+# any file-scope variable it sets shadows the caller's. Run 31011726946 broke
+# this way: a file-scope SCRIPT_DIR clobbered run-review.sh's, every later
+# "$SCRIPT_DIR/<script>.sh" resolved into scripts/lib/, and the gate died with
+# exit 127 at find-context-files.sh (filter-excluded-files.sh had already
+# failed silently under `|| true`). These tests source the lib in a clean
+# subshell with sentinel caller vars and a scratch HOME (so the LADR-071
+# global-config migration cannot touch the real one) and assert nothing leaks.
+echo ""
+echo "prepare-opencode-config.sh source-safety (LADR-071):"
+_poc_test_home="$(mktemp -d)"
+_poc_test_out="$(HOME="$_poc_test_home" bash -c '
+  set -euo pipefail
+  cd "$(mktemp -d)"
+  SCRIPT_DIR=/caller/scripts; REPO_ROOT=/caller/root; SRC=/caller/src; RESOLVED=keepme
+  . "'"$SCRIPT_DIR"'/lib/prepare-opencode-config.sh" >/dev/null 2>&1
+  leaked_fns="$(declare -F | grep -c _poc || true)"
+  cfg_ok=no; [ -n "${OPENCODE_CONFIG:-}" ] && [ -f "$OPENCODE_CONFIG" ] && cfg_ok=yes
+  echo "$SCRIPT_DIR|$REPO_ROOT|$SRC|$RESOLVED|$leaked_fns|${_poc_rc:-unset}|$cfg_ok"
+' 2>/dev/null || echo "SOURCING_FAILED")"
+rm -rf "$_poc_test_home"
+check "sourcing the lib preserves caller vars and leaks nothing" \
+  "/caller/scripts|/caller/root|/caller/src|keepme|0|unset|yes" \
+  "$_poc_test_out"
+# HOME is sandboxed here too: the lib's LADR-071 migration runs before the
+# LADR-047 rejection, so without it a local suite run would move the dev's
+# real stale managed global config aside (gate review 28c0086, Low finding).
+_poc_test_home2="$(mktemp -d)"
+_poc_test_out="$(HOME="$_poc_test_home2" OPENCODE_REVIEW_REPORT_CONFIG="../evil.json" bash -c '
+  set -euo pipefail
+  . "'"$SCRIPT_DIR"'/lib/prepare-opencode-config.sh" >/dev/null 2>&1
+  echo NOT_REACHED
+' 2>/dev/null || echo "failed_as_expected")"
+rm -rf "$_poc_test_home2"
+check "sourced-lib failure still propagates under set -e (LADR-047 .. rejection)" \
+  "failed_as_expected" "$_poc_test_out"
+unset _poc_test_home _poc_test_home2 _poc_test_out
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="

@@ -522,8 +522,11 @@ if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true
 fi
 unset _rtk_enabled
 
-# 5d. Install opencode.json provider config.
-bash "$LIB_DIR/setup-opencode-config.sh"
+# 5d. Install opencode.json provider config via OPENCODE_CONFIG.
+# The lib must be sourced (not exec'd) so OPENCODE_CONFIG is exported
+# into this shell and reaches all child processes (review-in-chunks.sh
+# subshells, aggregate-reviews.sh, opencode-with-fallback.sh).
+. "$LIB_DIR/prepare-opencode-config.sh"
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
 opencode stats >/dev/null 2>&1 || true

@@ -375,7 +375,7 @@ cp -R "$SRC/.agents/skills/ai-analyse"       "$DEST/skills/"
 rm -rf "$DEST/skills/ai-review-report/scripts/eval"
 
 # 3) when NOT installing under .agents, repoint the gate's hardcoded skill paths
-#    (the workflow's refs + setup-opencode-config.sh's opencode.json path) at $DEST.
+#    (the workflow's refs + prepare-opencode-config.sh's opencode.json path) at $DEST.
 #    Scoped to the literal '.agents/skills/ai-review' so target-repo context paths
 #    (.agents/rules/…, .docs/…, code-review-standards) are left untouched.
 if [ "$DEST" != ".agents" ]; then
@@ -405,13 +405,13 @@ rm -rf "$SRC"
 
 # Verify — fail loudly on a partial copy instead of reporting success.
 # Assert a deep runtime script too (not just SKILL.md): the gate's first call is
-# setup-opencode-config.sh, so a truncated copy must fail HERE, not on the runner.
+# prepare-opencode-config.sh, so a truncated copy must fail HERE, not on the runner.
 test -f "$WF" \
  && test -f "$ANALYSE_WF" \
  && test -f "$DEST/skills/ai-review-report/SKILL.md" \
  && test -f "$DEST/skills/ai-review/SKILL.md" \
  && test -f "$DEST/skills/ai-analyse/SKILL.md" \
- && test -f "$DEST/skills/ai-review-report/scripts/lib/setup-opencode-config.sh" \
+ && test -f "$DEST/skills/ai-review-report/scripts/lib/prepare-opencode-config.sh" \
  && test ! -e "$DEST/skills/ai-review-report/scripts/eval" \
  && echo "✓ $MODE complete ($DEST/skills)" || { echo "✗ install incomplete — check output above"; exit 1; }
 ```

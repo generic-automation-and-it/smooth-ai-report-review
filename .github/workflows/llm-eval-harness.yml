@@ -236,7 +236,7 @@ jobs:
         if: steps.scope.outputs.relevant == 'true'
         # run-evals.sh sources lib/resolve-provider.sh (resolves provider-id +
         # creds, fails fast on a bad model chain), installs the managed
-        # opencode.json (setup-opencode-config.sh), runs the provider-agnostic
+        # opencode.json (prepare-opencode-config.sh), runs the provider-agnostic
         # health check (opencode-health.sh), then drives review-in-chunks.sh per
         # fixture and scores. Non-zero exit on a precision regression, recall
         # below threshold, or infra failure → the job fails (the regression gate).

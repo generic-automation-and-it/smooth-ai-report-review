@@ -294,7 +294,7 @@ jobs:
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
         'gemini' }}
       # All seven providers' credentials are exported at job scope so opencode's
-      # {env:OPENCODE_<P>_*} substitution in ~/.config/opencode/opencode.json
+      # {env:OPENCODE_<P>_*} substitution in the OPENCODE_CONFIG file
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to.
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
