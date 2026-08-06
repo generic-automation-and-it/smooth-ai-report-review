@@ -547,7 +547,7 @@ The active provider is chosen by the **`OPENCODE_REVIEW_REPORT_PROVIDER`** Varia
 
 ### Config resolution (LADR-071)
 
-The gate no longer installs anything to `~/.config/opencode/`. At the start of every run, `scripts/lib/setup-opencode-config.sh` resolves the effective config — the committed `assets/opencode.json`, or the file named by the `opencode_config` workflow input / `OPENCODE_REVIEW_REPORT_CONFIG` Variable — copies it to `ci_temp/opencode.json`, injects any `OPENCODE_REVIEW_REPORT_<P>_URL` gateway baseURLs into the copy, and points the native `OPENCODE_CONFIG` environment variable at it. opencode then loads that file between global and project scope, so a personal global config on the runner merges *below* the gate's config (the gate wins on conflicting keys), and a project `opencode.json` in the repo under review still merges *above* it.
+The gate no longer installs anything to `~/.config/opencode/`. At the start of every run, `scripts/lib/prepare-opencode-config.sh` resolves the effective config — the committed `assets/opencode.json`, or the file named by the `opencode_config` workflow input / `OPENCODE_REVIEW_REPORT_CONFIG` Variable — copies it to `ci_temp/opencode.json`, injects any `OPENCODE_REVIEW_REPORT_<P>_URL` gateway baseURLs into the copy, and points the native `OPENCODE_CONFIG` environment variable at it. opencode then loads that file between global and project scope, so a personal global config on the runner merges *below* the gate's config (the gate wins on conflicting keys), and a project `opencode.json` in the repo under review still merges *above* it.
 
 For the full merge-order details and consumer override options, see the [config resolution guide](.docs/config-resolution.md).
 
