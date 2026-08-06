@@ -545,6 +545,12 @@ OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-revi
 
 The active provider is chosen by the **`OPENCODE_REVIEW_REPORT_PROVIDER`** Variable (`GEMINI` | `OPENAI` | `ANTHROPIC` | `OPENCODE-GO-OPENAI` | `OPENCODE-GO-ANTHROPIC` | `OPEN_ROUTER`, default `GEMINI`). The pipeline resolves it to the matching opencode provider-id and gateway credentials, then prefixes every model with that id (`<provider-id>/<model>`) when invoking OpenCode. Optional providers can be left unconfigured: you only need credentials for the provider `OPENCODE_REVIEW_REPORT_PROVIDER` actually selects.
 
+### Config resolution (LADR-071)
+
+The gate no longer installs anything to `~/.config/opencode/`. At the start of every run, `scripts/lib/setup-opencode-config.sh` resolves the effective config — the committed `assets/opencode.json`, or the file named by the `opencode_config` workflow input / `OPENCODE_REVIEW_REPORT_CONFIG` Variable — copies it to `ci_temp/opencode.json`, injects any `OPENCODE_REVIEW_REPORT_<P>_URL` gateway baseURLs into the copy, and points the native `OPENCODE_CONFIG` environment variable at it. opencode then loads that file between global and project scope, so a personal global config on the runner merges *below* the gate's config (the gate wins on conflicting keys), and a project `opencode.json` in the repo under review still merges *above* it.
+
+For the full merge-order details and consumer override options, see the [config resolution guide](.docs/config-resolution.md).
+
 ### GitHub configuration
 
 Set these under repo (or org) **Settings → Secrets and variables → Actions**. The workflow exports each value into the job env so OpenCode's `{env:...}` substitution resolves at runtime.
