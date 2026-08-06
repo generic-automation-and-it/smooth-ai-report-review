@@ -337,7 +337,20 @@ jobs:
           export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           bash "${REVIEW_SKILL_DIR}/scripts/lib/install-opencode.sh"
-          . "${REVIEW_SKILL_DIR}/scripts/lib/prepare-opencode-config.sh"
+          # Two-name dispatch: this workflow is workflow_run-triggered, so its
+          # YAML always executes from the DEFAULT branch while the scripts come
+          # from the analysed PR's checkout. Across the LADR-071 rename
+          # (setup-opencode-config.sh → prepare-opencode-config.sh) the two can
+          # disagree in either direction — run 31013229958 died with exit 127
+          # exactly this way (main's YAML calling the deleted old name against
+          # a post-rename checkout). Prefer the new lib (sourced — it exports
+          # OPENCODE_CONFIG); fall back to the old installer for stale PR
+          # branches that predate the rename.
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/prepare-opencode-config.sh" ]; then
+            . "${REVIEW_SKILL_DIR}/scripts/lib/prepare-opencode-config.sh"
+          else
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
+          fi
           opencode stats >/dev/null || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || true
           bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"

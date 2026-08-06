@@ -782,14 +782,19 @@ rm -rf "$_poc_test_home"
 check "sourcing the lib preserves caller vars and leaks nothing" \
   "/caller/scripts|/caller/root|/caller/src|keepme|0|unset|yes" \
   "$_poc_test_out"
-_poc_test_out="$(OPENCODE_REVIEW_REPORT_CONFIG="../evil.json" bash -c '
+# HOME is sandboxed here too: the lib's LADR-071 migration runs before the
+# LADR-047 rejection, so without it a local suite run would move the dev's
+# real stale managed global config aside (gate review 28c0086, Low finding).
+_poc_test_home2="$(mktemp -d)"
+_poc_test_out="$(HOME="$_poc_test_home2" OPENCODE_REVIEW_REPORT_CONFIG="../evil.json" bash -c '
   set -euo pipefail
   . "'"$SCRIPT_DIR"'/lib/prepare-opencode-config.sh" >/dev/null 2>&1
   echo NOT_REACHED
 ' 2>/dev/null || echo "failed_as_expected")"
+rm -rf "$_poc_test_home2"
 check "sourced-lib failure still propagates under set -e (LADR-047 .. rejection)" \
   "failed_as_expected" "$_poc_test_out"
-unset _poc_test_home _poc_test_out
+unset _poc_test_home _poc_test_home2 _poc_test_out
 
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
