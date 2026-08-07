@@ -146,4 +146,19 @@ jq -r '
   + " | demoted (no quote): \(.demoted_no_quote)"
   + " | malformed: \(.malformed_findings)"
 ' "$out_json" 2>/dev/null || true
+# The same rejection causes the posted Coverage block now carries, in the run
+# log — uncapped here, because a maintainer reading CI output wants every cause,
+# and no truncation limit applies. `// {}` keeps a pre-reasons document readable.
+jq -r '
+  ( if ((.malformed_reasons // {}) | length) > 0 then
+      "   causes (findings): "
+      + ([ .malformed_reasons | to_entries | sort_by(-.value, .key) | .[]
+           | "\(.key) ×\(.value)" ] | join(" | "))
+    else empty end ),
+  ( if ((.malformed_return_reasons // {}) | length) > 0 then
+      "   causes (chunk documents): "
+      + ([ .malformed_return_reasons | to_entries | sort_by(-.value, .key) | .[]
+           | "\(.key) ×\(.value)" ] | join(" | "))
+    else empty end )
+' "$out_json" 2>/dev/null || true
 exit 0

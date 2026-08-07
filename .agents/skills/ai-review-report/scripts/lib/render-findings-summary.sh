@@ -148,6 +148,31 @@ jq -r '
     [ (.testing_gaps // []) | to_entries[] | soft_bullet("Testing gap"; "T") ]
     + [ (.residual_risks // []) | to_entries[] | soft_bullet("Residual risk"; "R") ];
 
+  # One sub-bullet per rejection cause, most-frequent first, ties broken on the
+  # reason text so the ordering is total and the output stays byte-deterministic.
+  #
+  # The reason goes in a code span: it is the only text here a model influenced,
+  # and a code span makes every character in it inert markdown. Belt-and-braces —
+  # merge-findings.py already strips the LADR-067 autolink shape and caps the
+  # length before the reason ever gets here.
+  #
+  # Capped at six causes per unit. The enum reasons name the offending value,
+  # which is the single most useful token in the line and also what leaves the
+  # key space open: a chunk emitting fifty findings at fifty distinct off-anchor
+  # confidences would otherwise put fifty sub-bullets into a body GitHub
+  # truncates at 65,536 characters. The six shown are the six worth acting on.
+  def defect_lines($unit):
+    if (length == 0) then empty
+    else
+      [ to_entries | sort_by(-.value, .key) | .[]
+        | "  - `\(.key)` — \(.value) \($unit)\(if .value == 1 then "" else "s" end)" ]
+      | (.[0:6][]),
+        ( (length - 6) as $rest
+          | if $rest > 0
+            then "  - …and \($rest) further cause\(if $rest == 1 then "" else "s" end)"
+            else empty end )
+    end;
+
   def section($sev; $heading):
     "### \($heading)",
     "",
@@ -202,6 +227,15 @@ jq -r '
         then " (" + ([ .suppressed_by_confidence | to_entries | sort_by(.key | tonumber) | .[] | "confidence \(.key): \(.value)" ] | join(", ")) + ")"
         else "" end ),
   "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
+  # Why each rejection happened, one sub-bullet per CAUSE (not per rejected
+  # item). The count alone said something was lost and nothing about how to stop
+  # losing it — and the dominant cause, an off-anchor `confidence`, is a
+  # one-token prompt or schema fix once you can see it. merge-findings.py keys
+  # these on (field, rule), so the list stays short however many findings fell.
+  # `// {}` because a merged document written before this existed — a stale run
+  # artifact, an eval fixture — has no such key and must still render.
+  (.malformed_reasons // {} | defect_lines("finding")),
+  (.malformed_return_reasons // {} | defect_lines("chunk document")),
   "- **Failed or timed-out chunks:** \($failed_chunks) of \($total_chunks)",
   "- **Reviewed chunks with no usable sidecar:** "
     + (if $missing_chunks == "" then "0 (full structured coverage)" else "chunk(s) \($missing_chunks)" end),

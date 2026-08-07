@@ -890,6 +890,112 @@ fi
 check "Test 20f: no line appended to the posted body carries #<digits>" "0" \
   "$(grep -F '>> ci_temp/final_review.md' "$AGG_SH" | grep -cE '#[0-9]' || true)"
 
+# --- Test 23: a dropped finding says WHY it was dropped -----------------------
+# The bug this pins: a review posted "🔵 Low Priority: None found" while its own
+# Recommendation counted one low issue and Suggested Fixes showed it. The
+# markdown transport had carried the finding and the sidecar entry had not,
+# because its `confidence` was 70 — off-anchor, so the whole finding failed
+# validation. Coverage reported "Malformed and dropped: 1 finding(s)" and
+# stopped there, which named the loss without naming a single actionable thing
+# about it. Off-anchor confidence is the dominant cause and a one-line fix once
+# it is visible, so it must be visible.
+reason_input='[
+  {"chunk": 1, "findings": [
+    {"title":"a","severity":"low","file":"f.tsx","line":98,"why_it_matters":"w","confidence":70,"pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"human"},
+    {"title":"b","severity":"low","file":"f.tsx","line":99,"why_it_matters":"w","confidence":70,"pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"human"},
+    {"title":"c","severity":"high","file":"f.tsx","line":1,"why_it_matters":"w","confidence":100,"pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"nobody"}
+  ], "residual_risks": [], "testing_gaps": []},
+  {"chunk": 2}
+]'
+out="$(printf '%s' "$reason_input" | merge)"
+printf '%s' "$out" > "$TMP_DIR/reasons.json"
+
+check "Test 23a: the off-anchor confidence is named, with its value" "2" \
+  "$(printf '%s' "$out" | jq -r '.malformed_reasons["confidence: 70 is not an anchor"]')"
+check "Test 23b: a bad enum names the field and the value" "1" \
+  "$(printf '%s' "$out" | jq -r '.malformed_reasons["owner: '"'"'nobody'"'"' is not in the vocabulary"]')"
+check "Test 23c: reasons aggregate — 3 rejects, 2 causes" "2" \
+  "$(printf '%s' "$out" | jq -r '.malformed_reasons | length')"
+check "Test 23d: the counts themselves are unchanged" "3 1" \
+  "$(printf '%s' "$out" | jq -r '"\(.malformed_findings) \(.malformed_returns)"')"
+check "Test 23e: a rejected chunk document reports its own reason" "1" \
+  "$(printf '%s' "$out" | jq -r '.malformed_return_reasons["findings: missing"]')"
+
+# Determinism is the same hard requirement the merge itself carries: the eval
+# harness diffs byte-for-byte, and a Counter iterated in insertion order would
+# reorder run to run.
+check "Test 23f: the same input produces byte-identical reasons" "same" \
+  "$( [ "$(printf '%s' "$reason_input" | merge)" = "$out" ] && echo same || echo differs )"
+
+if [ -x "$RENDER_SH" ]; then
+  bash "$RENDER_SH" "$TMP_DIR/reasons.json" 0 2 "" > "$TMP_DIR/reasons.md"
+
+  check "Test 23g: the reason renders as a sub-bullet under the count" "1" \
+    "$(grep -cE '^  - `confidence: 70 is not an anchor` — 2 findings$' "$TMP_DIR/reasons.md" || true)"
+  check "Test 23h: a single-item cause is singular, not '1 findings'" "1" \
+    "$(grep -cE '^  - .* — 1 finding$' "$TMP_DIR/reasons.md" || true)"
+  check "Test 23i: the document reason names its own unit" "1" \
+    "$(grep -cF '— 1 chunk document' "$TMP_DIR/reasons.md" || true)"
+  # The count bullet is the line three consumers have always seen. Sub-bullets
+  # are additive; the parent must not have moved or changed shape.
+  check "Test 23j: the pre-existing count bullet is untouched" "1" \
+    "$(grep -cF -- '- **Malformed and dropped:** 3 finding(s), 1 chunk document(s)' "$TMP_DIR/reasons.md" || true)"
+
+  # A merged document written before this feature existed — a stale run artifact
+  # (LADR-062), an eval fixture — has no reasons key at all and must still render
+  # rather than emitting `null` into a posted review.
+  jq 'del(.malformed_reasons, .malformed_return_reasons)' "$TMP_DIR/reasons.json" \
+    > "$TMP_DIR/reasons-legacy.json"
+  bash "$RENDER_SH" "$TMP_DIR/reasons-legacy.json" 0 2 "" > "$TMP_DIR/reasons-legacy.md"
+  check "Test 23k: a document with no reasons key still renders the count" "1" \
+    "$(grep -cF -- '- **Malformed and dropped:** 3 finding(s), 1 chunk document(s)' "$TMP_DIR/reasons-legacy.md" || true)"
+  check "Test 23l: and emits no sub-bullets and no null" "0" \
+    "$(grep -cE '^  - `|null' "$TMP_DIR/reasons-legacy.md" || true)"
+
+  # Bounded output: the enum reasons carry the offending value, so fifty distinct
+  # off-anchor confidences would otherwise mean fifty sub-bullets in a body
+  # GitHub truncates at 65,536 characters.
+  many="$("$PY_BIN" - <<'PYEOF'
+import json
+def f(c):
+    return {"title": "t%d" % c, "severity": "high", "file": "f", "line": c,
+            "why_it_matters": "w", "confidence": c, "pre_existing": False,
+            "requires_verification": False, "autofix_class": "manual", "owner": "human"}
+print(json.dumps([{"chunk": 1, "findings": [f(c) for c in range(60, 69)],
+                   "residual_risks": [], "testing_gaps": []}]))
+PYEOF
+)"
+  printf '%s' "$many" | merge > "$TMP_DIR/many.json"
+  bash "$RENDER_SH" "$TMP_DIR/many.json" 0 1 "" > "$TMP_DIR/many.md"
+  check "Test 23m: the cause list is capped at six sub-bullets" "6" \
+    "$(grep -cE '^  - `' "$TMP_DIR/many.md" || true)"
+  check "Test 23n: the overflow is stated, not silently dropped" "1" \
+    "$(grep -cF '…and 3 further causes' "$TMP_DIR/many.md" || true)"
+
+  # LADR-067, at the one surface where model-authored text reaches a posted body
+  # through a NEW path. `severity` here holds an issue reference, a newline and
+  # more than VALUE_CAP characters; all three must be neutralised.
+  hostile='[{"chunk": 1, "findings": [
+    {"title":"a","severity":"BLOCKER #42 plus a tail long enough to need capping","file":"f","line":1,"why_it_matters":"w","confidence":100,"pre_existing":false,"requires_verification":false,"autofix_class":"gated_auto","owner":"human"}
+  ], "residual_risks": [], "testing_gaps": []}]'
+  printf '%s' "$hostile" | merge > "$TMP_DIR/hostile.json"
+  bash "$RENDER_SH" "$TMP_DIR/hostile.json" 0 1 "" > "$TMP_DIR/hostile.md"
+  check "Test 23o: a rejected value cannot smuggle #<digits> into the body" "0" \
+    "$(grep -coE '#[0-9]' "$TMP_DIR/hostile.md" || true)"
+  check "Test 23p: a rejected value cannot smuggle a newline into the bullet" "1" \
+    "$(grep -cE '^  - `severity: .* is not one of the four` — 1 finding$' "$TMP_DIR/hostile.md" || true)"
+  # Scoped to the sub-bullet: the section Note carries an unrelated ellipsis.
+  check "Test 23q: an over-long value is capped with an ellipsis" "1" \
+    "$(grep -cE '^  - `severity: .*…' "$TMP_DIR/hostile.md" || true)"
+
+  # The Coverage block sits after the Low section, so a sub-bullet must not leak
+  # into what the autonomous fixer treats as a finding.
+  if [ -x "$ANALYSE_SCOPE_SH" ]; then
+    check "Test 23r: reason sub-bullets stay out of the ai-analyse scope" "0" \
+      "$(bash "$ANALYSE_SCOPE_SH" < "$TMP_DIR/reasons.md" 2>/dev/null | grep -cF 'is not an anchor' || true)"
+  fi
+fi
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
