@@ -121,16 +121,28 @@ minimize_previous_reviews() {
   local review_count
   local node_id
 
-  # Get all reviews for the PR via GraphQL (filtered below by review-body marker, not author)
+  # Get the PR's reviews via GraphQL, filtered below by review-body marker plus
+  # the same two guards the issue-comment branch uses. `PullRequestReview`
+  # implements `Minimizable` (verified against the live schema — the interface's
+  # possibleTypes are CommitComment, DiscussionComment, GistComment, IssueComment,
+  # PullRequestReview, PullRequestReviewComment), so `isMinimized` and
+  # `viewerDidAuthor` are both available here and mean what they mean there.
+  #
+  # `last: 100` for the same reason as the comments query: the query is
+  # unpaginated and GitHub returns reviews oldest-first, so on a long-lived PR
+  # `first` would keep re-reading the window whose gate reviews are already hidden
+  # and never reach the ones still visible.
   reviews_json=$(gh api graphql -f query='
     query($owner: String!, $repo: String!, $pr_number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $pr_number) {
-          reviews(first: 100) {
+          reviews(last: 100) {
             nodes {
               id
               databaseId
               body
+              isMinimized
+              viewerDidAuthor
             }
           }
         }
@@ -144,11 +156,20 @@ minimize_previous_reviews() {
     return 0
   }
 
-  # Extract review Node IDs for AI reviews, excluding the current one
+  # Extract review Node IDs for AI reviews, excluding the current one.
+  # `.isMinimized != true` keeps a long-lived PR from re-minimizing its whole
+  # review history on every run (and from reporting an invented "Minimized: N");
+  # `!= true` rather than `== false` so a null field degrades to "minimize it".
+  # `.viewerDidAuthor` keeps a human review that opens with the gate header — a
+  # reviewer quoting it unquoted at the top of their own review is enough — from
+  # being hidden, and is keyed on the authenticated identity rather than a
+  # hardcoded `github-actions[bot]` so it holds under a PAT or GitHub App.
   review_node_ids=$(echo "$reviews_json" | jq -r \
     --arg current_id "$CURRENT_REVIEW_ID" \
     '.data.repository.pullRequest.reviews.nodes[]? |
      select(.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) |
+     select(.isMinimized != true) |
+     select(.viewerDidAuthor == true) |
      select(if $current_id != "" then (.databaseId | tostring) != $current_id else true end) |
      .id'
   )

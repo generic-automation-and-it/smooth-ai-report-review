@@ -798,10 +798,17 @@ if [ "$REVIEW_TYPE" != "incremental" ] && [ -f ci_temp/excluded_files.txt ] && [
   echo "**Files Excluded:** ${EXCLUDED_COUNT} (auto-generated/lock files)" >> ci_temp/final_review.md
 fi
 
-# Reviewed-in/model metrics — full reviews only; an incremental body stays a bare delta.
+# `**Reviewed in:**` is emitted for BOTH review types. It is coverage
+# information, not recap: it answers "how much of my delta actually got
+# reviewed", and it is the one header line a reader cannot reconstruct from
+# anywhere else in an incremental body — the coverage banner below only prints
+# when a chunk failed, so a healthy incremental would otherwise state no chunk
+# count at all. `**Model:**` stays full-only; which model ran is recap.
+cat >> ci_temp/final_review.md << EOF
+**Reviewed in:** ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "")
+EOF
 if [ "$REVIEW_TYPE" != "incremental" ]; then
   cat >> ci_temp/final_review.md << EOF
-**Reviewed in:** ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "")
 **Model:** ${OPENCODE_MODEL_DISPLAY_NAME}
 EOF
 fi
@@ -852,7 +859,15 @@ EOF
 # lib/balance-fences.sh (0-3 leading spaces, ``` or ~~~, closing run at least
 # as long, same char), and it is reliable here because balance_fences has
 # already run on this file, so every fence is paired.
-if [ "$REVIEW_TYPE" = "incremental" ]; then
+#
+# Gated on `agg_ok` too: when the orchestrator's summary call failed, the fallback
+# template's `## 📋 Overall Summary` is not a narrative recap at all — it is the
+# only place the body says summary generation broke and the reader should go read
+# the per-chunk sections. Stripping it there deletes the diagnosis and leaves an
+# incremental body that jumps from the header straight to a REQUEST CHANGES with
+# no visible cause. Suppress noise on the healthy path, keep the explanation on
+# the degraded one.
+if [ "$REVIEW_TYPE" = "incremental" ] && [ "$agg_ok" = "true" ]; then
   awk '
     function fence_run(s, ch,   n) {
       n = 0

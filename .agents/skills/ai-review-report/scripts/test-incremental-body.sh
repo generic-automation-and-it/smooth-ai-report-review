@@ -193,17 +193,55 @@ else
 fi
 echo ""
 
-# ── Test 6: the strip only ever runs for incremental reviews ─────────────────
+# ── Test 6: the strip's two guards ───────────────────────────────────────────
 # A full review's body must stay byte-identical to pre-LADR-073, so the awk must
-# sit inside a `REVIEW_TYPE = "incremental"` guard.
-echo "Test 6: the strip is guarded on REVIEW_TYPE = incremental"
-GUARD_CONTEXT=$(grep -B 40 'pr_summary_main\.incremental\.md' "$AGG" \
-  | grep -F 'REVIEW_TYPE" = "incremental"')
-if [ -n "$GUARD_CONTEXT" ]; then
+# sit inside a `REVIEW_TYPE = "incremental"` guard. It must ALSO sit inside an
+# `agg_ok` guard: on the orchestrator-failure fallback, `## 📋 Overall Summary`
+# carries the only explanation of why the body has no findings, so stripping it
+# there leaves an unexplained REQUEST CHANGES.
+echo "Test 6: the strip is guarded on REVIEW_TYPE = incremental AND agg_ok"
+GUARD_LINE=$(grep -B 40 'pr_summary_main\.incremental\.md' "$AGG" \
+  | grep -F 'REVIEW_TYPE" = "incremental"' | tail -1)
+if printf '%s' "$GUARD_LINE" | grep -qF 'REVIEW_TYPE" = "incremental"'; then
   echo "✅ Test 6: strip guarded by REVIEW_TYPE = incremental"
   pass=$((pass + 1))
 else
   echo "❌ Test 6: no REVIEW_TYPE = incremental guard found above the strip"
+  fail=$((fail + 1))
+fi
+if printf '%s' "$GUARD_LINE" | grep -qF 'agg_ok'; then
+  echo "✅ Test 6: strip guarded by agg_ok (fallback summary keeps its diagnosis)"
+  pass=$((pass + 1))
+else
+  echo "❌ Test 6: strip is not guarded by agg_ok — the fallback template's Overall Summary would be stripped"
+  fail=$((fail + 1))
+fi
+echo ""
+
+# ── Test 7: the header split — `Reviewed in:` both types, `Model:` full only ──
+# `**Reviewed in:**` is coverage information (how much of the delta was actually
+# reviewed) and is the one header line an incremental reader cannot reconstruct:
+# the coverage banner only prints when a chunk failed, so a healthy incremental
+# would otherwise carry no chunk count anywhere. `**Model:**` is recap and stays
+# full-only. Asserted on the source because the two lines sit adjacent and are
+# trivially re-merged into one guarded heredoc by a later edit.
+echo "Test 7: Reviewed-in is emitted for both review types, Model only for full"
+REVIEWED_GUARD=$(grep -B 6 '^\*\*Reviewed in:\*\*' "$AGG" | grep -cF 'REVIEW_TYPE" != "incremental"')
+MODEL_GUARD=$(grep -B 3 '^\*\*Model:\*\*' "$AGG" | grep -cF 'REVIEW_TYPE" != "incremental"')
+
+if [ "$REVIEWED_GUARD" -eq 0 ]; then
+  echo "✅ Test 7: **Reviewed in:** is not behind a full-only guard"
+  pass=$((pass + 1))
+else
+  echo "❌ Test 7: **Reviewed in:** sits behind a REVIEW_TYPE != incremental guard — incrementals would carry no chunk count"
+  fail=$((fail + 1))
+fi
+
+if [ "$MODEL_GUARD" -ge 1 ]; then
+  echo "✅ Test 7: **Model:** is full-only"
+  pass=$((pass + 1))
+else
+  echo "❌ Test 7: **Model:** is no longer behind a REVIEW_TYPE != incremental guard"
   fail=$((fail + 1))
 fi
 echo ""
