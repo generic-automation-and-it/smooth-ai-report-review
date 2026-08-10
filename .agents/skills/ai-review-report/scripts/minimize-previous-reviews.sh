@@ -196,27 +196,34 @@ minimize_previous_analyse_comments() {
     return 0
   }
 
-  # Two comment shapes are superseded by the full review being posted right now:
-  # the ai-analyse auto-fix summaries, and the LADR-059 trivial-PR skip notices.
-  # The latter are posted with `gh pr comment` (an issue comment, not a review),
-  # so the review query above never sees them — on a PR with active dependency
-  # automation every skipped push left one behind, permanently.
+  # A full review supersedes every prior comment this pipeline leaves on the
+  # PR, so anything the AI-review-report gate or skill authored as an issue
+  # comment is minimized. Three header families cover all of it:
+  #   - the gate header "## 🤖 OpenCode CLI Code Review" — the main summary's
+  #     mirror and every skip notice (LADR-059 trivial-skip, run-review.sh
+  #     Step 16 blocked-incremental), all posted with `gh pr comment`
+  #   - the failure header "## ❌ OpenCode CLI Code Review Workflow Failed" —
+  #     the workflow's `Post Error Comment` step
+  # Formal reviews are minimized separately (minimize_previous_reviews),
+  # including the AGENTS.md-validation BLOCKED review, because those are
+  # `gh pr review` subjects, not issue comments — this comment query never
+  # sees them.
   #
-  # Matched on the gate header AND the distinctive `Trivial-PR skip` line, not on
-  # the header alone: the blocked-incremental notice (run-review.sh Step 16)
-  # carries the same header and is deliberately NOT minimized here, because
-  # select-ai-analyse-artifact.sh classifies it as a cycle artifact and counts it
-  # toward the incremental cap. Minimizing only sets isMinimized (the API still
-  # returns the body, so that count is unaffected either way) — but keeping the
-  # scope to the one shape the audit identified means this change cannot alter
-  # the analyse loop by accident. Both patterns anchor at `^`, so a quoted copy
-  # inside someone else's comment never matches.
+  # Matching on the leading header (anchored at `^`) instead of enumerating
+  # per-shape markers means a future gate comment shape is covered without a
+  # fresh audit, and a quoted copy inside someone else's comment never matches.
+  # The ai-analyse summaries are out of scope for this rule's intent but keep
+  # their own branch so the analyse workflow's postings stay handled; the two
+  # header families above cannot collide with them (`# ai-analyse`, no gate
+  # header). It is safe to minimize these classes: ai-analyse reads the REST
+  # timeline and never looks at isMinimized, so its incremental cap count is
+  # unaffected either way.
   comment_node_ids=$(echo "$comments_json" | jq -r \
     '.data.repository.pullRequest.comments.nodes[]? |
      select(
        (.body | test("^#+ ai-analyse auto-fix (summary|limit exceeded)"))
-       or ((.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
-           and (.body | test("Trivial-PR skip")))
+       or (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
+       or (.body | test("^## ❌ OpenCode CLI Code Review Workflow Failed"))
      ) |
      .id'
   )

@@ -762,12 +762,22 @@ fi
 
 cat > ci_temp/final_review.md << EOF
 ## 🤖 OpenCode CLI Code Review - Commit: \`${SHORT_CURRENT_SHA}\`
+EOF
 
-\`\`\`
+# OpenCode ASCII banner — full reviews only. Incremental bodies are nothing but
+# a delta, and the banner is pure decoration.
+if [ "$REVIEW_TYPE" != "incremental" ]; then
+  cat >> ci_temp/final_review.md << 'EOF'
+
+```
 █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
 █░░█ █░░█ █▀▀▀ █░░█ █░░░ █░░█ █░░█ █▀▀▀
 ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-\`\`\`
+```
+EOF
+fi
+
+cat >> ci_temp/final_review.md << EOF
 
 **Review Type:** ${REVIEW_TYPE^^}
 EOF
@@ -783,20 +793,25 @@ cat >> ci_temp/final_review.md << EOF
 **Files Changed:** ${FILES_CHANGED}
 EOF
 
-if [ -f ci_temp/excluded_files.txt ] && [ -s ci_temp/excluded_files.txt ]; then
+if [ "$REVIEW_TYPE" != "incremental" ] && [ -f ci_temp/excluded_files.txt ] && [ -s ci_temp/excluded_files.txt ]; then
   EXCLUDED_COUNT=$(wc -l < ci_temp/excluded_files.txt | tr -d ' ')
   echo "**Files Excluded:** ${EXCLUDED_COUNT} (auto-generated/lock files)" >> ci_temp/final_review.md
 fi
 
-cat >> ci_temp/final_review.md << EOF
+# Reviewed-in/model metrics — full reviews only; an incremental body stays a bare delta.
+if [ "$REVIEW_TYPE" != "incremental" ]; then
+  cat >> ci_temp/final_review.md << EOF
 **Reviewed in:** ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "")
 **Model:** ${OPENCODE_MODEL_DISPLAY_NAME}
 EOF
+fi
 
 # Version info block (CLI + provider package versions vs. npm latest).
 # Rendered between the Model line and the coverage banner. Empty when the
 # version check was skipped or failed (check-versions.sh is best-effort).
-if [ -n "$OPENCODE_VERSION_INFO" ]; then
+# Incremental reviews omit the block — they re-review only new changes and
+# the version-update noise is irrelevant there.
+if [ "$REVIEW_TYPE" != "incremental" ] && [ -n "$OPENCODE_VERSION_INFO" ]; then
   echo "" >> ci_temp/final_review.md
   echo "$OPENCODE_VERSION_INFO" >> ci_temp/final_review.md
 fi
@@ -820,6 +835,18 @@ cat >> ci_temp/final_review.md << EOF
 EOF
 
 # Add main summary
+# Incremental reviews drop the two narrative overview sections (Overall
+# Summary, Positive Highlights) — they re-review only changes since the last
+# review, so a full-PR recap adds noise. Issues Summary, Suggested Fixes and
+# Recommendation are preserved: Issues Summary is the ai-analyse/LADR-042
+# channel (select-ai-analyse-artifact.sh matches on "## 🔍 Issues Summary").
+if [ "$REVIEW_TYPE" = "incremental" ]; then
+  awk '
+    /^## / { in_section = (($0 ~ /^## 📋 Overall Summary/) || ($0 ~ /^## ✅ Positive Highlights/)) }
+    !in_section { print }
+  ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.incremental.md
+  mv ci_temp/pr_summary_main.incremental.md ci_temp/pr_summary_main.md
+fi
 cat ci_temp/pr_summary_main.md >> ci_temp/final_review.md
 
 # Add collapsible detailed section

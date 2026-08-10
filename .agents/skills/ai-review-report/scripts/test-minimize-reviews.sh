@@ -114,17 +114,24 @@ else
 fi
 echo ""
 
-# Test 6: the LADR-059 trivial-skip notice is minimized; the blocked-incremental
-# notice — same gate header, different body — is deliberately left alone. Both
-# patterns are extracted from the script so this fails if either drifts.
-echo "Test 6: trivial-skip comment selector (LADR-059)"
-TRIVIAL_SELECT=$(awk '/comment_node_ids=\$\(echo "\$comments_json"/,/^  \)$/' \
+# Test 6: a full review minimizes EVERY issue comment this pipeline leaves on
+# the PR — any body whose first line is the gate header ("## 🤖 OpenCode CLI
+# Code Review"), the failure header ("## ❌ OpenCode CLI Code Review Workflow
+# Failed"), or an ai-analyse auto-fix header. The skip notices (trivial-skip,
+# blocked-incremental) and the failure comment are all matched by their leading
+# header, not a per-shape marker. A quoted copy of any of them must not match
+# (the header anchor at `^` is what keeps that). Markers are extracted from the
+# script so this fails if they drift.
+echo "Test 6: comment selector covers all gate/analyse comment headers"
+COMMENT_SELECT=$(awk '/comment_node_ids=\$\(echo "\$comments_json"/,/^  \)$/' \
   .agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh)
 
-if ! printf '%s' "$TRIVIAL_SELECT" | grep -q 'Trivial-PR skip'; then
-  echo "❌ Test 6 failed: trivial-skip marker missing from the comment selector"
-  exit 1
-fi
+for marker in '^#+ 🤖 (Gemini CLI' '❌ OpenCode CLI Code Review Workflow Failed' 'ai-analyse auto-fix'; do
+  if ! printf '%s' "$COMMENT_SELECT" | grep -qF "$marker"; then
+    echo "❌ Test 6 failed: marker '$marker' missing from the comment selector"
+    exit 1
+  fi
+done
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "⚠️  Test 6 skipped: jq not available"
@@ -137,22 +144,35 @@ else
   BLOCKED_BODY='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
 
 ⏭️ **Skipping incremental review** - Existing blocking review from @github-actions[bot] requires full review for clearance.'
-  QUOTED_TRIVIAL='> ## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
-> **Why?** Trivial-PR skip (`model-veto`).'
+  ERROR_BODY='## ❌ OpenCode CLI Code Review Workflow Failed
 
-  # Mirror the script selector: gate header anchored at ^ AND the trivial marker.
+The automated code review workflow encountered a critical failure and could not complete.'
+  ANALYSE_BODY='## ai-analyse auto-fix summary'
+  QUOTED_GATE='> ## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
+> ⏭️ Skipping incremental review - Existing blocking review from @github-actions[bot]...'
+  QUOTED_ERROR='> ## ❌ OpenCode CLI Code Review Workflow Failed
+> The automated code review workflow encountered a critical failure.'
+
+  # Mirror the script selector: any of the three leading headers matches;
+  # a `>`-quoted copy never does.
   sel() {
     printf '%s' "$1" | jq -Rs \
-      '(test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) and (test("Trivial-PR skip"))'
+      '(test("^#+ ai-analyse auto-fix (summary|limit exceeded)"))
+       or (test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
+       or (test("^## ❌ OpenCode CLI Code Review Workflow Failed"))'
   }
   T_MATCH=$(sel "$TRIVIAL_BODY")
   B_MATCH=$(sel "$BLOCKED_BODY")
-  Q_MATCH=$(sel "$QUOTED_TRIVIAL")
+  E_MATCH=$(sel "$ERROR_BODY")
+  A_MATCH=$(sel "$ANALYSE_BODY")
+  QG_MATCH=$(sel "$QUOTED_GATE")
+  QE_MATCH=$(sel "$QUOTED_ERROR")
 
-  if [ "$T_MATCH" = "true" ] && [ "$B_MATCH" = "false" ] && [ "$Q_MATCH" = "false" ]; then
-    echo "✅ Test 6 passed: minimizes the trivial-skip notice, leaves blocked-incremental and quoted copies alone"
+  if [ "$T_MATCH" = "true" ] && [ "$B_MATCH" = "true" ] && [ "$E_MATCH" = "true" ] \
+     && [ "$A_MATCH" = "true" ] && [ "$QG_MATCH" = "false" ] && [ "$QE_MATCH" = "false" ]; then
+    echo "✅ Test 6 passed: minimizes all gate/analyse comment headers, ignores quoted copies"
   else
-    echo "❌ Test 6 failed: trivial=$T_MATCH (want true), blocked=$B_MATCH (want false), quoted=$Q_MATCH (want false)"
+    echo "❌ Test 6 failed: trivial=$T_MATCH blocked=$B_MATCH error=$E_MATCH analyse=$A_MATCH quotedGate=$QG_MATCH quotedError=$QE_MATCH (want T B E A true, quoted false)"
     exit 1
   fi
 fi
