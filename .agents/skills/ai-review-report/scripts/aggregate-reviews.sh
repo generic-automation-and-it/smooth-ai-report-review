@@ -762,12 +762,22 @@ fi
 
 cat > ci_temp/final_review.md << EOF
 ## 🤖 OpenCode CLI Code Review - Commit: \`${SHORT_CURRENT_SHA}\`
+EOF
 
-\`\`\`
+# OpenCode ASCII banner — full reviews only. Incremental bodies are nothing but
+# a delta, and the banner is pure decoration.
+if [ "$REVIEW_TYPE" != "incremental" ]; then
+  cat >> ci_temp/final_review.md << 'EOF'
+
+```
 █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
 █░░█ █░░█ █▀▀▀ █░░█ █░░░ █░░█ █░░█ █▀▀▀
 ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-\`\`\`
+```
+EOF
+fi
+
+cat >> ci_temp/final_review.md << EOF
 
 **Review Type:** ${REVIEW_TYPE^^}
 EOF
@@ -783,20 +793,32 @@ cat >> ci_temp/final_review.md << EOF
 **Files Changed:** ${FILES_CHANGED}
 EOF
 
-if [ -f ci_temp/excluded_files.txt ] && [ -s ci_temp/excluded_files.txt ]; then
+if [ "$REVIEW_TYPE" != "incremental" ] && [ -f ci_temp/excluded_files.txt ] && [ -s ci_temp/excluded_files.txt ]; then
   EXCLUDED_COUNT=$(wc -l < ci_temp/excluded_files.txt | tr -d ' ')
   echo "**Files Excluded:** ${EXCLUDED_COUNT} (auto-generated/lock files)" >> ci_temp/final_review.md
 fi
 
+# `**Reviewed in:**` is emitted for BOTH review types. It is coverage
+# information, not recap: it answers "how much of my delta actually got
+# reviewed", and it is the one header line a reader cannot reconstruct from
+# anywhere else in an incremental body — the coverage banner below only prints
+# when a chunk failed, so a healthy incremental would otherwise state no chunk
+# count at all. `**Model:**` stays full-only; which model ran is recap.
 cat >> ci_temp/final_review.md << EOF
 **Reviewed in:** ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "")
+EOF
+if [ "$REVIEW_TYPE" != "incremental" ]; then
+  cat >> ci_temp/final_review.md << EOF
 **Model:** ${OPENCODE_MODEL_DISPLAY_NAME}
 EOF
+fi
 
 # Version info block (CLI + provider package versions vs. npm latest).
 # Rendered between the Model line and the coverage banner. Empty when the
 # version check was skipped or failed (check-versions.sh is best-effort).
-if [ -n "$OPENCODE_VERSION_INFO" ]; then
+# Incremental reviews omit the block — they re-review only new changes and
+# the version-update noise is irrelevant there.
+if [ "$REVIEW_TYPE" != "incremental" ] && [ -n "$OPENCODE_VERSION_INFO" ]; then
   echo "" >> ci_temp/final_review.md
   echo "$OPENCODE_VERSION_INFO" >> ci_temp/final_review.md
 fi
@@ -820,6 +842,61 @@ cat >> ci_temp/final_review.md << EOF
 EOF
 
 # Add main summary
+# Incremental reviews drop the two narrative overview sections (Overall
+# Summary, Positive Highlights) — they re-review only changes since the last
+# review, so a full-PR recap adds noise. Issues Summary, Suggested Fixes and
+# Recommendation are preserved: Issues Summary is the ai-analyse/LADR-042
+# channel (select-ai-analyse-artifact.sh matches on "## 🔍 Issues Summary").
+#
+# The heading scan is fence-aware, and that is load-bearing rather than
+# fussy: this file is model prose, and a review that quotes the report's own
+# structure inside a code block ("your report must contain `## 📋 Overall
+# Summary`") puts a line matching the start pattern inside a fence. A naive
+# scan would open a strip range there and delete every line up to the next
+# real `## ` — silently eating part of Suggested Fixes. The mirror hazard is a
+# fenced `## ` inside a section being dropped, which would close the range
+# early and leak the rest of the recap. Fence detection mirrors
+# lib/balance-fences.sh (0-3 leading spaces, ``` or ~~~, closing run at least
+# as long, same char), and it is reliable here because balance_fences has
+# already run on this file, so every fence is paired.
+#
+# Gated on `agg_ok` too: when the orchestrator's summary call failed, the fallback
+# template's `## 📋 Overall Summary` is not a narrative recap at all — it is the
+# only place the body says summary generation broke and the reader should go read
+# the per-chunk sections. Stripping it there deletes the diagnosis and leaves an
+# incremental body that jumps from the header straight to a REQUEST CHANGES with
+# no visible cause. Suppress noise on the healthy path, keep the explanation on
+# the degraded one.
+if [ "$REVIEW_TYPE" = "incremental" ] && [ "$agg_ok" = "true" ]; then
+  awk '
+    function fence_run(s, ch,   n) {
+      n = 0
+      while (substr(s, n + 1, 1) == ch) n++
+      return n
+    }
+    {
+      pos = match($0, /[^ ]/)
+      if (pos >= 1 && pos <= 4) {
+        s = substr($0, pos)
+        c = substr(s, 1, 1)
+        if (c == "`" || c == "~") {
+          n = fence_run(s, c)
+          if (!open) {
+            info = substr(s, n + 1)
+            if (n >= 3 && !(c == "`" && info ~ /`/)) { open = 1; fchar = c; flen = n }
+          } else if (c == fchar && n >= flen && substr(s, n + 1) ~ /^[ \t]*$/) {
+            open = 0
+          }
+        }
+      }
+      if (!open && $0 ~ /^## /) {
+        in_section = (($0 ~ /^## 📋 Overall Summary/) || ($0 ~ /^## ✅ Positive Highlights/))
+      }
+      if (!in_section) print
+    }
+  ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.incremental.md
+  mv ci_temp/pr_summary_main.incremental.md ci_temp/pr_summary_main.md
+fi
 cat ci_temp/pr_summary_main.md >> ci_temp/final_review.md
 
 # Add collapsible detailed section

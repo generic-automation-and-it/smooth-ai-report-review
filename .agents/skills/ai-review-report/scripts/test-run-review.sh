@@ -407,6 +407,40 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Startup model probe ERROR_PATTERN (LADR-074) ────────────────────────────
+# The two-tier model probe greps the probe output against ERROR_PATTERN to
+# decide "model unavailable → try secondary / soft-fail". A generic gateway
+# 500 (`UnknownError: Unexpected server error`) shares no token with the
+# auth/quota/40x vocabulary, so without these tokens the probe passes, the
+# real chunk calls die on the same 500, and the gate posts a misleading
+# "N of N chunks failed" REQUEST_CHANGES. Regression: PR #110 runs
+# 31389552206/31388689391 on generic-automation-and-it/smooth-llm-imposter.
+# The pattern is extracted from the script source (single source of truth)
+# and the exact server-error tokens asserted present.
+echo ""
+echo "=========================================="
+echo "Probe ERROR_PATTERN covers generic server errors (LADR-074)"
+echo "=========================================="
+_error_pattern="$(sed -n 's/^ERROR_PATTERN='"'"'\(.*\)'"'"'$/\1/p' "$RUN_REVIEW")"
+if [ -n "$_error_pattern" ]; then
+  for token in "UnknownError" "Unexpected server error"; do
+    case "$_error_pattern" in
+      *"$token"*) check "ERROR_PATTERN matches '$token'" "yes" "yes" ;;
+      *)           check "ERROR_PATTERN matches '$token'" "yes" "no"  ;;
+    esac
+  done
+  # The two tiers and the orchestrator probe must all read the same pattern.
+  _uses="$(grep -c "grep -iqE \"\$ERROR_PATTERN\"" "$RUN_REVIEW")"
+  if [ "$_uses" -ge 3 ]; then
+    check "ERROR_PATTERN used by review tiers + orchestrator probe" "yes" "yes"
+  else
+    check "ERROR_PATTERN used by review tiers + orchestrator probe" "yes" "no"
+  fi
+else
+  check "ERROR_PATTERN extracted from run-review.sh" "yes" "no"
+fi
+unset _error_pattern _uses
+
 # ── GITHUB_TOKEN preflight (regression: PR #86) ────────────────────────────
 # The reusable workflow's bare `run:` shells do NOT auto-inject
 # GITHUB_TOKEN — the step's env: block must forward it explicitly.

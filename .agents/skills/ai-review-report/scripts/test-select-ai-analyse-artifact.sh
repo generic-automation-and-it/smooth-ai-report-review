@@ -16,7 +16,13 @@ cat > "$FAKE_GH" <<'EOF'
 # Fake gh for testing. Expects GH_FIXTURE_REVIEWS and GH_FIXTURE_COMMENTS env
 # vars pointing to JSON files (single arrays or multiple arrays for --paginate).
 args=("$@")
-endpoint="${args[-1]}"
+# NOT ${args[-1]} — negative array subscripts need bash 4.3, and this fake runs
+# under whatever /usr/bin/env bash resolves to. On macOS's bash 3.2 that
+# expansion raises "bad array subscript", the endpoint comes out empty, every
+# fixture read falls through to `[]`, and all 16 timeline assertions fail with
+# "no gate-authored OpenCode review found" — a broken fake reported as a broken
+# selector, which is how this suite sat red while looking like an environment limit.
+endpoint="${args[$((${#args[@]} - 1))]}"
 if [[ "$endpoint" == *"/pulls/"*"/reviews" ]]; then
   cat "${GH_FIXTURE_REVIEWS:-/dev/null}"
 elif [[ "$endpoint" == *"/issues/"*"/comments" ]]; then

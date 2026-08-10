@@ -541,7 +541,7 @@ echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIE
 # 5g. Probe the two-tier review chain (PRIMARY → SECONDARY). On a soft-fail
 # (both models unavailable), set all_models_failed=true and post a
 # request-changes review from the catch-all step below.
-ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAUSTED|INVALID_ARGUMENT|API_KEY_INVALID|API key not valid|400|401|authentication failed|provider error|model not found|sqlite-migration'
+ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAUSTED|INVALID_ARGUMENT|API_KEY_INVALID|API key not valid|400|401|authentication failed|provider error|model not found|sqlite-migration|UnknownError|Unexpected server error'
 run_probe() {
   opencode run \
     --agent review \
