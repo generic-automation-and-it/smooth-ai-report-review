@@ -175,14 +175,23 @@ minimize_previous_analyse_comments() {
 
   # These body markers are owned by .github/workflows/pipeline-ai-analyse.yml;
   # keep the regex in sync with its posted summary and limit-exceeded comments.
+  #
+  # `last: 100`, not `first: 100`: this query is unpaginated, and GitHub returns
+  # issue comments oldest-first. On a PR that has accumulated more than 100
+  # comments, `first` fetches the oldest window — the one whose gate comments were
+  # already minimized by earlier runs — so the visible clutter at the bottom of
+  # the PR would never be reached. `last` fetches the newest window, which is
+  # exactly where the comments a reader still sees live.
   comments_json=$(gh api graphql -f query='
     query($owner: String!, $repo: String!, $pr_number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $pr_number) {
-          comments(first: 100) {
+          comments(last: 100) {
             nodes {
               id
               body
+              isMinimized
+              viewerDidAuthor
             }
           }
         }
@@ -218,27 +227,49 @@ minimize_previous_analyse_comments() {
   # header). It is safe to minimize these classes: ai-analyse reads the REST
   # timeline and never looks at isMinimized, so its incremental cap count is
   # unaffected either way.
+  #
+  # Two guards keep the widened match from doing damage a per-shape match could
+  # not:
+  #   - `.isMinimized != true` — the old selector matched at most the one or two
+  #     trivial-skip notices, so re-minimizing them was free. A header match sees
+  #     EVERY gate comment the PR ever accumulated, so without this every full
+  #     review would re-fire `minimizeComment` for the whole history and report
+  #     an invented "Minimized: N". `!= true` (not `== false`) so a null/absent
+  #     field degrades to "minimize it", never to "skip everything".
+  #   - `.viewerDidAuthor` on the two gate headers — matching on body alone would
+  #     hide a *human's* comment that opens with the gate header (pasting it
+  #     unquoted while discussing a review is enough). Keyed on the authenticated
+  #     identity rather than a hardcoded `github-actions[bot]` so the guard holds
+  #     for consumers whose gate posts under a PAT or a GitHub App. The
+  #     ai-analyse branch is deliberately left author-agnostic: it is posted by a
+  #     different workflow and its behaviour here is unchanged by design.
   comment_node_ids=$(echo "$comments_json" | jq -r \
     '.data.repository.pullRequest.comments.nodes[]? |
+     select(.isMinimized != true) |
      select(
        (.body | test("^#+ ai-analyse auto-fix (summary|limit exceeded)"))
-       or (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
-       or (.body | test("^## ❌ OpenCode CLI Code Review Workflow Failed"))
+       or (
+         (.viewerDidAuthor == true)
+         and (
+           (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
+           or (.body | test("^#+ ❌ OpenCode CLI Code Review Workflow Failed"))
+         )
+       )
      ) |
      .id'
   )
 
   if [ -z "$comment_node_ids" ]; then
-    echo "✅ No previous ai-analyse auto-fix or trivial-skip comments found to minimize"
+    echo "✅ No previous gate / ai-analyse issue comments left to minimize"
     echo ""
     return 0
   fi
 
   comment_count=$(echo "$comment_node_ids" | wc -l | tr -d ' ')
-  echo "Found ${comment_count} previous ai-analyse auto-fix / trivial-skip comment(s) to minimize"
+  echo "Found ${comment_count} previous gate / ai-analyse issue comment(s) to minimize"
   echo ""
 
-  minimize_ids_parallel "ai-analyse comment" "$comment_node_ids"
+  minimize_ids_parallel "issue comment" "$comment_node_ids"
   echo ""
 }
 
