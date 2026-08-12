@@ -634,6 +634,11 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
   # workflow's GITHUB_TOKEN.
   git remote remove upstream 2>/dev/null || true
   git remote add upstream "${GITHUB_SERVER_URL:-https://github.com}/${head_repo}.git"
+  # --depth=1 is deliberate here: this fetch only needs the head TREE to check
+  # out, not its ancestry. It does write a shallow graft, which would break
+  # `git merge-base` in Step 8 — `resolve_diff_base` (lib/resolve-diff-base.sh)
+  # detects and repairs that graft before computing the diff base. Do NOT rely
+  # on a plain re-fetch to undo it: only --unshallow/--deepen do (LADR-075).
   git fetch upstream "${head_ref}" --depth=1 || {
     echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
     exit 1
@@ -696,6 +701,14 @@ fi
 DETERMINE_REVIEW_FILE="$WORK_DIR/determine_review"
 : > "$DETERMINE_REVIEW_FILE"
 
+# Diff-base resolution (LADR-075). Sourced after Step 7 so `upstream` already
+# points at the base repo. `resolve_diff_base` replaces the old
+# `git fetch --depth=1` + `git merge-base ... || echo "$base_sha"` pattern at
+# every site below: it repairs a shallow graft, resolves a TRUE ancestor, and
+# hard-fails rather than substituting the base tip into a two-dot range.
+# shellcheck source=lib/resolve-diff-base.sh
+. "$LIB_DIR/resolve-diff-base.sh"
+
 # Force full if /ai-review in HEAD commit message, OR force_full_review flag.
 FORCE_FULL_FROM_FLAG="$force_full_review"
 COMMIT_MESSAGE="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head_sha}" --jq '.commit.message' 2>/dev/null || echo "")"
@@ -707,8 +720,7 @@ fi
 
 if [ "$FORCE_FULL_FROM_FLAG" = "true" ] || [ "$FORCE_FULL_FROM_COMMIT" = "true" ]; then
   echo "Forcing full review (manual trigger or /ai-review commit)"
-  git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-  MERGE_BASE="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+  MERGE_BASE="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
   {
     echo "from_sha=${MERGE_BASE}"
     echo "review_type=full"
@@ -735,8 +747,7 @@ else
   fi
   if [ -z "$LAST_REVIEWED_SHA" ]; then
     echo "No previous review found — full review."
-    git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-    MERGE_BASE="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+    MERGE_BASE="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
     {
       echo "from_sha=${MERGE_BASE}"
       echo "review_type=full"
@@ -760,8 +771,7 @@ else
       fi
     else
       echo "Previous commit $LAST_REVIEWED_SHA not found — full review."
-      git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-      MERGE_BASE="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+      MERGE_BASE="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
       {
         echo "from_sha=${MERGE_BASE}"
         echo "review_type=full"
@@ -781,11 +791,13 @@ echo "Review type: ${review_type} | from: ${from_sha:0:7} → ${current_sha:0:7}
 # $WORK_DIR/pr_diff.txt — full diff of the feature branch (excluded files
 #                         filtered by filter-excluded-files.sh)
 # $WORK_DIR/files_changed=N — number of in-scope files
-git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-MERGE_BASE_FOR_DIFF="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+MERGE_BASE_FOR_DIFF="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
 echo "Merge base for diff: ${MERGE_BASE_FOR_DIFF:0:7}"
 
 # All files changed in the feature branch (relative to the base ref).
+# Two-dot is correct here — and ONLY here — because resolve_diff_base
+# guarantees MERGE_BASE_FOR_DIFF is a true ancestor of head_sha. It was not
+# guaranteed before LADR-075, which is what let foreign commits into scope.
 git diff --name-only -z "${MERGE_BASE_FOR_DIFF}..${head_sha}" > "$WORK_DIR/feature_branch_files.txt"
 
 case "$review_type" in
