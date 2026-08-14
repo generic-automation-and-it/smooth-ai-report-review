@@ -27,6 +27,30 @@ set -euo pipefail
 
 COPILOT_LOGINS_RE='^(copilot|copilot\[bot\]|copilot-pull-request-reviewer\[bot\])$'
 
+# Registry of temp files created by this script. Script-scoped EXIT trap cleans them up
+# after all functions return. We register by name (make_tmpfile assigns into the caller's
+# variable) rather than echoing the path, because a command substitution runs in a subshell
+# where the array append stays local to that subshell and never reaches the parent — leaving
+# every temp file leaked. This pattern is non-obvious enough to document: a future simplification
+# attempt to "just echo it" will silently reintroduce the leak, regression-invisible in casual testing.
+CLEANUP_TMPFILES=()
+trap 'if [ "${#CLEANUP_TMPFILES[@]}" -gt 0 ]; then rm -f "${CLEANUP_TMPFILES[@]}"; fi' EXIT
+
+# Create a temp file and register its path in a caller-scoped variable (by name).
+# Usage: make_tmpfile tmpvar [template]
+# Example: make_tmpfile body_file; echo "content" > "$body_file"
+make_tmpfile() {
+  local __varname="$1" __template="${2:-}"
+  local __path
+  if [ -z "$__template" ]; then
+    __path="$(mktemp)"
+  else
+    __path="$(mktemp "$__template")"
+  fi
+  CLEANUP_TMPFILES+=("$__path")
+  eval "${__varname}=\"\$__path\""
+}
+
 repo_owner() { gh repo view --json owner -q .owner.login; }
 repo_name()  { gh repo view --json name  -q .name; }
 
@@ -53,9 +77,8 @@ cmd_threads() {
   owner="$(repo_owner)"
   repo="$(repo_name)"
   after=""
-  tmp="$(mktemp)"
-  next_tmp="$(mktemp)"
-  trap 'rm -f "$tmp" "$next_tmp"' EXIT
+  make_tmpfile tmp
+  make_tmpfile next_tmp
   printf '[]\n' > "$tmp"
 
   while :; do
@@ -85,7 +108,7 @@ cmd_threads() {
     nodes="$(printf '%s' "$page" | jq -c '[.data.repository.pullRequest.reviewThreads.nodes[] | {id, isResolved, comments: .comments.nodes}]')"
     jq -c --argjson nodes "$nodes" '. + $nodes' "$tmp" > "$next_tmp"
     mv "$next_tmp" "$tmp"
-    next_tmp="$(mktemp)"
+    make_tmpfile next_tmp
 
     truncated_comments="$(printf '%s' "$page" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.comments.pageInfo.hasNextPage == true)] | length')"
     if [ "${truncated_comments:-0}" -gt 0 ]; then
@@ -105,7 +128,6 @@ cmd_threads() {
   done
 
   cat "$tmp"
-  rm -f "$tmp" "$next_tmp"
 }
 
 cmd_reply() {
