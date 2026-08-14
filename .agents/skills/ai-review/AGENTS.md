@@ -70,3 +70,7 @@ None new — this skill inherits env-var handling from `SKILL.md`.
 ## macOS Compatibility
 
 Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No bash 4+ features (`declare -n`, `mapfile`, `associative arrays`). Array indexing and expansion via `"${ARR[@]}"` is safe under `set -u` when guarded with `[ "${#ARR[@]}" -gt 0 ]`.
+
+## Changelog
+
+- **2026-08-14:** Added AGENTS.md with copilot-review.sh EXIT-trap scope bug fix documentation (false failure + temp-file leak resolved via script-scoped registry + by-name assignment helper).
