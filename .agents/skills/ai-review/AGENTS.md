@@ -8,6 +8,12 @@ metadata:
 
 # ai-review — Maintenance Guide (AGENTS.md)
 
+## 🎯 TL;DR
+
+Maintenance guide for the `ai-review` skill. Documents the EXIT-trap scope bug fix in `copilot-review.sh` (false failure + temp-file leak resolved via script-scoped registry + by-name assignment helper), Key Behaviors for script editing, bash 3.2.57 compatibility guardrails, and macOS edge cases.
+
+---
+
 This file documents the LADRs, Key Behaviors, environment variables, and internals of the `ai-review` skill — the **runtime contract** lives in `SKILL.md`.
 
 ## Recent Changes
