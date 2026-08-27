@@ -92,6 +92,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck disable=SC1091
+source "$LIB_DIR/parse-review-comment-options.sh"
 
 # --- Step 0: env-var contract resolution --------------------------------------
 # Each variable below is read once at script entry. Precedence is:
@@ -286,6 +288,33 @@ should_run() {
 if ! should_run; then
   echo "Exiting — review gate should not run for this event."
   exit 0
+fi
+
+# Trusted issue-comment commands may override review scope for this run. Parse
+# only after should_run verified the commenter association; never shell-evaluate
+# comment text.
+if [ "$EVENT_NAME" = "issue_comment" ]; then
+  COMMENT_FILE_LIMIT=""
+  COMMENT_EXCLUDE_DELETED="0"
+  COMMENT_EXCLUDE_GENERATED_PATHS=""
+  COMMENT_BODY="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+  if ! parse_review_comment_options \
+    "$COMMENT_BODY" \
+    COMMENT_FILE_LIMIT \
+    COMMENT_EXCLUDE_DELETED \
+    COMMENT_EXCLUDE_GENERATED_PATHS; then
+    exit 1
+  fi
+
+  if [ -n "$COMMENT_FILE_LIMIT" ]; then
+    OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="$COMMENT_FILE_LIMIT"
+  fi
+  if [ "$COMMENT_EXCLUDE_DELETED" = "1" ]; then
+    OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="1"
+  fi
+  if [ -n "$COMMENT_EXCLUDE_GENERATED_PATHS" ]; then
+    OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="$COMMENT_EXCLUDE_GENERATED_PATHS"
+  fi
 fi
 
 # --- Step 4: Resolve PR number + head/base SHAs + repos ------------------------

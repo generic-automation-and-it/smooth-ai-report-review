@@ -13,6 +13,8 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_REVIEW="$SCRIPT_DIR/run-review.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/parse-review-comment-options.sh"
 
 # ── Fixture helpers ─────────────────────────────────────────────────────────
 TMP_DIR="$(mktemp -d)"
@@ -331,6 +333,47 @@ bypass_empty="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="" b
   case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
 ')"
 check "bypass empty is not bypassed" "normal" "$bypass_empty"
+
+# ── Trusted /ai-review comment options ─────────────────────────────────────
+echo ""
+echo "=========================================="
+echo "Testing /ai-review comment option parsing"
+echo "=========================================="
+
+comment_file_limit=""
+comment_exclude_deleted=""
+comment_generated_paths=""
+if parse_review_comment_options \
+  "/ai-review --file-limit 5 --exclude-deleted --exclude-generated generated/ --exclude-generated src/api.g.cs" \
+  comment_file_limit \
+  comment_exclude_deleted \
+  comment_generated_paths; then
+  check "comment file limit parsed" "5" "$comment_file_limit"
+  check "comment deleted filter parsed" "1" "$comment_exclude_deleted"
+  check "comment generated paths parsed" $'generated/\nsrc/api.g.cs' "$comment_generated_paths"
+else
+  check "comment options parse" "success" "failure"
+fi
+
+if parse_review_comment_options \
+  "/ai-review --unknown-option" \
+  comment_file_limit \
+  comment_exclude_deleted \
+  comment_generated_paths >/dev/null 2>&1; then
+  check "unknown comment option rejected" "rejected" "accepted"
+else
+  check "unknown comment option rejected" "rejected" "rejected"
+fi
+
+if parse_review_comment_options \
+  "/ai-review --exclude-generated ../outside" \
+  comment_file_limit \
+  comment_exclude_deleted \
+  comment_generated_paths >/dev/null 2>&1; then
+  check "escaping generated path rejected" "rejected" "accepted"
+else
+  check "escaping generated path rejected" "rejected" "rejected"
+fi
 
 # ── Provider → key/URL mapping (the pre-checkout fail-fast) ───────────────
 # The script's `case` in step 5a maps the provider to (U=URL var, K=key var).
