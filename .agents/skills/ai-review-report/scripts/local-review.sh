@@ -43,6 +43,9 @@ OPENCODE_MODEL="gemini-2.5-pro"
 # also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
 # OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
 OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
+OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
+OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="${OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED:-0}"
+OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="${OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS:-}"
 POST_REVIEW=false
 OPEN_AFTER=false
 REVIEW_TYPE="full"
@@ -64,6 +67,21 @@ while [[ $# -gt 0 ]]; do
       ;;
     --provider)
       OPENCODE_REVIEW_REPORT_PROVIDER="$2"
+      shift 2
+      ;;
+    --file-limit)
+      OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="$2"
+      shift 2
+      ;;
+    --exclude-deleted)
+      OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED=1
+      shift
+      ;;
+    --exclude-generated)
+      if [ -n "$OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS" ]; then
+        OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS+=$'\n'
+      fi
+      OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS+="$2"
       shift 2
       ;;
     --post)
@@ -88,6 +106,9 @@ while [[ $# -gt 0 ]]; do
       echo "                       OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC |"
       echo "                       OPEN_ROUTER"
       echo "                       (default: GEMINI; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
+      echo "  --file-limit NUMBER Block review above this post-filter file count (default: 100)"
+      echo "  --exclude-deleted    Exclude deleted paths from review; model still receives their names"
+      echo "  --exclude-generated PATH  Exclude a generated file or directory from review (repeatable)"
       echo "  --post               Post review to PR (requires --pr)"
       echo "  --open               Open final review in \$EDITOR after completion"
       echo "  --help, -h           Show this help"
@@ -116,6 +137,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" -le 0 ]; then
+  echo "❌ --file-limit must be a positive integer." >&2
+  exit 1
+fi
 
 # Auto-bootstrap credentials. The skill (/ai-review:local-review) runs this script
 # in a NON-INTERACTIVE shell, which does not source ~/.zshrc (zsh only sources
@@ -463,7 +489,11 @@ trap cleanup_temp_commit EXIT
 
 # --- Step 2: Filter excluded files ---
 echo "🔧 Filtering excluded files..."
-bash "$SCRIPT_DIR/filter-excluded-files.sh" || true
+export OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED
+export OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS
+export OPENCODE_REVIEW_REPORT_DIFF_FROM_SHA="$MERGE_BASE"
+export OPENCODE_REVIEW_REPORT_DIFF_TO_SHA="$TO_SHA"
+bash "$SCRIPT_DIR/filter-excluded-files.sh"
 echo ""
 
 # Recount after filtering
@@ -473,6 +503,12 @@ else
   echo "✅ All files were excluded. Nothing to review."
   rm -rf "$WORK_DIR" ci_temp
   exit 0
+fi
+
+if [ "$FILES_CHANGED" -gt "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" ]; then
+  echo "❌ Too many files (${FILES_CHANGED} > ${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT})."
+  echo "   Split this changeset or pass a larger --file-limit."
+  exit 1
 fi
 
 # --- Step 3: Find context files ---

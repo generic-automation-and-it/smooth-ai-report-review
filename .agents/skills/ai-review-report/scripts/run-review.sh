@@ -51,6 +51,8 @@
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
 #   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
+#   OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED  [0]  — omit deleted paths from model scope
+#   OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS [unset] — newline-separated generated paths
 #   OPENCODE_CLI_VERSION  [unset → latest] — opencode version pin
 #   OPENCODE_REVIEW_REPORT_CONFIG  [unset → committed opencode.json] — LADR-047
 #   OPENCODE_REVIEW_REPORT_GEMINI_URL / _COPILOT_URL / _OPENAI_URL — gateway URLs
@@ -90,6 +92,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck disable=SC1091
+source "$LIB_DIR/parse-review-comment-options.sh"
 
 # --- Step 0: env-var contract resolution --------------------------------------
 # Each variable below is read once at script entry. Precedence is:
@@ -107,6 +111,10 @@ if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_
   echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT='${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}' (must be a positive integer). Using default: 100" >&2
   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT=100
 fi
+OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="${OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED:-0}"
+OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="${OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS:-}"
+export OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED
+export OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS
 OPENCODE_CLI_VERSION="${OPENCODE_CLI_VERSION:-}"
 # Graph analysis (LADR-049) — opt-in code knowledge graph enrichment.
 # When truthy, builds a Tree-sitter-based SQLite graph of the repo and runs
@@ -280,6 +288,33 @@ should_run() {
 if ! should_run; then
   echo "Exiting — review gate should not run for this event."
   exit 0
+fi
+
+# Trusted issue-comment commands may override review scope for this run. Parse
+# only after should_run verified the commenter association; never shell-evaluate
+# comment text.
+if [ "$EVENT_NAME" = "issue_comment" ]; then
+  COMMENT_FILE_LIMIT=""
+  COMMENT_EXCLUDE_DELETED="0"
+  COMMENT_EXCLUDE_GENERATED_PATHS=""
+  COMMENT_BODY="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+  if ! parse_review_comment_options \
+    "$COMMENT_BODY" \
+    COMMENT_FILE_LIMIT \
+    COMMENT_EXCLUDE_DELETED \
+    COMMENT_EXCLUDE_GENERATED_PATHS; then
+    exit 1
+  fi
+
+  if [ -n "$COMMENT_FILE_LIMIT" ]; then
+    OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="$COMMENT_FILE_LIMIT"
+  fi
+  if [ "$COMMENT_EXCLUDE_DELETED" = "1" ]; then
+    OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="1"
+  fi
+  if [ -n "$COMMENT_EXCLUDE_GENERATED_PATHS" ]; then
+    OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="$COMMENT_EXCLUDE_GENERATED_PATHS"
+  fi
 fi
 
 # --- Step 4: Resolve PR number + head/base SHAs + repos ------------------------
@@ -816,9 +851,11 @@ case "$review_type" in
     ;;
 esac
 
-# Filter excluded files (lock files, auto-generated, etc.).
+# Apply caller-selected exclusions before every downstream consumer reads scope.
 if [ -s "$WORK_DIR/changed_files.txt" ]; then
-  bash "$SCRIPT_DIR/filter-excluded-files.sh" || true
+  export OPENCODE_REVIEW_REPORT_DIFF_FROM_SHA="$from_sha"
+  export OPENCODE_REVIEW_REPORT_DIFF_TO_SHA="$head_sha"
+  bash "$SCRIPT_DIR/filter-excluded-files.sh"
 fi
 
 # Build the diff body for downstream scripts.
