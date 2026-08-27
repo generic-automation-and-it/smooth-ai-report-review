@@ -89,6 +89,22 @@ on:
         required: false
         type: string
         default: ''
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank → OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts. Default: off.'
+        required: false
+        type: choice
+        default: '0'
+        options: ['0', '1']
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review. Blank: none.'
+        required: false
+        type: string
+        default: ''
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
@@ -173,6 +189,21 @@ on:
         default: ''
       rtk_version:
         description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable, else latest.'
+        required: false
+        type: string
+        default: ''
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank → OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts. Blank → OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED / 0.'
+        required: false
+        type: string
+        default: ''
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review. Blank → OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS.'
         required: false
         type: string
         default: ''
@@ -401,7 +432,9 @@ jobs:
       # → OPENCODE_REVIEW_REPORT_CONFIG Variable → built-in.
       OPENCODE_REVIEW_REPORT_CONFIG: ${{ inputs.opencode_config || vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
       OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
-      OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+      OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+      OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '0' }}
+      OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
       # Code graph analysis (LADR-049) — opt-in Tree-sitter-based knowledge graph.
       # When enabled, builds a SQLite graph of the repo and runs detect-changes
       # to produce risk-scored function-level analysis. The graph data enriches

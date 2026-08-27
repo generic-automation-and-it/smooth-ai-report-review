@@ -913,6 +913,23 @@ Your job is to review the CHANGES shown in the diff below. Do NOT review the ent
 - 🎯 **Primary focus**: Lines that are ADDED or MODIFIED in the diff
 - ❌ **Out of scope**: Existing code that was not changed (even if you can read it)
 
+EOF
+
+  if [ -s ci_temp/excluded_files.txt ]; then
+    cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+**EXCLUDED CHANGES:**
+The paths below changed in this PR but were intentionally excluded from AI review.
+Do not report their deletion, absence, generated content, or references to their removal as an error.
+
+EOF
+    while IFS=$'\t' read -r excluded_reason excluded_path; do
+      printf -- '- [%s] `%s`\n' "$excluded_reason" "$excluded_path" >> ci_temp/chunk_${chunk_num}_prompt.txt
+    done < ci_temp/excluded_files.txt
+    printf '\n' >> ci_temp/chunk_${chunk_num}_prompt.txt
+  fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+
 **FILE ACCESS - FOR CONTEXT VERIFICATION ONLY:**
 You have file system access via the read_file tool. Use it ONLY to verify context, NOT to find new issues.
 

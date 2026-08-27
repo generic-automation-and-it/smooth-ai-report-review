@@ -21,7 +21,7 @@ The repo's deliverable. Pipeline internals — provider selection (`OPENCODE_REV
 |------|------|
 | `ai-review-report/SKILL.md` | Runtime contract — source of truth for pipeline behavior |
 | `ai-review-report/scripts/` | Scripts invoked by the workflow **by hardcoded path** — move/rename only together with the workflow YAML |
-| `ai-review-report/assets/` | Runtime config: `opencode.json` (env-injected credentials only), `review-config.json` |
+| `ai-review-report/assets/` | Runtime config: `opencode.json` (env-injected credentials only), `findings-schema.json` |
 | `ai-review-report/references/` | Edit-time docs: `CHANGELOG.md`, AGENTS.md quality standards — not read during a review |
 
 ### ai-review

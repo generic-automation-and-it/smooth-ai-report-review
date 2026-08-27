@@ -126,6 +126,22 @@ on:
         options:
           - '0'
           - '1'
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank uses OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts.'
+        required: false
+        type: choice
+        default: '0'
+        options: ['0', '1']
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review.'
+        required: false
+        type: string
+        default: ''
 
 # The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
 permissions:
@@ -162,6 +178,9 @@ jobs:
       disable_claude_code: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
       disable_agents_md_check: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
       bypass_mandatory_context_file: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}
+      file_limit: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '' }}
+      exclude_deleted: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '' }}
+      exclude_generated_paths: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from —
       #                              # a full commit SHA (supply-chain pinned) or a trusted

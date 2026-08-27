@@ -46,6 +46,9 @@
 #                 blank → committed default; LADR-047),
 #               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
 #               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
+#               OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED (default 0), and
+#               OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS (newline-separated exact
+#                 paths or directory prefixes, default empty),
 #               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
 #                 workflow's 6-path list — override with your repo's real context files),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
@@ -140,6 +143,22 @@ on:
         options:
           - '0'
           - '1'
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank uses OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts.'
+        required: false
+        type: choice
+        default: '0'
+        options: ['0', '1']
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   pull-requests: write
@@ -401,7 +420,9 @@ jobs:
             vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
           OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
-          OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '0' }}
+          OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
           # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
           OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION: ${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION || '' }}

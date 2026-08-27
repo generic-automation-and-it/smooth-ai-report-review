@@ -51,6 +51,8 @@
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
 #   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
+#   OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED  [0]  — omit deleted paths from model scope
+#   OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS [unset] — newline-separated generated paths
 #   OPENCODE_CLI_VERSION  [unset → latest] — opencode version pin
 #   OPENCODE_REVIEW_REPORT_CONFIG  [unset → committed opencode.json] — LADR-047
 #   OPENCODE_REVIEW_REPORT_GEMINI_URL / _COPILOT_URL / _OPENAI_URL — gateway URLs
@@ -107,6 +109,10 @@ if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_
   echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT='${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}' (must be a positive integer). Using default: 100" >&2
   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT=100
 fi
+OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="${OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED:-0}"
+OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="${OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS:-}"
+export OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED
+export OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS
 OPENCODE_CLI_VERSION="${OPENCODE_CLI_VERSION:-}"
 # Graph analysis (LADR-049) — opt-in code knowledge graph enrichment.
 # When truthy, builds a Tree-sitter-based SQLite graph of the repo and runs
@@ -816,9 +822,11 @@ case "$review_type" in
     ;;
 esac
 
-# Filter excluded files (lock files, auto-generated, etc.).
+# Apply caller-selected exclusions before every downstream consumer reads scope.
 if [ -s "$WORK_DIR/changed_files.txt" ]; then
-  bash "$SCRIPT_DIR/filter-excluded-files.sh" || true
+  export OPENCODE_REVIEW_REPORT_DIFF_FROM_SHA="$from_sha"
+  export OPENCODE_REVIEW_REPORT_DIFF_TO_SHA="$head_sha"
+  bash "$SCRIPT_DIR/filter-excluded-files.sh"
 fi
 
 # Build the diff body for downstream scripts.
