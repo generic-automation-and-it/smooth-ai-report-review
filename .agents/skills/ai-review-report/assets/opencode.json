@@ -113,6 +113,7 @@
       }
     }
   },
+  "instructions": [".agents/rules/*.md"],
   "share": "disabled",
   "permission": {
     "external_directory": "allow"

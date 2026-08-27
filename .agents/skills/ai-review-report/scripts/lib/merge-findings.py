@@ -26,6 +26,7 @@ sort_keys=True.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections import Counter
 
@@ -71,43 +72,106 @@ def nonempty_string(value):
     return isinstance(value, str) and bool(value.strip())
 
 
-def valid_return(value):
+# --- rejection reasons --------------------------------------------------------
+# `*_defect` return None when the value is usable and a short reason string when
+# it is not. The reason is not diagnostics-only: it is rendered into the posted
+# review's Coverage block, because a bare "1 finding(s) dropped" tells a reader
+# that something was lost and nothing whatsoever about how to stop it happening
+# again. Off-anchor `confidence` is the overwhelmingly common cause, and it is
+# invisible without this.
+#
+# Two constraints follow from that bullet being POSTED text, not a log line:
+#   1. LADR-067 — no `#` immediately followed by a digit may reach a posted body,
+#      and a rejected value is attacker-shaped in the mild sense that a model
+#      wrote it. `safe_value` strips the collision rather than trusting the
+#      producer.
+#   2. Reasons are keyed on (field, rule) so they aggregate: a Counter over them
+#      renders one bullet per CAUSE, not one per rejected finding. The enum
+#      reasons additionally carry the offending value, which is the most useful
+#      token in the line and the reason the key space is not fully closed — the
+#      renderer caps the list at six causes to bound that.
+
+# A value echoed into a reason is capped hard: a model that put a paragraph in
+# `severity` must not be able to push the rest of the Coverage block off-screen.
+VALUE_CAP = 32
+
+_JSON_TYPES = {
+    "NoneType": "null",
+    "bool": "boolean",
+    "int": "number",
+    "float": "number",
+    "str": "string",
+    "list": "array",
+    "dict": "object",
+}
+
+
+def json_type(value):
+    """The JSON type name, for reasons where the type is the useful fact."""
+    return _JSON_TYPES.get(type(value).__name__, "value")
+
+
+def safe_value(value):
+    """One-line, length-capped, autolink-free rendering of a rejected value."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        text = str(value)
+    elif isinstance(value, str):
+        text = " ".join(value.split())
+        if not text:
+            return "blank"
+    else:
+        return json_type(value)
+    if len(text) > VALUE_CAP:
+        text = text[: VALUE_CAP - 1] + "…"
+    # LADR-067: `#` before a digit autolinks to an issue in the repo the review
+    # is posted on. Dropping the `#` leaves the value legible and inert.
+    return re.sub(r"#(?=\d)", "", text)
+
+
+def field_defect(container, key, expected):
+    """Reason when `container[key]` is absent or the wrong type, else None."""
+    if key not in container:
+        return "%s: missing" % key
+    got = container[key]
+    # bool is a subclass of int in Python; a `true` chunk index is not a chunk
+    # index, and a `true` confidence is not a confidence.
+    if not isinstance(got, expected) or (expected is int and isinstance(got, bool)):
+        return "%s: wrong type, got %s" % (key, json_type(got))
+    return None
+
+
+def return_defect(value):
     if not isinstance(value, dict):
-        return False
+        return "document: not an object"
     for key, expected in REQUIRED_TOP.items():
-        got = value.get(key)
-        if not isinstance(got, expected):
-            return False
-        # bool is a subclass of int in Python; a `true` chunk index is not a
-        # chunk index.
-        if expected is int and isinstance(got, bool):
-            return False
-    return True
+        defect = field_defect(value, key, expected)
+        if defect:
+            return defect
+    return None
 
 
-def valid_finding(value):
+def finding_defect(value):
     if not isinstance(value, dict):
-        return False
+        return "finding: not an object"
     for key, expected in REQUIRED_FINDING.items():
-        got = value.get(key)
-        if not isinstance(got, expected):
-            return False
-        if expected is int and isinstance(got, bool):
-            return False
-    if not nonempty_string(value["title"]):
-        return False
-    if not nonempty_string(value["file"]):
-        return False
-    if not nonempty_string(value["why_it_matters"]):
-        return False
+        defect = field_defect(value, key, expected)
+        if defect:
+            return defect
+    for key in ("title", "file", "why_it_matters"):
+        if not nonempty_string(value[key]):
+            return "%s: empty" % key
     if value["severity"] not in SEVERITIES:
-        return False
+        return "severity: '%s' is not one of the four" % safe_value(value["severity"])
     if value["confidence"] not in CONFIDENCES:
-        return False
+        return "confidence: %s is not an anchor" % safe_value(value["confidence"])
     if value["autofix_class"] not in AUTOFIX_CLASSES:
-        return False
+        return "autofix_class: '%s' is not in the vocabulary" % safe_value(
+            value["autofix_class"]
+        )
     if value["owner"] not in OWNERS:
-        return False
+        return "owner: '%s' is not in the vocabulary" % safe_value(value["owner"])
     # `evidence` is optional as of the sidecar-slimming change: the chunk prompt
     # no longer asks for it, because the quotes already appear in the markdown a
     # human reads and repeating them here inflated the block that is emitted last
@@ -118,9 +182,9 @@ def valid_finding(value):
     if "evidence" in value:
         evidence = value["evidence"]
         if not isinstance(evidence, list) or not evidence:
-            return False
+            return "evidence: present but not a non-empty array"
         if not all(nonempty_string(e) for e in evidence):
-            return False
+            return "evidence: present but holds a blank entry"
     # `line` is intentionally more forgiving than the schema, which asks for an
     # integer: models routinely emit "42" or "42-55", and dropping an otherwise
     # complete finding over the type of its line reference trades a real finding
@@ -130,12 +194,12 @@ def valid_finding(value):
         isinstance(line, str) and bool(line.strip())
     )
     if not line_ok:
-        return False
+        return "line: missing or unusable"
     # first_evidence, when present, must be usable — a blank one would satisfy
     # the quote-the-line gate without carrying a quote.
     if "first_evidence" in value and not nonempty_string(value["first_evidence"]):
-        return False
-    return True
+        return "first_evidence: present but blank"
+    return None
 
 
 def soft_key(value):
@@ -286,6 +350,10 @@ def main():
 
     malformed_returns = 0
     malformed_findings = 0
+    # Keyed on (field, rule), never on the offending value, so the key space stays
+    # small enough that the Coverage block renders one line per CAUSE.
+    malformed_reasons = Counter()
+    malformed_return_reasons = Counter()
     grouped = {}
     order = []
     residual_risks = []
@@ -301,8 +369,10 @@ def main():
 
     # --- 1. validate + 2. fingerprint dedup ---------------------------------
     for source in payload:
-        if not valid_return(source):
+        defect = return_defect(source)
+        if defect:
             malformed_returns += 1
+            malformed_return_reasons[defect] += 1
             continue
         chunk = source["chunk"]
         merged_chunks.add(chunk)
@@ -321,8 +391,10 @@ def main():
                 testing_seen.add(soft_key(item))
                 testing_gaps.append(item.strip())
         for finding in source["findings"]:
-            if not valid_finding(finding):
+            defect = finding_defect(finding)
+            if defect:
                 malformed_findings += 1
+                malformed_reasons[defect] += 1
                 continue
             key = fingerprint(finding)
             if key not in grouped:
@@ -392,6 +464,10 @@ def main():
                 "merged_duplicates": merged_duplicates,
                 "malformed_returns": malformed_returns,
                 "malformed_findings": malformed_findings,
+                "malformed_reasons": dict(sorted(malformed_reasons.items())),
+                "malformed_return_reasons": dict(
+                    sorted(malformed_return_reasons.items())
+                ),
             },
             sort_keys=True,
         )

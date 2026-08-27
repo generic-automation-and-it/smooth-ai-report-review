@@ -34,7 +34,7 @@ findings count; `[SPECULATIVE]` and "None found" never count as flags.
 ```
 
 Reuses the exact CI provider/transport resolution: `lib/resolve-provider.sh` +
-`lib/setup-opencode-config.sh` + `lib/opencode-health.sh` + the two-tier
+`lib/prepare-opencode-config.sh` + `lib/opencode-health.sh` + the two-tier
 `lib/opencode-with-fallback.sh` chain. **No new model transport.**
 
 ## Config (env)

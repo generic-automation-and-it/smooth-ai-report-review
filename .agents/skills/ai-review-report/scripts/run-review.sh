@@ -522,8 +522,11 @@ if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true
 fi
 unset _rtk_enabled
 
-# 5d. Install opencode.json provider config.
-bash "$LIB_DIR/setup-opencode-config.sh"
+# 5d. Install opencode.json provider config via OPENCODE_CONFIG.
+# The lib must be sourced (not exec'd) so OPENCODE_CONFIG is exported
+# into this shell and reaches all child processes (review-in-chunks.sh
+# subshells, aggregate-reviews.sh, opencode-with-fallback.sh).
+. "$LIB_DIR/prepare-opencode-config.sh"
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
 opencode stats >/dev/null 2>&1 || true
@@ -538,7 +541,7 @@ echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIE
 # 5g. Probe the two-tier review chain (PRIMARY → SECONDARY). On a soft-fail
 # (both models unavailable), set all_models_failed=true and post a
 # request-changes review from the catch-all step below.
-ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAUSTED|INVALID_ARGUMENT|API_KEY_INVALID|API key not valid|400|401|authentication failed|provider error|model not found|sqlite-migration'
+ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAUSTED|INVALID_ARGUMENT|API_KEY_INVALID|API key not valid|400|401|authentication failed|provider error|model not found|sqlite-migration|UnknownError|Unexpected server error'
 run_probe() {
   opencode run \
     --agent review \
@@ -556,8 +559,36 @@ echo "false" > "$ALL_MODELS_FAILED_FILE"
 echo ""
 echo "Primary review:   ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
 echo "Secondary review: ${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}"
-echo "Orchestrator:     ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} (not probed — falls back to the resolved review model at runtime)"
+echo "Orchestrator:     ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} (probing in background — a failed probe reroutes orchestrator calls to the resolved review model)"
 echo ""
+
+# 5g-bis. Probe the orchestrator model in the BACKGROUND so it costs no wall
+# time (the graph install and diff generation below cover its latency). The
+# result is collected right before the chunked review (Step 17). Without this,
+# a dead/hung orchestrator burns each orchestrator call's own timeout before
+# its fallback runs — run 30817404772 lost semantic grouping's entire 60s
+# budget this way. Output is fully detached (>/dev/null) so an orphaned probe
+# can never hold the workflow step's log pipe open on an early-exit path.
+# Deliberately NOT collected before the Step 12.5 trivial-PR veto: that veto
+# runs seconds after this probe launches, fails open on timeout (LADR-059),
+# and only fires on all-lockfile PRs — waiting there would serialize the
+# probe onto the critical path for every run to protect a rare 30s worst case.
+ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
+: > "$ORCH_PROBE_FILE"
+(
+  _orch_out="$(timeout 60s opencode run \
+    --agent review \
+    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
+    --format default \
+    --log-level WARN \
+    "Say 'OK'" 2>&1 || true)"
+  if [ -z "$_orch_out" ] || echo "$_orch_out" | grep -iqE "$ERROR_PATTERN"; then
+    echo "failed" > "$ORCH_PROBE_FILE"
+  else
+    echo "ok" > "$ORCH_PROBE_FILE"
+  fi
+) >/dev/null 2>&1 &
+ORCH_PROBE_PID=$!
 output="$(run_probe "$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY")"
 if echo "$output" | grep -iqE "$ERROR_PATTERN"; then
   echo "⚠️  Primary review unavailable, quota exceeded, or API key error — trying secondary"
@@ -603,6 +634,11 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
   # workflow's GITHUB_TOKEN.
   git remote remove upstream 2>/dev/null || true
   git remote add upstream "${GITHUB_SERVER_URL:-https://github.com}/${head_repo}.git"
+  # --depth=1 is deliberate here: this fetch only needs the head TREE to check
+  # out, not its ancestry. It does write a shallow graft, which would break
+  # `git merge-base` in Step 8 — `resolve_diff_base` (lib/resolve-diff-base.sh)
+  # detects and repairs that graft before computing the diff base. Do NOT rely
+  # on a plain re-fetch to undo it: only --unshallow/--deepen do (LADR-075).
   git fetch upstream "${head_ref}" --depth=1 || {
     echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
     exit 1
@@ -665,6 +701,14 @@ fi
 DETERMINE_REVIEW_FILE="$WORK_DIR/determine_review"
 : > "$DETERMINE_REVIEW_FILE"
 
+# Diff-base resolution (LADR-075). Sourced after Step 7 so `upstream` already
+# points at the base repo. `resolve_diff_base` replaces the old
+# `git fetch --depth=1` + `git merge-base ... || echo "$base_sha"` pattern at
+# every site below: it repairs a shallow graft, resolves a TRUE ancestor, and
+# hard-fails rather than substituting the base tip into a two-dot range.
+# shellcheck source=lib/resolve-diff-base.sh
+. "$LIB_DIR/resolve-diff-base.sh"
+
 # Force full if /ai-review in HEAD commit message, OR force_full_review flag.
 FORCE_FULL_FROM_FLAG="$force_full_review"
 COMMIT_MESSAGE="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head_sha}" --jq '.commit.message' 2>/dev/null || echo "")"
@@ -676,8 +720,7 @@ fi
 
 if [ "$FORCE_FULL_FROM_FLAG" = "true" ] || [ "$FORCE_FULL_FROM_COMMIT" = "true" ]; then
   echo "Forcing full review (manual trigger or /ai-review commit)"
-  git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-  MERGE_BASE="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+  MERGE_BASE="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
   {
     echo "from_sha=${MERGE_BASE}"
     echo "review_type=full"
@@ -704,8 +747,7 @@ else
   fi
   if [ -z "$LAST_REVIEWED_SHA" ]; then
     echo "No previous review found — full review."
-    git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-    MERGE_BASE="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+    MERGE_BASE="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
     {
       echo "from_sha=${MERGE_BASE}"
       echo "review_type=full"
@@ -729,8 +771,7 @@ else
       fi
     else
       echo "Previous commit $LAST_REVIEWED_SHA not found — full review."
-      git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-      MERGE_BASE="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+      MERGE_BASE="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
       {
         echo "from_sha=${MERGE_BASE}"
         echo "review_type=full"
@@ -750,11 +791,13 @@ echo "Review type: ${review_type} | from: ${from_sha:0:7} → ${current_sha:0:7}
 # $WORK_DIR/pr_diff.txt — full diff of the feature branch (excluded files
 #                         filtered by filter-excluded-files.sh)
 # $WORK_DIR/files_changed=N — number of in-scope files
-git fetch upstream "${base_ref}" --depth=1 2>&1 || true
-MERGE_BASE_FOR_DIFF="$(git merge-base "upstream/${base_ref}" "$head_sha" 2>/dev/null || echo "$base_sha")"
+MERGE_BASE_FOR_DIFF="$(resolve_diff_base "${base_ref}" "${head_sha}")" || exit 1
 echo "Merge base for diff: ${MERGE_BASE_FOR_DIFF:0:7}"
 
 # All files changed in the feature branch (relative to the base ref).
+# Two-dot is correct here — and ONLY here — because resolve_diff_base
+# guarantees MERGE_BASE_FOR_DIFF is a true ancestor of head_sha. It was not
+# guaranteed before LADR-075, which is what let foreign commits into scope.
 git diff --name-only -z "${MERGE_BASE_FOR_DIFF}..${head_sha}" > "$WORK_DIR/feature_branch_files.txt"
 
 case "$review_type" in
@@ -1138,6 +1181,22 @@ if [ -z "$SELECTED_MODEL" ]; then
   # type explicit; the script cannot reach here when all_models_failed=true.
   echo "❌ No selected model — review cannot proceed." >&2
   exit 1
+fi
+
+# Collect the background orchestrator probe (5g-bis). On a failed probe,
+# rewrite the orchestrator to the resolved review model so downstream
+# orchestrator calls (semantic grouping in review-in-chunks.sh, the PR
+# summary in aggregate-reviews.sh) never spend their timeout budgets on a
+# dead first hop.
+if [ -n "${ORCH_PROBE_PID:-}" ]; then
+  wait "$ORCH_PROBE_PID" 2>/dev/null || true
+  if [ "$(cat "$ORCH_PROBE_FILE" 2>/dev/null)" = "ok" ]; then
+    echo "✓ Orchestrator model works: ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}"
+  else
+    echo "⚠️ Orchestrator model ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} failed its probe — routing orchestrator calls to ${SELECTED_MODEL}"
+    OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="$SELECTED_MODEL"
+    export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
+  fi
 fi
 
 bash "$SCRIPT_DIR/review-in-chunks.sh" \

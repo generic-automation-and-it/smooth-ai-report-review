@@ -1,5 +1,5 @@
 #!/bin/bash
-# number-holistic-items.sh — assign stable `#H<n>` numbers to the items in the
+# number-holistic-items.sh — assign stable `H<n>)` numbers to the items in the
 # orchestrator's Holistic Cross-Chunk Analysis (LADR-063).
 #
 # Usage: number-holistic-items.sh <holistic_markdown_file>
@@ -27,11 +27,20 @@
 #     the template's empty-section markers, and numbering "N/A" is noise that
 #     makes the real items harder to scan.
 #   - Anything inside a fenced code block.
-#   - Lines that already carry a `**#…**` number, so a re-run is idempotent.
+#   - Lines that already carry a number, so a re-run is idempotent. The guard
+#     accepts the pre-LADR-067 `**#H1**` shape too, so a re-run over a review
+#     rendered by an older gate does not double-number it.
 #
-# The `#H` prefix keeps this sequence separate from the findings' `#N`
-# (assigned by merge-findings.py) and from the renderer's `#R`/`#T`/`#P`, so
+# The `H` prefix keeps this sequence separate from the findings' bare `N)`
+# (assigned by merge-findings.py) and from the renderer's `R`/`T`/`P`, so
 # adding an item to one class never renumbers another.
+#
+# LADR-067: the identifier is `H1)`, not `#H1`. `#H1` never autolinked — only
+# `#` + digits does — but the whole scheme moved together so that no consumer
+# has to remember which of the five sequences is safe to write bare in prose.
+# The number stays BOLDED at the head of the bullet: `1)` is a CommonMark
+# ordered-list marker, and `- H1) foo` is fine only because it starts with a
+# letter. Keeping every class bolded means that distinction never has to hold.
 set -uo pipefail
 
 target="${1:-}"
@@ -61,8 +70,9 @@ awk '
   /^[-*] / {
     payload = substr($0, 3)
 
-    # Already numbered (idempotent re-run).
-    if (payload ~ /^\*\*#/) { print; next }
+    # Already numbered (idempotent re-run). Matches the current `**H1)**` shape
+    # and the pre-LADR-067 `**#H1**` one.
+    if (payload ~ /^\*\*#/ || payload ~ /^\*\*[A-Z]?[0-9]+\)\*\*/) { print; next }
 
     # Placeholder / not-applicable markers. Compare on a stripped, lowercased
     # copy so "**None found**", "_N/A_" and "None found." all match.
@@ -98,7 +108,7 @@ awk '
     }
 
     n++
-    printf "%s **#H%d** %s\n", substr($0, 1, 1), n, payload
+    printf "%s **H%d)** %s\n", substr($0, 1, 1), n, payload
     next
   }
 

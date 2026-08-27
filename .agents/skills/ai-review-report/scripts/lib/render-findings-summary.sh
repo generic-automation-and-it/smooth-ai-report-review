@@ -21,10 +21,26 @@
 #   - lib/select-ai-analyse-artifact.sh  — `## 🔍 Issues Summary` identifies the
 #                                          body as a gate artifact.
 #
-# What this adds on top of that grammar is additive only: a stable `#` number and
-# a chunk back-reference per finding. Changing an emoji, a section header, or the
-# position of the `[VERIFIED]` tag breaks a consumer silently — the review still
-# posts, the autonomous fixer just stops finding anything to fix.
+# What this adds on top of that grammar is additive only: a stable trailing-paren
+# number (`1)`, `2)`, …) and a chunk back-reference per finding. Changing an
+# emoji, a section header, or the position of the `[VERIFIED]` tag breaks a
+# consumer silently — the review still posts, the autonomous fixer just stops
+# finding anything to fix.
+#
+# LADR-067: the identifier is `1)` and NOT `#1`. GitHub Flavored Markdown
+# autolinks `#` followed by digits to an issue or PR in the repo the comment is
+# posted on, and `**` does not suppress it — so `**#1**` rendered as a link
+# carrying issue #1's title, and every posted review left a cross-reference on
+# the low-numbered issues of the repo under review. The trailing paren is inert
+# in GFM. Two rules follow from that and must not be relaxed:
+#
+#   1. Never reintroduce a bare `#` before a number anywhere that reaches a
+#      posted body — that includes the chunk back-references below, which are
+#      `(chunk 3)` for the same reason.
+#   2. Always emit the identifier BOLDED at the head of a bullet. `1)` is also
+#      a valid CommonMark ordered-list marker, so a bullet written `- 1) foo`
+#      parses as a nested ordered list and the identifier vanishes from the
+#      rendered text. `- **1)** foo` cannot: the `**` stops the list scan.
 set -uo pipefail
 
 merged="${1:-}"
@@ -56,22 +72,47 @@ jq -r '
 
   def chunk_ref:
     if (. | length) == 0 then ""
-    elif (. | length) == 1 then " (chunk #\(.[0]))"
-    else " (chunks " + ([.[] | "#\(.)"] | join(", ")) + ")"
+    elif (. | length) == 1 then " (chunk \(.[0]))"
+    else " (chunks " + ([.[] | "\(.)"] | join(", ")) + ")"
     end;
 
-  # One finding, one bullet. The label — everything before the first colon —
-  # carries the number, the emoji, the [VERIFIED]/[SPECULATIVE] tag and the
-  # severity keyword, in that order, because that is what score-review.sh reads.
+  # One finding, one ORDERED-LIST item. The label — everything before the first
+  # colon — carries the number, the emoji, the [VERIFIED]/[SPECULATIVE] tag and
+  # the severity keyword, in that order, because that is what score-review.sh
+  # reads.
+  #
+  # LADR-068: `N.` rather than `- **N)**`. A bullet AND a number is redundant,
+  # and `N.` is the idiomatic markdown for an enumerated list. It is safe here
+  # for one non-obvious reason that MUST hold: CommonMark takes the start number
+  # of an ordered list from its FIRST item and DISREGARDS the rest, so a section
+  # holding a non-contiguous subset (say findings 2 and 5) would render "2." and
+  # "3." — silently rebinding an identifier, the exact failure stable numbering
+  # exists to prevent. It cannot happen because merge-findings.py sorts by
+  # severity FIRST (SEVERITIES.index is the leading sort key) and numbers 1..N
+  # only after suppression and pre-existing partitioning, so every severity
+  # section holds a strictly contiguous run.
+  #
+  # That invariant lives in a DIFFERENT FILE from this renderer. Reordering the
+  # sort_key in merge-findings.py — e.g. to group by file, which reads like a
+  # harmless improvement — breaks the numbering here with no error anywhere.
+  # test-merge-findings.sh test 21 pins per-section contiguity for that reason;
+  # if you ever need a non-contiguous sequence, revert this to bold literal
+  # `**N)**` text rather than trying to make the ordered list cope.
+  #
+  # NOTE for editors: apostrophes are forbidden in these comments — see the
+  # warning above soft_bullet. This block was written with two and the script
+  # died on a shell syntax error.
+  #
+  # Continuation is indented 3 spaces to the content column of `N. `, not 2.
   def bullet:
-    "- **#\(.["#"])** \(.severity | sev_emoji) "
+    "\(.["#"]). \(.severity | sev_emoji) "
     + (if .verified == true then "[VERIFIED]" else "[SPECULATIVE]" end)
     + " \(.severity | sev_label): \(.title | clean)"
     + " — `\(.file)"
     + ":\(.line)"
     + "`"
     + (.chunks // [] | chunk_ref)
-    + (if (.why_it_matters // "") != "" then "\n  - \(.why_it_matters | clean)" else "" end);
+    + (if (.why_it_matters // "") != "" then "\n   - \(.why_it_matters | clean)" else "" end);
 
   # Residual risks and testing gaps render into the Medium tier as ordinary
   # bullets. They are real work the reviewer identified, and the Medium section
@@ -87,13 +128,13 @@ jq -r '
   # line) while staying out of the flag count. They also carry no file:line —
   # they are not located defects, and inventing a location would be worse.
   # Numbered like findings, but in their OWN sequence with a class prefix
-  # (`#T1`, `#R1`), for one reason: adding a finding must not renumber a
+  # (`T1)`, `R1)`), for one reason: adding a finding must not renumber a
   # residual risk. Cross-round references live in the Skip Areas bullets of the
   # PR body, which the gate reads to decide whether a finding is intentional —
   # a shared sequence would silently repoint every one of them on the next run.
-  # The prefix also keeps the `#N` namespace exactly as it was for consumers
-  # that map a number onto an entry in the findings array; nothing matching
-  # `**#1**` can ever match `**#R1**`.
+  # The prefix also keeps the plain-number namespace exactly as it was for
+  # consumers that map a number onto an entry in the findings array; nothing
+  # matching `**1)**` can ever match `**R1)**`.
   #
   # NOTE for editors: this whole jq program is a single-quoted shell string, so
   # an apostrophe anywhere in these comments terminates it and the script dies
@@ -101,11 +142,36 @@ jq -r '
   #
   # Input is a {key, value} entry so the array index supplies the number.
   def soft_bullet($kind; $tag):
-    "- **#\($tag)\(.key + 1)** 🟡 \($kind): \(.value | clean)";
+    "- **\($tag)\(.key + 1))** 🟡 \($kind): \(.value | clean)";
 
   def soft_items:
     [ (.testing_gaps // []) | to_entries[] | soft_bullet("Testing gap"; "T") ]
     + [ (.residual_risks // []) | to_entries[] | soft_bullet("Residual risk"; "R") ];
+
+  # One sub-bullet per rejection cause, most-frequent first, ties broken on the
+  # reason text so the ordering is total and the output stays byte-deterministic.
+  #
+  # The reason goes in a code span: it is the only text here a model influenced,
+  # and a code span makes every character in it inert markdown. Belt-and-braces —
+  # merge-findings.py already strips the LADR-067 autolink shape and caps the
+  # length before the reason ever gets here.
+  #
+  # Capped at six causes per unit. The enum reasons name the offending value,
+  # which is the single most useful token in the line and also what leaves the
+  # key space open: a chunk emitting fifty findings at fifty distinct off-anchor
+  # confidences would otherwise put fifty sub-bullets into a body GitHub
+  # truncates at 65,536 characters. The six shown are the six worth acting on.
+  def defect_lines($unit):
+    if (length == 0) then empty
+    else
+      [ to_entries | sort_by(-.value, .key) | .[]
+        | "  - `\(.key)` — \(.value) \($unit)\(if .value == 1 then "" else "s" end)" ]
+      | (.[0:6][]),
+        ( (length - 6) as $rest
+          | if $rest > 0
+            then "  - …and \($rest) further cause\(if $rest == 1 then "" else "s" end)"
+            else empty end )
+    end;
 
   def section($sev; $heading):
     "### \($heading)",
@@ -118,7 +184,7 @@ jq -r '
 
   "## 🔍 Issues Summary",
   "",
-  "**Note:** Findings are deduplicated across chunks and numbered stably (`#1`, `#2`, …); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `#R` residual risks, `#T` testing gaps, `#P` pre-existing, `#H` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
   "",
   section("critical"; "🔴 Critical Issues"),
   section("high"; "🟠 High Priority Issues"),
@@ -132,7 +198,7 @@ jq -r '
       ( "### 🗂️ Pre-existing (not introduced by this PR)",
         "",
         ( .pre_existing_findings | to_entries[]
-          | "- **#P\(.key + 1)** \(.value.severity | sev_emoji) \(.value.severity | sev_label): \(.value.title | clean) — `\(.value.file):\(.value.line)`"
+          | "- **P\(.key + 1))** \(.value.severity | sev_emoji) \(.value.severity | sev_label): \(.value.title | clean) — `\(.value.file):\(.value.line)`"
             + (.value.chunks // [] | chunk_ref) ),
         "" )
     else empty end ),
@@ -146,7 +212,7 @@ jq -r '
   # chunks, because the reader’s next question is always "which ones, and
   # where do I look instead".
   ( if $missing_chunks != "" then
-      ( "> \u26a0\ufe0f **Partial structured coverage.** Chunk(s) \($missing_chunks) reviewed successfully but produced no usable structured findings (a truncated or malformed sidecar), so anything they found is **not** in the deduplicated list above. Their full reviews are intact in the detailed sections below \u2014 open `### Chunk #\($missing_chunks)`. The verdict is unaffected: it is computed from the orchestrator summary, which saw every chunk.",
+      ( "> \u26a0\ufe0f **Partial structured coverage.** Chunk(s) \($missing_chunks) reviewed successfully but produced no usable structured findings (a truncated or malformed sidecar), so anything they found is **not** in the deduplicated list above. Their full reviews are intact in the detailed sections below \u2014 open `### Chunk \($missing_chunks)`. The verdict is unaffected: it is computed from the orchestrator summary, which saw every chunk.",
         "" )
     else empty end ),
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",
@@ -161,6 +227,15 @@ jq -r '
         then " (" + ([ .suppressed_by_confidence | to_entries | sort_by(.key | tonumber) | .[] | "confidence \(.key): \(.value)" ] | join(", ")) + ")"
         else "" end ),
   "- **Malformed and dropped:** \(.malformed_findings) finding(s), \(.malformed_returns) chunk document(s)",
+  # Why each rejection happened, one sub-bullet per CAUSE (not per rejected
+  # item). The count alone said something was lost and nothing about how to stop
+  # losing it — and the dominant cause, an off-anchor `confidence`, is a
+  # one-token prompt or schema fix once you can see it. merge-findings.py keys
+  # these on (field, rule), so the list stays short however many findings fell.
+  # `// {}` because a merged document written before this existed — a stale run
+  # artifact, an eval fixture — has no such key and must still render.
+  (.malformed_reasons // {} | defect_lines("finding")),
+  (.malformed_return_reasons // {} | defect_lines("chunk document")),
   "- **Failed or timed-out chunks:** \($failed_chunks) of \($total_chunks)",
   "- **Reviewed chunks with no usable sidecar:** "
     + (if $missing_chunks == "" then "0 (full structured coverage)" else "chunk(s) \($missing_chunks)" end),
