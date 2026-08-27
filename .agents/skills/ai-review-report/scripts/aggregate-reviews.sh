@@ -795,7 +795,7 @@ EOF
 
 if [ "$REVIEW_TYPE" != "incremental" ] && [ -f ci_temp/excluded_files.txt ] && [ -s ci_temp/excluded_files.txt ]; then
   EXCLUDED_COUNT=$(wc -l < ci_temp/excluded_files.txt | tr -d ' ')
-  echo "**Files Excluded:** ${EXCLUDED_COUNT} (auto-generated/lock files)" >> ci_temp/final_review.md
+  echo "**Files Excluded:** ${EXCLUDED_COUNT}" >> ci_temp/final_review.md
 fi
 
 # `**Reviewed in:**` is emitted for BOTH review types. It is coverage
