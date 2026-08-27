@@ -510,11 +510,11 @@ Then open a PR (or comment `/ai-review` on one) to trigger the gate. Full variab
 | State | When it happens | Outcome |
 |---|---|---|
 | **Full review** | First review on a PR, an `/ai-review` comment, a re-requested review, or a manual dispatch | Reviews the entire diff against the merge base. Can **approve**, **request changes**, or comment — and clears any prior blocking state. |
-
-For a one-run scope override, comment on the PR: `/ai-review --file-limit 5 --exclude-deleted --exclude-generated generated/`. Repeat `--exclude-generated` for additional exact paths or directory prefixes. These trusted-comment switches override repository Variables only for that run.
 | **Incremental review** | Later pushes to an already-reviewed PR | Reviews only the new commits since the last reviewed commit. **Never approves** — posts comments only. |
 | **Full review blocked — documentation gate failed** | A full-review PR adds/modifies **no** `*AGENTS.md`, `README.md`, or `SKILL.md`, or introduces a new `*AGENTS.md` that fails the naming/template rules (all changed files exempt-path is excused) | The gate blocks instead of reviewing and posts guidance describing the missing or invalid documentation. |
 | **Review bypassed — changes already requested** | The bot already has an open *changes requested* review | Incremental reviews skip (the existing block stands until addressed). A new **full** review still runs and can clear it. |
+
+For a one-run scope override, comment on the PR: `/ai-review --file-limit 5 --exclude-deleted --exclude-generated generated/`. Repeat `--exclude-generated` for additional exact paths or directory prefixes. These trusted-comment switches override repository Variables only for that run.
 
 ## Requirements
 
