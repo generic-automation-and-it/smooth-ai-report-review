@@ -625,6 +625,7 @@ FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr 
 # stable numbering; Part 2 is the audit trail and must show what each chunk
 # reviewer actually said.
 FINDINGS_SUMMARY_APPLIED="false"
+FINDINGS_SYNCED_DECISION=""
 MERGED_FINDINGS_FILE="ci_temp/findings.merged.json"
 if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # Count chunks the merge actually ingested, not sidecar files on disk. A file
@@ -744,6 +745,29 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
           echo "⚠️ Issues Summary rendered from PARTIAL merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars; chunk(s) ${MISSING_SIDECAR_CHUNKS} contributed none) — ${_fs_mode}"
         else
           echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars) — ${_fs_mode}"
+        fi
+        # issue #125: Issues Summary now comes from the post-validation set, but
+        # Recommendation (counts + MACHINE_READABLE_ACTION) still came from the
+        # orchestrator — which counted the Issues Summary *it* wrote, including
+        # findings the merge later dropped as malformed. Sync counts and the
+        # decision from the same merged document so severity lists, rationale,
+        # and the posted review state cannot disagree. Holistic Critical/High
+        # (no per-chunk sidecar) still block via the holistic file.
+        FINDINGS_SYNCED_DECISION="$(
+          bash "$(dirname "${BASH_SOURCE[0]}")/lib/sync-recommendation-from-findings.sh" \
+            "$MERGED_FINDINGS_FILE" \
+            ci_temp/pr_summary_main.md \
+            ci_temp/pr_summary_detailed.md \
+            2>ci_temp/sync_recommendation.log || true
+        )"
+        if [ -s ci_temp/sync_recommendation.log ]; then
+          cat ci_temp/sync_recommendation.log
+        fi
+        if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
+          echo "✅ Recommendation counts/decision synced from merged findings → ${FINDINGS_SYNCED_DECISION}"
+        else
+          echo "⚠️ Could not sync Recommendation from merged findings — keeping the orchestrator's counts"
+          FINDINGS_SYNCED_DECISION=""
         fi
       else
         rm -f ci_temp/pr_summary_main.rendered.md
@@ -1001,13 +1025,23 @@ fi
 echo ""
 echo "✅ Final review comment prepared"
 
-# Determine review action from summary
-# First try to parse the machine-readable action field (more reliable)
-REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
-  | tail -1 \
-  | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
-  | tr '[:upper:]' '[:lower:]' \
-  | tr -d '[:space:]')
+# Determine review action from summary.
+# Prefer the decision synced from the post-validation merged findings (issue
+# #125) when the Issues Summary was replaced from that same set — severity
+# lists, count lines, and MACHINE_READABLE_ACTION must agree. Fall back to the
+# orchestrator's original field only when the sync did not run.
+if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
+  REVIEW_DECISION="$(printf '%s' "$FINDINGS_SYNCED_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  echo "📋 Review decision taken from synced merged findings: ${REVIEW_DECISION}"
+else
+  # Parse the machine-readable action field from the orchestrator summary
+  # (more reliable than free-text "Decision:" prose).
+  REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
+    | tail -1 \
+    | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -d '[:space:]')
+fi
 
 # Fail-closed safety net: if ANY chunk failed to review, never APPROVE regardless
 # of the summarizer's verdict — a failed chunk means part of the PR was not
@@ -1031,19 +1065,15 @@ if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
   fi
 fi
 
-# LADR-055: the decision above is parsed from the ORCHESTRATOR's summary, which
-# counts the Issues Summary it wrote. When we replaced that section with one
-# rendered from the merged findings, the two can disagree — a Critical/High that
-# every chunk reported but the orchestrator dropped would now be printed in the
-# body under a posted APPROVE. That is precisely the body↔state contradiction
-# LADR-036 exists to prevent, so escalate.
-#
-# This is deliberately one-directional. It can only turn approve/comment into
-# request_changes; it can never turn request_changes into anything softer, so a
-# cross-chunk finding the orchestrator raised holistically — which by definition
-# has no per-chunk sidecar entry — still blocks. Structured findings can add a
-# reason to block; they can never remove one.
-if [ "${FINDINGS_SUMMARY_APPLIED:-false}" = "true" ] && [ "$REVIEW_DECISION" != "request_changes" ]; then
+# LADR-055 + issue #125: when the Issues Summary was rendered from merged
+# findings but the Recommendation sync above did NOT run, keep the original
+# one-directional escalation — a Critical/High present in the merged set but
+# absent from the orchestrator's prose must still force request_changes. The
+# sync path already applied the same rule (and the reverse: dropped findings
+# no longer gate), so this is only a fallback.
+if [ -z "${FINDINGS_SYNCED_DECISION:-}" ] \
+   && [ "${FINDINGS_SUMMARY_APPLIED:-false}" = "true" ] \
+   && [ "$REVIEW_DECISION" != "request_changes" ]; then
   BLOCKING_FINDING_COUNT=$(jq '[(.findings // [])[] | select(.severity == "critical" or .severity == "high")] | length' \
     "$MERGED_FINDINGS_FILE" 2>/dev/null || echo "INVALID")
   if [ "$BLOCKING_FINDING_COUNT" = "INVALID" ]; then

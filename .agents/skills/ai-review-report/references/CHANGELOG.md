@@ -3,6 +3,8 @@
 > Load only when updating the skill or auditing past decisions; not needed for routine execution.
 >
 > **Imported history:** entries before 2026-06-01 predate this polyrepo. Legacy names (`.ai/`, `gemini-code-review`, `manual-gemini-cli-code-review.yml`) do not exist here; preserved as audit trail.
+
+| 2026-08-28 | **Verdict and Issues Summary now share one post-validation finding set (issue #125).** A FULL review posted `REQUEST_CHANGES` while every severity section said "None found": the chunk emitter omitted `requires_verification` on two confidence-100 `[VERIFIED]` findings, `merge-findings.py` dropped them as `requires_verification: missing`, the Issues Summary rendered from the empty merged set, and the Recommendation/verdict still counted the orchestrator's pre-drop Issues Summary (1 High + 1 Medium). Two fixes, both load-bearing: (1) **schema drift** — `requires_verification` is no longer hard-required; absent defaults to `false` (same conservative reading as `verified`); present-but-wrong-type still rejects; the chunk prompt now explains the field. (2) **single source of truth** — when the Issues Summary is rendered from merged findings, `lib/sync-recommendation-from-findings.sh` rewrites Recommendation counts, rationale, and `MACHINE_READABLE_ACTION` from that same document so severity lists and the posted review state cannot disagree. Holistic Critical/High (no per-chunk sidecar) still block; failed chunks still fail-closed (LADR-031/036). `test-merge-findings.sh` 24a–24i + 25a–25k. | issue #125 |
 >
 > Full LADR narratives (Context/Decision/Consequences) live in the skill `AGENTS.md`.
 

@@ -996,6 +996,167 @@ PYEOF
   fi
 fi
 
+# --- Test 24: missing requires_verification is defaulted, not dropped (issue #125) ---
+# Production failure: gpt-5.6-sol emitted confidence-100 [VERIFIED] findings with
+# no requires_verification field; merge counted them malformed and the posted
+# Issues Summary said "None found" under a REQUEST_CHANGES verdict. Absent must
+# default to false; present-but-wrong-type must still reject.
+missing_rv='[{"chunk":0,"findings":[{
+  "title":"Canonical identifier inherits mutable state",
+  "severity":"high",
+  "file":"CardIdentifier.cs",
+  "line":23,
+  "why_it_matters":"Callers observe shared mutable identity.",
+  "confidence":100,
+  "verified":true,
+  "first_evidence":"CardIdentifier.cs:23 -- public sealed class CardIdentifier",
+  "pre_existing":false,
+  "autofix_class":"gated_auto",
+  "owner":"downstream-resolver"
+},{
+  "title":"Diagnostics path skips null guard",
+  "severity":"medium",
+  "file":"CardIdentifierDiagnostics.cs",
+  "line":20,
+  "why_it_matters":"Null input throws instead of a structured error.",
+  "confidence":100,
+  "verified":true,
+  "first_evidence":"CardIdentifierDiagnostics.cs:20 -- return value.ToString();",
+  "pre_existing":false,
+  "autofix_class":"manual",
+  "owner":"human"
+}],"residual_risks":[],"testing_gaps":[]}]'
+out="$(printf '%s' "$missing_rv" | merge)"
+check "Test 24a: missing requires_verification does not count as malformed" "0" \
+  "$(printf '%s' "$out" | jq -r .malformed_findings)"
+check "Test 24b: both findings survive into the actionable set" "2" \
+  "$(printf '%s' "$out" | jq '.findings | length')"
+check "Test 24c: high finding is present (gates the verdict)" "1" \
+  "$(printf '%s' "$out" | jq '[.findings[] | select(.severity=="high")] | length')"
+check "Test 24d: requires_verification defaults to false" "false" \
+  "$(printf '%s' "$out" | jq -r '.findings[0].requires_verification')"
+check "Test 24e: medium finding also defaulted" "false" \
+  "$(printf '%s' "$out" | jq -r '.findings[] | select(.severity=="medium") | .requires_verification')"
+
+# Wrong-typed present value must still reject — defaulting is for ABSENCE only.
+bad_rv_type='[{"chunk":0,"findings":[{
+  "title":"t","severity":"high","file":"f","line":1,"why_it_matters":"w",
+  "confidence":100,"verified":true,"first_evidence":"f:1 -- q",
+  "pre_existing":false,"requires_verification":"yes",
+  "autofix_class":"gated_auto","owner":"downstream-resolver"
+}],"residual_risks":[],"testing_gaps":[]}]'
+out="$(printf '%s' "$bad_rv_type" | merge)"
+check "Test 24f: wrong-typed requires_verification is still malformed" "1" \
+  "$(printf '%s' "$out" | jq -r .malformed_findings)"
+check "Test 24g: wrong-typed requires_verification reason is typed" "requires_verification: wrong type, got string" \
+  "$(printf '%s' "$out" | jq -r '.malformed_reasons | keys[0]')"
+check "Test 24h: wrong-typed finding does not survive" "0" \
+  "$(printf '%s' "$out" | jq '.findings | length')"
+
+# Explicit true must still OR across a dedup group (regression against Test 5c).
+rv_true='[{"chunk":0,"findings":[{
+  "title":"t","severity":"high","file":"f","line":1,"why_it_matters":"w",
+  "confidence":100,"verified":true,"first_evidence":"f:1 -- q",
+  "pre_existing":false,"requires_verification":true,
+  "autofix_class":"gated_auto","owner":"downstream-resolver"
+}],"residual_risks":[],"testing_gaps":[]}]'
+out="$(printf '%s' "$rv_true" | merge)"
+check "Test 24i: explicit requires_verification true is preserved" "true" \
+  "$(printf '%s' "$out" | jq -r '.findings[0].requires_verification')"
+
+# --- Test 25: Recommendation sync from merged findings (issue #125) ----------
+SYNC_SH="$SCRIPT_DIR/lib/sync-recommendation-from-findings.sh"
+if [ -x "$SYNC_SH" ]; then
+  # Build a merged document with 1 high + 1 medium (the production shape).
+  printf '%s' "$missing_rv" | merge > "$TMP_DIR/sync-merged.json"
+
+  cat > "$TMP_DIR/sync-summary.md" <<'EOF'
+## 🔍 Issues Summary
+### 🔴 Critical Issues
+None found
+## 🎯 Recommendation
+**Step 1: Count ACTUAL issues in your "Issues Summary" section above**
+- Count of 🔴 Critical Issues: 0
+- Count of 🟠 High Priority Issues: 1
+- Count of 🟡 Medium Priority Issues: 1
+- Count of 🔵 Low Priority Issues: 0
+- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR
+
+**Decision:** REQUEST CHANGES
+**Rationale:** Following policy: 0 critical and 1 high priority issue found - requesting changes.
+**MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+EOF
+
+  # Empty holistic — decision comes purely from merged findings.
+  : > "$TMP_DIR/sync-holistic.md"
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-merged.json" "$TMP_DIR/sync-summary.md" "$TMP_DIR/sync-holistic.md" 2>"$TMP_DIR/sync.err")"
+  check "Test 25a: high finding forces request_changes" "request_changes" "$decision"
+  check "Test 25b: high count rewritten to 1" "1" \
+    "$(grep -E 'Count of 🟠 High Priority Issues:' "$TMP_DIR/sync-summary.md" | grep -oE '[0-9]+' | head -1)"
+  check "Test 25c: medium count rewritten to 1" "1" \
+    "$(grep -E 'Count of 🟡 Medium Priority Issues:' "$TMP_DIR/sync-summary.md" | grep -oE '[0-9]+' | head -1)"
+  check "Test 25d: MACHINE_READABLE_ACTION is REQUEST_CHANGES" "1" \
+    "$(grep -cF '**MACHINE_READABLE_ACTION:** REQUEST_CHANGES' "$TMP_DIR/sync-summary.md" || true)"
+  check "Test 25e: pre-existing trailing note preserved" "1" \
+    "$(grep -cF 'Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR' "$TMP_DIR/sync-summary.md" || true)"
+
+  # Empty merged findings + orchestrator still saying REQUEST_CHANGES (the
+  # production contradiction after a hard drop) must soften to approve when
+  # holistic has nothing blocking.
+  cat > "$TMP_DIR/sync-empty-merged.json" <<'EOF'
+{"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[],"residual_risks":[],"testing_gaps":[],"suppressed_by_confidence":{},"demoted_no_quote":0,"merged_duplicates":0,"malformed_findings":2,"malformed_returns":0,"malformed_reasons":{"requires_verification: missing":2},"malformed_return_reasons":{}}
+EOF
+  cat > "$TMP_DIR/sync-empty-summary.md" <<'EOF'
+## 🎯 Recommendation
+- Count of 🔴 Critical Issues: 0
+- Count of 🟠 High Priority Issues: 1
+- Count of 🟡 Medium Priority Issues: 1
+- Count of 🔵 Low Priority Issues: 0
+- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR
+**Decision:** REQUEST CHANGES
+**Rationale:** Following policy: 0 critical and 1 high priority issue found - requesting changes.
+**MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+EOF
+  : > "$TMP_DIR/sync-empty-holistic.md"
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary.md" "$TMP_DIR/sync-empty-holistic.md" 2>/dev/null)"
+  check "Test 25f: empty merged + no holistic softens to approve" "approve" "$decision"
+  check "Test 25g: high count rewritten to 0" "0" \
+    "$(grep -E 'Count of 🟠 High Priority Issues:' "$TMP_DIR/sync-empty-summary.md" | grep -oE '[0-9]+' | head -1)"
+  check "Test 25h: MACHINE_READABLE_ACTION is APPROVE" "1" \
+    "$(grep -cF '**MACHINE_READABLE_ACTION:** APPROVE' "$TMP_DIR/sync-empty-summary.md" || true)"
+  check "Test 25i: rationale no longer claims a high finding" "0" \
+    "$(grep -cE '1 high priority' "$TMP_DIR/sync-empty-summary.md" || true)"
+
+  # Holistic Critical/High still blocks even when merged is empty.
+  cat > "$TMP_DIR/sync-holistic-block.md" <<'EOF'
+## 🔄 Holistic Cross-Chunk Analysis
+**Cross-Chunk Issues Found:**
+
+🔴 **Critical Issues**
+- **H1)** Auth middleware registration is missing across both API chunks
+
+🟠 **High Priority Issues**
+None found
+EOF
+  cat > "$TMP_DIR/sync-empty-summary2.md" <<'EOF'
+## 🎯 Recommendation
+- Count of 🔴 Critical Issues: 0
+- Count of 🟠 High Priority Issues: 0
+- Count of 🟡 Medium Priority Issues: 0
+- Count of 🔵 Low Priority Issues: 0
+- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR
+**Decision:** APPROVE
+**Rationale:** Following policy: Only 0 medium and 0 low priority issues found - approving.
+**MACHINE_READABLE_ACTION:** APPROVE
+EOF
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary2.md" "$TMP_DIR/sync-holistic-block.md" 2>/dev/null)"
+  check "Test 25j: holistic Critical still forces request_changes" "request_changes" "$decision"
+  check "Test 25k: holistic rationale names the holistic path" "1" \
+    "$(grep -cF 'holistic cross-chunk' "$TMP_DIR/sync-empty-summary2.md" || true)"
+else
+  echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 25"
+fi
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"

@@ -62,9 +62,22 @@ REQUIRED_FINDING = {
     "why_it_matters": str,
     "confidence": int,
     "pre_existing": bool,
-    "requires_verification": bool,
+    # `requires_verification` is intentionally NOT hard-required here: producers
+    # routinely omit it (the chunk prompt shows it in the example but historically
+    # never explained it in the rules list), and dropping an otherwise complete
+    # confidence-100 [VERIFIED] finding for a missing unconsumed routing field
+    # left Issues Summary empty under a REQUEST_CHANGES verdict (issue #125).
+    # Absent is defaulted to false below — same conservative "no claim made"
+    # reading as `verified`. Present-but-wrong-type is still a defect.
     "autofix_class": str,
     "owner": str,
+}
+
+# Soft defaults applied before validation when the key is absent. Wrong-typed
+# present values still reject. Keep this map small: only fields whose absence
+# must not discard a finding that is otherwise complete.
+FINDING_DEFAULTS = {
+    "requires_verification": False,
 }
 
 
@@ -152,6 +165,22 @@ def return_defect(value):
     return None
 
 
+def apply_finding_defaults(value):
+    """Return a shallow copy with FINDING_DEFAULTS filled in for absent keys.
+
+    Only absent keys are filled — a present wrong-typed value is left for
+    finding_defect to reject. Callers must pass the result through
+    finding_defect before trusting it.
+    """
+    if not isinstance(value, dict):
+        return value
+    out = dict(value)
+    for key, default in FINDING_DEFAULTS.items():
+        if key not in out:
+            out[key] = default
+    return out
+
+
 def finding_defect(value):
     if not isinstance(value, dict):
         return "finding: not an object"
@@ -159,6 +188,16 @@ def finding_defect(value):
         defect = field_defect(value, key, expected)
         if defect:
             return defect
+    # Soft-defaulted fields: when present (including after apply_finding_defaults)
+    # they must still be the right type. Absent keys never reach here because
+    # apply_finding_defaults runs first in the main loop.
+    for key, expected in (
+        ("requires_verification", bool),
+    ):
+        if key in value:
+            defect = field_defect(value, key, expected)
+            if defect:
+                return defect
     for key in ("title", "file", "why_it_matters"):
         if not nonempty_string(value[key]):
             return "%s: empty" % key
@@ -391,6 +430,11 @@ def main():
                 testing_seen.add(soft_key(item))
                 testing_gaps.append(item.strip())
         for finding in source["findings"]:
+            # Soft-default absent routing fields before validation so a missing
+            # unconsumed signal cannot discard an otherwise complete finding
+            # (issue #125: requires_verification). Wrong-typed present values
+            # still reject via finding_defect.
+            finding = apply_finding_defaults(finding)
             defect = finding_defect(finding)
             if defect:
                 malformed_findings += 1
