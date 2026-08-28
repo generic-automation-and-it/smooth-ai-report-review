@@ -212,7 +212,7 @@ jq -r '
   # chunks, because the reader’s next question is always "which ones, and
   # where do I look instead".
   ( if $missing_chunks != "" then
-      ( "> \u26a0\ufe0f **Partial structured coverage.** Chunk(s) \($missing_chunks) reviewed successfully but produced no usable structured findings (a truncated or malformed sidecar), so anything they found is **not** in the deduplicated list above. Their full reviews are intact in the detailed sections below \u2014 open `### Chunk \($missing_chunks)`. Recommendation counts and the posted verdict are taken from this same post-validation set (plus any holistic Critical/High); findings that never reached a sidecar cannot gate on their own.",
+      ( "> \u26a0\ufe0f **Partial structured coverage.** Chunk(s) \($missing_chunks) reviewed successfully but produced no usable structured findings (a truncated or malformed sidecar), so anything they found is **not** in the deduplicated list above. Their full reviews are intact in the detailed sections below \u2014 open `### Chunk \($missing_chunks)`. The verdict is unaffected: on partial coverage the Recommendation is **not** synced from this set \u2014 counts and the posted state stay with the orchestrator summary, which saw every chunk, and a Critical/High here can still force `request_changes` on top of it.",
         "" )
     else empty end ),
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",

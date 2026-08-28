@@ -23,7 +23,12 @@ SCORE_SH="$SCRIPT_DIR/eval/lib/score-review.sh"
 ANALYSE_SCOPE_SH="$SCRIPT_DIR/lib/extract-ai-analyse-scope.sh"
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+# SUITE_COMPLETED is flipped to 1 on the last line. Without this, a `set -e`
+# abort mid-suite exits non-zero but prints a screen full of ✅ and no summary,
+# which reads exactly like a pass to anyone skimming (that is how the Test 17d
+# brace-expansion abort hid Tests 18-25 from every run for two releases).
+SUITE_COMPLETED=0
+trap 'rc=$?; rm -rf "$TMP_DIR"; if [ "$SUITE_COMPLETED" != "1" ]; then echo ""; echo "❌ SUITE ABORTED EARLY (exit $rc) — assertions after this point never ran"; fi' EXIT
 
 echo "=========================================="
 echo "Testing merge-findings (LADR-055)"
@@ -595,12 +600,20 @@ check "Test 17b: and is not counted malformed" "0" "$(printf '%s' "$out" | jq -r
 check "Test 17c: it keeps confidence 100 (first_evidence satisfies the gate)" "100" \
   "$(printf '%s' "$out" | jq -r '.findings[0].confidence')"
 
-out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":[\"f:1 -- q\"]}")" | merge)"
+# Build the finding object in a variable first. Writing the braces inline as
+# "{$_ev_base,\"evidence\":[...]}" inside a nested command substitution loses the
+# quoting: bash brace-expanded `{A,B}` into two separate `doc` calls, the merge
+# helper got unparseable JSON, exited 2, and `set -e` killed the whole suite at
+# this line — silently taking Tests 18-25 with it.
+_ev_with_evidence="{$_ev_base,"'"evidence":["f:1 -- q"]}'
+out="$(printf '[ %s ]' "$(doc 0 "$_ev_with_evidence")" | merge)"
 check "Test 17d: a legacy finding WITH evidence still validates" "1" "$(printf '%s' "$out" | jq '.findings | length')"
 
-out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":[]}")" | merge)"
+_ev_empty_evidence="{$_ev_base,"'"evidence":[]}'
+out="$(printf '[ %s ]' "$(doc 0 "$_ev_empty_evidence")" | merge)"
 check "Test 17e: an empty evidence array is still malformed" "1" "$(printf '%s' "$out" | jq -r .malformed_findings)"
-out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":\"a string\"}")" | merge)"
+_ev_string_evidence="{$_ev_base,"'"evidence":"a string"}'
+out="$(printf '[ %s ]' "$(doc 0 "$_ev_string_evidence")" | merge)"
 check "Test 17f: a wrong-typed evidence field is still malformed" "1" "$(printf '%s' "$out" | jq -r .malformed_findings)"
 
 # A finding with neither evidence nor first_evidence must still be demoted —
@@ -1157,8 +1170,135 @@ else
   echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 25"
 fi
 
+# --- Test 26: the sync may only soften where softening is evidence ----------
+# Every assertion here is a regression guard for a way the issue-#125 sync could
+# post a GREENER state than the document it renders from.
+AGG_SH="$SCRIPT_DIR/aggregate-reviews.sh"
+ANNOTATE_SH="$SCRIPT_DIR/lib/annotate-suggested-fixes.sh"
+if [ -x "$SYNC_SH" ]; then
+  cat > "$TMP_DIR/s26-medium.json" <<'MJ'
+{"status":"complete","merged_chunks":[0],"findings":[{"severity":"medium"}],"pre_existing_findings":[],"suppressed_findings":[],"malformed_findings":0,"demoted_no_quote":0}
+MJ
+
+  # A model that writes its holistic blockers as severity-prefixed bullets
+  # instead of under the template's subsection headings must still gate. The
+  # first implementation matched those bullets AS headings and counted zero.
+  printf '**Cross-Chunk Issues Found:**\n\n- **H1)** 🔴 Critical: shared DbContext across parallel tasks.\n- **H2)** 🟠 High: removed method still called.\n' \
+    > "$TMP_DIR/s26-h-inline.md"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-a.md"
+  check "Test 26a: severity-prefixed holistic bullets still block" "request_changes" \
+    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-a.md" "$TMP_DIR/s26-h-inline.md" 2>/dev/null)"
+
+  # The template's own layout must keep working.
+  printf '**Cross-Chunk Issues Found:**\n\n🔴 **Critical Issues**\n- **H1)** Auth middleware missing.\n\n🟠 **High Priority Issues**\nNone found\n' \
+    > "$TMP_DIR/s26-h-heading.md"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** APPROVE\n' > "$TMP_DIR/s26-b.md"
+  check "Test 26b: heading-style holistic Critical still blocks" "request_changes" \
+    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-b.md" "$TMP_DIR/s26-h-heading.md" 2>/dev/null)"
+
+  # ...and a holistic section with nothing blocking must NOT invent a block:
+  # placeholders, a Medium bullet and the trailing prose bullets are all benign.
+  printf '**Cross-Chunk Issues Found:**\n\n🔴 **Critical Issues**\n- None found\n\n🟡 **Medium Priority Issues**\n- 🟡 Medium: naming drift.\n\n**Additional Analysis:**\n- **Consistency:** fine\n' \
+    > "$TMP_DIR/s26-h-clean.md"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-c.md"
+  check "Test 26c: a holistic section with no blocker does not block" "approve" \
+    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-c.md" "$TMP_DIR/s26-h-clean.md" 2>/dev/null)"
+
+  # Count rewriting must survive the label shapes a model actually emits: bold
+  # labels, an unfilled template placeholder, and trailing prose.
+  cat > "$TMP_DIR/s26-counts.md" <<'CM'
+## 🎯 Recommendation
+- Count of 🔴 Critical Issues: [number - DO NOT count "None found" as an issue]
+- **Count of 🟠 High Priority Issues:** 4
+- Count of 🟡 Medium Priority Issues: 7 (see below)
+- **Count of 🗂️ Pre-existing issues:** 5 — these do NOT block the PR
+**MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+CM
+  bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-counts.md" >/dev/null 2>&1 || true
+  check "Test 26d: an unfilled count placeholder is replaced by the number" "1" \
+    "$(grep -cF -- '- Count of 🔴 Critical Issues: 0' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26e: a bold count label is rewritten, emphasis intact" "1" \
+    "$(grep -cF -- '- **Count of 🟠 High Priority Issues:** 0' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26f: a stale bold count never survives the sync" "0" \
+    "$(grep -cF -- 'High Priority Issues:** 4' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26g: trailing prose after a count is preserved" "1" \
+    "$(grep -cF -- '- Count of 🟡 Medium Priority Issues: 1 (see below)' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26h: bold pre-existing label keeps its note and is not duplicated" "1" \
+    "$(grep -cF -- '- **Count of 🗂️ Pre-existing issues:** 0 — these do NOT block the PR' "$TMP_DIR/s26-counts.md" || true)"
+
+  # A deliberate COMMENT verdict must not be upgraded into a real GitHub APPROVE.
+  printf '## 🎯 Recommendation\n**Decision:** COMMENT\n**MACHINE_READABLE_ACTION:** COMMENT\n' > "$TMP_DIR/s26-comment.md"
+  check "Test 26i: an orchestrator COMMENT is preserved, not upgraded" "comment" \
+    "$(SYNC_ORIGINAL_ACTION=COMMENT bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-comment.md" 2>/dev/null)"
+  check "Test 26j: the posted action matches that decision" "1" \
+    "$(grep -cF '**MACHINE_READABLE_ACTION:** COMMENT' "$TMP_DIR/s26-comment.md" || true)"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-soften.md"
+  check "Test 26k: a REQUEST_CHANGES with no surviving blocker still softens" "approve" \
+    "$(SYNC_ORIGINAL_ACTION=REQUEST_CHANGES bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-soften.md" 2>/dev/null)"
+else
+  echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 26a-k"
+fi
+
+# The two preconditions live in the caller, so assert them at the source: a
+# refactor that drops either one reopens a fail-open path that no unit test of
+# the sync script itself can see.
+if [ -f "$AGG_SH" ]; then
+  check "Test 26l: the sync is skipped on partial sidecar coverage" "1" \
+    "$(awk '/Recommendation NOT synced/ && /partial sidecar coverage/ {n++} END{print n+0}' "$AGG_SH")"
+  check "Test 26m: partial coverage is the guard, not just the message" "1" \
+    "$(awk '/if \[ -n "\$MISSING_SIDECAR_CHUNKS" \]/{f=1} f && /Recommendation NOT synced/{print 1; exit}' "$AGG_SH")"
+  check "Test 26n: the sync is skipped when the orchestrator summary failed" "1" \
+    "$(awk '/elif \[ "\$\{agg_ok:-true\}" != "true" \]/{print 1; exit}' "$AGG_SH")"
+  check "Test 26o: the orchestrator action is forwarded so COMMENT survives" "1" \
+    "$(awk '/SYNC_ORIGINAL_ACTION="\$\{ORCHESTRATOR_ACTION:-\}"/{print 1; exit}' "$AGG_SH")"
+  check "Test 26p: the escalate-only fallback still guards the skip paths" "1" \
+    "$(awk '/if \[ -z "\$\{FINDINGS_SYNCED_DECISION:-\}" \]/{print 1; exit}' "$AGG_SH")"
+fi
+
+# --- Test 27: Suggested Fixes reconciliation note ---------------------------
+if [ -x "$ANNOTATE_SH" ]; then
+  cat > "$TMP_DIR/s27-dropped.json" <<'DJ'
+{"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[{"x":1}],"malformed_findings":2,"demoted_no_quote":1}
+DJ
+  printf '## 🔍 Issues Summary\nx\n\n## 📝 Suggested Fixes\n1. Normalize reader byte order.\n\n## 🎯 Recommendation\n' \
+    > "$TMP_DIR/s27.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-dropped.json" "$TMP_DIR/s27.md" 2>/dev/null || true
+  check "Test 27a: a note explains fixes with no numbered finding" "1" \
+    "$(grep -c 'Some suggested fixes may have no numbered finding' "$TMP_DIR/s27.md" || true)"
+  check "Test 27b: it names the malformed count" "1" \
+    "$(grep -c '2 finding(s) were dropped as malformed' "$TMP_DIR/s27.md" || true)"
+  check "Test 27c: it names the suppressed count" "1" \
+    "$(grep -c '1 were suppressed below the actionable confidence anchor' "$TMP_DIR/s27.md" || true)"
+  check "Test 27d: it names the demotion count" "1" \
+    "$(grep -c '1 were demoted for not quoting the motivating line' "$TMP_DIR/s27.md" || true)"
+  check "Test 27e: the suggested fix itself survives" "1" \
+    "$(grep -c 'Normalize reader byte order' "$TMP_DIR/s27.md" || true)"
+  check "Test 27f: LADR-067 — the note autolinks nothing" "0" \
+    "$(grep -cE '#[0-9]' "$TMP_DIR/s27.md" || true)"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-dropped.json" "$TMP_DIR/s27.md" 2>/dev/null || true
+  check "Test 27g: it is idempotent" "1" \
+    "$(grep -c 'Some suggested fixes may have no numbered finding' "$TMP_DIR/s27.md" || true)"
+
+  cat > "$TMP_DIR/s27-clean.json" <<'CJ'
+{"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[],"malformed_findings":0,"demoted_no_quote":0}
+CJ
+  printf '## 📝 Suggested Fixes\n1. x\n' > "$TMP_DIR/s27-clean.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-clean.json" "$TMP_DIR/s27-clean.md" 2>/dev/null || true
+  check "Test 27h: nothing dropped means no note at all" "0" \
+    "$(grep -c 'Some suggested fixes' "$TMP_DIR/s27-clean.md" || true)"
+  printf 'no heading here\n' > "$TMP_DIR/s27-noheading.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-dropped.json" "$TMP_DIR/s27-noheading.md" 2>/dev/null
+  check "Test 27i: a summary with no Suggested Fixes heading is untouched" "no heading here" \
+    "$(cat "$TMP_DIR/s27-noheading.md")"
+  bash "$ANNOTATE_SH" "$TMP_DIR/missing.json" "$TMP_DIR/s27-clean.md" 2>/dev/null
+  check "Test 27j: a missing merged document never fails the caller" "0" "$?"
+else
+  echo "⏭️  annotate-suggested-fixes.sh missing — skipping Test 27"
+fi
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
 echo "=========================================="
+SUITE_COMPLETED=1
 [ "$fail" -eq 0 ]

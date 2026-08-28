@@ -626,6 +626,19 @@ FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr 
 # reviewer actually said.
 FINDINGS_SUMMARY_APPLIED="false"
 FINDINGS_SYNCED_DECISION=""
+# Parse the orchestrator's own machine-readable action ONCE, here, while
+# ci_temp/pr_summary.md is still exactly what the model (or the failure
+# fallback) produced. Two consumers need it and they must not disagree: the
+# Recommendation sync uses it to preserve a deliberate COMMENT verdict rather
+# than manufacturing an APPROVE, and the decision block at the end of this
+# script uses it when the sync did not run. Nothing rewrites pr_summary.md after
+# this point — the splice and the sync both edit pr_summary_main.md — so one
+# parse is enough.
+ORCHESTRATOR_ACTION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
+  | tail -1 \
+  | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
+  | tr '[:upper:]' '[:lower:]' \
+  | tr -d '[:space:]')
 MERGED_FINDINGS_FILE="ci_temp/findings.merged.json"
 if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # Count chunks the merge actually ingested, not sidecar files on disk. A file
@@ -753,22 +766,54 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         # decision from the same merged document so severity lists, rationale,
         # and the posted review state cannot disagree. Holistic Critical/High
         # (no per-chunk sidecar) still block via the holistic file.
-        FINDINGS_SYNCED_DECISION="$(
-          bash "$(dirname "${BASH_SOURCE[0]}")/lib/sync-recommendation-from-findings.sh" \
-            "$MERGED_FINDINGS_FILE" \
-            ci_temp/pr_summary_main.md \
-            ci_temp/pr_summary_detailed.md \
-            2>ci_temp/sync_recommendation.log || true
-        )"
-        if [ -s ci_temp/sync_recommendation.log ]; then
-          cat ci_temp/sync_recommendation.log
-        fi
-        if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
-          echo "✅ Recommendation counts/decision synced from merged findings → ${FINDINGS_SYNCED_DECISION}"
+        #
+        # The sync can SOFTEN a verdict, so it is allowed only where "no
+        # Critical/High in the merged set" is actually evidence about the PR.
+        # Two cases where it is not, and where we keep the orchestrator's
+        # Recommendation plus the one-directional escalate-only override below:
+        #
+        #   1. PARTIAL sidecar coverage. A reviewed chunk contributed nothing to
+        #      the merged set — most often because the sidecar is emitted last
+        #      and got truncated (PR #106, PR #111). Its findings are absent from
+        #      this document but present verbatim in Part 2, so softening here
+        #      would post an APPROVE over a Critical the reader can see. Nobody
+        #      dropped that finding on purpose; it just never arrived.
+        #   2. The orchestrator summary FAILED. Its fallback template hardcodes
+        #      REQUEST_CHANGES *because* nothing about the run is trustworthy
+        #      ("manual review required for safety"). Rewriting that to APPROVE
+        #      inverts a fail-closed guard into a fail-open one.
+        if [ -n "$MISSING_SIDECAR_CHUNKS" ]; then
+          echo "ℹ️ Recommendation NOT synced — partial sidecar coverage (chunk(s) ${MISSING_SIDECAR_CHUNKS} contributed none, so their findings cannot be proven absent); keeping the orchestrator's counts and the escalate-only override"
+        elif [ "${agg_ok:-true}" != "true" ]; then
+          echo "ℹ️ Recommendation NOT synced — the orchestrator summary failed and its REQUEST_CHANGES fallback is a fail-closed guard; keeping it and the escalate-only override"
         else
-          echo "⚠️ Could not sync Recommendation from merged findings — keeping the orchestrator's counts"
-          FINDINGS_SYNCED_DECISION=""
+          FINDINGS_SYNCED_DECISION="$(
+            SYNC_ORIGINAL_ACTION="${ORCHESTRATOR_ACTION:-}" \
+            bash "$(dirname "${BASH_SOURCE[0]}")/lib/sync-recommendation-from-findings.sh" \
+              "$MERGED_FINDINGS_FILE" \
+              ci_temp/pr_summary_main.md \
+              ci_temp/pr_summary_detailed.md \
+              2>ci_temp/sync_recommendation.log || true
+          )"
+          if [ -s ci_temp/sync_recommendation.log ]; then
+            cat ci_temp/sync_recommendation.log
+          fi
+          if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
+            echo "✅ Recommendation counts/decision synced from merged findings → ${FINDINGS_SYNCED_DECISION}"
+          else
+            echo "⚠️ Could not sync Recommendation from merged findings — keeping the orchestrator's counts"
+            FINDINGS_SYNCED_DECISION=""
+          fi
         fi
+        # issue #125 also asks that `## 📝 Suggested Fixes` derive from the same
+        # post-validation set. It cannot: it is orchestrator prose with no
+        # deterministic mapping back to a merged finding. Rather than leave the
+        # reader to discover a suggested fix that has no numbered finding and
+        # conclude the report contradicts itself, say why — with counts — when
+        # the merge dropped, suppressed or demoted anything. Best-effort; a
+        # missing note is cosmetic.
+        bash "$(dirname "${BASH_SOURCE[0]}")/lib/annotate-suggested-fixes.sh" \
+          "$MERGED_FINDINGS_FILE" ci_temp/pr_summary_main.md || true
       else
         rm -f ci_temp/pr_summary_main.rendered.md
         echo "⚠️ Issues Summary splice produced no output — keeping the orchestrator's"
@@ -1034,13 +1079,9 @@ if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
   REVIEW_DECISION="$(printf '%s' "$FINDINGS_SYNCED_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   echo "📋 Review decision taken from synced merged findings: ${REVIEW_DECISION}"
 else
-  # Parse the machine-readable action field from the orchestrator summary
-  # (more reliable than free-text "Decision:" prose).
-  REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
-    | tail -1 \
-    | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
-    | tr '[:upper:]' '[:lower:]' \
-    | tr -d '[:space:]')
+  # The orchestrator's own machine-readable action, parsed once near the merged-
+  # findings block (more reliable than free-text "Decision:" prose).
+  REVIEW_DECISION="${ORCHESTRATOR_ACTION:-}"
 fi
 
 # Fail-closed safety net: if ANY chunk failed to review, never APPROVE regardless
