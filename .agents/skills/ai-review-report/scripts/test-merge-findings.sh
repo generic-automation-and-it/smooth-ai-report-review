@@ -1097,8 +1097,8 @@ EOF
     "$(grep -E 'Count of 🟡 Medium Priority Issues:' "$TMP_DIR/sync-summary.md" | grep -oE '[0-9]+' | head -1)"
   check "Test 25d: MACHINE_READABLE_ACTION is REQUEST_CHANGES" "1" \
     "$(grep -cF '**MACHINE_READABLE_ACTION:** REQUEST_CHANGES' "$TMP_DIR/sync-summary.md" || true)"
-  check "Test 25e: pre-existing trailing note preserved" "1" \
-    "$(grep -cF 'Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR' "$TMP_DIR/sync-summary.md" || true)"
+  check "Test 25e: pre-existing trailing note and bullet prefix preserved" "1" \
+    "$(grep -cF -- '- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR' "$TMP_DIR/sync-summary.md" || true)"
 
   # Empty merged findings + orchestrator still saying REQUEST_CHANGES (the
   # production contradiction after a hard drop) must soften to approve when

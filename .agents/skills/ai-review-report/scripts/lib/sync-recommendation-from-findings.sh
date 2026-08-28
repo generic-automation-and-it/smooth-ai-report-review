@@ -92,13 +92,23 @@ if [ -n "$holistic" ] && [ -s "$holistic" ]; then
       END { print n + 0 }
     ' "$holistic" 2>/dev/null || echo 0
   )
+  # Trim whitespace so arithmetic comparisons never see a trailing newline
+  # ("integer expression expected" under set -e / strict shells).
+  holistic_blocking="$(printf '%s' "$holistic_blocking" | tr -d '[:space:]')"
 fi
+# Coerce empty/non-numeric to 0 so -gt/-eq never choke.
+case "$crit" in ''|*[!0-9]*) crit=0 ;; esac
+case "$high" in ''|*[!0-9]*) high=0 ;; esac
+case "$med" in ''|*[!0-9]*) med=0 ;; esac
+case "$low" in ''|*[!0-9]*) low=0 ;; esac
+case "$pre" in ''|*[!0-9]*) pre=0 ;; esac
+case "$holistic_blocking" in ''|*[!0-9]*) holistic_blocking=0 ;; esac
 
-if [ "${crit:-0}" -gt 0 ] || [ "${high:-0}" -gt 0 ] || [ "${holistic_blocking:-0}" -gt 0 ]; then
+if [ "$crit" -gt 0 ] || [ "$high" -gt 0 ] || [ "$holistic_blocking" -gt 0 ]; then
   decision="request_changes"
   decision_label="REQUEST CHANGES"
   action="REQUEST_CHANGES"
-  if [ "${holistic_blocking:-0}" -gt 0 ] && [ "${crit:-0}" -eq 0 ] && [ "${high:-0}" -eq 0 ]; then
+  if [ "$holistic_blocking" -gt 0 ] && [ "$crit" -eq 0 ] && [ "$high" -eq 0 ]; then
     rationale="Following policy: 0 critical and 0 high priority issues in the structured summary, but ${holistic_blocking} holistic cross-chunk Critical/High issue(s) remain — requesting changes."
   else
     rationale="Following policy: ${crit} critical and ${high} high priority issue(s) found - requesting changes."
@@ -143,10 +153,12 @@ awk -v crit="$crit" -v high="$high" -v med="$med" -v low="$low" -v pre="$pre" \
     }
     if ($0 ~ /Count of 🗂️ Pre-existing issues:/) {
       # Keep any trailing note after the number (the template appends
-      # "— these do NOT block the PR"). Portable: no gawk-only match() 3-arg form.
-      trail = $0
-      sub(/^.*Count of 🗂️ Pre-existing issues:[[:space:]]*[0-9]*/, "", trail)
-      print "Count of 🗂️ Pre-existing issues: " pre trail
+      # "— these do NOT block the PR") AND the leading bullet prefix (`- `).
+      # Same shape as the other four count rewrites: sub() on $0 preserves the
+      # prefix; reconstructing the line from a stripped copy would drop it.
+      sub(/Count of 🗂️ Pre-existing issues:[[:space:]]*[0-9]*/, \
+          "Count of 🗂️ Pre-existing issues: " pre)
+      print
       next
     }
     if (in_rec && $0 ~ /^\*\*Decision:\*\*/) {
