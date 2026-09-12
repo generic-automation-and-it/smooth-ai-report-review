@@ -815,7 +815,7 @@ EOF
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
 - **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via \`webfetch\`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
-- **Webfetch fail-fast (MANDATORY):** \`webfetch\` and \`websearch\` are a bounded verification aid, not a research loop. If a fetch fails (any 4xx/5xx, timeout, or unreachable URL), do NOT retry it and do NOT try alternate URLs for the same claim — stop, tag the dependent finding [SPECULATIVE], and move on. Hard cap: at most 3 webfetch calls total per review, successful or not. Never fetch external docs to research secret/token formats or scanning patterns — verify suspected secrets with local \`grep\`/\`read_file\` only.
+- **Webfetch fail-fast (MANDATORY):** \`webfetch\` and \`websearch\` are a bounded verification aid, not a research loop. If a fetch fails (any 4xx/5xx, timeout, or unreachable URL), do NOT retry it and do NOT try alternate URLs for the same claim — stop, tag the dependent finding [SPECULATIVE], and move on. Hard cap: at most 3 webfetch/websearch calls total per chunk (this review session), successful or not. Never fetch external docs to research secret/token formats or scanning patterns — verify suspected secrets with local \`grep\`/\`read_file\` only.
 EOF
 
   # LADR-055: confidence anchors + quote-the-line gate. Quoted heredoc — this
@@ -949,7 +949,7 @@ EOF
 - You're unsure if something is handled elsewhere → READ the file to verify before flagging
 - You want to flag a Critical or High Priority issue → ALWAYS read the file first to confirm
 
-**Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list/webfetch) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.
+**Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list/webfetch/websearch) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.
 
 **MANDATORY WORKFLOW for Critical/High issues:**
 1. Identify potential issue in the DIFF
