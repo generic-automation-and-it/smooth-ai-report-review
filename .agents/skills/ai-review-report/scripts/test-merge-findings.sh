@@ -391,7 +391,141 @@ bash "$EXTRACT_SH" "$work/chunk_12.md" 12 "$work/chunk_12.findings.json" >/dev/n
 check "Test 10s: unterminated sentinel followed by prose is left alone" \
   "$(cat "$TMP_DIR/chunk_12.before.md")" "$(cat "$work/chunk_12.md")"
 
-rm -f "$work"/chunk_{7,8,9,10,11,12}.md "$work"/chunk_{7,8,9,10,11,12}.findings.json
+# LADR-079: glm-5.2 mangles `-->` on the closer (run 34764534601, 3/3 chunks).
+# JSON is complete; only the HTML-comment terminator is malformed. Prefix-match
+# the END line and peel any leftover trailing `<!--` so jq sees a document.
+# BEGIN stays exact. Replay the two observed shapes plus the diagnostic split
+# LADR-077 wanted: "truncated" vs "mangled sentinel".
+_ladr079_json_2='{"chunk":0,"findings":[{},{}],"residual_risks":[],"testing_gaps":[]}'
+_ladr079_json_3='{"chunk":1,"findings":[{},{},{}],"residual_risks":[],"testing_gaps":[]}'
+
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_2"
+  printf '```\n<!-- FINDINGS_JSON_END>\n'
+} > "$work/chunk_13.md"
+_log13="$(bash "$EXTRACT_SH" "$work/chunk_13.md" 13 "$work/chunk_13.findings.json" 2>&1)"
+check "Test 10t: mangled END \`>\` still extracts the sidecar" "2" \
+  "$(jq '.findings | length' "$work/chunk_13.findings.json" 2>/dev/null || echo missing)"
+check "Test 10t2: mangled END \`>\` still strips the sentinel range" "$body" \
+  "$(cat "$work/chunk_13.md")"
+check "Test 10t3: mangled END \`>\` does not log truncated mid-block" "0" \
+  "$(printf '%s\n' "$_log13" | grep -c 'truncated mid-block' || true)"
+check "Test 10t4: mangled END \`>\` leaves no rejected-payload file" "false" \
+  "$([ -f "$work/chunk_13.findings.rejected.txt" ] && echo true || echo false)"
+check "Test 10t5: mangled END \`>\` never writes a .failed flag" "0" \
+  "$(ls "$work"/*.failed 2>/dev/null | wc -l | tr -d ' ')"
+
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_3"
+  printf '```\n<!-- FINDINGS_JSON_END →\n'
+} > "$work/chunk_14.md"
+_log14="$(bash "$EXTRACT_SH" "$work/chunk_14.md" 14 "$work/chunk_14.findings.json" 2>&1)"
+check "Test 10u: mangled END U+2192 still extracts the sidecar" "3" \
+  "$(jq '.findings | length' "$work/chunk_14.findings.json" 2>/dev/null || echo missing)"
+check "Test 10u2: mangled END U+2192 still strips the sentinel range" "$body" \
+  "$(cat "$work/chunk_14.md")"
+check "Test 10u3: mangled END U+2192 does not log truncated mid-block" "0" \
+  "$(printf '%s\n' "$_log14" | grep -c 'truncated mid-block' || true)"
+check "Test 10u4: mangled END U+2192 writes no rejected-payload file" "false" \
+  "$([ -f "$work/chunk_14.findings.rejected.txt" ] && echo true || echo false)"
+
+# Genuine truncation — JSON cut mid-object, no END-ish line — stays rejected,
+# stripped to EOF, and still uses the LADR-064 "truncated mid-block" wording.
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n{\n  "chunk": 15,\n  "findings": [\n    { "owner": "human",\n'
+} > "$work/chunk_15.md"
+_log15="$(bash "$EXTRACT_SH" "$work/chunk_15.md" 15 "$work/chunk_15.findings.json" 2>&1)"
+check "Test 10v: genuine truncation still logs truncated mid-block" "1" \
+  "$(printf '%s\n' "$_log15" | grep -c 'truncated mid-block' || true)"
+check "Test 10v2: genuine truncation still writes rejected.txt" "true" \
+  "$([ -f "$work/chunk_15.findings.rejected.txt" ] && echo true || echo false)"
+check "Test 10v3: genuine truncation rejected.txt keeps unterminated state" "1" \
+  "$(grep -c 'unterminated begin, stripped to EOF' "$work/chunk_15.findings.rejected.txt" || true)"
+check "Test 10v4: genuine truncation still strips to EOF" "0" \
+  "$(grep -c 'FINDINGS_JSON' "$work/chunk_15.md" || true)"
+check "Test 10v5: genuine truncation prose before the block survives" "1" \
+  "$(grep -c 'Missing ownership guard' "$work/chunk_15.md" || true)"
+check "Test 10v6: genuine truncation produces no sidecar" "false" \
+  "$([ -f "$work/chunk_15.findings.json" ] && echo true || echo false)"
+
+# Truncation that happens to end on an END-prefixed garbage line is "complete"
+# by prefix then fails jq — same reject path, but the diagnostic must not say
+# truncated. That is the split LADR-077's rejected.txt exists to make.
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n{\n  "chunk": 16,\n  "findings": [\n'
+  printf '<!-- FINDINGS_JSON_END>\n'
+} > "$work/chunk_16.md"
+_log16="$(bash "$EXTRACT_SH" "$work/chunk_16.md" 16 "$work/chunk_16.findings.json" 2>&1)"
+check "Test 10w: prefix-closed truncated JSON does not log truncated mid-block" "0" \
+  "$(printf '%s\n' "$_log16" | grep -c 'truncated mid-block' || true)"
+check "Test 10w2: prefix-closed truncated JSON names the malformed sentinel" "1" \
+  "$(printf '%s\n' "$_log16" | grep -c 'end sentinel present but malformed' || true)"
+check "Test 10w3: prefix-closed truncated JSON rejected.txt names prefix state" "1" \
+  "$(grep -c 'sentinel range:.*end sentinel present but malformed (matched by prefix)' "$work/chunk_16.findings.rejected.txt" || true)"
+check "Test 10w4: prefix-closed truncated JSON still produces no sidecar" "false" \
+  "$([ -f "$work/chunk_16.findings.json" ] && echo true || echo false)"
+
+# Inline mid-sentence END mention is prose, never a delimiter — even the
+# mangled glm-5.2 shape. Quote lives in the review body; the real block follows.
+_end_quoted_body="${body}
+- 🟠 High: the closer keys on \`<!-- FINDINGS_JSON_END>\` inline in prose."
+{
+  printf '%s\n\n' "$_end_quoted_body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_2"
+  printf '```\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_17.md"
+bash "$EXTRACT_SH" "$work/chunk_17.md" 17 "$work/chunk_17.findings.json" >/dev/null
+check "Test 10x: inline END quote does not terminate a block" "2" \
+  "$(jq '.findings | length' "$work/chunk_17.findings.json" 2>/dev/null || echo missing)"
+check "Test 10x2: inline END quote survives in the posted body" "$_end_quoted_body" \
+  "$(cat "$work/chunk_17.md")"
+unset _end_quoted_body
+
+# Self-review: a fenced, alone-on-a-line quoted sentinel (this PR quotes the
+# mangled closer in a code fence). Fence-unaware awk treats that line as a
+# delimiter IF a BEGIN is already open; quoted before the real block it is
+# inert because cand is unset. Pin: prose after the quote survives, and the
+# real sidecar still extracts. Worst case allowed = this chunk's sidecar lost;
+# losing the prose after the quote is not.
+{
+  printf '%s\n\n' "$body"
+  printf 'The closer glm-5.2 emitted:\n```\n<!-- FINDINGS_JSON_END →\n```\n'
+  printf 'TAIL PROSE AFTER THE QUOTE MUST SURVIVE.\n\n'
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_3"
+  printf '```\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_18.md"
+bash "$EXTRACT_SH" "$work/chunk_18.md" 18 "$work/chunk_18.findings.json" >/dev/null
+check "Test 10y: fenced quoted mangled END does not swallow following prose" "1" \
+  "$(grep -c 'TAIL PROSE AFTER THE QUOTE MUST SURVIVE' "$work/chunk_18.md" || true)"
+check "Test 10y2: real sidecar still extracted past a fenced quoted END" "3" \
+  "$(jq '.findings | length' "$work/chunk_18.findings.json" 2>/dev/null || echo missing)"
+check "Test 10y3: quoted closer remains visible in the body" "1" \
+  "$(grep -c 'FINDINGS_JSON_END' "$work/chunk_18.md" || true)"
+
+# Belt: trailing `<!--` lines inside a well-closed block are dropped before jq,
+# last-lines-only. A comment after the JSON but before END is not JSON.
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_2"
+  printf '```\n<!-- leftover after the fence -->\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_19.md"
+bash "$EXTRACT_SH" "$work/chunk_19.md" 19 "$work/chunk_19.findings.json" >/dev/null
+check "Test 10z: trailing HTML-comment lines are peeled before jq" "2" \
+  "$(jq '.findings | length' "$work/chunk_19.findings.json" 2>/dev/null || echo missing)"
+
+rm -f "$work"/chunk_{7,8,9,10,11,12,13,14,15,16,17,18,19}.md \
+      "$work"/chunk_{7,8,9,10,11,12,13,14,15,16,17,18,19}.findings.json \
+      "$work"/chunk_{7,8,9,10,11,12,13,14,15,16,17,18,19}.findings.rejected.txt
+unset _ladr079_json_2 _ladr079_json_3 _log13 _log14 _log15 _log16
 
 # --- Test 11: wrapper collection --------------------------------------------
 rm -f "$work"/*.findings.json

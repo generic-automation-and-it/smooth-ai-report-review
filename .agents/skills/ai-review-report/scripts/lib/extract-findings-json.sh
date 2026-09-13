@@ -62,6 +62,10 @@ fi
 
 BEGIN_SENTINEL='<!-- FINDINGS_JSON_BEGIN -->'
 END_SENTINEL='<!-- FINDINGS_JSON_END -->'
+# LADR-079: glm-5.2 (run 34764534601) "normalizes" `-->` to `→` or `>` on the
+# closer. Any trimmed line that *starts with* this prefix is an END delimiter;
+# BEGIN stays exact so the forgeability contract does not widen.
+END_PREFIX='<!-- FINDINGS_JSON_END'
 
 # LADR-077: every reject path keeps the evidence.
 #
@@ -135,16 +139,24 @@ tmp_md="${chunk_md}.stripped.tmp"
 #
 # Preference order: the last complete pair wins; a later unterminated-but-
 # JSON-shaped `begin` beats it, since the prompt puts the real block last.
-pair="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" '
+#
+# END is prefix-matched (LADR-079). BEGIN stays exact. The third field is the
+# closer kind so a reject can say "truncated" vs "mangled sentinel" instead of
+# collapsing both into LADR-064's mid-block wording.
+pair="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" -v ep="$END_PREFIX" '
   { line = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line) }
   line == b { cand = NR; candnext = ""; next }
-  cand && line == e { bl = cand; el = NR; cand = 0; next }
+  cand && index(line, ep) == 1 {
+    bl = cand; el = NR; cand = 0
+    endkind = (line == e) ? "exact" : "prefix"
+    next
+  }
   cand && candnext == "" && line != "" { candnext = line }
   END {
     if (cand && cand > bl && (candnext ~ /^```/ || candnext ~ /^[{[]/)) {
-      print cand " 0"          # unterminated but JSON-shaped: strip to EOF
+      print cand " 0 unterminated"   # no END-ish line: strip to EOF
     } else if (bl) {
-      print bl " " el
+      print bl " " el " " endkind
     }
   }
 ' "$chunk_md" 2>/dev/null)"
@@ -155,14 +167,21 @@ if [ -z "$pair" ]; then
   exit 0
 fi
 
+# Three space-separated fields: begin_line end_line end_kind. Bash 3.2 has no
+# read -a from a string without a here-string, so peel with prefix/suffix.
 begin_line="${pair%% *}"
-end_line="${pair##* }"
+_rest="${pair#* }"
+end_line="${_rest%% *}"
+end_kind="${_rest#* }"
+unset _rest
 # `0` means "unterminated, consume to EOF" — an end line past any real line.
 sentinel_state="complete begin..end pair"
 if [ "$end_line" = "0" ]; then
   end_line=$(( $(wc -l < "$chunk_md") + 1 ))
   sentinel_state="unterminated begin, stripped to EOF"
   echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was truncated mid-block — stripping it, continuing without the sidecar"
+elif [ "$end_kind" = "prefix" ]; then
+  sentinel_state="end sentinel present but malformed (matched by prefix)"
 fi
 
 # Split on the resolved line numbers: everything outside [begin_line, end_line]
@@ -185,6 +204,13 @@ mv "$tmp_md" "$chunk_md" 2>/dev/null || rm -f "$tmp_md"
 # just as usable, so both are accepted.
 payload="$(sed -e '/^[[:space:]]*```/d' "$tmp_block" 2>/dev/null)"
 rm -f "$tmp_block"
+
+# LADR-079 belt: drop trailing HTML-comment lines (last-lines-only). A mangled
+# END that the prefix match missed, or an extra `<!-- …` after a peeled fence,
+# is never JSON and would otherwise fail jq with the closer still attached.
+while [ -n "$payload" ] && printf '%s\n' "$payload" | tail -n 1 | grep -q '^[[:space:]]*<!--'; do
+  payload="$(printf '%s\n' "$payload" | sed '$d')"
+done
 
 if [ -z "${payload//[[:space:]]/}" ]; then
   echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was empty — continuing without it"
@@ -221,7 +247,12 @@ if printf '%s\n' "$payload" | jq -e '
   fi
 fi
 
-echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was not valid JSON — continuing without it"
-persist_rejected_payload "not a findings document (invalid JSON, or top-level shape without a findings array)" "$payload"
+if [ "$end_kind" = "prefix" ]; then
+  echo "  ⚠️ Chunk ${chunk_num}: findings sidecar end sentinel present but malformed (matched by prefix) — payload was not valid JSON, continuing without the sidecar"
+  persist_rejected_payload "end sentinel present but malformed (matched by prefix); not a findings document" "$payload"
+else
+  echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was not valid JSON — continuing without it"
+  persist_rejected_payload "not a findings document (invalid JSON, or top-level shape without a findings array)" "$payload"
+fi
 rm -f "$out_json"
 exit 0
