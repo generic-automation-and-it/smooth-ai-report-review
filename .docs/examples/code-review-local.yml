@@ -435,6 +435,8 @@ jobs:
           OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
           # Run artifacts (LADR-062) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
+          # Bounded GitHub retry (LADR-078) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
           # Per-chunk review budget, seconds — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
           # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).

@@ -467,6 +467,13 @@ jobs:
       # (report.md, per-chunk reviews, findings.merged.json, metadata.json) for
       # the upload step below. Set to a falsy value to skip assembly.
       OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
+      # Bounded GitHub retry (LADR-078). A transient 5xx from GitHub used to
+      # abort the run and discard an already-generated review. When truthy,
+      # every gh call that can abort the run gets ONE retry after a fixed 30s
+      # delay, allowlisted to transient failures, with writes verifying the
+      # mutation did not already land. Set to a falsy value to restore the
+      # pre-LADR-078 single-attempt behaviour.
+      OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
       # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
       # chain, so on timeout the LADR-002 secondary is never reached. Raised
       # from a hardcoded 300 after LADR-055 tripled per-chunk output.

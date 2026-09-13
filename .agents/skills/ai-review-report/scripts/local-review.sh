@@ -212,6 +212,10 @@ export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SE
 export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
+# Bounded retry for transient GitHub failures (LADR-078) — wraps the review
+# post at the end of this script.
+# shellcheck source=lib/gh-retry.sh
+source "$SCRIPT_DIR/lib/gh-retry.sh"
 
 # Install opencode.json so the selected provider resolves, THEN health-check.
 # (Config must be in place before `opencode serve` starts.)
@@ -654,15 +658,18 @@ if [ -f ci_temp/final_review.md ]; then
 
     case "$REVIEW_ACTION" in
       approve)
-        gh pr review "$PR_NUMBER" --approve --body-file ci_temp/final_review.md
+        gh_retry --verify gh_count_gate_reviews "$PR_NUMBER" -- \
+          gh pr review "$PR_NUMBER" --approve --body-file ci_temp/final_review.md
         echo "✅ Posted as APPROVE"
         ;;
       request_changes)
-        gh pr review "$PR_NUMBER" --request-changes --body-file ci_temp/final_review.md
+        gh_retry --verify gh_count_gate_reviews "$PR_NUMBER" -- \
+          gh pr review "$PR_NUMBER" --request-changes --body-file ci_temp/final_review.md
         echo "✅ Posted as REQUEST_CHANGES"
         ;;
       *)
-        gh pr review "$PR_NUMBER" --comment --body-file ci_temp/final_review.md
+        gh_retry --verify gh_count_gate_reviews "$PR_NUMBER" -- \
+          gh pr review "$PR_NUMBER" --comment --body-file ci_temp/final_review.md
         echo "✅ Posted as COMMENT"
         ;;
     esac

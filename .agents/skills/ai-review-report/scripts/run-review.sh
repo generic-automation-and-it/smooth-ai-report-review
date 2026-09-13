@@ -94,6 +94,10 @@ SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 # shellcheck disable=SC1091
 source "$LIB_DIR/parse-review-comment-options.sh"
+# Bounded retry for transient GitHub failures (LADR-078). Sourced this early
+# because the first wrapped call is the PR-metadata read in Step 3.
+# shellcheck disable=SC1091
+source "$LIB_DIR/gh-retry.sh"
 
 # --- Step 0: env-var contract resolution --------------------------------------
 # Each variable below is read once at script entry. Precedence is:
@@ -145,6 +149,14 @@ OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP="${OPENCODE_REVIEW_REPORT_ENABLE_TRIV
 # report, per-chunk reviews, findings.merged.json when it exists,
 # and metadata.json. Uploaded as a GitHub Actions artifact.
 OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS="${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}"
+
+# Bounded GitHub retry (LADR-078) — opt-out. When truthy, every `gh` call that
+# can abort the run gets ONE retry after a fixed 30s delay, but only for an
+# allowlisted transient failure (5xx / network), and writes verify that the
+# mutation did not already land before re-posting. Set falsy to restore the
+# pre-LADR-078 single-attempt behaviour.
+OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY="${OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY:-1}"
+export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
 
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
@@ -357,7 +369,7 @@ case "$EVENT_NAME" in
     fi
     PR_NUMBER="$PR_NUMBER_RAW"
     echo "Fetching PR details for PR #${PR_NUMBER}..."
-    PR_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+    PR_JSON="$(gh_retry -- gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
     if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
       echo "❌ Failed to fetch PR details for PR #${PR_NUMBER}" >&2
       exit 1
@@ -718,7 +730,8 @@ Both review models failed to respond, typically caused by token quota exhaustion
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-  gh pr review "${pr_number}" \
+  gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+    gh pr review "${pr_number}" \
     --request-changes \
     --body-file "$WORK_DIR/all_models_failed_review.md"
   exit 0
@@ -909,7 +922,8 @@ This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-  gh pr review "${pr_number}" \
+  gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+    gh pr review "${pr_number}" \
     --request-changes \
     --body-file "$WORK_DIR/too_many_files_review.md"
   exit 0
@@ -930,14 +944,15 @@ if [ "$FILES_CHANGED" -eq 0 ]; then
 ---
 *Automated review check by OpenCode CLI Code Review*
 EOF
-  gh pr review "${pr_number}" \
+  gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+    gh pr review "${pr_number}" \
     --comment \
     --body-file "$WORK_DIR/skip_comment.md"
   exit 0
 fi
 
 # --- Step 12: PR metadata (title, author, body) -------------------------------
-PR_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+PR_JSON="$(gh_retry -- gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
 pr_title="$(echo "$PR_JSON" | jq -r .title)"
 pr_author="$(echo "$PR_JSON" | jq -r .user.login)"
 pr_body="$(echo "$PR_JSON" | jq -r '.body // ""')"
@@ -981,7 +996,8 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-        gh pr comment "${pr_number}" \
+        gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
+          gh pr comment "${pr_number}" \
           --body-file "$WORK_DIR/trivial_skip_comment.md"
         exit 0
         ;;
@@ -1128,7 +1144,8 @@ $(cat "$WORK_DIR/agents_validation_message.md")
 ---
 *Automated validation by OpenCode CLI Code Review*
 EOF
-    gh pr review "${pr_number}" \
+    gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+      gh pr review "${pr_number}" \
       --request-changes \
       --body-file "$WORK_DIR/validation_review.md"
   fi
@@ -1206,7 +1223,8 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-  gh pr comment "${pr_number}" \
+  gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
+    gh pr comment "${pr_number}" \
     --body-file "$WORK_DIR/skip_blocking_review_comment.md"
   exit 0
 fi
@@ -1361,7 +1379,8 @@ case "$REVIEW_ACTION" in
   *) REVIEW_ACTION_FLAG="--comment" ;;
 esac
 echo "Posting review: ${REVIEW_ACTION_FLAG}"
-gh pr review "${pr_number}" \
+gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+  gh pr review "${pr_number}" \
   "${REVIEW_ACTION_FLAG}" \
   --body-file "$WORK_DIR/review_comment.md"
 
