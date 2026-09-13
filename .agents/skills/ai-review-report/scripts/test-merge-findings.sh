@@ -348,6 +348,8 @@ check "Test 10n: quoted complete pair survives, last pair is the sidecar" "1" \
   "$(grep -c 'FINDINGS_JSON_BEGIN' "$work/chunk_9.md" || true)"
 check "Test 10o: real finding after the quoted example survives" "1" \
   "$(grep -c 'real finding after the quoted example' "$work/chunk_9.md" || true)"
+check "Test 10o1: a clean extraction leaves no rejected-payload file" "false" \
+  "$([ -f "$work/chunk_9.findings.rejected.txt" ] && echo true || echo false)"
 # Both remaining shapes below were produced by one real MiniMax M3 review of this
 # repo's own LADR-055 diff — the truncated block and the inline quote appeared in
 # the same run. A delimiter is alone on its line; an unterminated one is honoured
@@ -361,6 +363,19 @@ check "Test 10p: truncated mid-block sidecar is stripped to EOF" "0" \
   "$(grep -c 'FINDINGS_JSON' "$work/chunk_10.md" || true)"
 check "Test 10q: prose before a truncated block survives" "1" \
   "$(grep -c 'prose that must survive' "$work/chunk_10.md" || true)"
+
+# LADR-077: a reject keeps its evidence. Rejecting silently made the most common
+# LADR-064 failure undiagnosable — "truncated mid-block" could equally mean the
+# model was cut off or that it closed the block in a shape the anchoring awk does
+# not accept, and the uploaded artifact could not tell them apart.
+check "Test 10q1: a rejected sidecar leaves its payload beside the chunk" "true" \
+  "$([ -f "$work/chunk_10.findings.rejected.txt" ] && echo true || echo false)"
+check "Test 10q2: the rejected payload carries the block that failed to parse" "1" \
+  "$(grep -c '"chunk": 2' "$work/chunk_10.findings.rejected.txt" || true)"
+check "Test 10q3: the rejected payload names the sentinel state" "1" \
+  "$(grep -c 'unterminated begin, stripped to EOF' "$work/chunk_10.findings.rejected.txt" || true)"
+check "Test 10q4: the rejected file is outside the merge glob" "0" \
+  "$(find "$work" -maxdepth 1 -name 'chunk_*.findings.json' -newer "$work/chunk_10.md" | grep -c 'chunk_10' || true)"
 
 printf -- '- 🟠 High: the extractor keys on `<!-- FINDINGS_JSON_BEGIN -->` inline in prose.\nTAIL\n' \
   > "$work/chunk_11.md"
