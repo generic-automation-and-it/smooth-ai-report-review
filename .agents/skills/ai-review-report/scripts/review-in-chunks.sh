@@ -77,6 +77,43 @@ structured_findings_enabled() {
   local v="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
   printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
 }
+
+# LADR-077: does this chunk file contain a REVIEW, or only the model narrating
+# its way through the exploration it never finished?
+#
+# The byte floor below (200 B) catches an empty answer. It does not catch the
+# other silent no-op: opencode exits 0 having streamed nothing but between-tool
+# narration — "Let me verify the actual `.docs` structure", "Let me check for
+# naming consistency" — and stops without ever writing the review. Observed on
+# consumer run 34745786660 chunk 1 (`.agents`): 733 B of exactly that, over the
+# floor, so the chunk was logged as completed, counted in `total_chunks`, left
+# `failed_chunks: 0`, denied the LADR-002 fallback its turn, and posted its
+# narration verbatim as the `### Chunk 1` section of the report. A whole
+# top-level directory of the PR went unreviewed and nothing in the output said
+# so.
+#
+# The matcher is deliberately generous — it answers "is there ANY review shape
+# here", not "is this review good". A `.failed` flag is fail-closed (LADR-031):
+# it forces REQUEST_CHANGES, so a false positive costs a spurious block on an
+# honest chunk. Every real chunk review carries at least one severity marker or
+# heading, because the output format mandates the severity sections and
+# "None found" for the empty ones — measured across the six chunks of the
+# trigger run, the five real reviews scored 2-22 on every marker below and the
+# narration-only one scored 0 on all of them.
+chunk_review_has_shape() {
+  local md="$1"
+  [ -f "$md" ] || return 1
+  # Severity emoji: -F, one -e each, because these are multi-byte and a bracket
+  # expression over them is locale-dependent.
+  grep -qF -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$md" && return 0
+  # "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling.
+  grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$md" && return 0
+  # The mandated placeholder for an empty severity section.
+  grep -qiF 'none found' "$md" && return 0
+  # A markdown heading means the model reached the output template.
+  grep -qE '^#{1,6} ' "$md" && return 0
+  return 1
+}
 if structured_findings_enabled; then
   echo "🧩 Structured findings enabled (LADR-055)"
 else
@@ -951,6 +988,8 @@ EOF
 
 **Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list/webfetch/websearch) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.
 
+**Zero-match glob fail-fast (MANDATORY):** a `glob` that returns 0 matches has answered you — it is not an invitation to retry with a different pattern. Do NOT re-run it as `x/**`, `x/**/*`, `x/*` or any other variant, and do not widen it to the repo root. Dot-prefixed paths are the trap: `.docs/`, `.github/` and `.agents/` routinely return 0 matches from `glob` for directories that plainly exist and that you can read. Confirm existence ONCE by reading the directory itself (`read` / `list` on `.docs`), take that as the answer, and move on. Observed cost of ignoring this: in one review all three documentation chunks spent their turn re-globbing `.docs/**`, `.docs/**/*` and `.docs/adrs/*` — two ran out of turn part-way through the structured block at the end of their output, and the third never wrote a review at all.
+
 **MANDATORY WORKFLOW for Critical/High issues:**
 1. Identify potential issue in the DIFF
 2. **Read the CURRENT file state** using `read_file` to verify the issue exists in the actual code (not just in the diff hunk). The diff may show partial context — the issue may have been fixed in an earlier commit on the same branch.
@@ -1178,15 +1217,27 @@ EOF
       fi
     fi
 
-    # Empty-output detection: opencode can exit 0 while producing no review
-    # text (e.g. provider silently failing, agent misconfiguration). A real
-    # chunk review is always at least a few hundred bytes of markdown with
-    # priority headings. Anything smaller is a no-op — surface stderr so we
-    # can see what happened instead of silently aggregating an empty file.
+    # No-review detection: opencode can exit 0 while producing no review a
+    # human can read (provider silently failing, agent misconfiguration, or a
+    # turn spent entirely on exploration). A real chunk review is always at
+    # least a few hundred bytes of markdown carrying severity markers or
+    # headings. Anything else is a no-op — surface stderr so we can see what
+    # happened instead of silently aggregating it as a review.
     local review_size
     review_size=$(wc -c < "ci_temp/reviews/chunk_${chunk_num}.md" 2>/dev/null || echo 0)
+    # Two shapes of the same no-op, one reason string (LADR-077). The byte floor
+    # catches "nothing came back"; the shape check catches "narration came back"
+    # — output over the floor that never reached the review template. Both are a
+    # chunk that was not reviewed, and both must take the LADR-031 fail-closed
+    # path rather than be aggregated as a review.
+    local reject_reason=""
     if [ "$review_size" -lt 200 ]; then
-      echo "  ⚠️ Chunk ${chunk_num} returned empty/tiny output (${review_size} bytes) — opencode silent failure?"
+      reject_reason="empty/tiny output (${review_size} bytes)"
+    elif ! chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
+      reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker, no \"None found\", no heading)"
+    fi
+    if [ -n "$reject_reason" ]; then
+      echo "  ⚠️ Chunk ${chunk_num} produced no usable review: ${reject_reason} — opencode silent failure?"
       echo "  --- chunk_${chunk_num}.md content ---"
       cat "ci_temp/reviews/chunk_${chunk_num}.md" || true
       echo "  --- chunk_${chunk_num}_stderr.log ---"
@@ -1199,7 +1250,7 @@ EOF
       {
         echo "## ⚠️ Review Failed for Chunk: ${chunk_dir}"
         echo ""
-        echo "**Reason:** opencode returned empty/tiny output (${review_size} bytes) — provider failure or agent tool-misfire (e.g. skill self-activation; see LADR-029)."
+        echo "**Reason:** opencode returned ${reject_reason} — provider failure, exhausted turn budget (LADR-076/077), or agent tool-misfire (e.g. skill self-activation; see LADR-029)."
         echo ""
         echo "Check the workflow logs for \`chunk_${chunk_num}_stderr.log\` contents."
       } > "ci_temp/reviews/chunk_${chunk_num}.md"
@@ -1207,11 +1258,11 @@ EOF
       # decision off this flag file, NOT off grepping the marker text above — the
       # marker string gets quoted into legitimate review bodies when the gate
       # reviews its own docs, which text-grepping false-matches (see LADR-031).
-      echo "empty/tiny output (${review_size} bytes)" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+      echo "${reject_reason}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
       # Exit 0 with no output is the quieter failure of the two — surface its
       # stderr too, or the run reports "empty" with no way to learn why.
       bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
-        "chunk_${chunk_num}_${chunk_dir}_empty" \
+        "chunk_${chunk_num}_${chunk_dir}_no_review" \
         "ci_temp/reviews/chunk_${chunk_num}_stderr.log" || true
       # A failed chunk contributes no findings (LADR-055). Drop any sidecar the
       # extraction step managed to salvage, so the merged set and the failed-chunk

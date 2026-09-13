@@ -35,6 +35,10 @@
 #     `chunk_<n>.failed` flag file is the ONLY chunk-failure signal and it means
 #     something else entirely; this script must never write one, and callers must
 #     never treat its warnings as a failure condition.
+#  2b. A reject still leaves its evidence: the payload is written to
+#     `chunk_<n>.findings.rejected.txt` beside the chunk (LADR-077). That file is
+#     diagnostic only — nothing reads it, it is not a flag, and its name sits
+#     outside the `chunk_*.findings.json` glob the merge collects.
 #  3. `chunk` is stamped deterministically from the caller's chunk number, not
 #     trusted from the model. The dedup axis must be right even when the model
 #     miscounts, and normalising here means the merge helper never has to
@@ -58,6 +62,39 @@ fi
 
 BEGIN_SENTINEL='<!-- FINDINGS_JSON_BEGIN -->'
 END_SENTINEL='<!-- FINDINGS_JSON_END -->'
+
+# LADR-077: every reject path keeps the evidence.
+#
+# Rejecting silently made the most common LADR-064 failure undiagnosable after
+# the fact. The block is stripped from the markdown (contract 1) and the parsed
+# output is removed, so a run that logged "sidecar was truncated mid-block" left
+# nothing behind that could answer the only question worth asking: was the JSON
+# genuinely cut off mid-emission, or did the model close the block in a shape the
+# anchoring awk does not accept? Consumer run 34745786660 lost two of six
+# sidecars to that message and the uploaded artifact (LADR-062) could not tell
+# the two apart.
+#
+# So the payload lands next to the chunk it came from, as
+# `chunk_<n>.findings.rejected.txt` — a name outside merge-findings.sh's
+# `chunk_*.findings.json` glob, so it is never mistaken for a document to merge,
+# and inside `ci_temp/reviews/`, so the artifact assembly's `cp -r` picks it up
+# with no change there. Truncated by construction (the whole point is that the
+# model over-produced), so it is capped; a diagnosis needs the head of the block,
+# not all of it.
+REJECTED_MAX_BYTES=16384
+
+persist_rejected_payload() {
+  local reason="$1" body="$2"
+  local rejected="${out_json%.json}.rejected.txt"
+  {
+    printf '# chunk %s: findings sidecar rejected — %s\n' "$chunk_num" "$reason"
+    printf '# sentinel range: begin line %s, end line %s (%s)\n' \
+      "${begin_line:-?}" "${end_line:-?}" "${sentinel_state:-unknown}"
+    printf '# payload below is the extracted block with fence lines peeled, capped at %s bytes\n' \
+      "$REJECTED_MAX_BYTES"
+    printf '%s\n' "$body" | head -c "$REJECTED_MAX_BYTES"
+  } > "$rejected" 2>/dev/null || true
+}
 
 # Nothing to do when the model did not emit a sidecar. This is the expected path
 # for any model that ignores the instruction, and it is not worth a warning —
@@ -121,8 +158,10 @@ fi
 begin_line="${pair%% *}"
 end_line="${pair##* }"
 # `0` means "unterminated, consume to EOF" — an end line past any real line.
+sentinel_state="complete begin..end pair"
 if [ "$end_line" = "0" ]; then
   end_line=$(( $(wc -l < "$chunk_md") + 1 ))
+  sentinel_state="unterminated begin, stripped to EOF"
   echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was truncated mid-block — stripping it, continuing without the sidecar"
 fi
 
@@ -149,12 +188,14 @@ rm -f "$tmp_block"
 
 if [ -z "${payload//[[:space:]]/}" ]; then
   echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was empty — continuing without it"
+  persist_rejected_payload "empty payload between the sentinels" "$payload"
   rm -f "$out_json"
   exit 0
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "  ⚠️ Chunk ${chunk_num}: jq unavailable — findings sidecar discarded"
+  persist_rejected_payload "jq unavailable, payload never parsed" "$payload"
   rm -f "$out_json"
   exit 0
 fi
@@ -181,5 +222,6 @@ if printf '%s\n' "$payload" | jq -e '
 fi
 
 echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was not valid JSON — continuing without it"
+persist_rejected_payload "not a findings document (invalid JSON, or top-level shape without a findings array)" "$payload"
 rm -f "$out_json"
 exit 0

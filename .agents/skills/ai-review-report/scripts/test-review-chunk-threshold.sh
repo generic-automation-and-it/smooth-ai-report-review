@@ -318,3 +318,139 @@ _ct "ceiling declared in the reusable workflow" "1" \
 _ct "ceiling declared in the local-job packaging" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
 [ "$_ct_fail" -eq 0 ] || exit 1
+
+# --- No-review detection: narration is not a review (LADR-077) ---------------
+# The 200-byte floor catches an empty answer. It does not catch the other silent
+# no-op: opencode exits 0 having streamed only between-tool narration and never
+# writing the review. Consumer run 34745786660 chunk 1 shipped 733 B of exactly
+# that — over the floor, so it was logged as completed, counted in total_chunks,
+# left failed_chunks at 0, denied the LADR-002 fallback its turn, and posted the
+# narration verbatim as the report's `### Chunk 1` section.
+echo ""
+echo "=========================================="
+echo "Testing no-review (narration-only) detection"
+echo "=========================================="
+_sh_fail=0
+_sh() { # _sh <label> <expected> <actual>
+  if [ "$3" = "$2" ]; then echo "  ✅ $1"; else echo "  ❌ $1 (expected '$2', got '$3')"; _sh_fail=1; fi
+}
+
+setup_shape_repo() {
+  local test_repo="${TMP_DIR}/repo-shape"
+  rm -rf "${test_repo}"
+  mkdir -p "${test_repo}/.agents/skills/ai-review-report/scripts/lib" "${test_repo}/bin"
+  cp "${SOURCE_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+  cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+  cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+  cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
+
+  # The mock replays whatever body the case under test wrote, so one sandbox
+  # covers both the narration shape and the honest-review control.
+  cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'MOCK'
+#!/usr/bin/env bash
+prompt_file="${@: -1}"
+if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"
+else
+  cat "$MOCK_REVIEW_BODY_FILE"
+fi
+MOCK
+  chmod +x "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+
+  # Shebang matters here: this shim IS executed by shebang (as `timeout`), not
+  # via an explicit interpreter, and `/bin/bash` does not exist everywhere the
+  # suite runs (the bash:5.2 image keeps bash at /usr/local/bin/bash). A missing
+  # interpreter surfaces as exit 127 from the model call, which reads exactly
+  # like a provider failure and sends every case down the wrong branch.
+  cat > "${test_repo}/bin/timeout" << 'EOF'
+#!/bin/sh
+shift
+exec "$@"
+EOF
+  chmod +x "${test_repo}/bin/timeout"
+
+  # The failure path logs through this lib; without it the branch under test
+  # prints "No such file or directory" and the assertion reads as a pass.
+  cp "${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
+    "${test_repo}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
+
+  cd "${test_repo}"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  mkdir -p alpha
+  echo "one" > alpha/a.txt
+  git add alpha/a.txt
+  git commit -q -m "base"
+  echo "one updated" >> alpha/a.txt
+  git add alpha/a.txt
+  git commit -q -m "head"
+}
+
+run_shape_case() { # run_shape_case <label> <body_file>
+  local label="$1" body_file="$2"
+  local test_repo="${TMP_DIR}/repo-shape"
+  cd "${test_repo}"
+  rm -rf ci_temp
+  mkdir -p ci_temp
+  printf 'alpha/a.txt\0' > ci_temp/changed_files.txt
+  local from_sha to_sha
+  from_sha="$(git rev-parse HEAD~1)"
+  to_sha="$(git rev-parse HEAD)"
+  MOCK_REVIEW_BODY_FILE="${body_file}" \
+    GITHUB_OUTPUT="${TMP_DIR}/${label}.out" \
+    PATH="${test_repo}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "${from_sha}" "${to_sha}" "test-model" "test expertise" > "${TMP_DIR}/${label}.log" 2>&1
+}
+
+setup_shape_repo
+
+# Verbatim shape of the trigger run: prose, over the floor, no severity marker,
+# no "None found", no heading — the model talking about what it is about to do.
+cat > "${TMP_DIR}/narration.txt" << 'EOF'
+I'll start by reading the mandatory context files and checking the referenced documentation paths.
+The globs for `.docs/hlds/**` and `.docs/adrs/**` found nothing. Let me verify the actual `.docs` structure to check whether the retargeted references resolve.
+The `.docs/hlds/` directory still contains the old ADR filenames — no `002-context-memory-write-pipeline/` folder exists. Let me check for naming consistency across the skill and repo.
+The retarget is repo-wide but `.docs/hlds/` itself still holds only the old files. Let me get context on the one remaining old-scheme citation in this skill's folder.
+EOF
+
+run_shape_case "narration-only" "${TMP_DIR}/narration.txt"
+_sh "narration over the floor is not accepted as a review" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "the flag names the shape, not the byte count" "1" \
+  "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
+_sh "the narration is replaced by a visible failure marker in the body" "1" \
+  "$(grep -c 'Review Failed for Chunk' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.md" 2>/dev/null || true)"
+_sh "the run log says the chunk produced no usable review" "1" \
+  "$(grep -c 'produced no usable review' "${TMP_DIR}/narration-only.log" 2>/dev/null || true)"
+
+# Control: an honest review must be untouched. A false positive here is worse
+# than the bug — the flag is fail-closed (LADR-031), so it blocks a clean PR.
+{
+  printf '### Review\n\n'
+  printf -- '- 🟠 [VERIFIED] High Priority: real finding with a location — `alpha/a.txt:1`. The appended line is never read back, so the value written above it cannot be verified by any caller.\n'
+  printf -- '- 🔵 [SPECULATIVE] Low Priority: an observation about naming in the same file, offered as a question rather than a defect.\n\n'
+  printf '**Pre-existing (informational):** None found.\n\n**Suggested Fixes:** covered inline above.\n'
+} > "${TMP_DIR}/real-review.txt"
+run_shape_case "real-review" "${TMP_DIR}/real-review.txt"
+_sh "an honest review is not flagged" "0" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "an honest review keeps its body" "1" \
+  "$(grep -c 'real finding with a location' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.md" 2>/dev/null || true)"
+
+# A body carrying only severity emoji (no headings, no "Priority" wording) still
+# counts — the matcher answers "is there review shape here", not "is it complete".
+printf 'Findings, listed without headings or the word priority anywhere in the body:\n🟡 stale link in the doc header, `alpha/a.txt:1` — retarget it to the committed path.\n%.0s' {1..4} \
+  > "${TMP_DIR}/emoji-only.txt"
+run_shape_case "emoji-only" "${TMP_DIR}/emoji-only.txt"
+_sh "a severity emoji alone is review shape" "0" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+
+if [ "$_sh_fail" -ne 0 ]; then
+  for _l in narration-only real-review emoji-only; do
+    echo "--- ${_l}.log (tail) ---"
+    tail -25 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
+  done
+  exit 1
+fi
