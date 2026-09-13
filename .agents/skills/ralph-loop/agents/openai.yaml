@@ -1,0 +1,5 @@
+interface:
+  display_name: "Ralph Loop"
+  short_description: "Run iterative self-referential AI development loops"
+  default_prompt: "Start a Ralph Loop for iterative development with a task prompt, max iterations, and completion promise."
+  model: gpt-5.4
