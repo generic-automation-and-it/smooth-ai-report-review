@@ -873,6 +873,66 @@ check "sourced-lib failure still propagates under set -e (LADR-047 .. rejection)
   "failed_as_expected" "$_poc_test_out"
 unset _poc_test_home _poc_test_home2 _poc_test_out
 
+# ── instructions array + v2-inert warning (LADR-080) ───────────────────────
+# Two defects this pins. (1) Every glob in the array was single-level, so a
+# consumer nesting rules by area had them silently unloaded — both the
+# single-level and the `**` form must be present, because `**` is undocumented
+# for v1's glob engine and dropping either shape loses a real case. (2) opencode
+# v2 accepts `instructions` and resolves nothing, so a major bump kills LADR-070
+# with no error; the lib must WARN (never fail) and must stay silent on v1, on a
+# missing binary, and on an override that ships no array.
+echo ""
+echo "instructions array + v2-inert warning (LADR-080):"
+
+_ladr080_cfg="$SCRIPT_DIR/../assets/opencode.json"
+for _pat in '.agents/rules/\*.md' '.agents/rules/\*\*/\*.md' \
+            '.agents/rules-scoped/\*\*/\*.instructions.md' \
+            '.github/instructions/\*.instructions.md' \
+            '.github/instructions/\*\*/\*.instructions.md'; do
+  # shellcheck disable=SC2016
+  _hit="$(grep -cF "$(printf '%s' "$_pat" | tr -d '\\')" "$_ladr080_cfg" || true)"
+  check "instructions carries $(printf '%s' "$_pat" | tr -d '\\')" \
+    "yes" "$([ "${_hit:-0}" -ge 1 ] && echo yes || echo no)"
+done
+unset _pat _hit
+
+# The lib must not use ${var,,} — local-review.sh sources it and does not guard
+# for Bash >= 4, where that expansion is a hard "bad substitution" (LADR-078's
+# trap, same shape).
+_ladr080_lc="$(grep -v '^[[:space:]]*#' "$SCRIPT_DIR/lib/prepare-opencode-config.sh" \
+  | grep -cF ',,}' | tr -d ' ' || true)"
+check "prepare-opencode-config.sh stays Bash 3.2 safe (no \${var,,})" \
+  "0" "${_ladr080_lc:-0}"
+unset _ladr080_lc
+
+# Sourcing the lib with a stubbed `opencode --version` on PATH. Runs from a
+# scratch cwd (so the ci_temp branch is not taken) with a scratch HOME (so the
+# LADR-071 migration cannot touch the real global config).
+_ladr080_probe() {
+  local version="$1" bin home cwd out
+  bin="$(mktemp -d)"; home="$(mktemp -d)"; cwd="$(mktemp -d)"
+  # A ci_temp/ in cwd forces the lib's deterministic scratch-path branch. Without
+  # it the lib falls back to `mktemp /tmp/opencode.resolved.XXXXXX.json`, whose
+  # trailing suffix BSD mktemp does not honour — it creates a LITERAL
+  # `XXXXXX` file, so the second probe in this loop dies on "File exists" before
+  # reaching the version check and passes the `silent` cases for the wrong reason.
+  mkdir -p "$cwd/ci_temp"
+  if [ -n "$version" ]; then
+    printf '#!/bin/bash\necho "opencode %s"\n' "$version" > "$bin/opencode"
+    chmod +x "$bin/opencode"
+  fi
+  out="$(cd "$cwd" && HOME="$home" PATH="$bin:$PATH" bash -c \
+    ". '$SCRIPT_DIR/lib/prepare-opencode-config.sh'" 2>&1 >/dev/null || true)"
+  rm -rf "$bin" "$home" "$cwd"
+  if printf '%s' "$out" | grep -q 'does NOT resolve'; then echo warned; else echo silent; fi
+}
+check "v2 binary warns that instructions is inert"   "warned" "$(_ladr080_probe 2.0.1)"
+check "v3 pre-release binary warns too"              "warned" "$(_ladr080_probe 3.0.0-beta.1)"
+check "v1 binary stays silent"                       "silent" "$(_ladr080_probe 1.18.10)"
+check "no opencode on PATH stays silent"             "silent" "$(_ladr080_probe '')"
+unset -f _ladr080_probe
+unset _ladr080_cfg
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="
