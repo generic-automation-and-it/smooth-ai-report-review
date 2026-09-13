@@ -42,7 +42,8 @@
 # https://openrouter.ai/api/v1, and https://api.anthropic.com respectively.
 #
 # The resolved config also carries a top-level `instructions` array (LADR-070)
-# listing `.agents/rules/*.md`. Relative entries resolve against the project
+# listing `.agents/rules/*.md` plus the legacy-layout `.github/instructions/`
+# and `docs/{ADR,hlds}/AGENTS.md` entries. Relative entries resolve against the project
 # directory walking up to the worktree root, NOT against the directory holding
 # the config file (only `{file:...}` substitution uses config-relative paths).
 # So the glob resolves inside the repo under review, exactly as it would from a

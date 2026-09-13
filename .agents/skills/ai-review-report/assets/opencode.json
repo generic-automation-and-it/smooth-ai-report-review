@@ -113,7 +113,13 @@
       }
     }
   },
-  "instructions": [".agents/rules/*.md"],
+  "instructions": [
+    ".agents/rules/*.md",
+    ".github/instructions/*.instructions.md",
+    ".github/instructions/AGENTS.md",
+    "docs/ADR/AGENTS.md",
+    "docs/hlds/AGENTS.md"
+  ],
   "share": "disabled",
   "permission": {
     "external_directory": "allow"
