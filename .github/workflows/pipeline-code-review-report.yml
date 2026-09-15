@@ -482,6 +482,10 @@ jobs:
       # FLOOR (small chunks); a large prompt scales up toward this cap, which
       # preserves the deadlock-detector property the fixed budget used to give.
       OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
+      # Max chunks reviewed concurrently (default 7 — 10 pushed slow chunks
+      # past their budget under provider degradation). Lower it further (e.g.
+      # 4) when the model endpoint is slow or rate-limited.
+      OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md
