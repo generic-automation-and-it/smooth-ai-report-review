@@ -1311,8 +1311,18 @@ EOF
 
 # --- Parallel Chunk Processing ---
 # Chunks are independent (no shared state) so they can run concurrently.
-# MAX_PARALLEL caps concurrent Gemini API calls to avoid rate limiting.
-MAX_PARALLEL=${MAX_PARALLEL:-10}
+# MAX_PARALLEL caps concurrent model API calls to avoid rate limiting and
+# endpoint contention. Default 7: 10 concurrent chunks pushed slow chunks past
+# their budget during provider degradation (smooth-ai-product-context-memory
+# PR 63 run 34949307952 — 3 of 8 chunks exit-124'd). Consumers tune it via the
+# OPENCODE_REVIEW_REPORT_MAX_PARALLEL GitHub Variable (wired through both
+# workflow packagings); the bare MAX_PARALLEL env var is kept as a
+# lower-precedence fallback for existing local callers.
+MAX_PARALLEL="${OPENCODE_REVIEW_REPORT_MAX_PARALLEL:-${MAX_PARALLEL:-7}}"
+if ! [[ "$MAX_PARALLEL" =~ ^[0-9]+$ ]] || [ "$MAX_PARALLEL" -lt 1 ]; then
+  echo "⚠️ Invalid parallel chunk cap '${MAX_PARALLEL}' (must be a positive integer). Using default: 7"
+  MAX_PARALLEL=7
+fi
 
 # Phase 1: Collect all chunk groups (prompts are built inside review_chunk)
 declare -a CHUNK_DIRS
