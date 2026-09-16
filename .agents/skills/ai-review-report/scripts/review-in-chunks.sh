@@ -1364,7 +1364,7 @@ EOF
         elif [ "$_secondary_budget" -gt 0 ]; then
           echo "**Reason:** Timeout (>${_primary_budget}s of a ${_chunk_timeout}s budget). The budget was split (LADR-081) but the second stage never ran, because \`OPENCODE_REVIEW_REPORT_MODEL_SECONDARY\` resolves to the same model as the primary (\`${OPENCODE_MODEL_ID}\`) — set a genuinely different secondary to get a rescue tier."
         else
-          echo "**Reason:** Timeout (>${_chunk_timeout}s). This budget was too small to split without starving a stage (see \`lib/split-chunk-budget.sh\`), so it wrapped the whole model chain and the secondary was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` above 480 to buy a rescue tier, and/or raise it further if this recurs."
+          echo "**Reason:** Timeout (>${_chunk_timeout}s). This budget was too small to split without starving a stage (see \`lib/split-chunk-budget.sh\`), so it wrapped the whole model chain and the secondary was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` above 750 to buy a rescue tier, and/or raise it further if this recurs."
         fi
       elif [ "$exit_code" -eq 137 ]; then
         echo "**Reason:** Out of memory or killed"
@@ -1493,6 +1493,107 @@ done
 
 # Restore CHUNK_NUM to total for downstream output
 CHUNK_NUM=$TOTAL_CHUNKS
+
+# --- Retry sweep (LADR-082): one second attempt per failed chunk --------------
+# Selector is the LADR-031 flag file, NOT the exit codes above: review_chunk
+# never returns non-zero on a chunk failure (it ends with `echo ""`), so
+# CHUNK_EXIT_CODES/FAILED_CHUNKS is effectively always clean — and the flag is
+# the same thing aggregation counts, so clearing it on a rescue is exactly what
+# makes the coverage block read `0 failed`. This covers every failure mode:
+# exit 124 timeouts, non-124 API errors, and the LADR-031/077 no-review
+# rejections that exit 0 and are otherwise denied even the LADR-081 secondary.
+declare -a RETRY_CHUNKS=()
+for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+  if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+    RETRY_CHUNKS+=("$i")
+  fi
+done
+
+if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
+  if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
+    # Every chunk failed: that is a dead endpoint, not bad luck. Retrying
+    # doubles a doomed run, so the sweep is skipped — and says so, or
+    # "we skipped the sweep" is indistinguishable from "nothing to sweep".
+    #
+    # `TOTAL_CHUNKS -gt 1` matters more than it looks. The inference is
+    # statistical — "all of them failed" is evidence of a dead endpoint only
+    # when there were enough of them for that to be improbable. At one chunk
+    # "all failed" is just "it failed", and single-chunk mode is the DEFAULT
+    # for any PR at or under OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING
+    # (10) files whose diff fits MAX_CHUNK_SIZE — it groups everything as one
+    # `all-changes` chunk and still reaches this sweep. Without this guard the
+    # feature was inert for most small PRs, which are the cheapest retries
+    # there are. Two-chunk runs keep the skip: there, "both failed" is at
+    # least weak evidence, and the settled decision stands.
+    echo ""
+    echo "⚠️ Retry sweep skipped (LADR-082): all ${TOTAL_CHUNKS} chunks failed — endpoint looks dead, a retry would double a doomed run"
+  else
+    echo ""
+    echo "=========================================="
+    echo "Retry sweep (LADR-082): ${#RETRY_CHUNKS[@]} failed chunk(s) get one second attempt: ${RETRY_CHUNKS[*]}"
+    echo "=========================================="
+    # Max 2 concurrent, hardcoded (settled decision — no Variable), ascending
+    # chunk index. Exactly one retry per chunk: this loop runs once and
+    # review_chunk itself never retries.
+    # Cap is 2 (settled decision, no Variable), but never MORE than the
+    # consumer's own concurrency cap: someone who set
+    # OPENCODE_REVIEW_REPORT_MAX_PARALLEL=1 did it to stop hammering a
+    # contended endpoint, and a sweep that ignores that reintroduces exactly
+    # the contention LADR-081's motivating runs died of.
+    _retry_parallel=2
+    if [ "$MAX_PARALLEL" -lt "$_retry_parallel" ]; then
+      _retry_parallel="$MAX_PARALLEL"
+    fi
+    echo "  (max ${_retry_parallel} concurrent, ascending index, one attempt each)"
+    _retry_running=0
+    declare -a RETRY_PIDS=()
+    for i in "${RETRY_CHUNKS[@]}"; do
+      # THE TRAP (LADR-082): review_chunk's success path never removes a
+      # pre-existing .failed flag — it only writes one on failure. Without
+      # this cleanup a rescued chunk keeps attempt 1's flag and still
+      # fail-closes the review while the logs look correct. Delete every
+      # stale artifact of attempt 1 and let review_chunk rewrite them; if
+      # the retry fails again it drops a fresh flag and marker, restoring
+      # current behaviour byte-for-byte.
+      rm -f "ci_temp/reviews/chunk_${i}.failed" \
+            "ci_temp/reviews/chunk_${i}.md" \
+            "ci_temp/reviews/chunk_${i}.findings.json" \
+            "ci_temp/reviews/chunk_${i}.findings.rejected.txt"
+      echo "  🔁 Retrying chunk #${i} (${CHUNK_DIRS[$i]})"
+      CHUNK_NUM=$i
+      mapfile -t chunk_files <<< "${CHUNK_FILE_LISTS[$i]}"
+      (
+        review_chunk "${CHUNK_DIRS[$i]}" "${chunk_files[@]}"
+      ) &
+      RETRY_PIDS+=($!)
+      _retry_running=$((_retry_running + 1))
+      if [ "$_retry_running" -ge "$_retry_parallel" ]; then
+        wait -n 2>/dev/null || true
+        _retry_running=$((_retry_running - 1))
+      fi
+    done
+    for _pid in "${RETRY_PIDS[@]}"; do
+      wait "$_pid" 2>/dev/null || true
+    done
+    CHUNK_NUM=$TOTAL_CHUNKS
+    for i in "${RETRY_CHUNKS[@]}"; do
+      if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+        echo "  ❌ Chunk #${i} (${CHUNK_DIRS[$i]}) failed again — keeping fail-closed flag"
+      else
+        echo "  ✅ Chunk #${i} (${CHUNK_DIRS[$i]}) rescued on retry"
+      fi
+    done
+  fi
+fi
+
+# Recompute the failure count from the flags so the summary block and anything
+# downstream see the post-retry truth (the flag is what aggregation counts too).
+FAILED_CHUNKS=0
+for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+  if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+    FAILED_CHUNKS=$((FAILED_CHUNKS + 1))
+  fi
+done
 
 echo ""
 echo "=========================================="

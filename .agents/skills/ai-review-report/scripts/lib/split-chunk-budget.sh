@@ -18,16 +18,22 @@
 # same fix for the chunk chain, which is where it actually costs reviews.
 #
 # The split is deliberately NOT a plain percentage. A chunk that legitimately
-# needs 300 s must keep succeeding on the primary: the slowest chunk that has ever
-# SUCCEEDED took 299 s (68 KB under 6-way concurrency), so shaving the primary
-# below that trades a rare rescued chunk for a common broken one. Hence a floor on
-# the primary and a floor on the secondary, and — when both cannot be honoured —
-# no split at all rather than a split that starves a stage.
+# needs ~560 s must keep succeeding on the primary: the slowest chunk MEASURED to
+# succeed took 563 s (60 KB prompt, run 35081703390 on
+# generic-automation-and-it/smooth-ai-product-context-memory, 4 chunks launched
+# together at a 700 s base, max 7 parallel; its sibling at 52 KB took 550 s), so
+# shaving the primary below that trades a rare rescued chunk for a common broken
+# one. Hence a floor on the primary and a floor on the secondary, and — when both
+# cannot be honoured — no split at all rather than a split that starves a stage.
 #
 # Consequence worth knowing before you retune: at the DEFAULT 450 s base there is
-# no room, so the default configuration is unchanged and this lib is inert. The
-# split switches on at 480 s and above, which is why the consumer that motivated
-# it (base 700 s) gets the fix and nobody else's timing moves.
+# no room, so the default configuration is unchanged and this lib is inert — and
+# with the primary floor at 600 s the split only switches on at 750 s and above
+# (600 + 150). At the 700 s base that motivated LADR-081 the lib now correctly
+# REFUSES to split: 700 − 600 leaves under the secondary floor, and a 100 s
+# rescue tier that must restart a full review is two failures where there was
+# one. Refusing is the design, not a shortfall — the chunk-level retry sweep
+# (LADR-082) is the rescue mechanism at common budgets.
 
 set -uo pipefail
 
@@ -35,10 +41,14 @@ set -uo pipefail
 # a review, not enough to repeat the primary's exploration.
 SECONDARY_SHARE_PCT=35
 
-# Above the 299 s slowest observed success, with room for the trend that made
-# LADR-065 necessary. The primary must never be squeezed under the envelope in
-# which chunks are known to pass.
-PRIMARY_MIN_SECONDS=330
+# MEASUREMENT, not taste: the slowest chunk observed to SUCCEED took 563 s
+# (run 35081703390, chunk 1, 60 KB prompt, 700 s base, max 7 parallel — its
+# 52 KB sibling took 550 s in the same run). 600 gives that ceiling headroom.
+# Prompt size barely predicts duration in that run (89 KB finished in 209 s),
+# so do not lower this on a size argument. The prior value of 330 was copied
+# from a stale "299 s slowest success" comment and would have killed both of
+# those successful chunks mid-review at a 700 s base.
+PRIMARY_MIN_SECONDS=600
 
 # Below this a second full chunk review cannot finish, so reserving it would
 # convert a working single-tier attempt into two failing ones.
