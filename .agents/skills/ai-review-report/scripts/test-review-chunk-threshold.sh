@@ -346,27 +346,30 @@ _ct "ceiling declared in the local-job packaging" "1" \
 # slow one. `lib/split-chunk-budget.sh` reserves the secondary a turn.
 _sb_lib="$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
 _ct "the split lib exists" "1" "$([ -f "$_sb_lib" ] && echo 1 || echo 0)"
-# The floors are the whole design: a chunk that legitimately needs ~300 s must
-# keep succeeding on the primary (slowest observed SUCCESS is 299 s), so the
-# split only switches on when both stages can be funded.
+# The floors are the whole design: a chunk that legitimately needs ~560 s must
+# keep succeeding on the primary (slowest MEASURED success is 563 s, run
+# 35081703390 — the old 299 s figure was stale prose, not measurement), so the
+# split only switches on when both stages can be funded: at 750 s and above.
 _ct "the default 450s base does not split — the default config is inert" "450 0" \
   "$(bash "$_sb_lib" 450 2>/dev/null)"
-_ct "just below the split threshold stays unsplit" "479 0" \
-  "$(bash "$_sb_lib" 479 2>/dev/null)"
-_ct "at the threshold both floors are exactly honoured" "330 150" \
+_ct "the old 480s switch-on point no longer splits (stale 330s floor gone)" "480 0" \
   "$(bash "$_sb_lib" 480 2>/dev/null)"
-_ct "the 700s base that lost chunks now reserves a secondary turn" "455 245" \
+_ct "the 700s base that motivated LADR-081 correctly REFUSES to split" "700 0" \
   "$(bash "$_sb_lib" 700 2>/dev/null)"
-_ct "a scaled 850s budget splits proportionally" "553 297" \
+_ct "just below the split threshold stays unsplit" "749 0" \
+  "$(bash "$_sb_lib" 749 2>/dev/null)"
+_ct "at the threshold both floors are exactly honoured" "600 150" \
+  "$(bash "$_sb_lib" 750 2>/dev/null)"
+_ct "a scaled 850s budget honours the primary floor" "600 250" \
   "$(bash "$_sb_lib" 850 2>/dev/null)"
 _ct "the 1200s ceiling splits without exceeding itself" "780 420" \
   "$(bash "$_sb_lib" 1200 2>/dev/null)"
 # Every split must be conservative: primary never below the envelope in which
 # chunks are known to pass, and the two shares must never exceed the total.
-for _tot in 480 500 700 850 1200; do
+for _tot in 750 850 1000 1200; do
   read -r _p _s2 <<< "$(bash "$_sb_lib" "$_tot" 2>/dev/null)"
   _ct "split of ${_tot}s keeps the primary above the observed-success envelope" "1" \
-    "$(awk -v p="$_p" 'BEGIN{print (p >= 330) ? 1 : 0}')"
+    "$(awk -v p="$_p" 'BEGIN{print (p >= 600) ? 1 : 0}')"
   _ct "split of ${_tot}s never exceeds the total budget" "1" \
     "$(awk -v p="$_p" -v s="$_s2" -v t="$_tot" 'BEGIN{print (p + s <= t) ? 1 : 0}')"
 done
@@ -452,7 +455,7 @@ chmod +x "${_rt}/bin/timeout"
   mkdir -p ci_temp; printf 'alpha/a.txt\0' > ci_temp/changed_files.txt
   SPLIT_CALLS_LOG="${_rt}/calls.log" \
   SPLIT_BUDGETS_LOG="${_rt}/budgets.log" \
-  OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=700 \
+  OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900 \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
   OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
   GITHUB_OUTPUT="${_rt}/gh.out" \
@@ -468,10 +471,10 @@ _ct "runtime: the primary was called" "1" \
   "$(_rt_has "${_rt}/calls.log" '^primary-model$')"
 _ct "runtime: the secondary was called after the primary timed out" "1" \
   "$(_rt_has "${_rt}/calls.log" '^secondary-model$')"
-_ct "runtime: stage 1 was bounded by the 455s primary share of a 700s budget" "1" \
-  "$(_rt_has "${_rt}/budgets.log" '^455s$')"
+_ct "runtime: stage 1 was bounded by the 600s primary share of a 900s budget" "1" \
+  "$(_rt_has "${_rt}/budgets.log" '^600s$')"
 _ct "runtime: the split was announced" "1" \
-  "$(_rt_has "${_rt}/run.log" 'split 455s primary / 245s secondary reserve')"
+  "$(_rt_has "${_rt}/run.log" 'split 600s primary / 300s secondary reserve')"
 _ct "runtime: the rescue was announced" "1" \
   "$(_rt_has "${_rt}/run.log" 'rescued by secondary')"
 _ct "runtime: the secondary's review is what got written" "1" \
@@ -647,3 +650,193 @@ if [ "$_sh_fail" -ne 0 ]; then
   done
   exit 1
 fi
+
+# --- Retry sweep: one second attempt per failed chunk (LADR-082) --------------
+# A single unlucky chunk fail-closes a PR whose reviewed chunks were clean, and
+# the user's only recourse was to re-run /ai-review and hope (consumer run
+# 35081703390 — the re-run itself still lost 1 of 4). The sweep selects on the
+# LADR-031 `chunk_<n>.failed` flag (never exit codes: review_chunk always exits
+# 0), retries each failed chunk exactly once via review_chunk itself, max 2 at a
+# time, ascending index, same budget — and skips entirely when ALL chunks
+# failed (dead endpoint; retrying doubles a doomed run).
+echo ""
+echo "=========================================="
+echo "Testing retry sweep (LADR-082)"
+echo "=========================================="
+_rs_fail=0
+_rs() { # _rs <label> <expected> <actual>
+  if [ "$3" = "$2" ]; then echo "  ✅ $1"; else echo "  ❌ $1 (expected '$2', got '$3')"; _rs_fail=1; fi
+}
+
+setup_retry_repo() {
+  local test_repo="${TMP_DIR}/repo-retry"
+  rm -rf "${test_repo}"
+  mkdir -p "${test_repo}/.agents/skills/ai-review-report/scripts/lib" "${test_repo}/bin"
+  cp "${SOURCE_SCRIPT}" "${test_repo}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+  cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+  cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+  cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
+  cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
+    "${test_repo}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
+
+  # The stub is invocation-counted per chunk (counter files) and mode-driven
+  # per chunk (RETRY_MODES_FILE, one word per line, line N+1 = chunk N):
+  #   pass          — real review every time
+  #   flaky         — exit 1 on attempt 1, real review on attempt 2
+  #   flaky-sidecar — attempt 1 is narration + a valid findings sidecar (so
+  #                   extraction WRITES chunk_<n>.findings.json before the
+  #                   LADR-077 shape check flags the chunk — the stale-artifact
+  #                   trap the sweep must clean); real review on attempt 2
+  #   dead          — exit 1 every time
+  # NOTE #!/usr/bin/env bash — /bin/bash does not exist in the bash:5.2 image.
+  cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'STUB'
+#!/usr/bin/env bash
+prompt_file="${@: -1}"
+if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+n="$(basename "$prompt_file")"; n="${n#chunk_}"; n="${n%_prompt.txt}"
+cf="${RETRY_COUNT_DIR}/count_${n}"
+c=0; [ -f "$cf" ] && c="$(cat "$cf")"
+c=$((c+1)); echo "$c" > "$cf"
+mode="$(sed -n "$((n+1))p" "$RETRY_MODES_FILE")"
+echo "START ${n} ${c}" >> "${RETRY_EVENTS_LOG}"
+emit_review() {
+  printf '### Review of chunk %s (attempt %s)\n\n' "$n" "$c"
+  printf -- '- 🔵 [VERIFIED] Low Priority: none found in test run, chunk %s attempt %s.\n\n%.0s' "$n" "$c" 1 2 3 4 5 6 7 8 9 10
+}
+case "$mode" in
+  pass) ;;
+  flaky)
+    if [ "$c" -eq 1 ]; then echo "STOP ${n} ${c}" >> "${RETRY_EVENTS_LOG}"; exit 1; fi ;;
+  flaky-sidecar)
+    if [ "$c" -eq 1 ]; then
+      echo "Let me check the directory structure before writing anything."
+      echo "<!-- FINDINGS_JSON_BEGIN -->"
+      echo '{"findings": [], "stale_marker": "stale-sidecar-from-attempt-1"}'
+      echo "<!-- FINDINGS_JSON_END -->"
+      echo "STOP ${n} ${c}" >> "${RETRY_EVENTS_LOG}"
+      exit 0
+    fi ;;
+  dead)
+    echo "STOP ${n} ${c}" >> "${RETRY_EVENTS_LOG}"; exit 1 ;;
+esac
+sleep 0.3
+echo "STOP ${n} ${c}" >> "${RETRY_EVENTS_LOG}"
+emit_review
+STUB
+  chmod +x "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+
+  cat > "${test_repo}/bin/timeout" << 'EOF'
+#!/bin/sh
+shift
+exec "$@"
+EOF
+  chmod +x "${test_repo}/bin/timeout"
+
+  cd "${test_repo}"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  mkdir -p alpha beta gamma delta
+  echo "a" > alpha/a.txt; echo "b" > beta/b.txt; echo "c" > gamma/c.txt; echo "d" > delta/d.txt
+  git add -A; git commit -q -m "base"
+  for f in alpha/a.txt beta/b.txt gamma/c.txt delta/d.txt; do echo "updated" >> "$f"; done
+  git add -A; git commit -q -m "head"
+}
+
+run_retry_case() { # run_retry_case <label> <mode0> <mode1> <mode2> <mode3>
+  local label="$1"; shift
+  local test_repo="${TMP_DIR}/repo-retry"
+  cd "${test_repo}"
+  rm -rf ci_temp retry-state
+  mkdir -p ci_temp retry-state
+  printf 'alpha/a.txt\0beta/b.txt\0gamma/c.txt\0delta/d.txt\0' > ci_temp/changed_files.txt
+  printf '%s\n' "$@" > retry-state/modes.txt
+  RETRY_COUNT_DIR="${test_repo}/retry-state" \
+    RETRY_MODES_FILE="${test_repo}/retry-state/modes.txt" \
+    RETRY_EVENTS_LOG="${test_repo}/retry-state/events.log" \
+    OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=2 \
+    GITHUB_OUTPUT="${TMP_DIR}/${label}.out" \
+    PATH="${test_repo}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "test-model" "test expertise" \
+      > "${TMP_DIR}/${label}.log" 2>&1
+}
+
+_rs_count() { cat "${TMP_DIR}/repo-retry/retry-state/count_$1" 2>/dev/null || echo 0; }
+_rs_flag()  { [ -f "${TMP_DIR}/repo-retry/ci_temp/reviews/chunk_$1.failed" ] && echo 1 || echo 0; }
+
+setup_retry_repo
+
+# Mixed run (tests 1, 2, 3, 4, 8, 9): chunk 0 passes first time, chunk 1 is
+# flaky-with-a-stale-sidecar (rescued), chunk 2 is flaky (rescued), chunk 3 is
+# dead (fails twice — current fail-closed behaviour must be preserved).
+run_retry_case "retry-mixed" pass flaky-sidecar flaky dead
+_rs "mixed: a passing chunk is never retried (1 invocation)" "1" "$(_rs_count 0)"
+_rs "mixed: a flaky chunk is retried exactly once (2 invocations)" "2" "$(_rs_count 1)"
+_rs "mixed: the second flaky chunk is retried exactly once" "2" "$(_rs_count 2)"
+_rs "mixed: a dead chunk gets exactly one retry, never a third attempt" "2" "$(_rs_count 3)"
+_rs "mixed: rescued chunk 1 leaves NO .failed flag (the silent-no-op trap)" "0" "$(_rs_flag 1)"
+_rs "mixed: rescued chunk 2 leaves NO .failed flag" "0" "$(_rs_flag 2)"
+_rs "mixed: twice-failed chunk 3 keeps its fail-closed flag" "1" "$(_rs_flag 3)"
+_rs "mixed: final flag set is exactly the twice-failed chunk" "1" \
+  "$(find "${TMP_DIR}/repo-retry/ci_temp/reviews" -name '*.failed' | wc -l | tr -d ' ')"
+_rs "mixed: rescued chunk 1 body holds the real review, not the failure marker" "1" \
+  "$(grep -c 'Review of chunk 1 (attempt 2)' "${TMP_DIR}/repo-retry/ci_temp/reviews/chunk_1.md")"
+_rs "mixed: rescued chunk 1 body carries no failure marker text" "0" \
+  "$(grep -c 'Review Failed for Chunk' "${TMP_DIR}/repo-retry/ci_temp/reviews/chunk_1.md")"
+_rs "mixed: attempt 1's stale findings sidecar is gone after the rescue" "0" \
+  "$(grep -rc 'stale-sidecar-from-attempt-1' "${TMP_DIR}/repo-retry/ci_temp/reviews" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')"
+_rs "mixed: twice-failed chunk 3 keeps the visible failure marker" "1" \
+  "$(grep -c 'Review Failed for Chunk' "${TMP_DIR}/repo-retry/ci_temp/reviews/chunk_3.md")"
+_rs "mixed: the sweep announced itself" "1" \
+  "$(grep -c 'Retry sweep (LADR-082): 3 failed chunk' "${TMP_DIR}/retry-mixed.log")"
+_rs "mixed: rescues and re-failures are logged per chunk" "2" \
+  "$(grep -c 'rescued on retry' "${TMP_DIR}/retry-mixed.log")"
+_rs "mixed: the re-failure is logged" "1" \
+  "$(grep -c 'failed again — keeping fail-closed flag' "${TMP_DIR}/retry-mixed.log")"
+_rs "mixed: the summary block reports the post-retry failure count" "1" \
+  "$(grep -c '^Failed chunks: 1$' "${TMP_DIR}/retry-mixed.log")"
+
+# Ordering (test 7): retries launch in ascending chunk index.
+_rs "mixed: retries launch in ascending chunk index" "1" "$( \
+  grep -o 'Retrying chunk #[0-9]*' "${TMP_DIR}/retry-mixed.log" \
+    | grep -o '[0-9]*' | tr '\n' ' ' | grep -c '^1 2 3 $')"
+
+# Concurrency (test 6): replay attempt-2 START/STOP events; overlap never
+# exceeds the hardcoded cap of 2.
+_rs "mixed: retry concurrency never exceeds 2" "1" "$(awk '
+  $3 == 2 { if ($1 == "START") { r++; if (r > max) max = r } else r-- }
+  END { print (max <= 2) ? 1 : 0 }' "${TMP_DIR}/repo-retry/retry-state/events.log")"
+
+# All-failed (test 5): no sweep at all — one invocation per chunk, skip logged.
+run_retry_case "retry-all-failed" dead dead dead dead
+for _n in 0 1 2 3; do
+  _rs "all-failed: chunk ${_n} is invoked exactly once (no sweep)" "1" "$(_rs_count ${_n})"
+  _rs "all-failed: chunk ${_n} keeps its flag" "1" "$(_rs_flag ${_n})"
+done
+_rs "all-failed: the skip is logged, distinguishable from an empty sweep" "1" \
+  "$(grep -c 'Retry sweep skipped (LADR-082): all 4 chunks failed' "${TMP_DIR}/retry-all-failed.log")"
+
+# Clean run: no failures → no sweep chatter, no retries.
+run_retry_case "retry-clean" pass pass pass pass
+for _n in 0 1 2 3; do
+  _rs "clean: chunk ${_n} is invoked exactly once" "1" "$(_rs_count ${_n})"
+done
+_rs "clean: no sweep is announced on a clean run" "0" \
+  "$(grep -c 'Retry sweep' "${TMP_DIR}/retry-clean.log")"
+
+if [ "$_rs_fail" -ne 0 ]; then
+  for _l in retry-mixed retry-all-failed retry-clean; do
+    echo "--- ${_l}.log (tail) ---"
+    tail -40 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
+  done
+  exit 1
+fi
+
+echo ""
+echo "=========================================="
+echo "Retry sweep tests passed"
+echo "=========================================="
