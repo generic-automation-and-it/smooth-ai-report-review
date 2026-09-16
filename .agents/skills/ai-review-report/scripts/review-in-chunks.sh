@@ -1192,7 +1192,70 @@ EOF
   # prompts, while 88 KB prompts had never timed out. $prompt_size is already
   # computed above for the oversize warning — this is the same number.
   _chunk_timeout="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/validate-chunk-timeout.sh" "$prompt_size")"
-  if timeout "${_chunk_timeout}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  # LADR-081: the budget is SPLIT across the two-tier chain, not wrapped around
+  # it. `lib/opencode-with-fallback.sh` has no internal per-model budget, so a
+  # single outer `timeout` meant exit 124 = "the primary ate everything and the
+  # LADR-002 secondary was never invoked" — the chain exists to rescue exactly
+  # the case a timeout produces. Same flaw LADR-066 fixed for the grouping call
+  # (35s + 25s instead of one 60s wrap); this is that fix where it costs reviews.
+  #
+  # A secondary budget of 0 means the total was too small to split without
+  # starving a stage, so the pre-split single-wrap behaviour is used verbatim.
+  local _primary_budget _secondary_budget _secondary_model
+  local _stage1_rc=0 _chunk_rc=0 _split_used=0 _stage_started _elapsed _remaining _stage1_fb
+  _secondary_model="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
+  read -r _primary_budget _secondary_budget \
+    <<< "$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/split-chunk-budget.sh" "$_chunk_timeout")"
+  # The lib prints "0 0" rather than guessing when handed junk; that is this
+  # guard's cue to keep the budget we already validated instead of running
+  # `timeout 0s`, which imposes NO limit at all and would hang the job.
+  if ! [[ "$_primary_budget" =~ ^[1-9][0-9]*$ ]]; then
+    _primary_budget="$_chunk_timeout"
+    _secondary_budget=0
+  fi
+  # When splitting, stage 1 must NOT carry the secondary as its own fallback, or
+  # a fast primary error would spend stage 1's clock on the model stage 2 owns
+  # and the secondary would be tried twice on one budget. When not splitting,
+  # the secondary stays in-chain exactly as before.
+  if [ "$_secondary_budget" -gt 0 ]; then
+    _stage1_fb=""
+    echo "  ⏱️  Chunk ${chunk_num} budget ${_chunk_timeout}s split ${_primary_budget}s primary / ${_secondary_budget}s secondary reserve (LADR-081)"
+  else
+    _stage1_fb="$_secondary_model"
+  fi
+  _stage_started=$(date +%s)
+  if timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+    _chunk_rc=0
+  else
+    _stage1_rc=$?
+    _chunk_rc=$_stage1_rc
+    # Stage 2 gets whatever is LEFT of the total, not a fixed slice. That single
+    # subtraction gives both behaviours for free: a primary that timed out has
+    # consumed exactly its share, so the remainder IS the reserve; a primary that
+    # failed fast leaves nearly the whole budget, so the secondary is no worse off
+    # than under the old single wrap. Total wall clock is unchanged either way —
+    # elapsed + (total - elapsed) = total — so the outer guarantee still holds and
+    # the deadlock-detector property of the ceiling survives.
+    if [ "$_secondary_budget" -gt 0 ] \
+       && [ -n "$_secondary_model" ] \
+       && [ "$_secondary_model" != "$OPENCODE_MODEL_ID" ]; then
+      _elapsed=$(( $(date +%s) - _stage_started ))
+      _remaining=$(( _chunk_timeout - _elapsed ))
+      if [ "$_remaining" -gt 0 ]; then
+        _split_used=1
+        echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
+        # stdout is overwritten (stage 1 may have left partial output); stderr is
+        # appended so stage 1's diagnostics survive alongside stage 2's.
+        if timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+          echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
+          _chunk_rc=0
+        else
+          _chunk_rc=$?
+        fi
+      fi
+    fi
+  fi
+  if [ "$_chunk_rc" -eq 0 ]; then
     # LADR-055: pull the structured-findings sidecar out and strip it from the
     # markdown. Runs BEFORE the empty-output floor below on purpose — the floor
     # must measure the markdown a human will actually read, so a model that
@@ -1272,7 +1335,7 @@ EOF
       echo "  ✅ Chunk ${chunk_num} review completed (${review_size} bytes)"
     fi
   else
-    local exit_code=$?
+    local exit_code=$_chunk_rc
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
     # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
     # step rm -rf's ci_temp on always(), so by the time anyone read the workflow
@@ -1286,11 +1349,23 @@ EOF
       echo ""
       echo "**Exit Code:** ${exit_code}"
       if [ "$exit_code" -eq 124 ]; then
-        # The timeout wraps the whole fallback chain, so on 124 the secondary
-        # model was never reached — say so rather than implying the chain was
-        # tried and exhausted. Raise OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT to
-        # give it room.
-        echo "**Reason:** Timeout (>${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s). The budget wraps the whole model chain, so the fallback model was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
+        # Report the budget that was ACTUALLY enforced, and say honestly whether
+        # the secondary got a turn. The old single line did neither: it
+        # interpolated the unscaled base Variable, so a chunk killed at its
+        # scaled 850 s reported ">700s" and told the reader to raise a number the
+        # run had already grown past (consumer PR 65 run 35011956699), and it
+        # asserted the fallback was never reached — one of three different
+        # problems with three different remedies. Hence three exhaustive
+        # branches: both tiers ran out, there was no second tier to try, or this
+        # budget cannot fund one. A marker that guesses is the defect LADR-081
+        # set out to fix.
+        if [ "$_split_used" -eq 1 ]; then
+          echo "**Reason:** Timeout. The ${_chunk_timeout}s budget was split across the chain (LADR-081): primary \`${OPENCODE_MODEL_ID}\` got ${_primary_budget}s, then secondary \`${_secondary_model}\` got the remainder and also ran out — both tiers of the LADR-002 chain were tried and exhausted. Raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
+        elif [ "$_secondary_budget" -gt 0 ]; then
+          echo "**Reason:** Timeout (>${_primary_budget}s of a ${_chunk_timeout}s budget). The budget was split (LADR-081) but the second stage never ran, because \`OPENCODE_REVIEW_REPORT_MODEL_SECONDARY\` resolves to the same model as the primary (\`${OPENCODE_MODEL_ID}\`) — set a genuinely different secondary to get a rescue tier."
+        else
+          echo "**Reason:** Timeout (>${_chunk_timeout}s). This budget was too small to split without starving a stage (see \`lib/split-chunk-budget.sh\`), so it wrapped the whole model chain and the secondary was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` above 480 to buy a rescue tier, and/or raise it further if this recurs."
+        fi
       elif [ "$exit_code" -eq 137 ]; then
         echo "**Reason:** Out of memory or killed"
       else
