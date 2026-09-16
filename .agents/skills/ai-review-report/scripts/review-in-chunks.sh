@@ -1510,10 +1510,21 @@ for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
 done
 
 if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
-  if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ]; then
+  if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
     # Every chunk failed: that is a dead endpoint, not bad luck. Retrying
     # doubles a doomed run, so the sweep is skipped — and says so, or
     # "we skipped the sweep" is indistinguishable from "nothing to sweep".
+    #
+    # `TOTAL_CHUNKS -gt 1` matters more than it looks. The inference is
+    # statistical — "all of them failed" is evidence of a dead endpoint only
+    # when there were enough of them for that to be improbable. At one chunk
+    # "all failed" is just "it failed", and single-chunk mode is the DEFAULT
+    # for any PR at or under OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING
+    # (10) files whose diff fits MAX_CHUNK_SIZE — it groups everything as one
+    # `all-changes` chunk and still reaches this sweep. Without this guard the
+    # feature was inert for most small PRs, which are the cheapest retries
+    # there are. Two-chunk runs keep the skip: there, "both failed" is at
+    # least weak evidence, and the settled decision stands.
     echo ""
     echo "⚠️ Retry sweep skipped (LADR-082): all ${TOTAL_CHUNKS} chunks failed — endpoint looks dead, a retry would double a doomed run"
   else
@@ -1524,6 +1535,16 @@ if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
     # Max 2 concurrent, hardcoded (settled decision — no Variable), ascending
     # chunk index. Exactly one retry per chunk: this loop runs once and
     # review_chunk itself never retries.
+    # Cap is 2 (settled decision, no Variable), but never MORE than the
+    # consumer's own concurrency cap: someone who set
+    # OPENCODE_REVIEW_REPORT_MAX_PARALLEL=1 did it to stop hammering a
+    # contended endpoint, and a sweep that ignores that reintroduces exactly
+    # the contention LADR-081's motivating runs died of.
+    _retry_parallel=2
+    if [ "$MAX_PARALLEL" -lt "$_retry_parallel" ]; then
+      _retry_parallel="$MAX_PARALLEL"
+    fi
+    echo "  (max ${_retry_parallel} concurrent, ascending index, one attempt each)"
     _retry_running=0
     declare -a RETRY_PIDS=()
     for i in "${RETRY_CHUNKS[@]}"; do
@@ -1546,7 +1567,7 @@ if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
       ) &
       RETRY_PIDS+=($!)
       _retry_running=$((_retry_running + 1))
-      if [ "$_retry_running" -ge 2 ]; then
+      if [ "$_retry_running" -ge "$_retry_parallel" ]; then
         wait -n 2>/dev/null || true
         _retry_running=$((_retry_running - 1))
       fi

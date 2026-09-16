@@ -507,8 +507,13 @@ _ct "runtime: the default base announces no split" "0" \
   "$(_rt_has "${_rt}/run-default.log" 'split .* primary / .* secondary reserve')"
 _ct "runtime: the default base bounds the chunk by the full 450s, unsplit" "1" \
   "$(_rt_has "${_rt}/budgets.log" '^450s$')"
-_ct "runtime: the default base invokes the chain exactly once" "1" \
-  "$(wc -l < "${_rt}/calls.log" | tr -d ' ')"
+# Two invocations, not one — and that is the retry sweep (LADR-082) doing its
+# job on a single-chunk run, NOT a budget split. Call count was only ever a
+# proxy for "no split"; the invariant that actually matters is the next
+# assertion (the secondary model is never reached), so pin both rather than
+# leaving a count that silently conflates a split with a retry.
+_ct "runtime: the default base retries the primary rather than splitting" "2" \
+  "$(grep -c '^primary-model$' "${_rt}/calls.log")"
 _ct "runtime: the default base never reaches the second stage" "0" \
   "$(_rt_has "${_rt}/calls.log" '^secondary-model$')"
 
@@ -618,8 +623,16 @@ _sh "the flag names the shape, not the byte count" "1" \
   "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
 _sh "the narration is replaced by a visible failure marker in the body" "1" \
   "$(grep -c 'Review Failed for Chunk' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.md" 2>/dev/null || true)"
-_sh "the run log says the chunk produced no usable review" "1" \
+# Twice, not once: this is a single-chunk run, so LADR-082's sweep retries the
+# rejected chunk and the stub narrates again. That is the intended interaction
+# and worth pinning from this side too — the LADR-031/077 no-review class used
+# to be the ONLY failure mode denied any second attempt (it exits 0, so the
+# chain reports success and even LADR-081's secondary never runs), and it now
+# gets one while still fail-closing when the retry is narration as well.
+_sh "the run log says the chunk produced no usable review, on both attempts" "2" \
   "$(grep -c 'produced no usable review' "${TMP_DIR}/narration-only.log" 2>/dev/null || true)"
+_sh "the retried narration chunk is still fail-closed after its second attempt" "1" \
+  "$(grep -c 'failed again — keeping fail-closed flag' "${TMP_DIR}/narration-only.log" 2>/dev/null || true)"
 
 # Control: an honest review must be untouched. A false positive here is worse
 # than the bug — the flag is fail-closed (LADR-031), so it blocks a clean PR.
@@ -820,6 +833,59 @@ done
 _rs "all-failed: the skip is logged, distinguishable from an empty sweep" "1" \
   "$(grep -c 'Retry sweep skipped (LADR-082): all 4 chunks failed' "${TMP_DIR}/retry-all-failed.log")"
 
+# Single-chunk run: the dead-endpoint skip must NOT swallow it. Single-chunk
+# mode is the DEFAULT for any PR at or under the file-count threshold whose diff
+# fits MAX_CHUNK_SIZE — it groups everything as one `all-changes` chunk and still
+# reaches the sweep, so before the `TOTAL_CHUNKS -gt 1` guard the feature was
+# inert for most small PRs (probed: 1 invocation, flag kept, sweep skipped).
+# "All failed" is evidence of a dead endpoint only when there were enough chunks
+# for that to be improbable; at one chunk it is just "it failed".
+_rt1="${TMP_DIR}/repo-retry1"
+rm -rf "${_rt1}"
+mkdir -p "${_rt1}"
+cp -R "${TMP_DIR}/repo-retry/.agents" "${_rt1}/"
+cp -R "${TMP_DIR}/repo-retry/bin" "${_rt1}/"
+(
+  cd "${_rt1}"
+  git init -q; git config user.email t@e.com; git config user.name T
+  mkdir -p solo; echo a > solo/a.txt
+  git add -A; git commit -q -m base
+  echo updated >> solo/a.txt; git add -A; git commit -q -m head
+  mkdir -p ci_temp retry-state
+  printf 'solo/a.txt\0' > ci_temp/changed_files.txt
+  printf 'flaky\n' > retry-state/modes.txt
+  RETRY_COUNT_DIR="${_rt1}/retry-state" \
+    RETRY_MODES_FILE="${_rt1}/retry-state/modes.txt" \
+    RETRY_EVENTS_LOG="${_rt1}/retry-state/events.log" \
+    GITHUB_OUTPUT="${TMP_DIR}/retry-single.out" \
+    PATH="${_rt1}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "test-model" "test expertise" \
+      > "${TMP_DIR}/retry-single.log" 2>&1
+) || true
+_rs "single-chunk: the run really is one chunk (single-chunk mode)" "1" \
+  "$(grep -c 'Using single chunk review' "${TMP_DIR}/retry-single.log")"
+_rs "single-chunk: the dead-endpoint skip does NOT fire at one chunk" "0" \
+  "$(grep -c 'Retry sweep skipped' "${TMP_DIR}/retry-single.log")"
+_rs "single-chunk: the sole failed chunk IS retried" "2" \
+  "$(cat "${_rt1}/retry-state/count_0" 2>/dev/null || echo 0)"
+_rs "single-chunk: it is rescued and leaves no fail-closed flag" "0" \
+  "$([ -f "${_rt1}/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+
+# Retry concurrency never exceeds the consumer's own MAX_PARALLEL: someone who
+# set it to 1 did so to stop hammering a contended endpoint, and a sweep that
+# ignored it would reintroduce the contention LADR-081's runs died of.
+OPENCODE_REVIEW_REPORT_MAX_PARALLEL=1 run_retry_case "retry-serial" flaky flaky flaky pass
+_rs "MAX_PARALLEL=1: the sweep announces a cap of 1, not 2" "1" \
+  "$(grep -c '(max 1 concurrent, ascending index, one attempt each)' "${TMP_DIR}/retry-serial.log")"
+_rs "MAX_PARALLEL=1: retries never overlap" "1" "$(awk '
+  $3 == 2 { if ($1 == "START") { r++; if (r > max) max = r } else r-- }
+  END { print (max <= 1) ? 1 : 0 }' "${TMP_DIR}/repo-retry/retry-state/events.log")"
+_rs "MAX_PARALLEL=1: all three flaky chunks are still rescued" "0" \
+  "$(find "${TMP_DIR}/repo-retry/ci_temp/reviews" -name '*.failed' | wc -l | tr -d ' ')"
+_rs "the default cap is 2, not MAX_PARALLEL" "1" \
+  "$(grep -c '(max 2 concurrent, ascending index, one attempt each)' "${TMP_DIR}/retry-mixed.log")"
+
 # Clean run: no failures → no sweep chatter, no retries.
 run_retry_case "retry-clean" pass pass pass pass
 for _n in 0 1 2 3; do
@@ -829,7 +895,7 @@ _rs "clean: no sweep is announced on a clean run" "0" \
   "$(grep -c 'Retry sweep' "${TMP_DIR}/retry-clean.log")"
 
 if [ "$_rs_fail" -ne 0 ]; then
-  for _l in retry-mixed retry-all-failed retry-clean; do
+  for _l in retry-mixed retry-all-failed retry-clean retry-single retry-serial; do
     echo "--- ${_l}.log (tail) ---"
     tail -40 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
   done
