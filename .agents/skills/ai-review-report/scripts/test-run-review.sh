@@ -178,10 +178,17 @@ check "empty payload classified as unsupported" "unsupported" "$(detect_event_na
 # decision tree — the parser test above already locks the event-name dispatch.
 should_run_pr() {
   local event_path="$1"
-  local actor draft
+  local actor draft run_on_draft
   actor="$(jq -r '.sender.login // .pull_request.user.login // ""' "$event_path")"
   draft="$(jq -r '.pull_request.draft // false' "$event_path")"
-  [ "$actor" != "dependabot[bot]" ] && [ "$draft" != "true" ]
+  [ "$actor" != "dependabot[bot]" ] || return 1
+  # Draft is conditional on OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT, mirroring both
+  # run-review.sh's should_run() and the job-level if: in all three packagings.
+  if [ "$draft" = "true" ]; then
+    run_on_draft="${OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT:-0}"
+    printf '%s' "${run_on_draft,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' || return 1
+  fi
+  return 0
 }
 
 should_run_issue_comment() {
@@ -199,6 +206,40 @@ if should_run_pr "$f"; then check "should_run accepts normal PR" "yes" "yes"; el
 
 f="$TMP_DIR/draft.json"; write_draft_pr_event "$f"
 if should_run_pr "$f"; then check "should_run rejects draft PR" "no" "yes"; else check "should_run rejects draft PR" "no" "no"; fi
+
+# Draft opt-in (OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT). The default-off case above
+# and these must stay in lockstep with the job-level if: in all three packagings
+# AND with run-review.sh's should_run() -- a divergence between the workflow
+# guard and the script guard means an opted-in draft starts a job that then
+# declines to review it, which is a green run with no review.
+for _v in 1 true TRUE yes on; do
+  if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT="$_v" should_run_pr "$f"; then
+    check "should_run accepts draft PR when RUN_ON_DRAFT=$_v" "yes" "yes"
+  else
+    check "should_run accepts draft PR when RUN_ON_DRAFT=$_v" "yes" "no"
+  fi
+done
+
+# Falsy and malformed values must NOT enable draft reviews. 'tru' is the case the
+# workflow-level substring contains('1 true yes on', ...) would wrongly accept;
+# the script side exact-matches tokens, so it is correctly rejected here.
+for _v in 0 false no off tru "" "  "; do
+  if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT="$_v" should_run_pr "$f"; then
+    check "should_run rejects draft PR when RUN_ON_DRAFT='$_v'" "no" "yes"
+  else
+    check "should_run rejects draft PR when RUN_ON_DRAFT='$_v'" "no" "no"
+  fi
+done
+
+# Dependabot precedence: the draft opt-in must not resurrect a dependabot PR.
+f="$TMP_DIR/dependabot-draft.json"; write_dependabot_pr_event "$f"
+jq '.pull_request.draft = true' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT=true should_run_pr "$f"; then
+  check "should_run rejects dependabot draft PR even with RUN_ON_DRAFT" "no" "yes"
+else
+  check "should_run rejects dependabot draft PR even with RUN_ON_DRAFT" "no" "no"
+fi
+f="$TMP_DIR/draft.json"
 
 f="$TMP_DIR/dependabot.json"; write_dependabot_pr_event "$f"
 if should_run_pr "$f"; then check "should_run rejects dependabot PR" "no" "yes"; else check "should_run rejects dependabot PR" "no" "no"; fi
