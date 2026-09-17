@@ -220,9 +220,12 @@ for _v in 1 true TRUE yes on; do
   fi
 done
 
-# Falsy and malformed values must NOT enable draft reviews. 'tru' is the case the
-# workflow-level substring contains('1 true yes on', ...) would wrongly accept;
-# the script side exact-matches tokens, so it is correctly rejected here.
+# Falsy and malformed values must NOT enable draft reviews. 'tru' is the near-miss
+# that used to split the two layers apart: the workflow's old substring
+# contains('1 true yes on', ...) accepted it while this exact-token grep rejected
+# it, so the job started and the review then declined -- a green run with no
+# review. The workflow now uses exact membership too, so both layers agree; the
+# assertions on the workflow expression live in the parity block below.
 for _v in 0 false no off tru "" "  "; do
   if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT="$_v" should_run_pr "$f"; then
     check "should_run rejects draft PR when RUN_ON_DRAFT='$_v'" "no" "yes"

@@ -165,7 +165,7 @@ jobs:
     if: |
       (github.event_name == 'pull_request' && (
         github.event.pull_request.draft == false ||
-        contains('1 true yes on', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false')
+        contains('|1|true|yes|on|', format('|{0}|', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false'))
       )) ||
       (
         github.event_name == 'issue_comment' &&
