@@ -53,14 +53,18 @@
 #                 workflow's 6-path list — override with your repo's real context files),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
-#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`).
+#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),
+#               OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT (default `false` — set truthy
+#                 to review PRs while they are still in DRAFT; the job-level draft
+#                 guard below is conditional on it).
 #
 # Optional autonomous low/medium fixing: copy .github/workflows/pipeline-ai-analyse.yml
 # into the consuming repo too. It cannot be a reusable workflow caller because
 # workflow_run must live in the repo whose gate run it observes. The workflow
 # name-couples to "OpenCode Review Report" and reads OPENCODE_ANALYSE_PROVIDER /
 # OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL /
-# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX Variables and the optional
+# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX / OPENCODE_ANALYSE_RUN_ON_DRAFT (default
+# `false`; independent of the review draft switch) Variables and the optional
 # OPENCODE_ANALYSE_GH_TOKEN Secret.
 
 # name: "OpenCode Review Report" — must match pipeline-ai-analyse.yml's workflow_run.workflows
