@@ -164,7 +164,7 @@ on:
         type: string
         default: ''
       run_on_draft:
-        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else OFF — drafts are only reviewed once marked ready.'
+        description: 'Forwarded to the gate as-is. NOTE: this input cannot switch draft reviews on or off on ANY path of this packaging — a pull_request event populates no inputs context, and on workflow_dispatch run-review.sh reviews the PR regardless of draft state (dispatch is an explicit human override, per SKILL.md). To review draft PRs on automatic runs, set the OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT repo/org Variable to 1/true/yes/on, or hardcode a literal in the env: block below.'
         required: false
         type: string
         default: ''
