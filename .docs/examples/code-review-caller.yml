@@ -143,7 +143,7 @@ on:
         type: string
         default: ''
       run_on_draft:
-        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else OFF for consumers — pass run_on_draft to opt into draft reviews.'
+        description: 'Forwarded to the gate as-is. NOTE: this input cannot switch draft reviews on for AUTOMATIC runs — a pull_request event populates no inputs context, and a workflow_dispatch run bypasses draft gating entirely (see the if: below). To review draft PRs, set the OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT repo/org Variable to 1/true/yes/on, or hardcode a literal on the with: run_on_draft line below.'
         required: false
         type: string
         default: ''
@@ -189,6 +189,10 @@ jobs:
       file_limit: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '' }}
       exclude_deleted: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '' }}
       exclude_generated_paths: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
+      # Draft reviews, default off. On a pull_request event `inputs.*` is empty, so
+      # the Variable (or a literal here) is the only thing that can enable them;
+      # the dispatch input above never reaches this path. Must stay in sync with
+      # the draft branch of the job `if:` above -- widening one alone is inert.
       run_on_draft: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from —
