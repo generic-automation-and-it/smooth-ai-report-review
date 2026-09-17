@@ -142,6 +142,11 @@ on:
         required: false
         type: string
         default: ''
+      run_on_draft:
+        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else OFF for consumers — pass run_on_draft to opt into draft reviews.'
+        required: false
+        type: string
+        default: ''
 
 # The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
 permissions:
@@ -181,6 +186,7 @@ jobs:
       file_limit: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '' }}
       exclude_deleted: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '' }}
       exclude_generated_paths: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
+      run_on_draft: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from —
       #                              # a full commit SHA (supply-chain pinned) or a trusted
