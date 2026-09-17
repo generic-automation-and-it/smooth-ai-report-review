@@ -207,6 +207,11 @@ on:
         required: false
         type: string
         default: ''
+      run_on_draft:
+        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else OFF — drafts are only reviewed once marked ready.'
+        required: false
+        type: string
+        default: ''
     # Provider API keys, declared so out-of-org callers can pass them EXPLICITLY.
     # `secrets: inherit` only works when caller and this workflow live in the same
     # organization/enterprise; a caller in a different org must map each key (see the
@@ -254,7 +259,10 @@ jobs:
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     if: |
       github.actor != 'dependabot[bot]' && (
-        (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+        (github.event_name == 'pull_request' && (
+          github.event.pull_request.draft == false ||
+          contains('|1|true|yes|on|', format('|{0}|', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false'))
+        )) ||
         (
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request &&
@@ -434,6 +442,10 @@ jobs:
       OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
       OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
       OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '0' }}
+      # Read by run-review.sh's should_run(), which mirrors the job-level draft
+      # guard above. Both must resolve identically or an opted-in draft PR
+      # starts a job that then declines to review it.
+      OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
       OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
       # Code graph analysis (LADR-049) — opt-in Tree-sitter-based knowledge graph.
       # When enabled, builds a SQLite graph of the repo and runs detect-changes

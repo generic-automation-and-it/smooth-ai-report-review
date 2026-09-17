@@ -53,14 +53,18 @@
 #                 workflow's 6-path list — override with your repo's real context files),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
-#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`).
+#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),
+#               OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT (default `false` — set truthy
+#                 to review PRs while they are still in DRAFT; the job-level draft
+#                 guard below is conditional on it).
 #
 # Optional autonomous low/medium fixing: copy .github/workflows/pipeline-ai-analyse.yml
 # into the consuming repo too. It cannot be a reusable workflow caller because
 # workflow_run must live in the repo whose gate run it observes. The workflow
 # name-couples to "OpenCode Review Report" and reads OPENCODE_ANALYSE_PROVIDER /
 # OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL /
-# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX Variables and the optional
+# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX / OPENCODE_ANALYSE_RUN_ON_DRAFT (default
+# `false`; independent of the review draft switch) Variables and the optional
 # OPENCODE_ANALYSE_GH_TOKEN Secret.
 
 # name: "OpenCode Review Report" — must match pipeline-ai-analyse.yml's workflow_run.workflows
@@ -159,6 +163,11 @@ on:
         required: false
         type: string
         default: ''
+      run_on_draft:
+        description: 'Forwarded to the gate as-is. NOTE: this input cannot switch draft reviews on or off on ANY path of this packaging — a pull_request event populates no inputs context, and on workflow_dispatch run-review.sh reviews the PR regardless of draft state (dispatch is an explicit human override, per SKILL.md). To review draft PRs on automatic runs, set the OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT repo/org Variable to 1/true/yes/on, or hardcode a literal in the env: block below.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   pull-requests: write
@@ -180,7 +189,10 @@ env:
 jobs:
   review:
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'pull_request' && (
+        github.event.pull_request.draft == false ||
+        contains('|1|true|yes|on|', format('|{0}|', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false'))
+      )) ||
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
@@ -422,6 +434,10 @@ jobs:
           OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
           OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '0' }}
+          # Read by run-review.sh's should_run(), which mirrors the job-level draft
+          # guard above. Both must resolve identically or an opted-in draft PR
+          # starts a job that then declines to review it.
+          OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
           OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
           # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}

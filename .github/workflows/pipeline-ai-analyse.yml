@@ -20,6 +20,11 @@ on:
         required: false
         type: string
         default: ''
+      run_on_draft:
+        description: 'Auto-fix PRs while they are in DRAFT (1/true/yes/on = auto-fix drafts; 0/false/no/off = skip drafts). Blank → OPENCODE_ANALYSE_RUN_ON_DRAFT Variable, else OFF — draft PRs are skipped.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   actions: read
@@ -100,6 +105,7 @@ jobs:
           MAX_INCREMENTAL: ${{ inputs.max_incremental || vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
           RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
           TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_ANALYSE_RUN_ON_DRAFT || 'false' }}
         run: |
           set -euo pipefail
 
@@ -172,6 +178,18 @@ jobs:
           HEAD_REPO="$(printf '%s' "$PR_JSON" | jq -r '.head.repo.full_name')"
           if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
             skip "fork PRs are unsupported for autonomous fixes"
+            exit 0
+          fi
+
+          # Draft gate: a draft PR is work-in-progress, not a signal the AI should
+          # auto-fix against — unless the repo opts in via run_on_draft /
+          # OPENCODE_ANALYSE_RUN_ON_DRAFT (truthy set mirrors workflow contains()).
+          is_draft="$(printf '%s' "$PR_JSON" | jq -r '.draft // false')"
+          run_on_draft="$(printf '%s' "$RUN_ON_DRAFT" | tr '[:upper:]' '[:lower:]')"
+          if [ "$is_draft" = "true" ] && \
+             [[ "$run_on_draft" != "1" && "$run_on_draft" != "true" && \
+                "$run_on_draft" != "yes" && "$run_on_draft" != "on" ]]; then
+            skip "draft PRs are not auto-fixed unless OPENCODE_ANALYSE_RUN_ON_DRAFT is enabled"
             exit 0
           fi
 

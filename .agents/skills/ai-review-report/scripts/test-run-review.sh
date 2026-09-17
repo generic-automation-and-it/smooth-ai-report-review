@@ -178,10 +178,17 @@ check "empty payload classified as unsupported" "unsupported" "$(detect_event_na
 # decision tree — the parser test above already locks the event-name dispatch.
 should_run_pr() {
   local event_path="$1"
-  local actor draft
+  local actor draft run_on_draft
   actor="$(jq -r '.sender.login // .pull_request.user.login // ""' "$event_path")"
   draft="$(jq -r '.pull_request.draft // false' "$event_path")"
-  [ "$actor" != "dependabot[bot]" ] && [ "$draft" != "true" ]
+  [ "$actor" != "dependabot[bot]" ] || return 1
+  # Draft is conditional on OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT, mirroring both
+  # run-review.sh's should_run() and the job-level if: in all three packagings.
+  if [ "$draft" = "true" ]; then
+    run_on_draft="${OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT:-0}"
+    printf '%s' "${run_on_draft,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' || return 1
+  fi
+  return 0
 }
 
 should_run_issue_comment() {
@@ -199,6 +206,136 @@ if should_run_pr "$f"; then check "should_run accepts normal PR" "yes" "yes"; el
 
 f="$TMP_DIR/draft.json"; write_draft_pr_event "$f"
 if should_run_pr "$f"; then check "should_run rejects draft PR" "no" "yes"; else check "should_run rejects draft PR" "no" "no"; fi
+
+# Draft opt-in (OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT). The default-off case above
+# and these must stay in lockstep with the job-level if: in all three packagings
+# AND with run-review.sh's should_run() -- a divergence between the workflow
+# guard and the script guard means an opted-in draft starts a job that then
+# declines to review it, which is a green run with no review.
+for _v in 1 true TRUE yes on; do
+  if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT="$_v" should_run_pr "$f"; then
+    check "should_run accepts draft PR when RUN_ON_DRAFT=$_v" "yes" "yes"
+  else
+    check "should_run accepts draft PR when RUN_ON_DRAFT=$_v" "yes" "no"
+  fi
+done
+
+# Falsy and malformed values must NOT enable draft reviews. 'tru' is the near-miss
+# that used to split the two layers apart: the workflow's old substring
+# contains('1 true yes on', ...) accepted it while this exact-token grep rejected
+# it, so the job started and the review then declined -- a green run with no
+# review. The workflow now uses exact membership too, so both layers agree; the
+# assertions on the workflow expression live in the parity block below.
+for _v in 0 false no off tru "" "  "; do
+  if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT="$_v" should_run_pr "$f"; then
+    check "should_run rejects draft PR when RUN_ON_DRAFT='$_v'" "no" "yes"
+  else
+    check "should_run rejects draft PR when RUN_ON_DRAFT='$_v'" "no" "no"
+  fi
+done
+
+# Dependabot precedence: the draft opt-in must not resurrect a dependabot PR.
+f="$TMP_DIR/dependabot-draft.json"; write_dependabot_pr_event "$f"
+jq '.pull_request.draft = true' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+if OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT=true should_run_pr "$f"; then
+  check "should_run rejects dependabot draft PR even with RUN_ON_DRAFT" "no" "yes"
+else
+  check "should_run rejects dependabot draft PR even with RUN_ON_DRAFT" "no" "no"
+fi
+f="$TMP_DIR/draft.json"
+
+# ── Draft-guard parity: workflow `if:` vs should_run() ──────────────────────
+# The draft opt-in is enforced by TWO independent parsers that must accept the
+# same token set: the job-level `if:` expression in each packaging, and
+# should_run() here. They shipped disagreeing once -- substring at the workflow
+# layer, exact-token in the script -- and the dangerous direction is uniquely
+# workflow-truthy/script-falsy: the job starts, the script declines, the run
+# exits 0 with only a log line, and a required check reads "pass" with no
+# review posted. Nothing in CI output reveals it. These assertions exist
+# because the divergence reached the repo with no test covering the `if:` side.
+echo ""
+echo "=========================================="
+echo "Draft-guard parity: workflow if: vs should_run()"
+echo "=========================================="
+
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+DRAFT_GUARD_FILES=(
+  ".github/workflows/pipeline-code-review-report.yml"
+  ".docs/examples/code-review-local.yml"
+  ".docs/examples/code-review-caller.yml"
+)
+
+# Extract the run_on_draft guard line from a packaging, normalized of indentation.
+draft_guard_expr() {
+  grep -h "run_on_draft ||" "$REPO_ROOT/$1" 2>/dev/null | sed 's/^[[:space:]]*//' | head -1
+}
+
+# R1) The guard is hand-duplicated across three YAML files and the
+# extend-them-together rule was documentation-only. Assert the three
+# expressions are byte-identical, so widening one alone fails here instead of
+# shipping silently inert (which it did twice).
+_g0="$(draft_guard_expr "${DRAFT_GUARD_FILES[0]}")"
+check "draft guard present in ${DRAFT_GUARD_FILES[0]}" "yes" "$([ -n "$_g0" ] && echo yes || echo no)"
+for _f in "${DRAFT_GUARD_FILES[@]:1}"; do
+  _g="$(draft_guard_expr "$_f")"
+  check "draft guard in $_f is identical to the gate's" "$_g0" "$_g"
+done
+
+# Regression guard: the substring form is what caused the divergence. Assert the
+# exact-membership idiom is in use and the bare substring form is gone.
+for _f in "${DRAFT_GUARD_FILES[@]}"; do
+  _g="$(draft_guard_expr "$_f")"
+  case "$_g" in
+    *"contains('|1|true|yes|on|'"*"format('|{0}|'"*) _form=exact ;;
+    *"contains('1 true yes on'"*)                    _form=substring ;;
+    *)                                               _form=unknown ;;
+  esac
+  check "$_f uses exact-membership truthiness" "exact" "$_form"
+done
+
+# T1) Replicate GitHub's expression semantics for the guard: contains() is a
+# case-insensitive SUBSTRING test, so the delimited haystack + format() wrapper
+# is what makes it an exact-membership test. Comparing this replica against
+# should_run() is the assertion that was missing.
+workflow_truthy() {
+  local v="$1" hay='|1|true|yes|on|' needle
+  needle="|${v}|"
+  [[ "${hay,,}" == *"${needle,,}"* ]]
+}
+
+script_truthy() {
+  OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT="$1" should_run_pr "$TMP_DIR/draft.json"
+}
+
+# The invariant that matters is one-directional: a value may resolve falsy at the
+# workflow layer and truthy in the script (the job simply never starts -- a clean
+# skip, and the accepted margin recorded as R2), but NEVER the reverse, which is
+# the silent green-with-no-review case.
+for _v in 1 true TRUE True yes YES on ON y n tru TRU rue es 0 false no off "" "  " "yes!" " true " "true;x"; do
+  if workflow_truthy "$_v"; then _w=start; else _w=skip; fi
+  if script_truthy "$_v"; then _s=review; else _s=decline; fi
+  if [ "$_w" = start ] && [ "$_s" = decline ]; then _verdict="GREEN-RUN-NO-REVIEW"; else _verdict=safe; fi
+  check "draft guard parity is safe for RUN_ON_DRAFT='$_v'" "safe" "$_verdict"
+done
+
+# Both layers must agree exactly on every documented value.
+for _v in 1 true TRUE yes on; do
+  if workflow_truthy "$_v" && script_truthy "$_v"; then _both=yes; else _both=no; fi
+  check "documented truthy value '$_v' reviews drafts at both layers" "yes" "$_both"
+done
+for _v in 0 false no off; do
+  if ! workflow_truthy "$_v" && ! script_truthy "$_v"; then _both=yes; else _both=no; fi
+  check "documented falsy value '$_v' skips drafts at both layers" "yes" "$_both"
+done
+
+# The four near-misses that used to start a job and then decline the review.
+# 'n' is the sharpest: a substring of 'on', so the most natural spelling of
+# "off" was a failure value under the old guard.
+for _v in y n tru TRU; do
+  if workflow_truthy "$_v"; then _w=start; else _w=skip; fi
+  check "near-miss '$_v' no longer starts the job" "skip" "$_w"
+done
+unset -f workflow_truthy script_truthy draft_guard_expr
 
 f="$TMP_DIR/dependabot.json"; write_dependabot_pr_event "$f"
 if should_run_pr "$f"; then check "should_run rejects dependabot PR" "no" "yes"; else check "should_run rejects dependabot PR" "no" "no"; fi

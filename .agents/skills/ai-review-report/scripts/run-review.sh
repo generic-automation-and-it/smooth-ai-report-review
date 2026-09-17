@@ -252,8 +252,8 @@ EVENT_NAME="$(jq -r 'if type=="object" and has("pull_request") then "pull_reques
 should_run() {
   case "$EVENT_NAME" in
     pull_request)
-      # Skip dependabot PRs and draft PRs.
-      local actor draft
+      # Skip dependabot PRs, and draft PRs unless the repo opted in.
+      local actor draft run_on_draft
       actor="$(jq -r '.sender.login // .pull_request.user.login // ""' "$GITHUB_EVENT_PATH")"
       draft="$(jq -r '.pull_request.draft // false' "$GITHUB_EVENT_PATH")"
       if [ "$actor" = "dependabot[bot]" ]; then
@@ -261,8 +261,18 @@ should_run() {
         return 1
       fi
       if [ "$draft" = "true" ]; then
-        echo "Skipping: draft PR"
-        return 1
+        # Mirrors the job-level draft guard, which is conditional on the same
+        # setting. Both must honour it: the workflow if: decides whether the job
+        # starts, this decides whether the review runs, and a divergence gives a
+        # green run with no review -- which reads more like a review than a
+        # skipped check does.
+        run_on_draft="${OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT:-0}"
+        if printf '%s' "${run_on_draft,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+          echo "Draft PR: reviewing anyway (OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT is enabled)"
+        else
+          echo "Skipping: draft PR"
+          return 1
+        fi
       fi
       return 0
       ;;
