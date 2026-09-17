@@ -21,7 +21,7 @@ on:
         type: string
         default: ''
       run_on_draft:
-        description: 'Auto-fix PRs while they are in DRAFT (1/true/yes/on = auto-fix drafts; 0/false/no/off = skip drafts). Blank → OPENCODE_ANALYSE_RUN_ON_DRAFT Variable, else ON (draft auto-fix ships by default — opt out to keep non-draft-only).'
+        description: 'Auto-fix PRs while they are in DRAFT (1/true/yes/on = auto-fix drafts; 0/false/no/off = skip drafts). Blank → OPENCODE_ANALYSE_RUN_ON_DRAFT Variable, else OFF — draft PRs are skipped.'
         required: false
         type: string
         default: ''
@@ -105,7 +105,7 @@ jobs:
           MAX_INCREMENTAL: ${{ inputs.max_incremental || vars.OPENCODE_ANALYSE_MAX_INCREMENTAL || '3' }}
           RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
           TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_ANALYSE_RUN_ON_DRAFT || 'true' }}
+          RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_ANALYSE_RUN_ON_DRAFT || 'false' }}
         run: |
           set -euo pipefail
 

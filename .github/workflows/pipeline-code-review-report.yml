@@ -208,7 +208,7 @@ on:
         type: string
         default: ''
       run_on_draft:
-        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else ON (draft reviews ship by default — opt out to keep non-draft-only).'
+        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else OFF — drafts are only reviewed once marked ready.'
         required: false
         type: string
         default: ''
@@ -261,7 +261,7 @@ jobs:
       github.actor != 'dependabot[bot]' && (
         (github.event_name == 'pull_request' && (
           github.event.pull_request.draft == false ||
-          contains('1 true yes on', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'true')
+          contains('1 true yes on', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false')
         )) ||
         (
           github.event_name == 'issue_comment' &&
