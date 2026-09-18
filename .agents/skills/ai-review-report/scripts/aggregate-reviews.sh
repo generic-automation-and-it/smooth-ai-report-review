@@ -179,13 +179,13 @@ if [ -f "ci_temp/pr_description.txt" ]; then
   PR_DESCRIPTION=$(cat "ci_temp/pr_description.txt")
   echo "PR description loaded (${#PR_DESCRIPTION} chars)"
 
-  # Extract AI Review Notes section (everything after "## AI Review Notes" header)
-  # Uses awk instead of sed to handle case where AI Review Notes is the last section
-  if echo "$PR_DESCRIPTION" | grep -q "## AI Review Notes"; then
-    AI_REVIEW_NOTES=$(echo "$PR_DESCRIPTION" | awk '/^## AI Review Notes/{flag=1; next} /^## /{flag=0} flag' | sed '/^<!--/,/-->$/d' | sed '/^$/d')
-    if [ -n "$AI_REVIEW_NOTES" ]; then
-      echo "✅ AI Review Notes extracted for aggregation (${#AI_REVIEW_NOTES} chars)"
-    fi
+  # LADR-083: same lib as review-in-chunks.sh. The holistic pass needs the Skip
+  # Areas bullets as much as the chunk pass does — a holistic Critical/High blocks
+  # the PR on its own (it has no per-chunk sidecar to demote it), so a skipped
+  # finding re-raised here is as expensive as one re-raised in a chunk.
+  AI_REVIEW_NOTES=$(printf '%s\n' "$PR_DESCRIPTION" | bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-review-notes.sh")
+  if [ -n "$AI_REVIEW_NOTES" ]; then
+    echo "✅ AI Review Notes extracted for aggregation (${#AI_REVIEW_NOTES} chars)"
   fi
 fi
 
@@ -259,6 +259,7 @@ The PR author has provided the following guidance for this review:
 ${AI_REVIEW_NOTES}
 
 **Important:** Consider these notes in your holistic analysis and recommendations.
+- Any items listed under **"Skip Areas"** MUST be treated as out-of-scope for 🔴 Critical, 🟠 High, and 🟡 Medium classifications. If you observe a concern in a skip area, flag it as 🔵 Low Priority at most. (LADR-083: a holistic 🔴/🟠 blocks the PR with no per-chunk sidecar to demote it, so re-raising a documented skip here is strictly worse than doing it in a chunk.)
 
 EOF
 fi
