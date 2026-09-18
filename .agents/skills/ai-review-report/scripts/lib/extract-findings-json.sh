@@ -35,6 +35,10 @@
 #     `chunk_<n>.failed` flag file is the ONLY chunk-failure signal and it means
 #     something else entirely; this script must never write one, and callers must
 #     never treat its warnings as a failure condition.
+#  2b. A reject still leaves its evidence: the payload is written to
+#     `chunk_<n>.findings.rejected.txt` beside the chunk (LADR-077). That file is
+#     diagnostic only — nothing reads it, it is not a flag, and its name sits
+#     outside the `chunk_*.findings.json` glob the merge collects.
 #  3. `chunk` is stamped deterministically from the caller's chunk number, not
 #     trusted from the model. The dedup axis must be right even when the model
 #     miscounts, and normalising here means the merge helper never has to
@@ -58,6 +62,43 @@ fi
 
 BEGIN_SENTINEL='<!-- FINDINGS_JSON_BEGIN -->'
 END_SENTINEL='<!-- FINDINGS_JSON_END -->'
+# LADR-079: glm-5.2 (run 34764534601) "normalizes" `-->` to `→` or `>` on the
+# closer. Any trimmed line that *starts with* this prefix is an END delimiter;
+# BEGIN stays exact so the forgeability contract does not widen.
+END_PREFIX='<!-- FINDINGS_JSON_END'
+
+# LADR-077: every reject path keeps the evidence.
+#
+# Rejecting silently made the most common LADR-064 failure undiagnosable after
+# the fact. The block is stripped from the markdown (contract 1) and the parsed
+# output is removed, so a run that logged "sidecar was truncated mid-block" left
+# nothing behind that could answer the only question worth asking: was the JSON
+# genuinely cut off mid-emission, or did the model close the block in a shape the
+# anchoring awk does not accept? Consumer run 34745786660 lost two of six
+# sidecars to that message and the uploaded artifact (LADR-062) could not tell
+# the two apart.
+#
+# So the payload lands next to the chunk it came from, as
+# `chunk_<n>.findings.rejected.txt` — a name outside merge-findings.sh's
+# `chunk_*.findings.json` glob, so it is never mistaken for a document to merge,
+# and inside `ci_temp/reviews/`, so the artifact assembly's `cp -r` picks it up
+# with no change there. Truncated by construction (the whole point is that the
+# model over-produced), so it is capped; a diagnosis needs the head of the block,
+# not all of it.
+REJECTED_MAX_BYTES=16384
+
+persist_rejected_payload() {
+  local reason="$1" body="$2"
+  local rejected="${out_json%.json}.rejected.txt"
+  {
+    printf '# chunk %s: findings sidecar rejected — %s\n' "$chunk_num" "$reason"
+    printf '# sentinel range: begin line %s, end line %s (%s)\n' \
+      "${begin_line:-?}" "${end_line:-?}" "${sentinel_state:-unknown}"
+    printf '# payload below is the extracted block with fence lines peeled, capped at %s bytes\n' \
+      "$REJECTED_MAX_BYTES"
+    printf '%s\n' "$body" | head -c "$REJECTED_MAX_BYTES"
+  } > "$rejected" 2>/dev/null || true
+}
 
 # Nothing to do when the model did not emit a sidecar. This is the expected path
 # for any model that ignores the instruction, and it is not worth a warning —
@@ -98,16 +139,24 @@ tmp_md="${chunk_md}.stripped.tmp"
 #
 # Preference order: the last complete pair wins; a later unterminated-but-
 # JSON-shaped `begin` beats it, since the prompt puts the real block last.
-pair="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" '
+#
+# END is prefix-matched (LADR-079). BEGIN stays exact. The third field is the
+# closer kind so a reject can say "truncated" vs "mangled sentinel" instead of
+# collapsing both into LADR-064's mid-block wording.
+pair="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" -v ep="$END_PREFIX" '
   { line = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line) }
   line == b { cand = NR; candnext = ""; next }
-  cand && line == e { bl = cand; el = NR; cand = 0; next }
+  cand && index(line, ep) == 1 {
+    bl = cand; el = NR; cand = 0
+    endkind = (line == e) ? "exact" : "prefix"
+    next
+  }
   cand && candnext == "" && line != "" { candnext = line }
   END {
     if (cand && cand > bl && (candnext ~ /^```/ || candnext ~ /^[{[]/)) {
-      print cand " 0"          # unterminated but JSON-shaped: strip to EOF
+      print cand " 0 unterminated"   # no END-ish line: strip to EOF
     } else if (bl) {
-      print bl " " el
+      print bl " " el " " endkind
     }
   }
 ' "$chunk_md" 2>/dev/null)"
@@ -118,12 +167,21 @@ if [ -z "$pair" ]; then
   exit 0
 fi
 
+# Three space-separated fields: begin_line end_line end_kind. Bash 3.2 has no
+# read -a from a string without a here-string, so peel with prefix/suffix.
 begin_line="${pair%% *}"
-end_line="${pair##* }"
+_rest="${pair#* }"
+end_line="${_rest%% *}"
+end_kind="${_rest#* }"
+unset _rest
 # `0` means "unterminated, consume to EOF" — an end line past any real line.
+sentinel_state="complete begin..end pair"
 if [ "$end_line" = "0" ]; then
   end_line=$(( $(wc -l < "$chunk_md") + 1 ))
+  sentinel_state="unterminated begin, stripped to EOF"
   echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was truncated mid-block — stripping it, continuing without the sidecar"
+elif [ "$end_kind" = "prefix" ]; then
+  sentinel_state="end sentinel present but malformed (matched by prefix)"
 fi
 
 # Split on the resolved line numbers: everything outside [begin_line, end_line]
@@ -147,14 +205,23 @@ mv "$tmp_md" "$chunk_md" 2>/dev/null || rm -f "$tmp_md"
 payload="$(sed -e '/^[[:space:]]*```/d' "$tmp_block" 2>/dev/null)"
 rm -f "$tmp_block"
 
+# LADR-079 belt: drop trailing HTML-comment lines (last-lines-only). A mangled
+# END that the prefix match missed, or an extra `<!-- …` after a peeled fence,
+# is never JSON and would otherwise fail jq with the closer still attached.
+while [ -n "$payload" ] && printf '%s\n' "$payload" | tail -n 1 | grep -q '^[[:space:]]*<!--'; do
+  payload="$(printf '%s\n' "$payload" | sed '$d')"
+done
+
 if [ -z "${payload//[[:space:]]/}" ]; then
   echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was empty — continuing without it"
+  persist_rejected_payload "empty payload between the sentinels" "$payload"
   rm -f "$out_json"
   exit 0
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "  ⚠️ Chunk ${chunk_num}: jq unavailable — findings sidecar discarded"
+  persist_rejected_payload "jq unavailable, payload never parsed" "$payload"
   rm -f "$out_json"
   exit 0
 fi
@@ -180,6 +247,12 @@ if printf '%s\n' "$payload" | jq -e '
   fi
 fi
 
-echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was not valid JSON — continuing without it"
+if [ "$end_kind" = "prefix" ]; then
+  echo "  ⚠️ Chunk ${chunk_num}: findings sidecar end sentinel present but malformed (matched by prefix) — payload was not valid JSON, continuing without the sidecar"
+  persist_rejected_payload "end sentinel present but malformed (matched by prefix); not a findings document" "$payload"
+else
+  echo "  ⚠️ Chunk ${chunk_num}: findings sidecar was not valid JSON — continuing without it"
+  persist_rejected_payload "not a findings document (invalid JSON, or top-level shape without a findings array)" "$payload"
+fi
 rm -f "$out_json"
 exit 0

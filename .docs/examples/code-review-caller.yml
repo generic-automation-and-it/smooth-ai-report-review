@@ -126,6 +126,27 @@ on:
         options:
           - '0'
           - '1'
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank uses OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts.'
+        required: false
+        type: choice
+        default: '0'
+        options: ['0', '1']
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review.'
+        required: false
+        type: string
+        default: ''
+      run_on_draft:
+        description: 'Forwarded to the gate as-is. NOTE: this input cannot switch draft reviews on for AUTOMATIC runs — a pull_request event populates no inputs context, and a workflow_dispatch run bypasses draft gating entirely (see the if: below). To review draft PRs, set the OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT repo/org Variable to 1/true/yes/on, or hardcode a literal on the with: run_on_draft line below.'
+        required: false
+        type: string
+        default: ''
 
 # The caller's permissions bound the GITHUB_TOKEN the called workflow receives.
 permissions:
@@ -142,7 +163,10 @@ concurrency:
 jobs:
   review:
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'pull_request' && (
+        github.event.pull_request.draft == false ||
+        contains('|1|true|yes|on|', format('|{0}|', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false'))
+      )) ||
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
@@ -162,6 +186,14 @@ jobs:
       disable_claude_code: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
       disable_agents_md_check: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
       bypass_mandatory_context_file: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}
+      file_limit: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '' }}
+      exclude_deleted: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '' }}
+      exclude_generated_paths: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
+      # Draft reviews, default off. On a pull_request event `inputs.*` is empty, so
+      # the Variable (or a literal here) is the only thing that can enable them;
+      # the dispatch input above never reaches this path. Must stay in sync with
+      # the draft branch of the job `if:` above -- widening one alone is inert.
+      run_on_draft: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from —
       #                              # a full commit SHA (supply-chain pinned) or a trusted

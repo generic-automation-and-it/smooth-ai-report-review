@@ -23,7 +23,12 @@ SCORE_SH="$SCRIPT_DIR/eval/lib/score-review.sh"
 ANALYSE_SCOPE_SH="$SCRIPT_DIR/lib/extract-ai-analyse-scope.sh"
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+# SUITE_COMPLETED is flipped to 1 on the last line. Without this, a `set -e`
+# abort mid-suite exits non-zero but prints a screen full of ✅ and no summary,
+# which reads exactly like a pass to anyone skimming (that is how the Test 17d
+# brace-expansion abort hid Tests 18-25 from every run for two releases).
+SUITE_COMPLETED=0
+trap 'rc=$?; rm -rf "$TMP_DIR"; if [ "$SUITE_COMPLETED" != "1" ]; then echo ""; echo "❌ SUITE ABORTED EARLY (exit $rc) — assertions after this point never ran"; fi' EXIT
 
 echo "=========================================="
 echo "Testing merge-findings (LADR-055)"
@@ -343,6 +348,8 @@ check "Test 10n: quoted complete pair survives, last pair is the sidecar" "1" \
   "$(grep -c 'FINDINGS_JSON_BEGIN' "$work/chunk_9.md" || true)"
 check "Test 10o: real finding after the quoted example survives" "1" \
   "$(grep -c 'real finding after the quoted example' "$work/chunk_9.md" || true)"
+check "Test 10o1: a clean extraction leaves no rejected-payload file" "false" \
+  "$([ -f "$work/chunk_9.findings.rejected.txt" ] && echo true || echo false)"
 # Both remaining shapes below were produced by one real MiniMax M3 review of this
 # repo's own LADR-055 diff — the truncated block and the inline quote appeared in
 # the same run. A delimiter is alone on its line; an unterminated one is honoured
@@ -356,6 +363,19 @@ check "Test 10p: truncated mid-block sidecar is stripped to EOF" "0" \
   "$(grep -c 'FINDINGS_JSON' "$work/chunk_10.md" || true)"
 check "Test 10q: prose before a truncated block survives" "1" \
   "$(grep -c 'prose that must survive' "$work/chunk_10.md" || true)"
+
+# LADR-077: a reject keeps its evidence. Rejecting silently made the most common
+# LADR-064 failure undiagnosable — "truncated mid-block" could equally mean the
+# model was cut off or that it closed the block in a shape the anchoring awk does
+# not accept, and the uploaded artifact could not tell them apart.
+check "Test 10q1: a rejected sidecar leaves its payload beside the chunk" "true" \
+  "$([ -f "$work/chunk_10.findings.rejected.txt" ] && echo true || echo false)"
+check "Test 10q2: the rejected payload carries the block that failed to parse" "1" \
+  "$(grep -c '"chunk": 2' "$work/chunk_10.findings.rejected.txt" || true)"
+check "Test 10q3: the rejected payload names the sentinel state" "1" \
+  "$(grep -c 'unterminated begin, stripped to EOF' "$work/chunk_10.findings.rejected.txt" || true)"
+check "Test 10q4: the rejected file is outside the merge glob" "0" \
+  "$(find "$work" -maxdepth 1 -name 'chunk_*.findings.json' -newer "$work/chunk_10.md" | grep -c 'chunk_10' || true)"
 
 printf -- '- 🟠 High: the extractor keys on `<!-- FINDINGS_JSON_BEGIN -->` inline in prose.\nTAIL\n' \
   > "$work/chunk_11.md"
@@ -371,7 +391,141 @@ bash "$EXTRACT_SH" "$work/chunk_12.md" 12 "$work/chunk_12.findings.json" >/dev/n
 check "Test 10s: unterminated sentinel followed by prose is left alone" \
   "$(cat "$TMP_DIR/chunk_12.before.md")" "$(cat "$work/chunk_12.md")"
 
-rm -f "$work"/chunk_{7,8,9,10,11,12}.md "$work"/chunk_{7,8,9,10,11,12}.findings.json
+# LADR-079: glm-5.2 mangles `-->` on the closer (run 34764534601, 3/3 chunks).
+# JSON is complete; only the HTML-comment terminator is malformed. Prefix-match
+# the END line and peel any leftover trailing `<!--` so jq sees a document.
+# BEGIN stays exact. Replay the two observed shapes plus the diagnostic split
+# LADR-077 wanted: "truncated" vs "mangled sentinel".
+_ladr079_json_2='{"chunk":0,"findings":[{},{}],"residual_risks":[],"testing_gaps":[]}'
+_ladr079_json_3='{"chunk":1,"findings":[{},{},{}],"residual_risks":[],"testing_gaps":[]}'
+
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_2"
+  printf '```\n<!-- FINDINGS_JSON_END>\n'
+} > "$work/chunk_13.md"
+_log13="$(bash "$EXTRACT_SH" "$work/chunk_13.md" 13 "$work/chunk_13.findings.json" 2>&1)"
+check "Test 10t: mangled END \`>\` still extracts the sidecar" "2" \
+  "$(jq '.findings | length' "$work/chunk_13.findings.json" 2>/dev/null || echo missing)"
+check "Test 10t2: mangled END \`>\` still strips the sentinel range" "$body" \
+  "$(cat "$work/chunk_13.md")"
+check "Test 10t3: mangled END \`>\` does not log truncated mid-block" "0" \
+  "$(printf '%s\n' "$_log13" | grep -c 'truncated mid-block' || true)"
+check "Test 10t4: mangled END \`>\` leaves no rejected-payload file" "false" \
+  "$([ -f "$work/chunk_13.findings.rejected.txt" ] && echo true || echo false)"
+check "Test 10t5: mangled END \`>\` never writes a .failed flag" "0" \
+  "$(ls "$work"/*.failed 2>/dev/null | wc -l | tr -d ' ')"
+
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_3"
+  printf '```\n<!-- FINDINGS_JSON_END →\n'
+} > "$work/chunk_14.md"
+_log14="$(bash "$EXTRACT_SH" "$work/chunk_14.md" 14 "$work/chunk_14.findings.json" 2>&1)"
+check "Test 10u: mangled END U+2192 still extracts the sidecar" "3" \
+  "$(jq '.findings | length' "$work/chunk_14.findings.json" 2>/dev/null || echo missing)"
+check "Test 10u2: mangled END U+2192 still strips the sentinel range" "$body" \
+  "$(cat "$work/chunk_14.md")"
+check "Test 10u3: mangled END U+2192 does not log truncated mid-block" "0" \
+  "$(printf '%s\n' "$_log14" | grep -c 'truncated mid-block' || true)"
+check "Test 10u4: mangled END U+2192 writes no rejected-payload file" "false" \
+  "$([ -f "$work/chunk_14.findings.rejected.txt" ] && echo true || echo false)"
+
+# Genuine truncation — JSON cut mid-object, no END-ish line — stays rejected,
+# stripped to EOF, and still uses the LADR-064 "truncated mid-block" wording.
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n{\n  "chunk": 15,\n  "findings": [\n    { "owner": "human",\n'
+} > "$work/chunk_15.md"
+_log15="$(bash "$EXTRACT_SH" "$work/chunk_15.md" 15 "$work/chunk_15.findings.json" 2>&1)"
+check "Test 10v: genuine truncation still logs truncated mid-block" "1" \
+  "$(printf '%s\n' "$_log15" | grep -c 'truncated mid-block' || true)"
+check "Test 10v2: genuine truncation still writes rejected.txt" "true" \
+  "$([ -f "$work/chunk_15.findings.rejected.txt" ] && echo true || echo false)"
+check "Test 10v3: genuine truncation rejected.txt keeps unterminated state" "1" \
+  "$(grep -c 'unterminated begin, stripped to EOF' "$work/chunk_15.findings.rejected.txt" || true)"
+check "Test 10v4: genuine truncation still strips to EOF" "0" \
+  "$(grep -c 'FINDINGS_JSON' "$work/chunk_15.md" || true)"
+check "Test 10v5: genuine truncation prose before the block survives" "1" \
+  "$(grep -c 'Missing ownership guard' "$work/chunk_15.md" || true)"
+check "Test 10v6: genuine truncation produces no sidecar" "false" \
+  "$([ -f "$work/chunk_15.findings.json" ] && echo true || echo false)"
+
+# Truncation that happens to end on an END-prefixed garbage line is "complete"
+# by prefix then fails jq — same reject path, but the diagnostic must not say
+# truncated. That is the split LADR-077's rejected.txt exists to make.
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n{\n  "chunk": 16,\n  "findings": [\n'
+  printf '<!-- FINDINGS_JSON_END>\n'
+} > "$work/chunk_16.md"
+_log16="$(bash "$EXTRACT_SH" "$work/chunk_16.md" 16 "$work/chunk_16.findings.json" 2>&1)"
+check "Test 10w: prefix-closed truncated JSON does not log truncated mid-block" "0" \
+  "$(printf '%s\n' "$_log16" | grep -c 'truncated mid-block' || true)"
+check "Test 10w2: prefix-closed truncated JSON names the malformed sentinel" "1" \
+  "$(printf '%s\n' "$_log16" | grep -c 'end sentinel present but malformed' || true)"
+check "Test 10w3: prefix-closed truncated JSON rejected.txt names prefix state" "1" \
+  "$(grep -c 'sentinel range:.*end sentinel present but malformed (matched by prefix)' "$work/chunk_16.findings.rejected.txt" || true)"
+check "Test 10w4: prefix-closed truncated JSON still produces no sidecar" "false" \
+  "$([ -f "$work/chunk_16.findings.json" ] && echo true || echo false)"
+
+# Inline mid-sentence END mention is prose, never a delimiter — even the
+# mangled glm-5.2 shape. Quote lives in the review body; the real block follows.
+_end_quoted_body="${body}
+- 🟠 High: the closer keys on \`<!-- FINDINGS_JSON_END>\` inline in prose."
+{
+  printf '%s\n\n' "$_end_quoted_body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_2"
+  printf '```\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_17.md"
+bash "$EXTRACT_SH" "$work/chunk_17.md" 17 "$work/chunk_17.findings.json" >/dev/null
+check "Test 10x: inline END quote does not terminate a block" "2" \
+  "$(jq '.findings | length' "$work/chunk_17.findings.json" 2>/dev/null || echo missing)"
+check "Test 10x2: inline END quote survives in the posted body" "$_end_quoted_body" \
+  "$(cat "$work/chunk_17.md")"
+unset _end_quoted_body
+
+# Self-review: a fenced, alone-on-a-line quoted sentinel (this PR quotes the
+# mangled closer in a code fence). Fence-unaware awk treats that line as a
+# delimiter IF a BEGIN is already open; quoted before the real block it is
+# inert because cand is unset. Pin: prose after the quote survives, and the
+# real sidecar still extracts. Worst case allowed = this chunk's sidecar lost;
+# losing the prose after the quote is not.
+{
+  printf '%s\n\n' "$body"
+  printf 'The closer glm-5.2 emitted:\n```\n<!-- FINDINGS_JSON_END →\n```\n'
+  printf 'TAIL PROSE AFTER THE QUOTE MUST SURVIVE.\n\n'
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_3"
+  printf '```\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_18.md"
+bash "$EXTRACT_SH" "$work/chunk_18.md" 18 "$work/chunk_18.findings.json" >/dev/null
+check "Test 10y: fenced quoted mangled END does not swallow following prose" "1" \
+  "$(grep -c 'TAIL PROSE AFTER THE QUOTE MUST SURVIVE' "$work/chunk_18.md" || true)"
+check "Test 10y2: real sidecar still extracted past a fenced quoted END" "3" \
+  "$(jq '.findings | length' "$work/chunk_18.findings.json" 2>/dev/null || echo missing)"
+check "Test 10y3: quoted closer remains visible in the body" "1" \
+  "$(grep -c 'FINDINGS_JSON_END' "$work/chunk_18.md" || true)"
+
+# Belt: trailing `<!--` lines inside a well-closed block are dropped before jq,
+# last-lines-only. A comment after the JSON but before END is not JSON.
+{
+  printf '%s\n\n' "$body"
+  printf '<!-- FINDINGS_JSON_BEGIN -->\n```json\n'
+  printf '%s\n' "$_ladr079_json_2"
+  printf '```\n<!-- leftover after the fence -->\n<!-- FINDINGS_JSON_END -->\n'
+} > "$work/chunk_19.md"
+bash "$EXTRACT_SH" "$work/chunk_19.md" 19 "$work/chunk_19.findings.json" >/dev/null
+check "Test 10z: trailing HTML-comment lines are peeled before jq" "2" \
+  "$(jq '.findings | length' "$work/chunk_19.findings.json" 2>/dev/null || echo missing)"
+
+rm -f "$work"/chunk_{7,8,9,10,11,12,13,14,15,16,17,18,19}.md \
+      "$work"/chunk_{7,8,9,10,11,12,13,14,15,16,17,18,19}.findings.json \
+      "$work"/chunk_{7,8,9,10,11,12,13,14,15,16,17,18,19}.findings.rejected.txt
+unset _ladr079_json_2 _ladr079_json_3 _log13 _log14 _log15 _log16
 
 # --- Test 11: wrapper collection --------------------------------------------
 rm -f "$work"/*.findings.json
@@ -595,12 +749,20 @@ check "Test 17b: and is not counted malformed" "0" "$(printf '%s' "$out" | jq -r
 check "Test 17c: it keeps confidence 100 (first_evidence satisfies the gate)" "100" \
   "$(printf '%s' "$out" | jq -r '.findings[0].confidence')"
 
-out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":[\"f:1 -- q\"]}")" | merge)"
+# Build the finding object in a variable first. Writing the braces inline as
+# "{$_ev_base,\"evidence\":[...]}" inside a nested command substitution loses the
+# quoting: bash brace-expanded `{A,B}` into two separate `doc` calls, the merge
+# helper got unparseable JSON, exited 2, and `set -e` killed the whole suite at
+# this line — silently taking Tests 18-25 with it.
+_ev_with_evidence="{$_ev_base,"'"evidence":["f:1 -- q"]}'
+out="$(printf '[ %s ]' "$(doc 0 "$_ev_with_evidence")" | merge)"
 check "Test 17d: a legacy finding WITH evidence still validates" "1" "$(printf '%s' "$out" | jq '.findings | length')"
 
-out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":[]}")" | merge)"
+_ev_empty_evidence="{$_ev_base,"'"evidence":[]}'
+out="$(printf '[ %s ]' "$(doc 0 "$_ev_empty_evidence")" | merge)"
 check "Test 17e: an empty evidence array is still malformed" "1" "$(printf '%s' "$out" | jq -r .malformed_findings)"
-out="$(printf '[ %s ]' "$(doc 0 "{$_ev_base,\"evidence\":\"a string\"}")" | merge)"
+_ev_string_evidence="{$_ev_base,"'"evidence":"a string"}'
+out="$(printf '[ %s ]' "$(doc 0 "$_ev_string_evidence")" | merge)"
 check "Test 17f: a wrong-typed evidence field is still malformed" "1" "$(printf '%s' "$out" | jq -r .malformed_findings)"
 
 # A finding with neither evidence nor first_evidence must still be demoted —
@@ -996,8 +1158,296 @@ PYEOF
   fi
 fi
 
+# --- Test 24: missing requires_verification is defaulted, not dropped (issue #125) ---
+# Production failure: gpt-5.6-sol emitted confidence-100 [VERIFIED] findings with
+# no requires_verification field; merge counted them malformed and the posted
+# Issues Summary said "None found" under a REQUEST_CHANGES verdict. Absent must
+# default to false; present-but-wrong-type must still reject.
+missing_rv='[{"chunk":0,"findings":[{
+  "title":"Canonical identifier inherits mutable state",
+  "severity":"high",
+  "file":"CardIdentifier.cs",
+  "line":23,
+  "why_it_matters":"Callers observe shared mutable identity.",
+  "confidence":100,
+  "verified":true,
+  "first_evidence":"CardIdentifier.cs:23 -- public sealed class CardIdentifier",
+  "pre_existing":false,
+  "autofix_class":"gated_auto",
+  "owner":"downstream-resolver"
+},{
+  "title":"Diagnostics path skips null guard",
+  "severity":"medium",
+  "file":"CardIdentifierDiagnostics.cs",
+  "line":20,
+  "why_it_matters":"Null input throws instead of a structured error.",
+  "confidence":100,
+  "verified":true,
+  "first_evidence":"CardIdentifierDiagnostics.cs:20 -- return value.ToString();",
+  "pre_existing":false,
+  "autofix_class":"manual",
+  "owner":"human"
+}],"residual_risks":[],"testing_gaps":[]}]'
+out="$(printf '%s' "$missing_rv" | merge)"
+check "Test 24a: missing requires_verification does not count as malformed" "0" \
+  "$(printf '%s' "$out" | jq -r .malformed_findings)"
+check "Test 24b: both findings survive into the actionable set" "2" \
+  "$(printf '%s' "$out" | jq '.findings | length')"
+check "Test 24c: high finding is present (gates the verdict)" "1" \
+  "$(printf '%s' "$out" | jq '[.findings[] | select(.severity=="high")] | length')"
+check "Test 24d: requires_verification defaults to false" "false" \
+  "$(printf '%s' "$out" | jq -r '.findings[0].requires_verification')"
+check "Test 24e: medium finding also defaulted" "false" \
+  "$(printf '%s' "$out" | jq -r '.findings[] | select(.severity=="medium") | .requires_verification')"
+
+# Wrong-typed present value must still reject — defaulting is for ABSENCE only.
+bad_rv_type='[{"chunk":0,"findings":[{
+  "title":"t","severity":"high","file":"f","line":1,"why_it_matters":"w",
+  "confidence":100,"verified":true,"first_evidence":"f:1 -- q",
+  "pre_existing":false,"requires_verification":"yes",
+  "autofix_class":"gated_auto","owner":"downstream-resolver"
+}],"residual_risks":[],"testing_gaps":[]}]'
+out="$(printf '%s' "$bad_rv_type" | merge)"
+check "Test 24f: wrong-typed requires_verification is still malformed" "1" \
+  "$(printf '%s' "$out" | jq -r .malformed_findings)"
+check "Test 24g: wrong-typed requires_verification reason is typed" "requires_verification: wrong type, got string" \
+  "$(printf '%s' "$out" | jq -r '.malformed_reasons | keys[0]')"
+check "Test 24h: wrong-typed finding does not survive" "0" \
+  "$(printf '%s' "$out" | jq '.findings | length')"
+
+# Explicit true must still OR across a dedup group (regression against Test 5c).
+rv_true='[{"chunk":0,"findings":[{
+  "title":"t","severity":"high","file":"f","line":1,"why_it_matters":"w",
+  "confidence":100,"verified":true,"first_evidence":"f:1 -- q",
+  "pre_existing":false,"requires_verification":true,
+  "autofix_class":"gated_auto","owner":"downstream-resolver"
+}],"residual_risks":[],"testing_gaps":[]}]'
+out="$(printf '%s' "$rv_true" | merge)"
+check "Test 24i: explicit requires_verification true is preserved" "true" \
+  "$(printf '%s' "$out" | jq -r '.findings[0].requires_verification')"
+
+# --- Test 25: Recommendation sync from merged findings (issue #125) ----------
+SYNC_SH="$SCRIPT_DIR/lib/sync-recommendation-from-findings.sh"
+if [ -x "$SYNC_SH" ]; then
+  # Build a merged document with 1 high + 1 medium (the production shape).
+  printf '%s' "$missing_rv" | merge > "$TMP_DIR/sync-merged.json"
+
+  cat > "$TMP_DIR/sync-summary.md" <<'EOF'
+## 🔍 Issues Summary
+### 🔴 Critical Issues
+None found
+## 🎯 Recommendation
+**Step 1: Count ACTUAL issues in your "Issues Summary" section above**
+- Count of 🔴 Critical Issues: 0
+- Count of 🟠 High Priority Issues: 1
+- Count of 🟡 Medium Priority Issues: 1
+- Count of 🔵 Low Priority Issues: 0
+- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR
+
+**Decision:** REQUEST CHANGES
+**Rationale:** Following policy: 0 critical and 1 high priority issue found - requesting changes.
+**MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+EOF
+
+  # Empty holistic — decision comes purely from merged findings.
+  : > "$TMP_DIR/sync-holistic.md"
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-merged.json" "$TMP_DIR/sync-summary.md" "$TMP_DIR/sync-holistic.md" 2>"$TMP_DIR/sync.err")"
+  check "Test 25a: high finding forces request_changes" "request_changes" "$decision"
+  check "Test 25b: high count rewritten to 1" "1" \
+    "$(grep -E 'Count of 🟠 High Priority Issues:' "$TMP_DIR/sync-summary.md" | grep -oE '[0-9]+' | head -1)"
+  check "Test 25c: medium count rewritten to 1" "1" \
+    "$(grep -E 'Count of 🟡 Medium Priority Issues:' "$TMP_DIR/sync-summary.md" | grep -oE '[0-9]+' | head -1)"
+  check "Test 25d: MACHINE_READABLE_ACTION is REQUEST_CHANGES" "1" \
+    "$(grep -cF '**MACHINE_READABLE_ACTION:** REQUEST_CHANGES' "$TMP_DIR/sync-summary.md" || true)"
+  check "Test 25e: pre-existing trailing note and bullet prefix preserved" "1" \
+    "$(grep -cF -- '- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR' "$TMP_DIR/sync-summary.md" || true)"
+
+  # Empty merged findings + orchestrator still saying REQUEST_CHANGES (the
+  # production contradiction after a hard drop) must soften to approve when
+  # holistic has nothing blocking.
+  cat > "$TMP_DIR/sync-empty-merged.json" <<'EOF'
+{"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[],"residual_risks":[],"testing_gaps":[],"suppressed_by_confidence":{},"demoted_no_quote":0,"merged_duplicates":0,"malformed_findings":2,"malformed_returns":0,"malformed_reasons":{"requires_verification: missing":2},"malformed_return_reasons":{}}
+EOF
+  cat > "$TMP_DIR/sync-empty-summary.md" <<'EOF'
+## 🎯 Recommendation
+- Count of 🔴 Critical Issues: 0
+- Count of 🟠 High Priority Issues: 1
+- Count of 🟡 Medium Priority Issues: 1
+- Count of 🔵 Low Priority Issues: 0
+- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR
+**Decision:** REQUEST CHANGES
+**Rationale:** Following policy: 0 critical and 1 high priority issue found - requesting changes.
+**MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+EOF
+  : > "$TMP_DIR/sync-empty-holistic.md"
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary.md" "$TMP_DIR/sync-empty-holistic.md" 2>/dev/null)"
+  check "Test 25f: empty merged + no holistic softens to approve" "approve" "$decision"
+  check "Test 25g: high count rewritten to 0" "0" \
+    "$(grep -E 'Count of 🟠 High Priority Issues:' "$TMP_DIR/sync-empty-summary.md" | grep -oE '[0-9]+' | head -1)"
+  check "Test 25h: MACHINE_READABLE_ACTION is APPROVE" "1" \
+    "$(grep -cF '**MACHINE_READABLE_ACTION:** APPROVE' "$TMP_DIR/sync-empty-summary.md" || true)"
+  check "Test 25i: rationale no longer claims a high finding" "0" \
+    "$(grep -cE '1 high priority' "$TMP_DIR/sync-empty-summary.md" || true)"
+
+  # Holistic Critical/High still blocks even when merged is empty.
+  cat > "$TMP_DIR/sync-holistic-block.md" <<'EOF'
+## 🔄 Holistic Cross-Chunk Analysis
+**Cross-Chunk Issues Found:**
+
+🔴 **Critical Issues**
+- **H1)** Auth middleware registration is missing across both API chunks
+
+🟠 **High Priority Issues**
+None found
+EOF
+  cat > "$TMP_DIR/sync-empty-summary2.md" <<'EOF'
+## 🎯 Recommendation
+- Count of 🔴 Critical Issues: 0
+- Count of 🟠 High Priority Issues: 0
+- Count of 🟡 Medium Priority Issues: 0
+- Count of 🔵 Low Priority Issues: 0
+- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR
+**Decision:** APPROVE
+**Rationale:** Following policy: Only 0 medium and 0 low priority issues found - approving.
+**MACHINE_READABLE_ACTION:** APPROVE
+EOF
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary2.md" "$TMP_DIR/sync-holistic-block.md" 2>/dev/null)"
+  check "Test 25j: holistic Critical still forces request_changes" "request_changes" "$decision"
+  check "Test 25k: holistic rationale names the holistic path" "1" \
+    "$(grep -cF 'holistic cross-chunk' "$TMP_DIR/sync-empty-summary2.md" || true)"
+else
+  echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 25"
+fi
+
+# --- Test 26: the sync may only soften where softening is evidence ----------
+# Every assertion here is a regression guard for a way the issue-#125 sync could
+# post a GREENER state than the document it renders from.
+AGG_SH="$SCRIPT_DIR/aggregate-reviews.sh"
+ANNOTATE_SH="$SCRIPT_DIR/lib/annotate-suggested-fixes.sh"
+if [ -x "$SYNC_SH" ]; then
+  cat > "$TMP_DIR/s26-medium.json" <<'MJ'
+{"status":"complete","merged_chunks":[0],"findings":[{"severity":"medium"}],"pre_existing_findings":[],"suppressed_findings":[],"malformed_findings":0,"demoted_no_quote":0}
+MJ
+
+  # A model that writes its holistic blockers as severity-prefixed bullets
+  # instead of under the template's subsection headings must still gate. The
+  # first implementation matched those bullets AS headings and counted zero.
+  printf '**Cross-Chunk Issues Found:**\n\n- **H1)** 🔴 Critical: shared DbContext across parallel tasks.\n- **H2)** 🟠 High: removed method still called.\n' \
+    > "$TMP_DIR/s26-h-inline.md"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-a.md"
+  check "Test 26a: severity-prefixed holistic bullets still block" "request_changes" \
+    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-a.md" "$TMP_DIR/s26-h-inline.md" 2>/dev/null)"
+
+  # The template's own layout must keep working.
+  printf '**Cross-Chunk Issues Found:**\n\n🔴 **Critical Issues**\n- **H1)** Auth middleware missing.\n\n🟠 **High Priority Issues**\nNone found\n' \
+    > "$TMP_DIR/s26-h-heading.md"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** APPROVE\n' > "$TMP_DIR/s26-b.md"
+  check "Test 26b: heading-style holistic Critical still blocks" "request_changes" \
+    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-b.md" "$TMP_DIR/s26-h-heading.md" 2>/dev/null)"
+
+  # ...and a holistic section with nothing blocking must NOT invent a block:
+  # placeholders, a Medium bullet and the trailing prose bullets are all benign.
+  printf '**Cross-Chunk Issues Found:**\n\n🔴 **Critical Issues**\n- None found\n\n🟡 **Medium Priority Issues**\n- 🟡 Medium: naming drift.\n\n**Additional Analysis:**\n- **Consistency:** fine\n' \
+    > "$TMP_DIR/s26-h-clean.md"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-c.md"
+  check "Test 26c: a holistic section with no blocker does not block" "approve" \
+    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-c.md" "$TMP_DIR/s26-h-clean.md" 2>/dev/null)"
+
+  # Count rewriting must survive the label shapes a model actually emits: bold
+  # labels, an unfilled template placeholder, and trailing prose.
+  cat > "$TMP_DIR/s26-counts.md" <<'CM'
+## 🎯 Recommendation
+- Count of 🔴 Critical Issues: [number - DO NOT count "None found" as an issue]
+- **Count of 🟠 High Priority Issues:** 4
+- Count of 🟡 Medium Priority Issues: 7 (see below)
+- **Count of 🗂️ Pre-existing issues:** 5 — these do NOT block the PR
+**MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+CM
+  bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-counts.md" >/dev/null 2>&1 || true
+  check "Test 26d: an unfilled count placeholder is replaced by the number" "1" \
+    "$(grep -cF -- '- Count of 🔴 Critical Issues: 0' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26e: a bold count label is rewritten, emphasis intact" "1" \
+    "$(grep -cF -- '- **Count of 🟠 High Priority Issues:** 0' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26f: a stale bold count never survives the sync" "0" \
+    "$(grep -cF -- 'High Priority Issues:** 4' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26g: trailing prose after a count is preserved" "1" \
+    "$(grep -cF -- '- Count of 🟡 Medium Priority Issues: 1 (see below)' "$TMP_DIR/s26-counts.md" || true)"
+  check "Test 26h: bold pre-existing label keeps its note and is not duplicated" "1" \
+    "$(grep -cF -- '- **Count of 🗂️ Pre-existing issues:** 0 — these do NOT block the PR' "$TMP_DIR/s26-counts.md" || true)"
+
+  # A deliberate COMMENT verdict must not be upgraded into a real GitHub APPROVE.
+  printf '## 🎯 Recommendation\n**Decision:** COMMENT\n**MACHINE_READABLE_ACTION:** COMMENT\n' > "$TMP_DIR/s26-comment.md"
+  check "Test 26i: an orchestrator COMMENT is preserved, not upgraded" "comment" \
+    "$(SYNC_ORIGINAL_ACTION=COMMENT bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-comment.md" 2>/dev/null)"
+  check "Test 26j: the posted action matches that decision" "1" \
+    "$(grep -cF '**MACHINE_READABLE_ACTION:** COMMENT' "$TMP_DIR/s26-comment.md" || true)"
+  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-soften.md"
+  check "Test 26k: a REQUEST_CHANGES with no surviving blocker still softens" "approve" \
+    "$(SYNC_ORIGINAL_ACTION=REQUEST_CHANGES bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-soften.md" 2>/dev/null)"
+else
+  echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 26a-k"
+fi
+
+# The two preconditions live in the caller, so assert them at the source: a
+# refactor that drops either one reopens a fail-open path that no unit test of
+# the sync script itself can see.
+if [ -f "$AGG_SH" ]; then
+  check "Test 26l: the sync is skipped on partial sidecar coverage" "1" \
+    "$(awk '/Recommendation NOT synced/ && /partial sidecar coverage/ {n++} END{print n+0}' "$AGG_SH")"
+  check "Test 26m: partial coverage is the guard, not just the message" "1" \
+    "$(awk '/if \[ -n "\$MISSING_SIDECAR_CHUNKS" \]/{f=1} f && /Recommendation NOT synced/{print 1; exit}' "$AGG_SH")"
+  check "Test 26n: the sync is skipped when the orchestrator summary failed" "1" \
+    "$(awk '/elif \[ "\$\{agg_ok:-true\}" != "true" \]/{print 1; exit}' "$AGG_SH")"
+  check "Test 26o: the orchestrator action is forwarded so COMMENT survives" "1" \
+    "$(awk '/SYNC_ORIGINAL_ACTION="\$\{ORCHESTRATOR_ACTION:-\}"/{print 1; exit}' "$AGG_SH")"
+  check "Test 26p: the escalate-only fallback still guards the skip paths" "1" \
+    "$(awk '/if \[ -z "\$\{FINDINGS_SYNCED_DECISION:-\}" \]/{print 1; exit}' "$AGG_SH")"
+fi
+
+# --- Test 27: Suggested Fixes reconciliation note ---------------------------
+if [ -x "$ANNOTATE_SH" ]; then
+  cat > "$TMP_DIR/s27-dropped.json" <<'DJ'
+{"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[{"x":1}],"malformed_findings":2,"demoted_no_quote":1}
+DJ
+  printf '## 🔍 Issues Summary\nx\n\n## 📝 Suggested Fixes\n1. Normalize reader byte order.\n\n## 🎯 Recommendation\n' \
+    > "$TMP_DIR/s27.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-dropped.json" "$TMP_DIR/s27.md" 2>/dev/null || true
+  check "Test 27a: a note explains fixes with no numbered finding" "1" \
+    "$(grep -c 'Some suggested fixes may have no numbered finding' "$TMP_DIR/s27.md" || true)"
+  check "Test 27b: it names the malformed count" "1" \
+    "$(grep -c '2 finding(s) were dropped as malformed' "$TMP_DIR/s27.md" || true)"
+  check "Test 27c: it names the suppressed count" "1" \
+    "$(grep -c '1 were suppressed below the actionable confidence anchor' "$TMP_DIR/s27.md" || true)"
+  check "Test 27d: it names the demotion count" "1" \
+    "$(grep -c '1 were demoted for not quoting the motivating line' "$TMP_DIR/s27.md" || true)"
+  check "Test 27e: the suggested fix itself survives" "1" \
+    "$(grep -c 'Normalize reader byte order' "$TMP_DIR/s27.md" || true)"
+  check "Test 27f: LADR-067 — the note autolinks nothing" "0" \
+    "$(grep -cE '#[0-9]' "$TMP_DIR/s27.md" || true)"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-dropped.json" "$TMP_DIR/s27.md" 2>/dev/null || true
+  check "Test 27g: it is idempotent" "1" \
+    "$(grep -c 'Some suggested fixes may have no numbered finding' "$TMP_DIR/s27.md" || true)"
+
+  cat > "$TMP_DIR/s27-clean.json" <<'CJ'
+{"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[],"malformed_findings":0,"demoted_no_quote":0}
+CJ
+  printf '## 📝 Suggested Fixes\n1. x\n' > "$TMP_DIR/s27-clean.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-clean.json" "$TMP_DIR/s27-clean.md" 2>/dev/null || true
+  check "Test 27h: nothing dropped means no note at all" "0" \
+    "$(grep -c 'Some suggested fixes' "$TMP_DIR/s27-clean.md" || true)"
+  printf 'no heading here\n' > "$TMP_DIR/s27-noheading.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/s27-dropped.json" "$TMP_DIR/s27-noheading.md" 2>/dev/null
+  check "Test 27i: a summary with no Suggested Fixes heading is untouched" "no heading here" \
+    "$(cat "$TMP_DIR/s27-noheading.md")"
+  bash "$ANNOTATE_SH" "$TMP_DIR/missing.json" "$TMP_DIR/s27-clean.md" 2>/dev/null
+  check "Test 27j: a missing merged document never fails the caller" "0" "$?"
+else
+  echo "⏭️  annotate-suggested-fixes.sh missing — skipping Test 27"
+fi
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
 echo "=========================================="
+SUITE_COMPLETED=1
 [ "$fail" -eq 0 ]

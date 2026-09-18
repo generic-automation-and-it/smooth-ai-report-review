@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, claude-opus-4-8 for ANTHROPIC, deepseek-v4-pro/grok-4.5/glm-5.2/kimi-k3 for OPENCODE-GO-OPENAI, qwen3.7-plus/qwen3.7-max/minimax-m3 for OPENCODE-GO-ANTHROPIC, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, claude-opus-4-8 for ANTHROPIC, deepseek-v4-pro/glm-5.3/kimi-k3 for OPENCODE-GO-OPENAI, qwen3.8-flash/qwen3.7-plus/minimax-m3 for OPENCODE-GO-ANTHROPIC, gpt-5.6-luna/grok-4.6 for OPENCODE-GO-RESPONSES, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
         required: false
         type: string
         default: ''
@@ -86,6 +86,22 @@ on:
         default: ''
       rtk_version:
         description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054, e.g. "0.44.1"). Blank → OPENCODE_TOOL_RTK_VERSION Variable, else latest. Only used when RTK is enabled (OPENCODE_REVIEW_REPORT_ENABLE_RTK Variable, default on).'
+        required: false
+        type: string
+        default: ''
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank → OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts. Default: off.'
+        required: false
+        type: choice
+        default: '0'
+        options: ['0', '1']
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review. Blank: none.'
         required: false
         type: string
         default: ''
@@ -176,6 +192,26 @@ on:
         required: false
         type: string
         default: ''
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank → OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts. Blank → OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED / 0.'
+        required: false
+        type: string
+        default: ''
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review. Blank → OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS.'
+        required: false
+        type: string
+        default: ''
+      run_on_draft:
+        description: 'Review PRs while they are in DRAFT (1/true/yes/on = review drafts; 0/false/no/off = only review once ready). Blank → OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT Variable, else OFF — drafts are only reviewed once marked ready.'
+        required: false
+        type: string
+        default: ''
     # Provider API keys, declared so out-of-org callers can pass them EXPLICITLY.
     # `secrets: inherit` only works when caller and this workflow live in the same
     # organization/enterprise; a caller in a different org must map each key (see the
@@ -223,7 +259,10 @@ jobs:
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     if: |
       github.actor != 'dependabot[bot]' && (
-        (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+        (github.event_name == 'pull_request' && (
+          github.event.pull_request.draft == false ||
+          contains('|1|true|yes|on|', format('|{0}|', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false'))
+        )) ||
         (
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request &&
@@ -239,9 +278,10 @@ jobs:
 
     env:
       # Provider selector, default GEMINI. Allowed:
-      #   GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER
-      # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
-      # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
+      #   GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER
+      # OpenCode Go is split in three because its Zen gateway serves three SDK surfaces:
+      # OpenAI-compatible (deepseek/kimi), Anthropic-compatible (qwen/minimax),
+      # and OpenAI Responses (gpt/grok/muse) —
       # one opencode.json provider block can pin only one npm. OPEN_ROUTER routes to
       # the OpenRouter aggregator (fixed public base, no URL var — LADR-039). ANTHROPIC
       # routes directly to Anthropic's API (fixed public base, no URL var — LADR-040).
@@ -291,9 +331,10 @@ jobs:
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'ANTHROPIC' && 'anthropic') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-RESPONSES' && 'go-responses') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
         'gemini' }}
-      # All seven providers' credentials are exported at job scope so opencode's
+      # All eight providers' credentials are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in the OPENCODE_CONFIG file
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to.
@@ -401,7 +442,13 @@ jobs:
       # → OPENCODE_REVIEW_REPORT_CONFIG Variable → built-in.
       OPENCODE_REVIEW_REPORT_CONFIG: ${{ inputs.opencode_config || vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
       OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
-      OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+      OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+      OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '0' }}
+      # Read by run-review.sh's should_run(), which mirrors the job-level draft
+      # guard above. Both must resolve identically or an opted-in draft PR
+      # starts a job that then declines to review it.
+      OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
+      OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
       # Code graph analysis (LADR-049) — opt-in Tree-sitter-based knowledge graph.
       # When enabled, builds a SQLite graph of the repo and runs detect-changes
       # to produce risk-scored function-level analysis. The graph data enriches
@@ -434,6 +481,13 @@ jobs:
       # (report.md, per-chunk reviews, findings.merged.json, metadata.json) for
       # the upload step below. Set to a falsy value to skip assembly.
       OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
+      # Bounded GitHub retry (LADR-078). A transient 5xx from GitHub used to
+      # abort the run and discard an already-generated review. When truthy,
+      # every gh call that can abort the run gets ONE retry after a fixed 30s
+      # delay, allowlisted to transient failures, with writes verifying the
+      # mutation did not already land. Set to a falsy value to restore the
+      # pre-LADR-078 single-attempt behaviour.
+      OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
       # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
       # chain, so on timeout the LADR-002 secondary is never reached. Raised
       # from a hardcoded 300 after LADR-055 tripled per-chunk output.
@@ -442,6 +496,10 @@ jobs:
       # FLOOR (small chunks); a large prompt scales up toward this cap, which
       # preserves the deadlock-detector property the fixed budget used to give.
       OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
+      # Max chunks reviewed concurrently (default 7 — 10 pushed slow chunks
+      # past their budget under provider degradation). Lower it further (e.g.
+      # 4) when the model endpoint is slow or rate-limited.
+      OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
         'AGENTS.md

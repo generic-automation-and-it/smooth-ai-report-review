@@ -77,6 +77,43 @@ structured_findings_enabled() {
   local v="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
   printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
 }
+
+# LADR-077: does this chunk file contain a REVIEW, or only the model narrating
+# its way through the exploration it never finished?
+#
+# The byte floor below (200 B) catches an empty answer. It does not catch the
+# other silent no-op: opencode exits 0 having streamed nothing but between-tool
+# narration — "Let me verify the actual `.docs` structure", "Let me check for
+# naming consistency" — and stops without ever writing the review. Observed on
+# consumer run 34745786660 chunk 1 (`.agents`): 733 B of exactly that, over the
+# floor, so the chunk was logged as completed, counted in `total_chunks`, left
+# `failed_chunks: 0`, denied the LADR-002 fallback its turn, and posted its
+# narration verbatim as the `### Chunk 1` section of the report. A whole
+# top-level directory of the PR went unreviewed and nothing in the output said
+# so.
+#
+# The matcher is deliberately generous — it answers "is there ANY review shape
+# here", not "is this review good". A `.failed` flag is fail-closed (LADR-031):
+# it forces REQUEST_CHANGES, so a false positive costs a spurious block on an
+# honest chunk. Every real chunk review carries at least one severity marker or
+# heading, because the output format mandates the severity sections and
+# "None found" for the empty ones — measured across the six chunks of the
+# trigger run, the five real reviews scored 2-22 on every marker below and the
+# narration-only one scored 0 on all of them.
+chunk_review_has_shape() {
+  local md="$1"
+  [ -f "$md" ] || return 1
+  # Severity emoji: -F, one -e each, because these are multi-byte and a bracket
+  # expression over them is locale-dependent.
+  grep -qF -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$md" && return 0
+  # "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling.
+  grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$md" && return 0
+  # The mandated placeholder for an empty severity section.
+  grep -qiF 'none found' "$md" && return 0
+  # A markdown heading means the model reached the output template.
+  grep -qE '^#{1,6} ' "$md" && return 0
+  return 1
+}
 if structured_findings_enabled; then
   echo "🧩 Structured findings enabled (LADR-055)"
 else
@@ -94,17 +131,20 @@ if [ -f "ci_temp/pr_description.txt" ]; then
   PR_DESCRIPTION=$(cat "ci_temp/pr_description.txt")
   echo "PR description loaded (${#PR_DESCRIPTION} chars)"
 
-  # Extract AI Review Notes section (everything after "## AI Review Notes" header)
-  # Uses awk instead of sed to handle case where AI Review Notes is the last section
-  if echo "$PR_DESCRIPTION" | grep -q "## AI Review Notes"; then
-    AI_REVIEW_NOTES=$(echo "$PR_DESCRIPTION" | awk '/^## AI Review Notes/{flag=1; next} /^## /{flag=0} flag' | sed '/^<!--/,/-->$/d' | sed '/^$/d')
-    if [ -n "$AI_REVIEW_NOTES" ]; then
-      echo "✅ AI Review Notes extracted (${#AI_REVIEW_NOTES} chars)"
-    else
-      echo "ℹ️ AI Review Notes section found but empty (only comments)"
+  # LADR-083: extraction lives in the lib so this call site and
+  # aggregate-reviews.sh cannot drift. It captures `## AI Review Notes` AND the
+  # sibling `## Skip Areas` section — the latter was silently absent for the whole
+  # life of the old inline awk, which left the prompt rule below ("items listed
+  # under **Skip Areas** MUST be treated as out-of-scope") pointing at text that
+  # was never in the prompt.
+  AI_REVIEW_NOTES=$(printf '%s\n' "$PR_DESCRIPTION" | bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-review-notes.sh")
+  if [ -n "$AI_REVIEW_NOTES" ]; then
+    echo "✅ AI Review Notes extracted (${#AI_REVIEW_NOTES} chars)"
+    if printf '%s\n' "$AI_REVIEW_NOTES" | grep -q "Skip Areas"; then
+      echo "   ↳ includes Skip Areas / Known Issues bullets"
     fi
   else
-    echo "ℹ️ No AI Review Notes section in PR description"
+    echo "ℹ️ No AI Review Notes or Skip Areas section in PR description"
   fi
 else
   echo "ℹ️ PR description file not found"
@@ -815,6 +855,7 @@ EOF
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
 - **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via \`webfetch\`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
+- **Webfetch fail-fast (MANDATORY):** \`webfetch\` and \`websearch\` are a bounded verification aid, not a research loop. If a fetch fails (any 4xx/5xx, timeout, or unreachable URL), do NOT retry it and do NOT try alternate URLs for the same claim — stop, tag the dependent finding [SPECULATIVE], and move on. Hard cap: at most 3 webfetch/websearch calls total per chunk (this review session), successful or not. Never fetch external docs to research secret/token formats or scanning patterns — verify suspected secrets with local \`grep\`/\`read_file\` only.
 EOF
 
   # LADR-055: confidence anchors + quote-the-line gate. Quoted heredoc — this
@@ -913,6 +954,23 @@ Your job is to review the CHANGES shown in the diff below. Do NOT review the ent
 - 🎯 **Primary focus**: Lines that are ADDED or MODIFIED in the diff
 - ❌ **Out of scope**: Existing code that was not changed (even if you can read it)
 
+EOF
+
+  if [ -s ci_temp/excluded_files.txt ]; then
+    cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+**EXCLUDED CHANGES:**
+The paths below changed in this PR but were intentionally excluded from AI review.
+Do not report their deletion, absence, generated content, or references to their removal as an error.
+
+EOF
+    while IFS=$'\t' read -r excluded_reason excluded_path; do
+      printf -- '- [%s] `%s`\n' "$excluded_reason" "$excluded_path" >> ci_temp/chunk_${chunk_num}_prompt.txt
+    done < ci_temp/excluded_files.txt
+    printf '\n' >> ci_temp/chunk_${chunk_num}_prompt.txt
+  fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+
 **FILE ACCESS - FOR CONTEXT VERIFICATION ONLY:**
 You have file system access via the read_file tool. Use it ONLY to verify context, NOT to find new issues.
 
@@ -931,11 +989,15 @@ EOF
 - You're unsure if something is handled elsewhere → READ the file to verify before flagging
 - You want to flag a Critical or High Priority issue → ALWAYS read the file first to confirm
 
+**Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list/webfetch/websearch) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.
+
+**Zero-match glob fail-fast (MANDATORY):** a `glob` that returns 0 matches has answered you — it is not an invitation to retry with a different pattern. Do NOT re-run it as `x/**`, `x/**/*`, `x/*` or any other variant, and do not widen it to the repo root. Dot-prefixed paths are the trap: `.docs/`, `.github/` and `.agents/` routinely return 0 matches from `glob` for directories that plainly exist and that you can read. Confirm existence ONCE by reading the directory itself (`read` / `list` on `.docs`), take that as the answer, and move on. Observed cost of ignoring this: in one review all three documentation chunks spent their turn re-globbing `.docs/**`, `.docs/**/*` and `.docs/adrs/*` — two ran out of turn part-way through the structured block at the end of their output, and the third never wrote a review at all.
+
 **MANDATORY WORKFLOW for Critical/High issues:**
 1. Identify potential issue in the DIFF
 2. **Read the CURRENT file state** using `read_file` to verify the issue exists in the actual code (not just in the diff hunk). The diff may show partial context — the issue may have been fixed in an earlier commit on the same branch.
 3. **Confirm the flagged symbol/pattern exists** in the current file. If `read_file` shows the symbol is absent, DO NOT flag it — the diff is showing a removal or the change was already applied.
-4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior via `webfetch` of official docs before flagging Critical/High — or downgrade to [SPECULATIVE]. Known traps that are NOT issues:
+4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior via `webfetch` of official docs before flagging Critical/High — or downgrade to [SPECULATIVE]. One fetch attempt per claim: if it fails (4xx/5xx/timeout), do NOT retry or try alternate URLs — downgrade to [SPECULATIVE] and move on. Known traps that are NOT issues:
    - In a workflow with `on.workflow_call`, the `github` context (`event_name`, `event.pull_request.*`) is the CALLER's. `github.event_name` is never "workflow_call"; a job `if:` gate listing the caller's event names and `github.event.pull_request.*` references are valid in reusable workflows.
    - GitHub Actions `branches:`/`tags:`/`paths:` filters are glob patterns, NOT regex. Dots are literal; never suggest regex-escaping them.
 5. Only flag if the issue is TRULY present after checking the current file state
@@ -1021,9 +1083,10 @@ Rules for the sidecar — a violated rule silently drops the finding from dedupl
 - `confidence` is one of the five anchors. At anchors `75`/`100`, `first_evidence` must carry the verbatim motivating line with `file:line` — that single field IS the quote-the-line gate, and a 75/100 finding without it is demoted to 50 automatically.
 - Do **not** emit an `evidence` array. Your supporting quotes belong in the markdown review above, where a human reads them; repeating them here only makes the block bigger and more likely to be truncated. (An `evidence` array is still accepted for compatibility, but omit it.)
 - `autofix_class` is one of `"gated_auto"`, `"manual"`, `"advisory"`; `owner` is one of `"downstream-resolver"`, `"human"`, `"release"`. Nothing acts on these yet — classify honestly, they are routing signal only. Default `owner` to `"downstream-resolver"` unless the item genuinely needs human judgment first or is release/rollout work.
+- `requires_verification` is `true` when any fix for this finding must be re-checked with targeted tests or a follow-up review before it can be trusted (e.g. a concurrency or auth change); `false` when the fix is self-contained and the code alone proves it. Default `false`. Omitting it is accepted and treated as `false` — but emit `true` explicitly when it applies.
 - `why_it_matters` is the finding's description, written to the **Writing the finding description** rules above.
 - `pre_existing` is `true` **only** for items you reported under **Pre-existing (informational)**; Primary and Secondary findings are both `false`. Pre-existing items still belong in the `findings` array — the merge partitions them out of the verdict on this flag, so omitting them here is what makes them disappear, not what keeps them out of the blocking count.
-- `suggested_fix`, `first_evidence` and `graph_evidence` are optional; every other field is required on every finding.
+- `suggested_fix`, `first_evidence`, `graph_evidence` and `requires_verification` are optional (`requires_verification` defaults to `false` when omitted); every other field is required on every finding.
 - Emit **one** finding object per distinct defect. Every item you listed under **Issues Found** or **Pre-existing (informational)** above belongs here, and nothing else does: no "None found" placeholders, no passing checks, no coverage notes.
 - If you found nothing, emit the block with `"findings": []`.
 - The block is the LAST thing in your output. Do not wrap it in extra prose, do not emit it twice, and do not put it before the markdown review.
@@ -1132,7 +1195,95 @@ EOF
   # prompts, while 88 KB prompts had never timed out. $prompt_size is already
   # computed above for the oversize warning — this is the same number.
   _chunk_timeout="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/validate-chunk-timeout.sh" "$prompt_size")"
-  if timeout "${_chunk_timeout}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  # LADR-081: the budget is SPLIT across the two-tier chain, not wrapped around
+  # it. `lib/opencode-with-fallback.sh` has no internal per-model budget, so a
+  # single outer `timeout` meant exit 124 = "the primary ate everything and the
+  # LADR-002 secondary was never invoked" — the chain exists to rescue exactly
+  # the case a timeout produces. Same flaw LADR-066 fixed for the grouping call
+  # (35s + 25s instead of one 60s wrap); this is that fix where it costs reviews.
+  #
+  # A secondary budget of 0 means the total was too small to split without
+  # starving a stage, so the pre-split single-wrap behaviour is used verbatim.
+  local _primary_budget _secondary_budget _secondary_model
+  local _stage1_rc=0 _chunk_rc=0 _split_used=0 _stage_started _elapsed _remaining _stage1_fb
+  _secondary_model="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
+  read -r _primary_budget _secondary_budget \
+    <<< "$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/split-chunk-budget.sh" "$_chunk_timeout")"
+  # LADR-084: on the LADR-082 retry, do NOT split. Attempt 1 already ran this
+  # exact prompt under this exact split and lost, so re-running the same shape is
+  # a guaranteed second failure — a retry that cannot differ is not a retry. It
+  # cost two chunks of a 10-chunk review on
+  # generic-automation-and-it/smooth-ai-product-context-memory PR #72 (run
+  # 35316140325): chunks 2 and 3 timed out at `600s primary / 268s` and `600s
+  # primary / 208s`, and the sweep reproduced both budgets byte-for-byte.
+  #
+  # Collapsing the split hands the primary the WHOLE validated budget (868s
+  # instead of 600s on that run, +45%) and restores the secondary as an in-chain
+  # fallback, which is the pre-LADR-081 single-wrap shape the split lib itself
+  # documents as the acceptable degenerate case. The trade is deliberate and only
+  # looks like a regression: a primary that times out at the full budget never
+  # reaches the secondary, but attempt 1 ALREADY gave the secondary its reserve
+  # and the secondary ALREADY failed, so there is nothing left to lose. What is
+  # gained is the only variable that plausibly rescues a chunk whose primary was
+  # merely slow rather than stuck — and per split-chunk-budget.sh's own
+  # measurement note the 600s floor was calibrated with 4 chunks actually
+  # concurrent, while a 10-chunk run at the default cap of 7 is far more
+  # contended than that.
+  if [ "${CHUNK_RETRY_ATTEMPT:-0}" = "1" ]; then
+    _primary_budget="$_chunk_timeout"
+    _secondary_budget=0
+    echo "  🔁 Chunk ${chunk_num} retry: no split — full ${_chunk_timeout}s to primary, secondary stays in-chain (LADR-084)"
+  fi
+  # The lib prints "0 0" rather than guessing when handed junk; that is this
+  # guard's cue to keep the budget we already validated instead of running
+  # `timeout 0s`, which imposes NO limit at all and would hang the job.
+  if ! [[ "$_primary_budget" =~ ^[1-9][0-9]*$ ]]; then
+    _primary_budget="$_chunk_timeout"
+    _secondary_budget=0
+  fi
+  # When splitting, stage 1 must NOT carry the secondary as its own fallback, or
+  # a fast primary error would spend stage 1's clock on the model stage 2 owns
+  # and the secondary would be tried twice on one budget. When not splitting,
+  # the secondary stays in-chain exactly as before.
+  if [ "$_secondary_budget" -gt 0 ]; then
+    _stage1_fb=""
+    echo "  ⏱️  Chunk ${chunk_num} budget ${_chunk_timeout}s split ${_primary_budget}s primary / ${_secondary_budget}s secondary reserve (LADR-081)"
+  else
+    _stage1_fb="$_secondary_model"
+  fi
+  _stage_started=$(date +%s)
+  if timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+    _chunk_rc=0
+  else
+    _stage1_rc=$?
+    _chunk_rc=$_stage1_rc
+    # Stage 2 gets whatever is LEFT of the total, not a fixed slice. That single
+    # subtraction gives both behaviours for free: a primary that timed out has
+    # consumed exactly its share, so the remainder IS the reserve; a primary that
+    # failed fast leaves nearly the whole budget, so the secondary is no worse off
+    # than under the old single wrap. Total wall clock is unchanged either way —
+    # elapsed + (total - elapsed) = total — so the outer guarantee still holds and
+    # the deadlock-detector property of the ceiling survives.
+    if [ "$_secondary_budget" -gt 0 ] \
+       && [ -n "$_secondary_model" ] \
+       && [ "$_secondary_model" != "$OPENCODE_MODEL_ID" ]; then
+      _elapsed=$(( $(date +%s) - _stage_started ))
+      _remaining=$(( _chunk_timeout - _elapsed ))
+      if [ "$_remaining" -gt 0 ]; then
+        _split_used=1
+        echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
+        # stdout is overwritten (stage 1 may have left partial output); stderr is
+        # appended so stage 1's diagnostics survive alongside stage 2's.
+        if timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+          echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
+          _chunk_rc=0
+        else
+          _chunk_rc=$?
+        fi
+      fi
+    fi
+  fi
+  if [ "$_chunk_rc" -eq 0 ]; then
     # LADR-055: pull the structured-findings sidecar out and strip it from the
     # markdown. Runs BEFORE the empty-output floor below on purpose — the floor
     # must measure the markdown a human will actually read, so a model that
@@ -1157,15 +1308,27 @@ EOF
       fi
     fi
 
-    # Empty-output detection: opencode can exit 0 while producing no review
-    # text (e.g. provider silently failing, agent misconfiguration). A real
-    # chunk review is always at least a few hundred bytes of markdown with
-    # priority headings. Anything smaller is a no-op — surface stderr so we
-    # can see what happened instead of silently aggregating an empty file.
+    # No-review detection: opencode can exit 0 while producing no review a
+    # human can read (provider silently failing, agent misconfiguration, or a
+    # turn spent entirely on exploration). A real chunk review is always at
+    # least a few hundred bytes of markdown carrying severity markers or
+    # headings. Anything else is a no-op — surface stderr so we can see what
+    # happened instead of silently aggregating it as a review.
     local review_size
     review_size=$(wc -c < "ci_temp/reviews/chunk_${chunk_num}.md" 2>/dev/null || echo 0)
+    # Two shapes of the same no-op, one reason string (LADR-077). The byte floor
+    # catches "nothing came back"; the shape check catches "narration came back"
+    # — output over the floor that never reached the review template. Both are a
+    # chunk that was not reviewed, and both must take the LADR-031 fail-closed
+    # path rather than be aggregated as a review.
+    local reject_reason=""
     if [ "$review_size" -lt 200 ]; then
-      echo "  ⚠️ Chunk ${chunk_num} returned empty/tiny output (${review_size} bytes) — opencode silent failure?"
+      reject_reason="empty/tiny output (${review_size} bytes)"
+    elif ! chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
+      reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker, no \"None found\", no heading)"
+    fi
+    if [ -n "$reject_reason" ]; then
+      echo "  ⚠️ Chunk ${chunk_num} produced no usable review: ${reject_reason} — opencode silent failure?"
       echo "  --- chunk_${chunk_num}.md content ---"
       cat "ci_temp/reviews/chunk_${chunk_num}.md" || true
       echo "  --- chunk_${chunk_num}_stderr.log ---"
@@ -1178,7 +1341,7 @@ EOF
       {
         echo "## ⚠️ Review Failed for Chunk: ${chunk_dir}"
         echo ""
-        echo "**Reason:** opencode returned empty/tiny output (${review_size} bytes) — provider failure or agent tool-misfire (e.g. skill self-activation; see LADR-029)."
+        echo "**Reason:** opencode returned ${reject_reason} — provider failure, exhausted turn budget (LADR-076/077), or agent tool-misfire (e.g. skill self-activation; see LADR-029)."
         echo ""
         echo "Check the workflow logs for \`chunk_${chunk_num}_stderr.log\` contents."
       } > "ci_temp/reviews/chunk_${chunk_num}.md"
@@ -1186,11 +1349,11 @@ EOF
       # decision off this flag file, NOT off grepping the marker text above — the
       # marker string gets quoted into legitimate review bodies when the gate
       # reviews its own docs, which text-grepping false-matches (see LADR-031).
-      echo "empty/tiny output (${review_size} bytes)" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+      echo "${reject_reason}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
       # Exit 0 with no output is the quieter failure of the two — surface its
       # stderr too, or the run reports "empty" with no way to learn why.
       bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
-        "chunk_${chunk_num}_${chunk_dir}_empty" \
+        "chunk_${chunk_num}_${chunk_dir}_no_review" \
         "ci_temp/reviews/chunk_${chunk_num}_stderr.log" || true
       # A failed chunk contributes no findings (LADR-055). Drop any sidecar the
       # extraction step managed to salvage, so the merged set and the failed-chunk
@@ -1200,7 +1363,7 @@ EOF
       echo "  ✅ Chunk ${chunk_num} review completed (${review_size} bytes)"
     fi
   else
-    local exit_code=$?
+    local exit_code=$_chunk_rc
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
     # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
     # step rm -rf's ci_temp on always(), so by the time anyone read the workflow
@@ -1214,11 +1377,23 @@ EOF
       echo ""
       echo "**Exit Code:** ${exit_code}"
       if [ "$exit_code" -eq 124 ]; then
-        # The timeout wraps the whole fallback chain, so on 124 the secondary
-        # model was never reached — say so rather than implying the chain was
-        # tried and exhausted. Raise OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT to
-        # give it room.
-        echo "**Reason:** Timeout (>${OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s). The budget wraps the whole model chain, so the fallback model was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
+        # Report the budget that was ACTUALLY enforced, and say honestly whether
+        # the secondary got a turn. The old single line did neither: it
+        # interpolated the unscaled base Variable, so a chunk killed at its
+        # scaled 850 s reported ">700s" and told the reader to raise a number the
+        # run had already grown past (consumer PR 65 run 35011956699), and it
+        # asserted the fallback was never reached — one of three different
+        # problems with three different remedies. Hence three exhaustive
+        # branches: both tiers ran out, there was no second tier to try, or this
+        # budget cannot fund one. A marker that guesses is the defect LADR-081
+        # set out to fix.
+        if [ "$_split_used" -eq 1 ]; then
+          echo "**Reason:** Timeout. The ${_chunk_timeout}s budget was split across the chain (LADR-081): primary \`${OPENCODE_MODEL_ID}\` got ${_primary_budget}s, then secondary \`${_secondary_model}\` got the remainder and also ran out — both tiers of the LADR-002 chain were tried and exhausted. Raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
+        elif [ "$_secondary_budget" -gt 0 ]; then
+          echo "**Reason:** Timeout (>${_primary_budget}s of a ${_chunk_timeout}s budget). The budget was split (LADR-081) but the second stage never ran, because \`OPENCODE_REVIEW_REPORT_MODEL_SECONDARY\` resolves to the same model as the primary (\`${OPENCODE_MODEL_ID}\`) — set a genuinely different secondary to get a rescue tier."
+        else
+          echo "**Reason:** Timeout (>${_chunk_timeout}s). This budget was too small to split without starving a stage (see \`lib/split-chunk-budget.sh\`), so it wrapped the whole model chain and the secondary was not reached — raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` above 750 to buy a rescue tier, and/or raise it further if this recurs."
+        fi
       elif [ "$exit_code" -eq 137 ]; then
         echo "**Reason:** Out of memory or killed"
       else
@@ -1239,8 +1414,18 @@ EOF
 
 # --- Parallel Chunk Processing ---
 # Chunks are independent (no shared state) so they can run concurrently.
-# MAX_PARALLEL caps concurrent Gemini API calls to avoid rate limiting.
-MAX_PARALLEL=${MAX_PARALLEL:-10}
+# MAX_PARALLEL caps concurrent model API calls to avoid rate limiting and
+# endpoint contention. Default 7: 10 concurrent chunks pushed slow chunks past
+# their budget during provider degradation (smooth-ai-product-context-memory
+# PR 63 run 34949307952 — 3 of 8 chunks exit-124'd). Consumers tune it via the
+# OPENCODE_REVIEW_REPORT_MAX_PARALLEL GitHub Variable (wired through both
+# workflow packagings); the bare MAX_PARALLEL env var is kept as a
+# lower-precedence fallback for existing local callers.
+MAX_PARALLEL="${OPENCODE_REVIEW_REPORT_MAX_PARALLEL:-${MAX_PARALLEL:-7}}"
+if ! [[ "$MAX_PARALLEL" =~ ^[0-9]+$ ]] || [ "$MAX_PARALLEL" -lt 1 ]; then
+  echo "⚠️ Invalid parallel chunk cap '${MAX_PARALLEL}' (must be a positive integer). Using default: 7"
+  MAX_PARALLEL=7
+fi
 
 # Phase 1: Collect all chunk groups (prompts are built inside review_chunk)
 declare -a CHUNK_DIRS
@@ -1336,6 +1521,114 @@ done
 
 # Restore CHUNK_NUM to total for downstream output
 CHUNK_NUM=$TOTAL_CHUNKS
+
+# --- Retry sweep (LADR-082): one second attempt per failed chunk --------------
+# Selector is the LADR-031 flag file, NOT the exit codes above: review_chunk
+# never returns non-zero on a chunk failure (it ends with `echo ""`), so
+# CHUNK_EXIT_CODES/FAILED_CHUNKS is effectively always clean — and the flag is
+# the same thing aggregation counts, so clearing it on a rescue is exactly what
+# makes the coverage block read `0 failed`. This covers every failure mode:
+# exit 124 timeouts, non-124 API errors, and the LADR-031/077 no-review
+# rejections that exit 0 and are otherwise denied even the LADR-081 secondary.
+declare -a RETRY_CHUNKS=()
+for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+  if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+    RETRY_CHUNKS+=("$i")
+  fi
+done
+
+if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
+  if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
+    # Every chunk failed: that is a dead endpoint, not bad luck. Retrying
+    # doubles a doomed run, so the sweep is skipped — and says so, or
+    # "we skipped the sweep" is indistinguishable from "nothing to sweep".
+    #
+    # `TOTAL_CHUNKS -gt 1` matters more than it looks. The inference is
+    # statistical — "all of them failed" is evidence of a dead endpoint only
+    # when there were enough of them for that to be improbable. At one chunk
+    # "all failed" is just "it failed", and single-chunk mode is the DEFAULT
+    # for any PR at or under OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING
+    # (10) files whose diff fits MAX_CHUNK_SIZE — it groups everything as one
+    # `all-changes` chunk and still reaches this sweep. Without this guard the
+    # feature was inert for most small PRs, which are the cheapest retries
+    # there are. Two-chunk runs keep the skip: there, "both failed" is at
+    # least weak evidence, and the settled decision stands.
+    echo ""
+    echo "⚠️ Retry sweep skipped (LADR-082): all ${TOTAL_CHUNKS} chunks failed — endpoint looks dead, a retry would double a doomed run"
+  else
+    echo ""
+    echo "=========================================="
+    echo "Retry sweep (LADR-082): ${#RETRY_CHUNKS[@]} failed chunk(s) get one second attempt: ${RETRY_CHUNKS[*]}"
+    echo "=========================================="
+    # Max 2 concurrent, hardcoded (settled decision — no Variable), ascending
+    # chunk index. Exactly one retry per chunk: this loop runs once and
+    # review_chunk itself never retries.
+    # Cap is 2 (settled decision, no Variable), but never MORE than the
+    # consumer's own concurrency cap: someone who set
+    # OPENCODE_REVIEW_REPORT_MAX_PARALLEL=1 did it to stop hammering a
+    # contended endpoint, and a sweep that ignores that reintroduces exactly
+    # the contention LADR-081's motivating runs died of.
+    _retry_parallel=2
+    if [ "$MAX_PARALLEL" -lt "$_retry_parallel" ]; then
+      _retry_parallel="$MAX_PARALLEL"
+    fi
+    echo "  (max ${_retry_parallel} concurrent, ascending index, one attempt each)"
+    # LADR-084: read by review_chunk to collapse the LADR-081 budget split for
+    # this attempt only. Set here rather than passed as an argument because
+    # review_chunk's signature is `<dir> <files...>` and every caller is in this
+    # file — and it is unset again after the sweep so nothing downstream (the
+    # recount loop, aggregation) can observe a stale retry mode.
+    export CHUNK_RETRY_ATTEMPT=1
+    _retry_running=0
+    declare -a RETRY_PIDS=()
+    for i in "${RETRY_CHUNKS[@]}"; do
+      # THE TRAP (LADR-082): review_chunk's success path never removes a
+      # pre-existing .failed flag — it only writes one on failure. Without
+      # this cleanup a rescued chunk keeps attempt 1's flag and still
+      # fail-closes the review while the logs look correct. Delete every
+      # stale artifact of attempt 1 and let review_chunk rewrite them; if
+      # the retry fails again it drops a fresh flag and marker, restoring
+      # current behaviour byte-for-byte.
+      rm -f "ci_temp/reviews/chunk_${i}.failed" \
+            "ci_temp/reviews/chunk_${i}.md" \
+            "ci_temp/reviews/chunk_${i}.findings.json" \
+            "ci_temp/reviews/chunk_${i}.findings.rejected.txt"
+      echo "  🔁 Retrying chunk #${i} (${CHUNK_DIRS[$i]})"
+      CHUNK_NUM=$i
+      mapfile -t chunk_files <<< "${CHUNK_FILE_LISTS[$i]}"
+      (
+        review_chunk "${CHUNK_DIRS[$i]}" "${chunk_files[@]}"
+      ) &
+      RETRY_PIDS+=($!)
+      _retry_running=$((_retry_running + 1))
+      if [ "$_retry_running" -ge "$_retry_parallel" ]; then
+        wait -n 2>/dev/null || true
+        _retry_running=$((_retry_running - 1))
+      fi
+    done
+    for _pid in "${RETRY_PIDS[@]}"; do
+      wait "$_pid" 2>/dev/null || true
+    done
+    unset CHUNK_RETRY_ATTEMPT  # LADR-084: retry mode ends with the sweep
+    CHUNK_NUM=$TOTAL_CHUNKS
+    for i in "${RETRY_CHUNKS[@]}"; do
+      if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+        echo "  ❌ Chunk #${i} (${CHUNK_DIRS[$i]}) failed again — keeping fail-closed flag"
+      else
+        echo "  ✅ Chunk #${i} (${CHUNK_DIRS[$i]}) rescued on retry"
+      fi
+    done
+  fi
+fi
+
+# Recompute the failure count from the flags so the summary block and anything
+# downstream see the post-retry truth (the flag is what aggregation counts too).
+FAILED_CHUNKS=0
+for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+  if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+    FAILED_CHUNKS=$((FAILED_CHUNKS + 1))
+  fi
+done
 
 echo ""
 echo "=========================================="

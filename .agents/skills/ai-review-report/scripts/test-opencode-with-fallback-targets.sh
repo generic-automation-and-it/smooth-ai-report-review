@@ -46,6 +46,7 @@ run_case() {
 
 run_case bare_model openai 'openai/gpt-5.5' 'gpt-5.5'
 run_case qualified_model go-anthropic 'go-openai/kimi-k2.7-code' 'go-openai/kimi-k2.7-code'
+run_case responses_qualified go-openai 'go-responses/gpt-5.6-luna' 'go-responses/gpt-5.6-luna'
 run_case openrouter_bare openrouter 'openrouter/deepseek/deepseek-v4-pro' 'deepseek/deepseek-v4-pro'
 # Analyse path: job pre-prefixes the target; must not be re-prefixed with the review provider.
 run_case analyse_path openai 'go-anthropic/minimax-m3' 'go-anthropic/minimax-m3'

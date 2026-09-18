@@ -24,7 +24,6 @@
           "why_it_matters",
           "confidence",
           "pre_existing",
-          "requires_verification",
           "autofix_class",
           "owner"
         ],
@@ -79,7 +78,7 @@
           },
           "requires_verification": {
             "type": "boolean",
-            "description": "True when any fix for this finding must be re-verified with targeted tests or a follow-up review pass before it can be trusted. ORs to true across a dedup group."
+            "description": "True when any fix for this finding must be re-verified with targeted tests or a follow-up review pass before it can be trusted. ORs to true across a dedup group. OPTIONAL — absent is treated as false by scripts/lib/merge-findings.py (same conservative 'no claim made' reading as `verified`). Do not omit a true value; omitting false is fine. Making this required previously dropped complete confidence-100 [VERIFIED] findings whose producers simply never emitted the field, leaving Issues Summary empty under a REQUEST_CHANGES verdict (issue #125)."
           },
           "autofix_class": {
             "type": "string",

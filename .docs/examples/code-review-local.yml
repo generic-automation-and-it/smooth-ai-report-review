@@ -46,18 +46,25 @@
 #                 blank → committed default; LADR-047),
 #               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
 #               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
+#               OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED (default 0), and
+#               OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS (newline-separated exact
+#                 paths or directory prefixes, default empty),
 #               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
 #                 workflow's 6-path list — override with your repo's real context files),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
-#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`).
+#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),
+#               OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT (default `false` — set truthy
+#                 to review PRs while they are still in DRAFT; the job-level draft
+#                 guard below is conditional on it).
 #
 # Optional autonomous low/medium fixing: copy .github/workflows/pipeline-ai-analyse.yml
 # into the consuming repo too. It cannot be a reusable workflow caller because
 # workflow_run must live in the repo whose gate run it observes. The workflow
 # name-couples to "OpenCode Review Report" and reads OPENCODE_ANALYSE_PROVIDER /
 # OPENCODE_ANALYSE_MODEL / OPENCODE_ANALYSE_MAX_INCREMENTAL /
-# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX Variables and the optional
+# OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX / OPENCODE_ANALYSE_RUN_ON_DRAFT (default
+# `false`; independent of the review draft switch) Variables and the optional
 # OPENCODE_ANALYSE_GH_TOKEN Secret.
 
 # name: "OpenCode Review Report" — must match pipeline-ai-analyse.yml's workflow_run.workflows
@@ -140,6 +147,27 @@ on:
         options:
           - '0'
           - '1'
+      file_limit:
+        description: 'Maximum changed files after selected exclusions. Blank uses OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT / 100.'
+        required: false
+        type: string
+        default: ''
+      exclude_deleted:
+        description: 'Exclude deleted paths from AI review while retaining deletion awareness in prompts.'
+        required: false
+        type: choice
+        default: '0'
+        options: ['0', '1']
+      exclude_generated_paths:
+        description: 'Newline-separated generated file paths or directory prefixes to exclude from AI review.'
+        required: false
+        type: string
+        default: ''
+      run_on_draft:
+        description: 'Forwarded to the gate as-is. NOTE: this input cannot switch draft reviews on or off on ANY path of this packaging — a pull_request event populates no inputs context, and on workflow_dispatch run-review.sh reviews the PR regardless of draft state (dispatch is an explicit human override, per SKILL.md). To review draft PRs on automatic runs, set the OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT repo/org Variable to 1/true/yes/on, or hardcode a literal in the env: block below.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   pull-requests: write
@@ -161,7 +189,10 @@ env:
 jobs:
   review:
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'pull_request' && (
+        github.event.pull_request.draft == false ||
+        contains('|1|true|yes|on|', format('|{0}|', inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false'))
+      )) ||
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
@@ -290,6 +321,7 @@ jobs:
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'ANTHROPIC' && 'anthropic') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
+            (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-RESPONSES' && 'go-responses') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
             'gemini' }}
           # API keys — Secrets only. URLs — Variables only.
@@ -401,7 +433,13 @@ jobs:
             vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
           OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
-          OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
+          OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED: ${{ inputs.exclude_deleted || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED || '0' }}
+          # Read by run-review.sh's should_run(), which mirrors the job-level draft
+          # guard above. Both must resolve identically or an opted-in draft PR
+          # starts a job that then declines to review it.
+          OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT: ${{ inputs.run_on_draft || vars.OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT || 'false' }}
+          OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS: ${{ inputs.exclude_generated_paths || vars.OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS || '' }}
           # Code graph analysis (LADR-049) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS || '1' }}
           OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION: ${{ vars.OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION || '' }}
@@ -414,10 +452,14 @@ jobs:
           OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
           # Run artifacts (LADR-062) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
+          # Bounded GitHub retry (LADR-078) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
           # Per-chunk review budget, seconds — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
           # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
+          # Max chunks reviewed concurrently (mirrors the reusable workflow).
+          OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
             'AGENTS.md

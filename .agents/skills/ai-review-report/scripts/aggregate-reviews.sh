@@ -94,6 +94,9 @@ get_provider_display_name() {
     OPENCODE-GO-ANTHROPIC)
       echo "OpenCode Go (Anthropic surface)"
       ;;
+    OPENCODE-GO-RESPONSES)
+      echo "OpenCode Go (Responses API surface)"
+      ;;
     OPEN_ROUTER)
       echo "OpenRouter"
       ;;
@@ -179,13 +182,13 @@ if [ -f "ci_temp/pr_description.txt" ]; then
   PR_DESCRIPTION=$(cat "ci_temp/pr_description.txt")
   echo "PR description loaded (${#PR_DESCRIPTION} chars)"
 
-  # Extract AI Review Notes section (everything after "## AI Review Notes" header)
-  # Uses awk instead of sed to handle case where AI Review Notes is the last section
-  if echo "$PR_DESCRIPTION" | grep -q "## AI Review Notes"; then
-    AI_REVIEW_NOTES=$(echo "$PR_DESCRIPTION" | awk '/^## AI Review Notes/{flag=1; next} /^## /{flag=0} flag' | sed '/^<!--/,/-->$/d' | sed '/^$/d')
-    if [ -n "$AI_REVIEW_NOTES" ]; then
-      echo "✅ AI Review Notes extracted for aggregation (${#AI_REVIEW_NOTES} chars)"
-    fi
+  # LADR-083: same lib as review-in-chunks.sh. The holistic pass needs the Skip
+  # Areas bullets as much as the chunk pass does — a holistic Critical/High blocks
+  # the PR on its own (it has no per-chunk sidecar to demote it), so a skipped
+  # finding re-raised here is as expensive as one re-raised in a chunk.
+  AI_REVIEW_NOTES=$(printf '%s\n' "$PR_DESCRIPTION" | bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-review-notes.sh")
+  if [ -n "$AI_REVIEW_NOTES" ]; then
+    echo "✅ AI Review Notes extracted for aggregation (${#AI_REVIEW_NOTES} chars)"
   fi
 fi
 
@@ -259,6 +262,7 @@ The PR author has provided the following guidance for this review:
 ${AI_REVIEW_NOTES}
 
 **Important:** Consider these notes in your holistic analysis and recommendations.
+- Any items listed under **"Skip Areas"** MUST be treated as out-of-scope for 🔴 Critical, 🟠 High, and 🟡 Medium classifications. If you observe a concern in a skip area, flag it as 🔵 Low Priority at most. (LADR-083: a holistic 🔴/🟠 blocks the PR with no per-chunk sidecar to demote it, so re-raising a documented skip here is strictly worse than doing it in a chunk.)
 
 EOF
 fi
@@ -625,6 +629,20 @@ FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr 
 # stable numbering; Part 2 is the audit trail and must show what each chunk
 # reviewer actually said.
 FINDINGS_SUMMARY_APPLIED="false"
+FINDINGS_SYNCED_DECISION=""
+# Parse the orchestrator's own machine-readable action ONCE, here, while
+# ci_temp/pr_summary.md is still exactly what the model (or the failure
+# fallback) produced. Two consumers need it and they must not disagree: the
+# Recommendation sync uses it to preserve a deliberate COMMENT verdict rather
+# than manufacturing an APPROVE, and the decision block at the end of this
+# script uses it when the sync did not run. Nothing rewrites pr_summary.md after
+# this point — the splice and the sync both edit pr_summary_main.md — so one
+# parse is enough.
+ORCHESTRATOR_ACTION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
+  | tail -1 \
+  | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
+  | tr '[:upper:]' '[:lower:]' \
+  | tr -d '[:space:]')
 MERGED_FINDINGS_FILE="ci_temp/findings.merged.json"
 if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # Count chunks the merge actually ingested, not sidecar files on disk. A file
@@ -745,6 +763,61 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         else
           echo "✅ Issues Summary rendered from merged findings (${SIDECAR_COUNT}/${EXPECTED_SIDECARS} chunk sidecars) — ${_fs_mode}"
         fi
+        # issue #125: Issues Summary now comes from the post-validation set, but
+        # Recommendation (counts + MACHINE_READABLE_ACTION) still came from the
+        # orchestrator — which counted the Issues Summary *it* wrote, including
+        # findings the merge later dropped as malformed. Sync counts and the
+        # decision from the same merged document so severity lists, rationale,
+        # and the posted review state cannot disagree. Holistic Critical/High
+        # (no per-chunk sidecar) still block via the holistic file.
+        #
+        # The sync can SOFTEN a verdict, so it is allowed only where "no
+        # Critical/High in the merged set" is actually evidence about the PR.
+        # Two cases where it is not, and where we keep the orchestrator's
+        # Recommendation plus the one-directional escalate-only override below:
+        #
+        #   1. PARTIAL sidecar coverage. A reviewed chunk contributed nothing to
+        #      the merged set — most often because the sidecar is emitted last
+        #      and got truncated (PR #106, PR #111). Its findings are absent from
+        #      this document but present verbatim in Part 2, so softening here
+        #      would post an APPROVE over a Critical the reader can see. Nobody
+        #      dropped that finding on purpose; it just never arrived.
+        #   2. The orchestrator summary FAILED. Its fallback template hardcodes
+        #      REQUEST_CHANGES *because* nothing about the run is trustworthy
+        #      ("manual review required for safety"). Rewriting that to APPROVE
+        #      inverts a fail-closed guard into a fail-open one.
+        if [ -n "$MISSING_SIDECAR_CHUNKS" ]; then
+          echo "ℹ️ Recommendation NOT synced — partial sidecar coverage (chunk(s) ${MISSING_SIDECAR_CHUNKS} contributed none, so their findings cannot be proven absent); keeping the orchestrator's counts and the escalate-only override"
+        elif [ "${agg_ok:-true}" != "true" ]; then
+          echo "ℹ️ Recommendation NOT synced — the orchestrator summary failed and its REQUEST_CHANGES fallback is a fail-closed guard; keeping it and the escalate-only override"
+        else
+          FINDINGS_SYNCED_DECISION="$(
+            SYNC_ORIGINAL_ACTION="${ORCHESTRATOR_ACTION:-}" \
+            bash "$(dirname "${BASH_SOURCE[0]}")/lib/sync-recommendation-from-findings.sh" \
+              "$MERGED_FINDINGS_FILE" \
+              ci_temp/pr_summary_main.md \
+              ci_temp/pr_summary_detailed.md \
+              2>ci_temp/sync_recommendation.log || true
+          )"
+          if [ -s ci_temp/sync_recommendation.log ]; then
+            cat ci_temp/sync_recommendation.log
+          fi
+          if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
+            echo "✅ Recommendation counts/decision synced from merged findings → ${FINDINGS_SYNCED_DECISION}"
+          else
+            echo "⚠️ Could not sync Recommendation from merged findings — keeping the orchestrator's counts"
+            FINDINGS_SYNCED_DECISION=""
+          fi
+        fi
+        # issue #125 also asks that `## 📝 Suggested Fixes` derive from the same
+        # post-validation set. It cannot: it is orchestrator prose with no
+        # deterministic mapping back to a merged finding. Rather than leave the
+        # reader to discover a suggested fix that has no numbered finding and
+        # conclude the report contradicts itself, say why — with counts — when
+        # the merge dropped, suppressed or demoted anything. Best-effort; a
+        # missing note is cosmetic.
+        bash "$(dirname "${BASH_SOURCE[0]}")/lib/annotate-suggested-fixes.sh" \
+          "$MERGED_FINDINGS_FILE" ci_temp/pr_summary_main.md || true
       else
         rm -f ci_temp/pr_summary_main.rendered.md
         echo "⚠️ Issues Summary splice produced no output — keeping the orchestrator's"
@@ -795,7 +868,7 @@ EOF
 
 if [ "$REVIEW_TYPE" != "incremental" ] && [ -f ci_temp/excluded_files.txt ] && [ -s ci_temp/excluded_files.txt ]; then
   EXCLUDED_COUNT=$(wc -l < ci_temp/excluded_files.txt | tr -d ' ')
-  echo "**Files Excluded:** ${EXCLUDED_COUNT} (auto-generated/lock files)" >> ci_temp/final_review.md
+  echo "**Files Excluded:** ${EXCLUDED_COUNT}" >> ci_temp/final_review.md
 fi
 
 # `**Reviewed in:**` is emitted for BOTH review types. It is coverage
@@ -1001,13 +1074,19 @@ fi
 echo ""
 echo "✅ Final review comment prepared"
 
-# Determine review action from summary
-# First try to parse the machine-readable action field (more reliable)
-REVIEW_DECISION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
-  | tail -1 \
-  | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
-  | tr '[:upper:]' '[:lower:]' \
-  | tr -d '[:space:]')
+# Determine review action from summary.
+# Prefer the decision synced from the post-validation merged findings (issue
+# #125) when the Issues Summary was replaced from that same set — severity
+# lists, count lines, and MACHINE_READABLE_ACTION must agree. Fall back to the
+# orchestrator's original field only when the sync did not run.
+if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
+  REVIEW_DECISION="$(printf '%s' "$FINDINGS_SYNCED_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  echo "📋 Review decision taken from synced merged findings: ${REVIEW_DECISION}"
+else
+  # The orchestrator's own machine-readable action, parsed once near the merged-
+  # findings block (more reliable than free-text "Decision:" prose).
+  REVIEW_DECISION="${ORCHESTRATOR_ACTION:-}"
+fi
 
 # Fail-closed safety net: if ANY chunk failed to review, never APPROVE regardless
 # of the summarizer's verdict — a failed chunk means part of the PR was not
@@ -1031,19 +1110,15 @@ if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
   fi
 fi
 
-# LADR-055: the decision above is parsed from the ORCHESTRATOR's summary, which
-# counts the Issues Summary it wrote. When we replaced that section with one
-# rendered from the merged findings, the two can disagree — a Critical/High that
-# every chunk reported but the orchestrator dropped would now be printed in the
-# body under a posted APPROVE. That is precisely the body↔state contradiction
-# LADR-036 exists to prevent, so escalate.
-#
-# This is deliberately one-directional. It can only turn approve/comment into
-# request_changes; it can never turn request_changes into anything softer, so a
-# cross-chunk finding the orchestrator raised holistically — which by definition
-# has no per-chunk sidecar entry — still blocks. Structured findings can add a
-# reason to block; they can never remove one.
-if [ "${FINDINGS_SUMMARY_APPLIED:-false}" = "true" ] && [ "$REVIEW_DECISION" != "request_changes" ]; then
+# LADR-055 + issue #125: when the Issues Summary was rendered from merged
+# findings but the Recommendation sync above did NOT run, keep the original
+# one-directional escalation — a Critical/High present in the merged set but
+# absent from the orchestrator's prose must still force request_changes. The
+# sync path already applied the same rule (and the reverse: dropped findings
+# no longer gate), so this is only a fallback.
+if [ -z "${FINDINGS_SYNCED_DECISION:-}" ] \
+   && [ "${FINDINGS_SUMMARY_APPLIED:-false}" = "true" ] \
+   && [ "$REVIEW_DECISION" != "request_changes" ]; then
   BLOCKING_FINDING_COUNT=$(jq '[(.findings // [])[] | select(.severity == "critical" or .severity == "high")] | length' \
     "$MERGED_FINDINGS_FILE" 2>/dev/null || echo "INVALID")
   if [ "$BLOCKING_FINDING_COUNT" = "INVALID" ]; then

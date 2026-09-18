@@ -2,5 +2,6 @@
   "id": "DR-014-ladr-beats-prbody",
   "kind": "must-not-flag",
   "label": "DR-014",
-  "note": "When the same diff contains an LADR documenting a design decision and code implementing that exact decision, the reviewer must NOT flag the chosen approach at Critical/High."
+  "forbidden_claim": "discriminator|global query filter|hasqueryfilter|(shared|single|one) (database|db)[^.]{0,60}(tenant|instead|should)|(database|db).?per.?tenant[^.]{0,80}(anti.?pattern|does not scale|scalab|should not|avoid)|tenant isolation[^.]{0,80}(not enforced|missing|insufficient|only|solely|relies)",
+  "note": "When the same diff contains an LADR documenting a design decision and code implementing that exact decision, the reviewer must NOT flag the chosen approach at Critical/High. The forbidden_claim targets objections to LADR-10's CHOSEN APPROACH specifically -- demanding a discriminator column or global query filter, arguing for a shared/single database, calling database-per-tenant an anti-pattern or unscalable, or asserting tenant isolation is unenforced because it rests on connection-string selection. Adjacent true findings (connection-string value validation, null guards, options lifetime) are NOT re-raises and are counted as non-blocking Unrelated findings -- which is what the fixture's own docstring already said in prose that the scorer could not read."
 }

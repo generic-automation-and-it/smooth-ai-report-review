@@ -36,17 +36,22 @@
 # An empty/unset URL var → no baseURL added (native base kept), which is why
 # the baseURL is injected dynamically rather than as a static {env:…} placeholder:
 # an unset placeholder would substitute to an empty-string baseURL and break the
-# SDK. The two OpenCode Go providers, OpenRouter, and the direct Anthropic
+# SDK. The three OpenCode Go providers, OpenRouter, and the direct Anthropic
 # provider are never injected — their base is a fixed public endpoint hardcoded
 # in opencode.json (no URL var): https://opencode.ai/zen/go/v1,
 # https://openrouter.ai/api/v1, and https://api.anthropic.com respectively.
 #
 # The resolved config also carries a top-level `instructions` array (LADR-070)
-# listing `.agents/rules/*.md`. Relative entries resolve against the project
+# listing `.agents/rules/*.md` plus the legacy-layout `.github/instructions/`
+# and `docs/{ADR,hlds}/AGENTS.md` entries. Relative entries resolve against the project
 # directory walking up to the worktree root, NOT against the directory holding
 # the config file (only `{file:...}` substitution uses config-relative paths).
 # So the glob resolves inside the repo under review, exactly as it would from a
 # project-scoped config. No match reads as an empty list, never an error.
+#
+# That whole channel is opencode **v1** behaviour. opencode v2 accepts the same
+# key in its schema but does not resolve it (LADR-080) — see
+# _poc_warn_v2_instructions_inert below.
 
 # Per-provider baseURL injection (LADR-034). For each env-driven provider whose
 # OPENCODE_REVIEW_REPORT_<P>_URL is non-empty, set its options.baseURL in the
@@ -112,6 +117,43 @@ _poc_migrate_stale_managed_global_config() {
   else
     echo "ℹ️  Personal global config detected at $dest — left untouched. It merges BELOW the gate's OPENCODE_CONFIG (ours wins on conflicting keys)."
   fi
+}
+
+# LADR-080: opencode v2 accepts the `instructions` array in its config schema
+# but does NOT resolve its files, globs, or URLs — https://opencode.ai/v2/docs/instructions/
+# states it verbatim: "V2 does not currently resolve its files, glob patterns,
+# or URLs". So on a v2+ binary the LADR-070 channel is schema-valid and
+# completely inert: no error, no log line, just nothing prepended to the system
+# prompt. That is the LADR-053 false-OK failure shape — the feature asserts
+# exactly what it silently fails to do. Warn loudly rather than fail: the review
+# is still correct, only less informed, and choosing between pinning back to 1.x
+# and migrating the rules into per-directory AGENTS.md files is the caller's.
+#
+# Bash 3.2 safe: local-review.sh sources this lib and, unlike run-review.sh,
+# does NOT guard for Bash >= 4 — no ${var,,} expansion anywhere in here.
+_poc_warn_v2_instructions_inert() {
+  local resolved="$1" version major has_instructions
+  command -v opencode >/dev/null 2>&1 || return 0
+  version="$(opencode --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){1,3}' | head -1 || true)"
+  [ -n "$version" ] || return 0
+  major="${version%%.*}"
+  case "$major" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$major" -ge 2 ] || return 0
+
+  # A LADR-047 override may legitimately ship no `instructions` key at all —
+  # nothing is being silently dropped in that case, so say nothing.
+  has_instructions=no
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '((.instructions // []) | length) > 0' "$resolved" >/dev/null 2>&1 && has_instructions=yes
+  elif grep -q '"instructions"' "$resolved" 2>/dev/null; then
+    has_instructions=yes
+  fi
+  [ "$has_instructions" = yes ] || return 0
+
+  echo "WARNING: opencode ${version} (major ${major}) is installed and the resolved config carries an 'instructions' array (LADR-070)." >&2
+  echo "    opencode v2 accepts that key but does NOT resolve its files, globs, or URLs, so the repo-under-review rule files are silently NOT loaded." >&2
+  echo "    Ref: https://opencode.ai/v2/docs/instructions/ - 'V2 does not currently resolve its files, glob patterns, or URLs'." >&2
+  echo "    Fix: pin OPENCODE_CLI_VERSION to a 1.x release, or move those rules into per-directory AGENTS.md files (v2 loads those natively)." >&2
 }
 
 _poc_main() {
@@ -190,6 +232,8 @@ _poc_main() {
     echo "⚠️  OPENCODE_CONFIG was already set (${preexisting}) — replaced for this run. Customize the gate's config via OPENCODE_REVIEW_REPORT_CONFIG (LADR-047) or a project opencode.json instead." >&2
   fi
 
+  _poc_warn_v2_instructions_inert "$resolved"
+
   # Persist across GitHub Actions step boundaries: an `export` dies with this
   # step's shell, and unlike the old install-to-global flow nothing on disk lets
   # a later step find the config. pipeline-ai-analyse.yml sources this lib in
@@ -206,7 +250,7 @@ _poc_main() {
 # before cleanup; the final `return`/`exit` re-raises it for the caller.
 _poc_rc=0
 _poc_main || _poc_rc=$?
-unset -f _poc_main _poc_inject_base_urls _poc_migrate_stale_managed_global_config
+unset -f _poc_main _poc_inject_base_urls _poc_migrate_stale_managed_global_config _poc_warn_v2_instructions_inert
 if [ "$_poc_rc" -ne 0 ]; then
   unset _poc_rc
   return 1 2>/dev/null || exit 1

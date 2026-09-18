@@ -2,6 +2,6 @@
   "id": "MC-004-sql-injection",
   "kind": "must-catch",
   "label": "MC-004",
-  "min_severity": "CRITICAL",
-  "note": "SQL injection via string interpolation passed to FromSqlRaw: untrusted caller-supplied name is embedded directly in the SQL string instead of using a parameterized overload or FromSqlInterpolated, allowing arbitrary SQL execution."
+  "min_severity": "HIGH",
+  "note": "SQL injection via string interpolation passed to FromSqlRaw: untrusted caller-supplied name is embedded directly in the SQL string instead of using a parameterized overload or FromSqlInterpolated, allowing arbitrary SQL execution. Bar is HIGH, not CRITICAL: High already blocks the PR (Critical/High -> request-changes), and MC-005 grades a comparable security defect (hardcoded secret) at HIGH -- a lone CRITICAL here made this fixture the only one in the corpus that demanded the top tier for a blocking-either-way finding."
 }

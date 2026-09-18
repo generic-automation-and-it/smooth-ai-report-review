@@ -51,6 +51,8 @@
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
 #   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
+#   OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED  [0]  — omit deleted paths from model scope
+#   OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS [unset] — newline-separated generated paths
 #   OPENCODE_CLI_VERSION  [unset → latest] — opencode version pin
 #   OPENCODE_REVIEW_REPORT_CONFIG  [unset → committed opencode.json] — LADR-047
 #   OPENCODE_REVIEW_REPORT_GEMINI_URL / _COPILOT_URL / _OPENAI_URL — gateway URLs
@@ -90,6 +92,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck disable=SC1091
+source "$LIB_DIR/parse-review-comment-options.sh"
+# Bounded retry for transient GitHub failures (LADR-078). Sourced this early
+# because the first wrapped call is the PR-metadata read in Step 3.
+# shellcheck disable=SC1091
+source "$LIB_DIR/gh-retry.sh"
 
 # --- Step 0: env-var contract resolution --------------------------------------
 # Each variable below is read once at script entry. Precedence is:
@@ -107,6 +115,10 @@ if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_
   echo "⚠️  Invalid OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT='${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}' (must be a positive integer). Using default: 100" >&2
   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT=100
 fi
+OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="${OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED:-0}"
+OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="${OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS:-}"
+export OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED
+export OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS
 OPENCODE_CLI_VERSION="${OPENCODE_CLI_VERSION:-}"
 # Graph analysis (LADR-049) — opt-in code knowledge graph enrichment.
 # When truthy, builds a Tree-sitter-based SQLite graph of the repo and runs
@@ -137,6 +149,14 @@ OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP="${OPENCODE_REVIEW_REPORT_ENABLE_TRIV
 # report, per-chunk reviews, findings.merged.json when it exists,
 # and metadata.json. Uploaded as a GitHub Actions artifact.
 OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS="${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}"
+
+# Bounded GitHub retry (LADR-078) — opt-out. When truthy, every `gh` call that
+# can abort the run gets ONE retry after a fixed 30s delay, but only for an
+# allowlisted transient failure (5xx / network), and writes verify that the
+# mutation did not already land before re-posting. Set falsy to restore the
+# pre-LADR-078 single-attempt behaviour.
+OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY="${OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY:-1}"
+export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
 
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
@@ -232,8 +252,8 @@ EVENT_NAME="$(jq -r 'if type=="object" and has("pull_request") then "pull_reques
 should_run() {
   case "$EVENT_NAME" in
     pull_request)
-      # Skip dependabot PRs and draft PRs.
-      local actor draft
+      # Skip dependabot PRs, and draft PRs unless the repo opted in.
+      local actor draft run_on_draft
       actor="$(jq -r '.sender.login // .pull_request.user.login // ""' "$GITHUB_EVENT_PATH")"
       draft="$(jq -r '.pull_request.draft // false' "$GITHUB_EVENT_PATH")"
       if [ "$actor" = "dependabot[bot]" ]; then
@@ -241,8 +261,18 @@ should_run() {
         return 1
       fi
       if [ "$draft" = "true" ]; then
-        echo "Skipping: draft PR"
-        return 1
+        # Mirrors the job-level draft guard, which is conditional on the same
+        # setting. Both must honour it: the workflow if: decides whether the job
+        # starts, this decides whether the review runs, and a divergence gives a
+        # green run with no review -- which reads more like a review than a
+        # skipped check does.
+        run_on_draft="${OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT:-0}"
+        if printf '%s' "${run_on_draft,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+          echo "Draft PR: reviewing anyway (OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT is enabled)"
+        else
+          echo "Skipping: draft PR"
+          return 1
+        fi
       fi
       return 0
       ;;
@@ -280,6 +310,33 @@ should_run() {
 if ! should_run; then
   echo "Exiting — review gate should not run for this event."
   exit 0
+fi
+
+# Trusted issue-comment commands may override review scope for this run. Parse
+# only after should_run verified the commenter association; never shell-evaluate
+# comment text.
+if [ "$EVENT_NAME" = "issue_comment" ]; then
+  COMMENT_FILE_LIMIT=""
+  COMMENT_EXCLUDE_DELETED="0"
+  COMMENT_EXCLUDE_GENERATED_PATHS=""
+  COMMENT_BODY="$(jq -r '.comment.body // ""' "$GITHUB_EVENT_PATH")"
+  if ! parse_review_comment_options \
+    "$COMMENT_BODY" \
+    COMMENT_FILE_LIMIT \
+    COMMENT_EXCLUDE_DELETED \
+    COMMENT_EXCLUDE_GENERATED_PATHS; then
+    exit 1
+  fi
+
+  if [ -n "$COMMENT_FILE_LIMIT" ]; then
+    OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="$COMMENT_FILE_LIMIT"
+  fi
+  if [ "$COMMENT_EXCLUDE_DELETED" = "1" ]; then
+    OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="1"
+  fi
+  if [ -n "$COMMENT_EXCLUDE_GENERATED_PATHS" ]; then
+    OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="$COMMENT_EXCLUDE_GENERATED_PATHS"
+  fi
 fi
 
 # --- Step 4: Resolve PR number + head/base SHAs + repos ------------------------
@@ -322,7 +379,7 @@ case "$EVENT_NAME" in
     fi
     PR_NUMBER="$PR_NUMBER_RAW"
     echo "Fetching PR details for PR #${PR_NUMBER}..."
-    PR_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+    PR_JSON="$(gh_retry -- gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
     if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
       echo "❌ Failed to fetch PR details for PR #${PR_NUMBER}" >&2
       exit 1
@@ -445,9 +502,10 @@ case "${OPENCODE_REVIEW_REPORT_PROVIDER}" in
   ANTHROPIC)             GW_URL="https://api.anthropic.com";    K=OPENCODE_ANTHROPIC_API_KEY ;;
   OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
   OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
+  OPENCODE-GO-RESPONSES) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
   OPEN_ROUTER)           GW_URL="https://openrouter.ai/api/v1";  K=OPENCODE_OPENROUTER_API_KEY ;;
   GEMINI)                U=OPENCODE_REVIEW_REPORT_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
-  *) echo "❌ Unknown OPENCODE_REVIEW_REPORT_PROVIDER='${OPENCODE_REVIEW_REPORT_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, or OPEN_ROUTER)." >&2; exit 1 ;;
+  *) echo "❌ Unknown OPENCODE_REVIEW_REPORT_PROVIDER='${OPENCODE_REVIEW_REPORT_PROVIDER}' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, OPENCODE-GO-RESPONSES, or OPEN_ROUTER)." >&2; exit 1 ;;
 esac
 OPENCODE_REVIEW_REPORT_GATEWAY_URL="${GW_URL:-${U:+${!U}}}"
 export OPENCODE_GATEWAY_API_KEY="${!K:-}"
@@ -683,7 +741,8 @@ Both review models failed to respond, typically caused by token quota exhaustion
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-  gh pr review "${pr_number}" \
+  gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+    gh pr review "${pr_number}" \
     --request-changes \
     --body-file "$WORK_DIR/all_models_failed_review.md"
   exit 0
@@ -816,9 +875,11 @@ case "$review_type" in
     ;;
 esac
 
-# Filter excluded files (lock files, auto-generated, etc.).
+# Apply caller-selected exclusions before every downstream consumer reads scope.
 if [ -s "$WORK_DIR/changed_files.txt" ]; then
-  bash "$SCRIPT_DIR/filter-excluded-files.sh" || true
+  export OPENCODE_REVIEW_REPORT_DIFF_FROM_SHA="$from_sha"
+  export OPENCODE_REVIEW_REPORT_DIFF_TO_SHA="$head_sha"
+  bash "$SCRIPT_DIR/filter-excluded-files.sh"
 fi
 
 # Build the diff body for downstream scripts.
@@ -872,7 +933,8 @@ This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-  gh pr review "${pr_number}" \
+  gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+    gh pr review "${pr_number}" \
     --request-changes \
     --body-file "$WORK_DIR/too_many_files_review.md"
   exit 0
@@ -893,14 +955,15 @@ if [ "$FILES_CHANGED" -eq 0 ]; then
 ---
 *Automated review check by OpenCode CLI Code Review*
 EOF
-  gh pr review "${pr_number}" \
+  gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+    gh pr review "${pr_number}" \
     --comment \
     --body-file "$WORK_DIR/skip_comment.md"
   exit 0
 fi
 
 # --- Step 12: PR metadata (title, author, body) -------------------------------
-PR_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+PR_JSON="$(gh_retry -- gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
 pr_title="$(echo "$PR_JSON" | jq -r .title)"
 pr_author="$(echo "$PR_JSON" | jq -r .user.login)"
 pr_body="$(echo "$PR_JSON" | jq -r '.body // ""')"
@@ -944,7 +1007,8 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-        gh pr comment "${pr_number}" \
+        gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
+          gh pr comment "${pr_number}" \
           --body-file "$WORK_DIR/trivial_skip_comment.md"
         exit 0
         ;;
@@ -1091,7 +1155,8 @@ $(cat "$WORK_DIR/agents_validation_message.md")
 ---
 *Automated validation by OpenCode CLI Code Review*
 EOF
-    gh pr review "${pr_number}" \
+    gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+      gh pr review "${pr_number}" \
       --request-changes \
       --body-file "$WORK_DIR/validation_review.md"
   fi
@@ -1169,7 +1234,8 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
 ---
 *Automated check by OpenCode CLI Code Review*
 EOF
-  gh pr comment "${pr_number}" \
+  gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
+    gh pr comment "${pr_number}" \
     --body-file "$WORK_DIR/skip_blocking_review_comment.md"
   exit 0
 fi
@@ -1324,7 +1390,8 @@ case "$REVIEW_ACTION" in
   *) REVIEW_ACTION_FLAG="--comment" ;;
 esac
 echo "Posting review: ${REVIEW_ACTION_FLAG}"
-gh pr review "${pr_number}" \
+gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
+  gh pr review "${pr_number}" \
   "${REVIEW_ACTION_FLAG}" \
   --body-file "$WORK_DIR/review_comment.md"
 
