@@ -38,7 +38,7 @@ REPO_ROOT="${OPENCODE_REVIEW_REPORT_REPO_ROOT:-$(cd "$SCRIPT_DIR/../../../.." &&
 PR_NUMBER=""
 BASE_BRANCH="main"
 OPENCODE_MODEL="gemini-2.5-pro"
-# Provider selector (GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER).
+# Provider selector (GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER).
 # Default GEMINI; override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. For non-GEMINI providers you must
 # also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
 # OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
@@ -104,6 +104,7 @@ while [[ $# -gt 0 ]]; do
       echo "                       be a model of the selected provider (e.g. gpt-5.5 for OPENAI)."
       echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | ANTHROPIC |"
       echo "                       OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC |"
+      echo "                       OPENCODE-GO-RESPONSES |"
       echo "                       OPEN_ROUTER"
       echo "                       (default: GEMINI; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
       echo "  --file-limit NUMBER Block review above this post-filter file count (default: 100)"
@@ -123,6 +124,7 @@ while [[ $# -gt 0 ]]; do
       echo "      ANTHROPIC             → OPENCODE_ANTHROPIC_API_KEY     (URL is the fixed api.anthropic.com base)"
       echo "      OPENCODE-GO-OPENAI    → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
+      echo "      OPENCODE-GO-RESPONSES → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPEN_ROUTER           → OPENCODE_OPENROUTER_API_KEY    (URL is the fixed OpenRouter base)"
       echo "  - For any non-GEMINI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY"
       echo "    and OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini model IDs)"

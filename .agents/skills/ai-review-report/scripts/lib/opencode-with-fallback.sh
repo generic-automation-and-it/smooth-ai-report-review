@@ -10,9 +10,9 @@
 #
 # The default provider is selected by OPENCODE_REVIEW_REPORT_PROVIDER
 # (GEMINI|COPILOT|OPENAI|ANTHROPIC|OPENCODE-GO-OPENAI|OPENCODE-GO-ANTHROPIC|
-# OPEN_ROUTER) and resolved to its opencode provider-id by lib/resolve-provider.sh,
+# OPENCODE-GO-RESPONSES|OPEN_ROUTER) and resolved to its opencode provider-id by lib/resolve-provider.sh,
 # which exports OPENCODE_REVIEW_REPORT_PROVIDER_ID (gemini / github-copilot /
-# openai / anthropic / go-openai / go-anthropic / openrouter). Each model slot can
+# openai / anthropic / go-openai / go-anthropic / go-responses / openrouter). Each model slot can
 # also be passed as an already provider-qualified target, e.g.
 # `go-openai/kimi-k2.7-code`; known provider prefixes are used as-is and all other
 # values are prefixed with the default provider. This is intentionally stricter
@@ -56,7 +56,7 @@ model_target() {
   case "$1" in
     # Keep in lockstep with resolve-provider.sh:_rp_provider_fields and
     # .github/workflows/AGENTS.md (is_ours set).
-    gemini/*|github-copilot/*|openai/*|anthropic/*|go-openai/*|go-anthropic/*|openrouter/*)
+    gemini/*|github-copilot/*|openai/*|anthropic/*|go-openai/*|go-anthropic/*|go-responses/*|openrouter/*)
       printf '%s' "$1"
       ;;
     *)

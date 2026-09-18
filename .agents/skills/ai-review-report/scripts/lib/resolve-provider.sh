@@ -41,8 +41,9 @@ _rp_provider_fields() {
     ANTHROPIC)             _rp_id="anthropic";      _rp_url_var=""; _rp_url_fixed="https://api.anthropic.com";       _rp_key_var="OPENCODE_ANTHROPIC_API_KEY" ;;
     OPENCODE-GO-OPENAI)    _rp_id="go-openai";      _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
     OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;
+    OPENCODE-GO-RESPONSES) _rp_id="go-responses";   _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
     OPEN_ROUTER)           _rp_id="openrouter";     _rp_url_var=""; _rp_url_fixed="https://openrouter.ai/api/v1";    _rp_key_var="OPENCODE_OPENROUTER_API_KEY" ;;
-    *) _rp_die "Unknown provider='$_rp_selector' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, or OPEN_ROUTER)." ;;
+    *) _rp_die "Unknown provider='$_rp_selector' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, OPENCODE-GO-RESPONSES, or OPEN_ROUTER)." ;;
   esac
 }
 
@@ -70,6 +71,7 @@ _rp_model_family_ok() {
         gemini*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Gemini model. It won't resolve on the $_rp_provider gateway." ;;
         claude*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Claude model. It won't resolve on the $_rp_provider gateway." ;;
         minimax*|qwen*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go Anthropic-compatible surface. Use OPENCODE-GO-ANTHROPIC for qwen/minimax models." ;;
+        gpt-5.6-luna|grok-4.6|muse-spark-*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go Responses API surface. Use OPENCODE-GO-RESPONSES for this model." ;;
         *) ;;
       esac
       ;;
@@ -77,14 +79,22 @@ _rp_model_family_ok() {
       case "$_rp_lc" in
         gemini*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Gemini model. It won't resolve on the $_rp_provider gateway." ;;
         claude*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Claude model. It won't resolve on the $_rp_provider gateway." ;;
-        deepseek*|glm*|kimi*|grok*|mimo*|hy3*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go OpenAI-compatible surface. Use OPENCODE-GO-OPENAI for deepseek/glm/kimi/grok/mimo/hy3 models." ;;
+        deepseek*|glm*|kimi*|grok-4.5|mimo*|hy*|longcat*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go OpenAI-compatible surface. Use OPENCODE-GO-OPENAI for deepseek/glm/kimi/grok-4.5/mimo/hy/longcat models." ;;
+        gpt-5.6-luna|grok-4.6|muse-spark-*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go Responses API surface. Use OPENCODE-GO-RESPONSES for this model." ;;
         *) ;;
+      esac
+      ;;
+    OPENCODE-GO-RESPONSES)
+      case "$_rp_lc" in
+        gpt-5.6-luna|grok-4.6|muse-spark-*) ;;
+        *) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is not an OpenCode Go Responses API model (expected gpt-5.6-luna, grok-4.6, or muse-spark-*)." ;;
       esac
       ;;
     *)
       case "$_rp_lc" in
         gemini*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Gemini model. It won't resolve on the $_rp_provider gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
         claude*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Claude model. It won't resolve on the $_rp_provider gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
+        gpt-5.6-luna|grok-4.6|muse-spark-*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go Responses API surface. Use OPENCODE-GO-RESPONSES for this model." ;;
         *) ;;
       esac
       ;;

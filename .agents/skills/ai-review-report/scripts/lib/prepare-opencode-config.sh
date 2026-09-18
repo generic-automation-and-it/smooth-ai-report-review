@@ -36,7 +36,7 @@
 # An empty/unset URL var → no baseURL added (native base kept), which is why
 # the baseURL is injected dynamically rather than as a static {env:…} placeholder:
 # an unset placeholder would substitute to an empty-string baseURL and break the
-# SDK. The two OpenCode Go providers, OpenRouter, and the direct Anthropic
+# SDK. The three OpenCode Go providers, OpenRouter, and the direct Anthropic
 # provider are never injected — their base is a fixed public endpoint hardcoded
 # in opencode.json (no URL var): https://opencode.ai/zen/go/v1,
 # https://openrouter.ai/api/v1, and https://api.anthropic.com respectively.
