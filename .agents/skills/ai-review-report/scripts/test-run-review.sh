@@ -521,24 +521,16 @@ echo "=========================================="
 echo "Testing provider → key/URL mapping"
 echo "=========================================="
 
+provider_bootstrap_block="$(
+  awk '/^U=""; GW_URL=""/{f=1} f{print} f&&/^esac$/{exit}' "$RUN_REVIEW"
+)"
+check "production provider bootstrap block extracted" \
+  "yes" "$([ -n "$provider_bootstrap_block" ] && echo yes || echo no)"
+
 map_provider() {
   local provider="$1"
-  bash -c '
-    provider="$1"
-    U=""; GW_URL=""; K=""
-    case "$provider" in
-      COPILOT)               U=OPENCODE_REVIEW_REPORT_COPILOT_URL;  K=OPENCODE_COPILOT_API_KEY ;;
-      OPENAI)                U=OPENCODE_REVIEW_REPORT_OPENAI_URL;   K=OPENCODE_OPENAI_API_KEY ;;
-      ANTHROPIC)             GW_URL="https://api.anthropic.com";    K=OPENCODE_ANTHROPIC_API_KEY ;;
-      OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
-      OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
-      OPENCODE-GO-RESPONSES) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
-      OPEN_ROUTER)           GW_URL="https://openrouter.ai/api/v1";  K=OPENCODE_OPENROUTER_API_KEY ;;
-      GEMINI)                U=OPENCODE_REVIEW_REPORT_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
-      *) echo "UNKNOWN"; exit 0 ;;
-    esac
-    echo "${U:-<fixed>}|${GW_URL:-<var>}|${K}"
-  ' _ "$provider"
+  OPENCODE_REVIEW_REPORT_PROVIDER="$provider" bash -c "${provider_bootstrap_block}
+printf '%s|%s|%s\n' \"\${U:-<fixed>}\" \"\${GW_URL:-<var>}\" \"\${K}\""
 }
 
 check "GEMINI maps to URL var + API key" \
@@ -573,9 +565,11 @@ check "OPEN_ROUTER maps to OpenRouter URL + API key" \
   "<fixed>|https://openrouter.ai/api/v1|OPENCODE_OPENROUTER_API_KEY" \
   "$(map_provider OPEN_ROUTER)"
 
-check "unknown provider returns UNKNOWN" \
-  "UNKNOWN" \
-  "$(map_provider BOGUS)"
+if map_provider BOGUS >/dev/null 2>&1; then
+  check "unknown provider is rejected by production mapping" "rejected" "accepted"
+else
+  check "unknown provider is rejected by production mapping" "rejected" "rejected"
+fi
 
 # ── Run-review.sh syntax check ──────────────────────────────────────────────
 # The script must parse cleanly under `bash -n`. This is the cheapest
