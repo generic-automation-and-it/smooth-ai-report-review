@@ -324,6 +324,91 @@ else
   bad "failure detail must report the hit count (see $P/out.log)"
 fi
 
+# Case Q: every shipped must-not-flag manifest carries a forbidden_claim, each
+# one compiles as an ERE, and DR-014's discriminates. DR-014 was the last
+# fixture without a claim pattern, which put it in strict mode where ANY
+# Critical/High/Medium failed it — including the connection-string-validation
+# finding its own docstring blesses in prose the scorer cannot read. It failed
+# 2 of 3 samples on that true finding (run 35322499612 attempts 2 and 3, run
+# 35329091011). The risk of adding a claim is the opposite failure: a pattern
+# loose enough to match everything makes the fixture unfailable, which is worse
+# than the red it replaced. So the ERE is pinned from BOTH sides here — it must
+# fire on objections to LADR-10's chosen approach, and must not fire on the
+# adjacent true findings that are legitimately out of scope.
+echo "Case Q: shipped forbidden_claim patterns discriminate"
+CORPUS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/corpus" && pwd)"
+
+_missing_claim=""
+for _m in "$CORPUS_DIR"/must-not-flag/*/manifest.json; do
+  if [ "$(jq -r '.forbidden_claim // ""' "$_m")" = "" ]; then
+    _missing_claim="$_missing_claim $(basename "$(dirname "$_m")")"
+  fi
+done
+if [ -z "$_missing_claim" ]; then
+  ok "every must-not-flag manifest has a forbidden_claim"
+else
+  bad "must-not-flag manifest(s) with no forbidden_claim:$_missing_claim"
+fi
+
+_bad_ere=""
+for _m in "$CORPUS_DIR"/must-not-flag/*/manifest.json; do
+  _fc="$(jq -r '.forbidden_claim // ""' "$_m")"
+  [ -n "$_fc" ] || continue
+  _rc=0
+  printf 'probe\n' | grep -qiE "$_fc" >/dev/null 2>&1 || _rc=$?
+  # rc 0 = matched, 1 = no match (both mean "compiles"); >1 = bad pattern.
+  [ "$_rc" -gt 1 ] && _bad_ere="$_bad_ere $(basename "$(dirname "$_m")")" || true
+done
+if [ -z "$_bad_ere" ]; then
+  ok "every forbidden_claim compiles as an ERE"
+else
+  bad "forbidden_claim(s) that do not compile:$_bad_ere"
+fi
+
+DR14="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-014-ladr-beats-prbody/manifest.json")"
+
+# MUST fire: objections to LADR-10's chosen approach (no discriminator column,
+# per-tenant database addressed by connection string).
+_q_pos_miss=0
+while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  printf '%s\n' "$_line" | grep -qiE "$DR14" || { _q_pos_miss=$((_q_pos_miss+1)); echo "   ↳ MISSED: $_line"; } || true
+done <<'POS'
+- 🟠 [VERIFIED] High Priority: Tenant rows are not separated by a discriminator column, so a missing filter leaks data.
+- 🟠 [VERIFIED] High Priority: No EF Core global query filter is configured for the tenant, risking cross-tenant reads.
+- 🔴 [VERIFIED] Critical: HasQueryFilter is never called, so queries can return other tenants' rows.
+- 🟠 [VERIFIED] High Priority: The design should use a shared database with a tenant column instead of one database per tenant.
+- 🟡 [VERIFIED] Medium Priority: Database-per-tenant does not scale beyond a few hundred tenants; prefer a shared schema.
+- 🟠 [VERIFIED] High Priority: db-per-tenant is an anti-pattern here and should be avoided.
+- 🟠 [VERIFIED] High Priority: Tenant isolation is not enforced at the query layer; it relies solely on the connection string.
+POS
+if [ "$_q_pos_miss" -eq 0 ]; then
+  ok "DR-014 forbidden_claim fires on chosen-approach objections"
+else
+  bad "DR-014 forbidden_claim missed $_q_pos_miss chosen-approach objection(s) — pattern too tight"
+fi
+
+# MUST NOT fire: the true adjacent findings the fixture docstring puts out of
+# scope. The first two are the verbatim shapes observed in production runs.
+_q_neg_hit=0
+while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  if printf '%s\n' "$_line" | grep -qiE "$DR14"; then
+    _q_neg_hit=$((_q_neg_hit+1)); echo "   ↳ FALSE MATCH: $_line"
+  fi
+done <<'NEG'
+- 🟡 [VERIFIED] Medium Priority: A tenant whose registry entry is empty or whitespace receives that value as a valid connection string, causing a delayed database failure instead of a clear configuration error.
+- 🟡 [VERIFIED] Medium Priority: A tenant configured with an empty or whitespace-only connection string is treated as successfully resolved, causing database operations to fail later with an unrelated provider error.
+- 🟡 [VERIFIED] Medium Priority: IOptionsSnapshot is resolved per call; a singleton consumer would capture a stale snapshot.
+- 🟠 [VERIFIED] High Priority: UnknownTenantException does not include the tenant id in a structured field, hampering diagnostics.
+- 🟡 [VERIFIED] Medium Priority: ConnectionStrings dictionary lookup is case-sensitive, so tenant ids differing in case silently fail.
+NEG
+if [ "$_q_neg_hit" -eq 0 ]; then
+  ok "DR-014 forbidden_claim ignores the adjacent out-of-scope findings"
+else
+  bad "DR-014 forbidden_claim false-matched $_q_neg_hit out-of-scope finding(s) — pattern too loose"
+fi
+
 # NOT tested here: that the archived triage artifact is the OFFENDING sample
 # rather than whatever ran last. Artifact archiving is deliberately skipped
 # under EVAL_SELFTEST (there is no real review to keep), so any assertion on it
