@@ -94,6 +94,7 @@ _rp_model_family_ok() {
       case "$_rp_lc" in
         gemini*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Gemini model. It won't resolve on the $_rp_provider gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
         claude*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' is a Claude model. It won't resolve on the $_rp_provider gateway — set the OPENCODE_REVIEW_REPORT_MODEL_* Variables to this provider's models." ;;
+        gpt-5.6-luna|grok-4.6|muse-spark-*) _rp_die "$_rp_provider selected but $_rp_var_name='$_rp_model' belongs to the OpenCode Go Responses API surface. Use OPENCODE-GO-RESPONSES for this model." ;;
         *) ;;
       esac
       ;;
