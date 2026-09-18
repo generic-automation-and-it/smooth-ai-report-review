@@ -2,6 +2,6 @@
   "id": "MC-003-reachable-guard-deleted",
   "kind": "must-catch",
   "label": "MC-003",
-  "min_severity": "HIGH",
-  "note": "Reachable null-guard deleted: the ArgumentNullException guard on request.Customer was the only protection before Customer.Id is dereferenced; callers can pass null legally (nullable reference type), so removing the guard introduces a real NRE regression."
+  "min_severity": "MEDIUM",
+  "note": "Reachable null-guard deleted: the ArgumentNullException guard on request.Customer was the only protection before Customer.Id is dereferenced; callers can pass null legally (nullable reference type), so removing the guard introduces a real NRE regression. Bar is MEDIUM, not HIGH: the input already threw before this change, so what regresses is the exception TYPE and message quality, not success-to-failure \u2014 unlike MC-001, where an always-null navigation property turns a working path into an unconditional throw."
 }
