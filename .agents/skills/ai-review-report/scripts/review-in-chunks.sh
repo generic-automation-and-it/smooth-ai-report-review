@@ -131,17 +131,20 @@ if [ -f "ci_temp/pr_description.txt" ]; then
   PR_DESCRIPTION=$(cat "ci_temp/pr_description.txt")
   echo "PR description loaded (${#PR_DESCRIPTION} chars)"
 
-  # Extract AI Review Notes section (everything after "## AI Review Notes" header)
-  # Uses awk instead of sed to handle case where AI Review Notes is the last section
-  if echo "$PR_DESCRIPTION" | grep -q "## AI Review Notes"; then
-    AI_REVIEW_NOTES=$(echo "$PR_DESCRIPTION" | awk '/^## AI Review Notes/{flag=1; next} /^## /{flag=0} flag' | sed '/^<!--/,/-->$/d' | sed '/^$/d')
-    if [ -n "$AI_REVIEW_NOTES" ]; then
-      echo "✅ AI Review Notes extracted (${#AI_REVIEW_NOTES} chars)"
-    else
-      echo "ℹ️ AI Review Notes section found but empty (only comments)"
+  # LADR-083: extraction lives in the lib so this call site and
+  # aggregate-reviews.sh cannot drift. It captures `## AI Review Notes` AND the
+  # sibling `## Skip Areas` section — the latter was silently absent for the whole
+  # life of the old inline awk, which left the prompt rule below ("items listed
+  # under **Skip Areas** MUST be treated as out-of-scope") pointing at text that
+  # was never in the prompt.
+  AI_REVIEW_NOTES=$(printf '%s\n' "$PR_DESCRIPTION" | bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-review-notes.sh")
+  if [ -n "$AI_REVIEW_NOTES" ]; then
+    echo "✅ AI Review Notes extracted (${#AI_REVIEW_NOTES} chars)"
+    if printf '%s\n' "$AI_REVIEW_NOTES" | grep -q "Skip Areas"; then
+      echo "   ↳ includes Skip Areas / Known Issues bullets"
     fi
   else
-    echo "ℹ️ No AI Review Notes section in PR description"
+    echo "ℹ️ No AI Review Notes or Skip Areas section in PR description"
   fi
 else
   echo "ℹ️ PR description file not found"
