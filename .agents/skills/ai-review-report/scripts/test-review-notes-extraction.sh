@@ -2,13 +2,14 @@
 set -uo pipefail
 
 # Offline regression test for LADR-083 (Skip Areas bullets never reached a prompt)
-#.
+# and LADR-084 (the LADR-082 retry re-ran an identical budget split).
 #
 # Part 1 exercises lib/extract-review-notes.sh directly: the Skip Areas bullets
 # must survive, the heading must survive (the chunk prompt's rule names it by
 # string), unrelated `##` sections must NOT leak, and a body with no Skip Areas
 # section must produce byte-identical output to the pre-LADR-083 inline awk.
-# Part 2 greps the two call sites so the fixed shape cannot be quietly reverted — same guard style as test-diff-base.sh 13-15.
+# Part 2 greps the two call sites and the retry sweep so the fixed shapes cannot
+# be quietly reverted — same guard style as test-diff-base.sh 13-15.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="${SCRIPT_DIR}/lib/extract-review-notes.sh"
@@ -20,7 +21,7 @@ pass() { echo "  ✅ $1"; }
 fail() { echo "  ❌ $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "=========================================="
-echo "Testing review-notes extraction (LADR-083)"
+echo "Testing review-notes extraction (LADR-083/084)"
 echo "=========================================="
 echo ""
 
@@ -202,6 +203,63 @@ if grep -q 'Skip Areas' "$CHUNKS"; then
   pass "review-in-chunks.sh prompt still carries the Skip Areas out-of-scope rule"
 else
   fail "review-in-chunks.sh lost the Skip Areas rule"
+fi
+# 20/21/22 — LADR-084: the retry must not reuse attempt 1's split.
+if grep -q 'export CHUNK_RETRY_ATTEMPT=1' "$CHUNKS"; then
+  pass "retry sweep sets CHUNK_RETRY_ATTEMPT=1"
+else
+  fail "retry sweep does not set CHUNK_RETRY_ATTEMPT (LADR-084 regression)"
+fi
+if grep -q 'unset CHUNK_RETRY_ATTEMPT' "$CHUNKS"; then
+  pass "retry mode is unset after the sweep"
+else
+  fail "retry mode leaks past the sweep"
+fi
+if grep -q 'CHUNK_RETRY_ATTEMPT:-0' "$CHUNKS"; then
+  pass "review_chunk reads CHUNK_RETRY_ATTEMPT to collapse the split"
+else
+  fail "review_chunk never reads CHUNK_RETRY_ATTEMPT"
+fi
+# 23 — the collapse must zero the secondary reserve, or the split still applies.
+if grep -A3 'CHUNK_RETRY_ATTEMPT:-0' "$CHUNKS" | grep -q '_secondary_budget=0'; then
+  pass "retry collapse zeroes the secondary reserve"
+else
+  fail "retry collapse does not zero the secondary reserve"
+fi
+
+echo ""
+echo "── Part 3: LADR-084 collapse evaluated from the real source ──"
+
+# Greps prove the fragment is present; this proves it BEHAVES. The block is cut
+# out of the shipped script by its own markers and eval'd against synthetic
+# budgets, so a future edit that keeps the marker but breaks the arithmetic (or
+# inverts the condition) fails here rather than in CI on somebody's PR.
+_collapse_block="$(awk '/CHUNK_RETRY_ATTEMPT:-0/{f=1} f{print} f&&/^  fi$/{exit}' "$CHUNKS")"
+if [ -z "$_collapse_block" ]; then
+  fail "24. could not extract the LADR-084 collapse block from review-in-chunks.sh"
+else
+  # Retry mode ON: primary must take the whole budget, secondary must be 0.
+  _out="$(
+    CHUNK_RETRY_ATTEMPT=1 _chunk_timeout=868 _primary_budget=600 _secondary_budget=268 chunk_num=2 \
+    bash -c "$(printf '%s\n' "$_collapse_block" | sed 's/^  //')"'
+'"echo \"\$_primary_budget \$_secondary_budget\"" 2>/dev/null | tail -1
+  )"
+  if [ "$_out" = "868 0" ]; then
+    pass "24. retry mode: 600/268 split collapses to 868s primary / 0 secondary"
+  else
+    fail "24. retry mode produced '$_out', expected '868 0'"
+  fi
+  # Retry mode OFF: the LADR-081 split must survive untouched.
+  _out2="$(
+    _chunk_timeout=868 _primary_budget=600 _secondary_budget=268 chunk_num=2 \
+    bash -c "$(printf '%s\n' "$_collapse_block" | sed 's/^  //')"'
+'"echo \"\$_primary_budget \$_secondary_budget\"" 2>/dev/null | tail -1
+  )"
+  if [ "$_out2" = "600 268" ]; then
+    pass "25. normal mode: the LADR-081 split is left untouched"
+  else
+    fail "25. normal mode produced '$_out2', expected '600 268'"
+  fi
 fi
 
 echo ""

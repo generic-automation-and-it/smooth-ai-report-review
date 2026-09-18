@@ -1209,6 +1209,31 @@ EOF
   _secondary_model="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
   read -r _primary_budget _secondary_budget \
     <<< "$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/split-chunk-budget.sh" "$_chunk_timeout")"
+  # LADR-084: on the LADR-082 retry, do NOT split. Attempt 1 already ran this
+  # exact prompt under this exact split and lost, so re-running the same shape is
+  # a guaranteed second failure — a retry that cannot differ is not a retry. It
+  # cost two chunks of a 10-chunk review on
+  # generic-automation-and-it/smooth-ai-product-context-memory PR #72 (run
+  # 35316140325): chunks 2 and 3 timed out at `600s primary / 268s` and `600s
+  # primary / 208s`, and the sweep reproduced both budgets byte-for-byte.
+  #
+  # Collapsing the split hands the primary the WHOLE validated budget (868s
+  # instead of 600s on that run, +45%) and restores the secondary as an in-chain
+  # fallback, which is the pre-LADR-081 single-wrap shape the split lib itself
+  # documents as the acceptable degenerate case. The trade is deliberate and only
+  # looks like a regression: a primary that times out at the full budget never
+  # reaches the secondary, but attempt 1 ALREADY gave the secondary its reserve
+  # and the secondary ALREADY failed, so there is nothing left to lose. What is
+  # gained is the only variable that plausibly rescues a chunk whose primary was
+  # merely slow rather than stuck — and per split-chunk-budget.sh's own
+  # measurement note the 600s floor was calibrated with 4 chunks actually
+  # concurrent, while a 10-chunk run at the default cap of 7 is far more
+  # contended than that.
+  if [ "${CHUNK_RETRY_ATTEMPT:-0}" = "1" ]; then
+    _primary_budget="$_chunk_timeout"
+    _secondary_budget=0
+    echo "  🔁 Chunk ${chunk_num} retry: no split — full ${_chunk_timeout}s to primary, secondary stays in-chain (LADR-084)"
+  fi
   # The lib prints "0 0" rather than guessing when handed junk; that is this
   # guard's cue to keep the budget we already validated instead of running
   # `timeout 0s`, which imposes NO limit at all and would hang the job.
@@ -1548,6 +1573,12 @@ if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
       _retry_parallel="$MAX_PARALLEL"
     fi
     echo "  (max ${_retry_parallel} concurrent, ascending index, one attempt each)"
+    # LADR-084: read by review_chunk to collapse the LADR-081 budget split for
+    # this attempt only. Set here rather than passed as an argument because
+    # review_chunk's signature is `<dir> <files...>` and every caller is in this
+    # file — and it is unset again after the sweep so nothing downstream (the
+    # recount loop, aggregation) can observe a stale retry mode.
+    export CHUNK_RETRY_ATTEMPT=1
     _retry_running=0
     declare -a RETRY_PIDS=()
     for i in "${RETRY_CHUNKS[@]}"; do
@@ -1578,6 +1609,7 @@ if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
     for _pid in "${RETRY_PIDS[@]}"; do
       wait "$_pid" 2>/dev/null || true
     done
+    unset CHUNK_RETRY_ATTEMPT  # LADR-084: retry mode ends with the sweep
     CHUNK_NUM=$TOTAL_CHUNKS
     for i in "${RETRY_CHUNKS[@]}"; do
       if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
