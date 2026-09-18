@@ -39,6 +39,14 @@ run_success review_go_anthropic env \
   OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=qwen3.6-plus
 grep -q '^OPENCODE_REVIEW_REPORT_PROVIDER_ID=go-anthropic$' "${tmp_dir}/review_go_anthropic.env" || fail "review provider id was not go-anthropic"
 
+run_success review_go_responses env \
+  OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-RESPONSES \
+  OPENCODE_GO_OPENAI_API_KEY=test-key \
+  OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=gpt-5.6-luna \
+  OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=grok-4.6 \
+  OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=muse-spark-1.3-contributor
+grep -q '^OPENCODE_REVIEW_REPORT_PROVIDER_ID=go-responses$' "${tmp_dir}/review_go_responses.env" || fail "review provider id was not go-responses"
+
 run_success analyse_go_openai env \
   OPENCODE_PROVIDER_SCOPE=analyse \
   OPENCODE_ANALYSE_PROVIDER=OPENCODE-GO-OPENAI \
@@ -66,6 +74,14 @@ run_failure analyse_wrong_go_surface env \
   OPENCODE_ANALYSE_MODEL=kimi-k2.7-code \
   OPENCODE_GO_ANTHROPIC_API_KEY=test-key
 grep -q 'OpenCode Go OpenAI-compatible surface' "${tmp_dir}/analyse_wrong_go_surface.err" || fail "wrong-surface error was not clear"
+
+run_failure review_wrong_responses_surface env \
+  OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-RESPONSES \
+  OPENCODE_GO_OPENAI_API_KEY=test-key \
+  OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=glm-5.3 \
+  OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=grok-4.6 \
+  OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=grok-4.6
+grep -q 'not an OpenCode Go Responses API model' "${tmp_dir}/review_wrong_responses_surface.err" || fail "wrong Responses-surface error was not clear"
 
 # Credential-missing path: provider and URL set, model set, but API key absent.
 run_failure analyse_missing_cred env \

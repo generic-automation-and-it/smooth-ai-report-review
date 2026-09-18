@@ -532,6 +532,7 @@ map_provider() {
       ANTHROPIC)             GW_URL="https://api.anthropic.com";    K=OPENCODE_ANTHROPIC_API_KEY ;;
       OPENCODE-GO-OPENAI)    GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
       OPENCODE-GO-ANTHROPIC) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_ANTHROPIC_API_KEY ;;
+      OPENCODE-GO-RESPONSES) GW_URL="https://opencode.ai/zen/go/v1"; K=OPENCODE_GO_OPENAI_API_KEY ;;
       OPEN_ROUTER)           GW_URL="https://openrouter.ai/api/v1";  K=OPENCODE_OPENROUTER_API_KEY ;;
       GEMINI)                U=OPENCODE_REVIEW_REPORT_GEMINI_URL;   K=OPENCODE_GEMINI_API_KEY ;;
       *) echo "UNKNOWN"; exit 0 ;;
@@ -563,6 +564,10 @@ check "OPENCODE-GO-OPENAI maps to Zen URL + API key" \
 check "OPENCODE-GO-ANTHROPIC maps to Zen URL + API key" \
   "<fixed>|https://opencode.ai/zen/go/v1|OPENCODE_GO_ANTHROPIC_API_KEY" \
   "$(map_provider OPENCODE-GO-ANTHROPIC)"
+
+check "OPENCODE-GO-RESPONSES maps to Zen URL + API key" \
+  "<fixed>|https://opencode.ai/zen/go/v1|OPENCODE_GO_OPENAI_API_KEY" \
+  "$(map_provider OPENCODE-GO-RESPONSES)"
 
 check "OPEN_ROUTER maps to OpenRouter URL + API key" \
   "<fixed>|https://openrouter.ai/api/v1|OPENCODE_OPENROUTER_API_KEY" \

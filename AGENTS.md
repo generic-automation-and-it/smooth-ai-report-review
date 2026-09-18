@@ -18,7 +18,7 @@ Standalone (polyrepo) home for the automated PR code-review pipeline: a GitHub A
 
 ## System Context
 
-This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to the selected provider's models (GEMINI / COPILOT / OPENAI / ANTHROPIC / OPENCODE-GO-OPENAI / OPENCODE-GO-ANTHROPIC / OPEN_ROUTER, via `OPENCODE_REVIEW_REPORT_PROVIDER`) through a gateway and posts structured reviews back to GitHub. Pipeline internals are documented in the skill, and split by audience: `.agents/skills/ai-review-report/SKILL.md` is the **runtime** contract (how to run a review, the config it reads, the behaviour it must exhibit) and `.agents/skills/ai-review-report/AGENTS.md` is the **maintenance** companion (all LADRs in full, editing-time Key Behaviors, env-var provenance, skill layout). Those two are the source of truth; do not restate them here.
+This repo's deliverable is the review gate itself, not application code. The gate sends chunked PR diffs to selected provider models (GEMINI / COPILOT / OPENAI / ANTHROPIC / OPENCODE-GO-OPENAI / OPENCODE-GO-ANTHROPIC / OPENCODE-GO-RESPONSES / OPEN_ROUTER) and posts structured reviews back to GitHub. Pipeline internals live in `.agents/skills/ai-review-report/SKILL.md` and its maintenance companion `AGENTS.md`.
 
 ```mermaid
 C4Context

@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       model:
-        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, claude-opus-4-8 for ANTHROPIC, deepseek-v4-pro/grok-4.5/glm-5.2/kimi-k3 for OPENCODE-GO-OPENAI, qwen3.7-plus/qwen3.7-max/minimax-m3 for OPENCODE-GO-ANTHROPIC, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
+        description: 'Primary review model ID (optional). Ignored when "model_preset" is set to anything other than "(repository default)". Blank → OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / provider default. Must be a model of the selected OPENCODE_REVIEW_REPORT_PROVIDER (e.g. gemini-3.1-pro-preview for GEMINI, gpt-5.5 for OPENAI/COPILOT, claude-opus-4-8 for ANTHROPIC, deepseek-v4-pro/glm-5.3/kimi-k3 for OPENCODE-GO-OPENAI, qwen3.8-flash/qwen3.7-plus/minimax-m3 for OPENCODE-GO-ANTHROPIC, gpt-5.6-luna/grok-4.6 for OPENCODE-GO-RESPONSES, deepseek/deepseek-v4-pro for OPEN_ROUTER).'
         required: false
         type: string
         default: ''
@@ -278,9 +278,10 @@ jobs:
 
     env:
       # Provider selector, default GEMINI. Allowed:
-      #   GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPEN_ROUTER
-      # OpenCode Go is split in two because its Zen gateway serves two SDK surfaces:
-      # OpenAI-compatible (deepseek/kimi) and Anthropic-compatible (qwen/minimax) —
+      #   GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER
+      # OpenCode Go is split in three because its Zen gateway serves three SDK surfaces:
+      # OpenAI-compatible (deepseek/kimi), Anthropic-compatible (qwen/minimax),
+      # and OpenAI Responses (gpt/grok/muse) —
       # one opencode.json provider block can pin only one npm. OPEN_ROUTER routes to
       # the OpenRouter aggregator (fixed public base, no URL var — LADR-039). ANTHROPIC
       # routes directly to Anthropic's API (fixed public base, no URL var — LADR-040).
@@ -330,9 +331,10 @@ jobs:
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'ANTHROPIC' && 'anthropic') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-OPENAI' && 'go-openai') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
+        (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-RESPONSES' && 'go-responses') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
         'gemini' }}
-      # All seven providers' credentials are exported at job scope so opencode's
+      # All eight providers' credentials are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in the OPENCODE_CONFIG file
       # resolves for whichever provider is selected. Unused pairs resolve empty and
       # are simply never routed to.
