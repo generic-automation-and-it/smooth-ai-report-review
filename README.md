@@ -281,7 +281,7 @@ ai-review-report --local
 Bare `--local` is fully specified. Do **not** ask for a PR number, provider, post mode, or base branch unless the operator explicitly asks for a non-default. It means:
 - review HEAD/current branch against `main`
 - do not post back to GitHub
-- use `OPENCODE_REVIEW_REPORT_PROVIDER` from the shell if set, otherwise `GEMINI`
+- use `OPENCODE_REVIEW_REPORT_PROVIDER` from the shell if set, otherwise `OPENAI`
 - use the local runner's model defaults unless `--model` or model env vars are supplied
 
 For direct shell execution in a copy-installed repo, the equivalent is:
@@ -290,17 +290,16 @@ For direct shell execution in a copy-installed repo, the equivalent is:
 .agents/skills/ai-review-report/scripts/local-review.sh
 ```
 
-Local reports need local credentials and tools. At minimum for the default Gemini provider:
+Local reports need local credentials and tools. At minimum for the default OpenAI provider:
 
 ```bash
-export OPENCODE_GEMINI_API_KEY="..."
-# optional — only when overriding the default gateway URL:
-# export OPENCODE_REVIEW_REPORT_GEMINI_URL="https://generativelanguage.googleapis.com/v1beta/openai"
+export OPENCODE_OPENAI_API_KEY="..."
+export OPENCODE_REVIEW_REPORT_OPENAI_URL="https://api.openai.com/v1"
 ```
 
 Also ensure `opencode` and `jq` are installed locally. `gh` is only needed for local `--pr NUMBER` metadata fetches or `--post`.
 
-For a non-Gemini local provider, export the same provider selector, API-key, optional gateway URL, and three model variables listed in [Step 3](#step-3--ask-which-provider-then-output-the-config-to-add), but as shell environment variables instead of GitHub Secrets/Variables.
+For a non-default local provider, export `OPENCODE_REVIEW_REPORT_PROVIDER`, the selected provider's API key, gateway URL when applicable, and three model variables listed in [Step 3](#step-3--ask-which-provider-then-output-the-config-to-add), but as shell environment variables instead of GitHub Secrets/Variables.
 
 ### Copy-install (vendor everything)
 

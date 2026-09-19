@@ -49,7 +49,7 @@ on:
   workflow_dispatch:
     inputs:
       provider:
-        description: "Provider: GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER (blank = repo Variable / GEMINI)"
+        description: "Provider: GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER (blank = repo Variable / OPENAI)"
         required: false
         type: string
       model:
@@ -112,7 +112,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository)
 
     env:
-      # Provider selector — dispatch input wins, else repo Variable, else GEMINI.
+      # Provider selector — dispatch input wins, else repo Variable, else OPENAI.
       # Same OPENCODE_REVIEW_REPORT_* Variables/Secrets the review gate uses, so the
       # eval exercises the DESIGNED models (not a hardcoded chain).
       OPENCODE_REVIEW_REPORT_PROVIDER: ${{ github.event.inputs.provider || vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'OPENAI' }}

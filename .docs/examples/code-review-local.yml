@@ -298,9 +298,10 @@ jobs:
           # passes it as REVIEWER_INPUT so run-review.sh reads it from the env
           # without any inputs.* / steps.*.outputs dependency).
           REVIEWER_INPUT: ${{ inputs.pr_number }}
-          # Provider selector, default GEMINI. See the reusable-workflow caller
-          # for the full preset → provider/model mapping. The variables below
-          # mirror that mapping; extend them together.
+          # Provider selector, default OPENAI. See the reusable-workflow caller
+          # for the full preset → provider/model mapping. OPENAI also requires
+          # OPENCODE_REVIEW_REPORT_OPENAI_URL plus OPENCODE_OPENAI_API_KEY. The
+          # variables below mirror that mapping; extend them together.
           OPENCODE_REVIEW_REPORT_PROVIDER: ${{
             (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'ANTHROPIC') ||
             (inputs.model_preset == 'Anthropic Claude Sonnet 4.6' && 'ANTHROPIC') ||

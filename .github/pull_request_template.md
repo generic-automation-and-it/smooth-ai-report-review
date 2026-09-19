@@ -33,7 +33,7 @@
 - [ ] All tests pass
 - [ ] No new warnings introduced
 - [ ] Breaking changes documented (if applicable)
-- [ ] Related ADRs/NFRs updated in `docs/` (if applicable)
+- [ ] Related LADRs, `AGENTS.md` context, and skill changelogs updated (if applicable)
 - [ ] `*AGENTS.md` context files updated to reflect changes
 
 ## Skip Areas / Known Issues

@@ -61,9 +61,12 @@ The constraints that trip people up most often:
 The suites are plain Bash and run offline — no model calls, no network:
 
 ```bash
+failed=0
 for t in .agents/skills/ai-review-report/scripts/test-*.sh; do
-  echo "== $t"; bash "$t" || echo "FAILED: $t"
+  echo "== $t"
+  bash "$t" || failed=1
 done
+test "$failed" -eq 0
 ```
 
 Run the suite for anything you touched, plus any suite that greps the source you

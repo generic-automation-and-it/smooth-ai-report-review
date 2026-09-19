@@ -45,7 +45,7 @@
 #   GITHUB_SERVER_URL      — set by GitHub Actions automatically
 #   GITHUB_RUN_ID          — set by GitHub Actions automatically
 #   GITHUB_ACTIONS=true    — set by GitHub Actions automatically
-#   OPENCODE_REVIEW_REPORT_PROVIDER  [GEMINI]  — provider selector
+#   OPENCODE_REVIEW_REPORT_PROVIDER  [OPENAI]  — provider selector
 #   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / SECONDARY / ORCHESTRATOR — model chain
 #   OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE  [1]   — disable .claude support
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation

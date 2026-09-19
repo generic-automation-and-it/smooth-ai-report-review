@@ -277,8 +277,9 @@ jobs:
       )
 
     env:
-      # Provider selector, default GEMINI. Allowed:
+      # Provider selector, default OPENAI. Allowed:
       #   GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER
+      # OPENAI also requires OPENCODE_REVIEW_REPORT_OPENAI_URL plus OPENCODE_OPENAI_API_KEY.
       # OpenCode Go is split in three because its Zen gateway serves three SDK surfaces:
       # OpenAI-compatible (deepseek/kimi), Anthropic-compatible (qwen/minimax),
       # and OpenAI Responses (gpt/grok/muse) —
