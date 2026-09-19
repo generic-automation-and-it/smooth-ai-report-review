@@ -48,7 +48,7 @@ jobs:
     # only the selected provider's needs to exist. Same-org callers may instead use
     # `secrets: inherit`, but that fails at startup when the gate is in another org.
     secrets:
-      OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
+      OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
       # … plus the other provider keys (see code-review-caller.yml)
 ```
 

@@ -593,8 +593,8 @@ bash "$LIB_DIR/opencode-health.sh" || true
 # 5f. Resolve provider → provider-id (gemini / openai / …). This is the
 # authoritative resolver (matches the post-checkout `Resolve provider/model
 # chain` step); the pre-checkout U/K mapping above is just a fail-fast.
-bash "$LIB_DIR/resolve-provider.sh"
-echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
+. "$LIB_DIR/resolve-provider.sh"
+echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID}"
 
 # 5g. Probe the two-tier review chain (PRIMARY → SECONDARY). On a soft-fail
 # (both models unavailable), set all_models_failed=true and post a
@@ -603,7 +603,7 @@ ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAU
 run_probe() {
   opencode run \
     --agent review \
-    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/$1" \
+    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/$1" \
     --format default \
     --log-level WARN \
     "Say 'OK'" 2>&1 || true
@@ -636,7 +636,7 @@ ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
 (
   _orch_out="$(timeout 60s opencode run \
     --agent review \
-    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
+    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
     --format default \
     --log-level WARN \
     "Say 'OK'" 2>&1 || true)"
