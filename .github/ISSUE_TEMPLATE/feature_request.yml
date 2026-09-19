@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a change to the gate, the skills, or a consumption path.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or impossible today? Describe the situation, not the solution you already have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including "do nothing" — say why it is not enough.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - ai-review-report (the CI gate)
+        - ai-review (/ai-review fix-skip executor)
+        - ai-analyse (autonomous low/medium fixer)
+        - git-commit-review-push
+        - Consumption path (reusable workflow / local job / plugin / npm / copy-install)
+        - Docs
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints checked
+      description: |
+        The [Non-Negotiables in CLAUDE.md](https://github.com/generic-automation-and-it/smooth-ai-report-review/blob/main/CLAUDE.md) are load-bearing invariants that a reasonable-looking change often breaks. Tick what applies — an unticked box is fine, it just tells a maintainer where to look.
+      options:
+        - label: This would add or change an environment variable the gate reads (must land in **both** workflow packagings in the same commit)
+        - label: This would move or rename a script, workflow, or skill folder (paths are hardcoded)
+        - label: This would change what reaches a posted review body (no `#`+digits — GitHub autolinks it)
+        - label: This would need a new credential or endpoint

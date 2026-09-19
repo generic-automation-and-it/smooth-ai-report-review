@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/generic-automation-and-it/smooth-ai-report-review/security/advisories/new
+    about: Report privately. Never open a public issue for a security problem.
+  - name: Request write access
+    url: https://github.com/generic-automation-and-it/smooth-ai-report-review/blob/main/.github/CONTRIBUTING.md
+    about: Contributions come from branches in this repo — fork PRs are not accepted. See CONTRIBUTING.
