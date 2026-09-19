@@ -197,8 +197,8 @@ echo ""
 # A full review's body must stay byte-identical to pre-LADR-073, so the awk must
 # sit inside a `REVIEW_TYPE = "incremental"` guard. It must ALSO sit inside an
 # `agg_ok` guard: on the orchestrator-failure fallback, `## 📋 Overall Summary`
-# carries the only explanation of why the body has no findings, so stripping it
-# there leaves an unexplained REQUEST CHANGES.
+# carries the only explanation that summary generation failed, so stripping it
+# leaves an unexplained degraded report regardless of the deterministic verdict.
 echo "Test 6: the strip is guarded on REVIEW_TYPE = incremental AND agg_ok"
 GUARD_LINE=$(grep -B 40 'pr_summary_main\.incremental\.md' "$AGG" \
   | grep -F 'REVIEW_TYPE" = "incremental"' | tail -1)
