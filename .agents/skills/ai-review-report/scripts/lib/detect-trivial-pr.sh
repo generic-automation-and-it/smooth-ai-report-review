@@ -93,7 +93,7 @@ fi
 # a timeout, a fallback-chain exhaustion, or prose. Fail open (review
 # runs), never fail closed (review skipped).
 
-ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
 
 TMP_PROMPT="$(mktemp)"
 trap 'rm -f "$TMP_PROMPT" "${TMP_PROMPT}.out"' EXIT
@@ -128,7 +128,7 @@ trap 'rm -f "$TMP_PROMPT" "${TMP_PROMPT}.out"' EXIT
 RESPONSE=""
 if OPENCODE_MIN_OUTPUT_BYTES=1 timeout 30s bash "$LIB_DIR/opencode-with-fallback.sh" \
     "$ORCHESTRATOR" \
-    "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gemini-3.1-pro-preview}" \
+    "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gpt-5.6-sol}" \
     "" \
     -- "$TMP_PROMPT" \
     > "${TMP_PROMPT}.out" 2>/dev/null; then

@@ -429,8 +429,8 @@ Applies to both the default install and the copy-install. **Ask the operator whi
 
 | Provider chosen | Add Secret (API key) | Add Variables |
 |---|---|---|
-| **Gemini** _(default)_ | `OPENCODE_GEMINI_API_KEY` | *(none required)* — optional: `OPENCODE_REVIEW_REPORT_GEMINI_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai`) |
-| **OpenAI** | `OPENCODE_OPENAI_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=OPENAI`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=gpt-5.5`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=gpt-5.4`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=gpt-5.4-mini`; optional `OPENCODE_REVIEW_REPORT_OPENAI_URL` (default `https://api.openai.com/v1`) |
+| **OpenAI** _(default)_ | `OPENCODE_OPENAI_API_KEY` | **`OPENCODE_REVIEW_REPORT_OPENAI_URL` is required** (e.g. `https://api.openai.com/v1`, or your LiteLLM proxy) — the model chain already defaults to `gpt-5.6-sol` / `gpt-5.5` / `gpt-5.6-terra`, so no `OPENCODE_REVIEW_REPORT_MODEL_*` Variable is needed unless you retune |
+| **Gemini** | `OPENCODE_GEMINI_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=GEMINI`; `OPENCODE_REVIEW_REPORT_GEMINI_URL` (e.g. `https://generativelanguage.googleapis.com/v1beta/openai`); `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=gemini-3.1-pro-preview`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=gemini-2.5-pro`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=gemini-3-flash-preview` |
 | **Anthropic** | `OPENCODE_ANTHROPIC_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=ANTHROPIC`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=claude-opus-4-8`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=claude-sonnet-4-6`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=claude-haiku-4-5` — **no URL Variable** (base URL hardcoded) |
 | **OpenCode Go — OpenAI** | `OPENCODE_GO_OPENAI_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-OPENAI`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=deepseek-v4-pro`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=deepseek-v4-flash`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=glm-5.1` — **no URL Variable** (base URL hardcoded) |
 | **OpenCode Go — Anthropic** | `OPENCODE_GO_ANTHROPIC_API_KEY` | `OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-ANTHROPIC`; `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=qwen3.7-plus`; `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=minimax-m2.7`; `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=minimax-m3` — **no URL Variable** (base URL hardcoded) |
@@ -439,25 +439,30 @@ Applies to both the default install and the copy-install. **Ask the operator whi
 
 The agent must state these rules when emitting the config:
 - **API keys are Secrets; everything else is a Variable.** Never store a key as a Variable (Variables are plaintext and printable in logs).
-- **Any non-Gemini provider MUST set all three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables.** The defaults are Gemini model IDs and the run **fails fast** if a `gemini*` model is left on another provider.
+- **Any non-OpenAI provider MUST set all three `OPENCODE_REVIEW_REPORT_MODEL_*` Variables.** The defaults are OpenAI model IDs and the run **fails fast** if a mismatched model is left on another provider.
+- **`GEMINI`, `COPILOT` and `OPENAI` each require their `OPENCODE_REVIEW_REPORT_<P>_URL` Variable.** Only `ANTHROPIC`, the OpenCode Go surfaces and `OPEN_ROUTER` have a hardcoded base; for the other three an unset URL Variable aborts the run at preflight.
 - Offer the equivalent `gh` commands rather than only describing the UI — copy-paste blocks per provider below (run inside the target repo, or add `--repo <owner>/<repo>`; `gh secret set` without a value prompts for it).
 
-  **Gemini** _(default)_
-  ```bash
-  gh secret set OPENCODE_GEMINI_API_KEY
-  # optional — only when overriding the default gateway URL:
-  # gh variable set OPENCODE_REVIEW_REPORT_GEMINI_URL --body "https://generativelanguage.googleapis.com/v1beta/openai"
-  ```
-
-  **OpenAI**
+  **OpenAI** _(default)_
   ```bash
   gh secret set OPENCODE_OPENAI_API_KEY
-  gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body OPENAI
-  gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body gpt-5.5
-  gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body gpt-5.4
-  gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body gpt-5.4-mini
-  # optional — only when overriding the default gateway URL:
-  # gh variable set OPENCODE_REVIEW_REPORT_OPENAI_URL --body "https://api.openai.com/v1"
+  # required — OPENAI has no hardcoded base URL:
+  gh variable set OPENCODE_REVIEW_REPORT_OPENAI_URL --body "https://api.openai.com/v1"
+  # the model chain already defaults to gpt-5.6-sol / gpt-5.5 / gpt-5.6-terra;
+  # set these only to retune:
+  # gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body gpt-5.6-sol
+  # gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body gpt-5.5
+  # gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body gpt-5.6-terra
+  ```
+
+  **Gemini**
+  ```bash
+  gh secret set OPENCODE_GEMINI_API_KEY
+  gh variable set OPENCODE_REVIEW_REPORT_PROVIDER --body GEMINI
+  gh variable set OPENCODE_REVIEW_REPORT_GEMINI_URL --body "https://generativelanguage.googleapis.com/v1beta/openai"
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_PRIMARY --body gemini-3.1-pro-preview
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_SECONDARY --body gemini-2.5-pro
+  gh variable set OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR --body gemini-3-flash-preview
   ```
 
   **Anthropic**
@@ -532,7 +537,7 @@ For a one-run scope override, comment on the PR: `/ai-review --file-limit 5 --ex
 
 - A GitHub-hosted `ubuntu-latest` runner. The model gateway for the selected provider (e.g. `OPENCODE_REVIEW_REPORT_GEMINI_URL`) must be reachable from GitHub-hosted runners — i.e. publicly routable, not VPN-only. (If the gateway is private-network only, switch the workflow's `runs-on` back to `self-hosted`.)
 - **Allow GitHub Actions to approve PRs.** Enable repo (or org) **Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests."** Without it, a clean full review fails when the gate tries to approve (`GitHub Actions is not permitted to approve pull requests`). An org-level policy can force this off and overrides the repo toggle.
-- Gateway config for the selected provider (default `GEMINI`): the API key as a GitHub **Secret** (`OPENCODE_GEMINI_API_KEY`) and the gateway URL as a **Variable** (`OPENCODE_REVIEW_REPORT_GEMINI_URL`); optional **Variables** `OPENCODE_REVIEW_REPORT_PROVIDER` (to switch provider), `OPENCODE_REVIEW_REPORT_MODEL_*` (to retune the model chain), and `OPENCODE_CLI_VERSION` (pin OPENCODE CLI; unset = latest) without editing the workflow. See [Environment variables](#environment-variables) for the complete list and [Providers](#providers) for the per-provider breakdown.
+- Gateway config for the selected provider (default `OPENAI`): the API key as a GitHub **Secret** (`OPENCODE_OPENAI_API_KEY`) and the gateway URL as a **Variable** (`OPENCODE_REVIEW_REPORT_OPENAI_URL`); optional **Variables** `OPENCODE_REVIEW_REPORT_PROVIDER` (to switch provider), `OPENCODE_REVIEW_REPORT_MODEL_*` (to retune the model chain), and `OPENCODE_CLI_VERSION` (pin OPENCODE CLI; unset = latest) without editing the workflow. See [Environment variables](#environment-variables) for the complete list and [Providers](#providers) for the per-provider breakdown.
 
 > **Recommended: pin the opencode version.** Set the `OPENCODE_CLI_VERSION` repo/org Variable to a specific release (e.g. `1.x.y`). Without a pin, every CI run installs `latest`, which exposes you to silent behavior drift and upstream-supply-chain risk with no reproducibility. All four install paths — the gate, `ai-analyse`, the eval harness, and the npm consumer template — honor the pin through a single shared installer ([`lib/install-opencode.sh`](.agents/skills/ai-review-report/scripts/lib/install-opencode.sh) — see LADR-048). The `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` and `OPENCODE_TOOL_RTK_VERSION` Variables (LADR-049 / LADR-054) are equally recommended for supply-chain hygiene and reproducibility — `latest` for those tools is also a silent-behavior-drift risk. See [Environment variables](#environment-variables) for the full reference.
 
@@ -544,8 +549,8 @@ OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-revi
 
 | Provider | Status | Models | Env vars (gateway URL + key) |
 |---|---|---|---|
-| **Gemini** (`gemini`, `@ai-sdk/google`) | Default — the model chain points here | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_REVIEW_REPORT_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
-| **OpenAI** (`openai`, `@ai-sdk/openai`) | Optional | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_REVIEW_REPORT_OPENAI_URL`, `OPENCODE_OPENAI_API_KEY` |
+| **Gemini** (`gemini`, `@ai-sdk/google`) | Optional | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_REVIEW_REPORT_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
+| **OpenAI** (`openai`, `@ai-sdk/openai`) | Default — the model chain points here | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `OPENCODE_REVIEW_REPORT_OPENAI_URL`, `OPENCODE_OPENAI_API_KEY` |
 | **Anthropic** (`anthropic`, `@ai-sdk/anthropic`) | Optional — direct Anthropic API (Claude models) | `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5` | `OPENCODE_ANTHROPIC_API_KEY` (base URL hardcoded) |
 | **OpenCode Go — OpenAI** (`go-openai`, `@ai-sdk/openai-compatible`) | Optional — [OpenCode's own gateway](https://opencode.ai/docs/go/) Chat Completions surface | `grok-4.5`, `glm-5.3-flash`, `glm-5.3`, `glm-5.2`, `glm-5.1`, `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `longcat-2.0`, `deepseek-v4.1-flash`, `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `mimo-v2.5`, `mimo-v2.5-pro`, `hy4-preview`, `hy3` | `OPENCODE_GO_OPENAI_API_KEY` (base URL hardcoded) |
 | **OpenCode Go — Anthropic** (`go-anthropic`, `@ai-sdk/anthropic`) | Optional — same gateway, Messages surface | `minimax-m3`, `minimax-m2.7`, `minimax-m2.5`, `qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-plus` | `OPENCODE_GO_ANTHROPIC_API_KEY` (base URL hardcoded) |
@@ -558,7 +563,7 @@ OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-revi
 
 > **OpenRouter is an aggregator with a fixed base.** Selected by `OPENCODE_REVIEW_REPORT_PROVIDER=OPEN_ROUTER`, it routes through the single public endpoint `https://openrouter.ai/api/v1` (hardcoded in `opencode.json`, like OpenCode Go) — so there's **no URL Variable**, only the `OPENCODE_OPENROUTER_API_KEY` Secret. Its model ids carry a `vendor/` prefix (`deepseek/deepseek-v4-pro`, `z-ai/glm-5.1`, …); opencode prefixes the provider-id and routes `openrouter/<vendor>/<model>` correctly. Anthropic and OpenAI models are intentionally **not** declared here — use the dedicated providers for those. The API key is supplied the same way as every other provider (the `{env:…}` placeholder in `opencode.json`); OpenCode's `/connect`/`auth.json` flow is not used.
 
-The active provider is chosen by the **`OPENCODE_REVIEW_REPORT_PROVIDER`** Variable (`GEMINI` | `COPILOT` | `OPENAI` | `ANTHROPIC` | `OPENCODE-GO-OPENAI` | `OPENCODE-GO-ANTHROPIC` | `OPENCODE-GO-RESPONSES` | `OPEN_ROUTER`, default `GEMINI`). The pipeline resolves it to the matching opencode provider-id and gateway credentials, then prefixes every model with that id (`<provider-id>/<model>`) when invoking OpenCode. Optional providers can be left unconfigured: you only need credentials for the provider `OPENCODE_REVIEW_REPORT_PROVIDER` actually selects.
+The active provider is chosen by the **`OPENCODE_REVIEW_REPORT_PROVIDER`** Variable (`GEMINI` | `COPILOT` | `OPENAI` | `ANTHROPIC` | `OPENCODE-GO-OPENAI` | `OPENCODE-GO-ANTHROPIC` | `OPENCODE-GO-RESPONSES` | `OPEN_ROUTER`, default `OPENAI`). The pipeline resolves it to the matching opencode provider-id and gateway credentials, then prefixes every model with that id (`<provider-id>/<model>`) when invoking OpenCode. Optional providers can be left unconfigured: you only need credentials for the provider `OPENCODE_REVIEW_REPORT_PROVIDER` actually selects.
 
 ### GitHub configuration
 
@@ -568,8 +573,8 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 
 | Secret | For | Required? |
 |---|---|---|
-| `OPENCODE_GEMINI_API_KEY` | Gemini gateway API key | Required (default provider) |
-| `OPENCODE_OPENAI_API_KEY` | OpenAI gateway API key | Only if using OpenAI models |
+| `OPENCODE_OPENAI_API_KEY` | OpenAI gateway API key | Required (default provider) |
+| `OPENCODE_GEMINI_API_KEY` | Gemini gateway API key | Only if using `GEMINI` |
 | `OPENCODE_ANTHROPIC_API_KEY` | Anthropic (Claude) API key | Only if using `ANTHROPIC` |
 | `OPENCODE_GO_OPENAI_API_KEY` | OpenCode Go Chat Completions / Responses API key | Only if using `OPENCODE-GO-OPENAI` or `OPENCODE-GO-RESPONSES` |
 | `OPENCODE_GO_ANTHROPIC_API_KEY` | OpenCode Go (Anthropic surface) API key | Only if using `OPENCODE-GO-ANTHROPIC` |
@@ -579,15 +584,15 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 
 | Variable | Default | Role |
 |---|---|---|
-| `OPENCODE_REVIEW_REPORT_PROVIDER` | `GEMINI` | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `ANTHROPIC`, `OPENCODE-GO-OPENAI`, `OPENCODE-GO-ANTHROPIC`, `OPENCODE-GO-RESPONSES`, or `OPEN_ROUTER` |
-| `OPENCODE_REVIEW_REPORT_GEMINI_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini gateway base URL (default provider, OpenAI-compatible). Unset → `@ai-sdk/google`'s native Gemini API base. Point at a LiteLLM proxy to relay instead. |
-| `OPENCODE_REVIEW_REPORT_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI gateway base URL (only if using OpenAI models). Unset → `@ai-sdk/openai`'s native API base. |
+| `OPENCODE_REVIEW_REPORT_PROVIDER` | `OPENAI` | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `ANTHROPIC`, `OPENCODE-GO-OPENAI`, `OPENCODE-GO-ANTHROPIC`, `OPENCODE-GO-RESPONSES`, or `OPEN_ROUTER` |
+| `OPENCODE_REVIEW_REPORT_OPENAI_URL` | _(none — required)_ | OpenAI gateway base URL (default provider). There is **no** hardcoded fallback: leaving it unset aborts the run at preflight. Set `https://api.openai.com/v1` for the native API, or point it at a LiteLLM proxy. |
+| `OPENCODE_REVIEW_REPORT_GEMINI_URL` | _(none — required when `GEMINI` is selected)_ | Gemini gateway base URL (OpenAI-compatible), e.g. `https://generativelanguage.googleapis.com/v1beta/openai`. Point at a LiteLLM proxy to relay instead. |
 | `OPENCODE_CLI_VERSION` | _(unset)_ | OPENCODE CLI version pin (recommended — see callout above). Unset = latest, which is the weak default: every run pulls whatever is current upstream with no reproducibility. Set to a specific release like `1.x.y`. |
 | `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` | _(unset)_ | `code-review-graph` package version pin (LADR-049, recommended for supply-chain hygiene). Unset = latest. |
 | `OPENCODE_TOOL_RTK_VERSION` | _(unset)_ | rtk-ai/rtk binary version pin (LADR-054, recommended for reproducibility). Unset = latest. |
-| `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | `gemini-3.1-pro-preview` | Primary deep chunk-review model |
-| `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | `gemini-2.5-pro` | Secondary review model (two-tier chain) |
-| `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | `gemini-3-flash-preview` | Cheap model for grouping, aggregation, and summary |
+| `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | `gpt-5.6-sol` | Primary deep chunk-review model |
+| `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | `gpt-5.5` | Secondary review model (two-tier chain) |
+| `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | `gpt-5.6-terra` | Cheap model for grouping, aggregation, and summary |
 | `OPENCODE_ANALYSE_PROVIDER` | _(unset)_ | Optional provider selector for the autonomous analyse primary model. Required when `OPENCODE_ANALYSE_MODEL` is set; unset means analyse inherits the review provider/model. |
 | `OPENCODE_ANALYSE_MODEL` | _(unset)_ | Optional model used by `pipeline-ai-analyse.yml` for autonomous low/medium fixes. When set, it runs on `OPENCODE_ANALYSE_PROVIDER`; fallbacks stay on the review provider/model chain. |
 | `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` | _(unset — off)_ | "Test in the loop" switch. Off by default: autonomous fixes may **not** edit tests (unit/component/integration/e2e) or test-framework/config files, so the suite stays an independent oracle for the fix; any such edit is reverted before commit. Set truthy (`1`/`true`/`yes`/`on`) to allow test + test-framework self-fixes. |
@@ -620,7 +625,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 
 | Variable | Set by | Purpose |
 |---|---|---|
-| `OPENCODE_REVIEW_REPORT_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `GEMINI`) | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `ANTHROPIC`, `OPENCODE-GO-OPENAI`, `OPENCODE-GO-ANTHROPIC`, `OPENCODE-GO-RESPONSES`, or `OPEN_ROUTER`. |
+| `OPENCODE_REVIEW_REPORT_PROVIDER` | GitHub **Variable** / `--provider` / shell (default `OPENAI`) | Selects the active provider: `GEMINI`, `COPILOT`, `OPENAI`, `ANTHROPIC`, `OPENCODE-GO-OPENAI`, `OPENCODE-GO-ANTHROPIC`, `OPENCODE-GO-RESPONSES`, or `OPEN_ROUTER`. |
 | `OPENCODE_REVIEW_REPORT_GEMINI_URL` (**Variable**) / `OPENCODE_GEMINI_API_KEY` (**Secret**) | GitHub / shell export | Gemini gateway base URL + API key (`gemini` provider). |
 | `OPENCODE_REVIEW_REPORT_OPENAI_URL` (**Variable**) / `OPENCODE_OPENAI_API_KEY` (**Secret**) | GitHub / shell export | OpenAI gateway base URL + API key (`openai` provider). |
 | `OPENCODE_ANTHROPIC_API_KEY` (**Secret**) | GitHub / shell export | Anthropic (Claude) API key (`anthropic` provider). Base URL `https://api.anthropic.com` is hardcoded — no URL Variable. |
@@ -630,9 +635,9 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_CLI_VERSION` | GitHub **Variable** / shell (default unset) | OPENCODE CLI version pin (recommended — see callout above). Unset = latest, which is the weak default: every run pulls whatever is current upstream with no reproducibility. Set to a specific release like `1.x.y`. |
 | `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` | GitHub **Variable** / shell (default unset) | `code-review-graph` package version pin (LADR-049, recommended for supply-chain hygiene). Unset = latest. |
 | `OPENCODE_TOOL_RTK_VERSION` | GitHub **Variable** / shell (default unset) | rtk-ai/rtk binary version pin (LADR-054, recommended for reproducibility). Unset = latest. |
-| `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | GitHub **Variable** / `--model` / shell (default `gemini-3.1-pro-preview`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
-| `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | GitHub **Variable** / shell (default `gemini-2.5-pro`) | Secondary review model (two-tier fallback chain). |
-| `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gemini-3-flash-preview`) | Cheap model for semantic grouping, aggregation, and summary. |
+| `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | GitHub **Variable** / `--model` / shell (default `gpt-5.6-sol`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
+| `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | GitHub **Variable** / shell (default `gpt-5.5`) | Secondary review model (two-tier fallback chain). |
+| `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gpt-5.6-terra`) | Cheap model for semantic grouping, aggregation, and summary. |
 | `OPENCODE_ANALYSE_PROVIDER` | GitHub **Variable** (default unset) | Optional provider selector for `pipeline-ai-analyse.yml`'s primary autonomous-fix model: same allowed values as `OPENCODE_REVIEW_REPORT_PROVIDER`. Required when `OPENCODE_ANALYSE_MODEL` is set. |
 | `OPENCODE_ANALYSE_MODEL` | GitHub **Variable** (default unset; unset inherits `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY`) | Optional model used by `pipeline-ai-analyse.yml` for autonomous low/medium fixes. When set, it runs on `OPENCODE_ANALYSE_PROVIDER`; the fallback chain remains `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` → `_SECONDARY` on `OPENCODE_REVIEW_REPORT_PROVIDER`. |
 | `OPENCODE_ANALYSE_MAX_INCREMENTAL` | GitHub **Variable** (default `3`) | Max consecutive incremental gate reviews since the latest full review before autonomous fixes stop and a limit comment is posted. |
@@ -674,7 +679,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 
 Use **`ai-review-report --local`** to generate a review report locally. This is the same review generator as the CI gate, wrapped for local execution.
 
-Bare `--local` reviews HEAD/current branch against `main`, does not post to GitHub, uses `OPENCODE_REVIEW_REPORT_PROVIDER` from your shell if set (otherwise `GEMINI`), and uses local runner model defaults unless you pass overrides. It should not prompt for PR number, provider, post mode, or base branch.
+Bare `--local` reviews HEAD/current branch against `main`, does not post to GitHub, uses `OPENCODE_REVIEW_REPORT_PROVIDER` from your shell if set (otherwise `OPENAI`), and uses local runner model defaults unless you pass overrides. It should not prompt for PR number, provider, post mode, or base branch.
 
 If the skill is copy-installed and you want to run the script directly:
 

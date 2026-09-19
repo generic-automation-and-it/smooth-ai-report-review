@@ -140,7 +140,7 @@ _rp_resolve() {
 _rp_scope="${OPENCODE_PROVIDER_SCOPE:-review}"
 case "$_rp_scope" in
   review)
-    _rp_resolve "review" "OPENCODE_REVIEW_REPORT_PROVIDER" "GEMINI" "OPENCODE_REVIEW_REPORT_PROVIDER_ID" "OPENCODE_REVIEW_REPORT_GATEWAY_URL"
+    _rp_resolve "review" "OPENCODE_REVIEW_REPORT_PROVIDER" "OPENAI" "OPENCODE_REVIEW_REPORT_PROVIDER_ID" "OPENCODE_REVIEW_REPORT_GATEWAY_URL"
 
     for _rp_mv in OPENCODE_REVIEW_REPORT_MODEL_PRIMARY OPENCODE_REVIEW_REPORT_MODEL_SECONDARY OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR; do
       _rp_val="${!_rp_mv:-}"
@@ -165,7 +165,7 @@ case "$_rp_scope" in
       _rp_die "OPENCODE_ANALYSE_MODEL is set but OPENCODE_ANALYSE_PROVIDER is unset. Set OPENCODE_ANALYSE_PROVIDER to the provider that serves OPENCODE_ANALYSE_MODEL, or unset OPENCODE_ANALYSE_MODEL to inherit the review provider/model."
     fi
 
-    _rp_analyse_default="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
+    _rp_analyse_default="${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}"
     _rp_resolve "analyse" "OPENCODE_ANALYSE_PROVIDER" "$_rp_analyse_default" "OPENCODE_ANALYSE_PROVIDER_ID" "OPENCODE_ANALYSE_GATEWAY_URL"
 
     if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then

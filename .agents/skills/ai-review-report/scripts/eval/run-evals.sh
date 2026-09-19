@@ -25,7 +25,7 @@
 #
 # Environment (provider/model — the SAME designed-model config the gate uses,
 # resolved exactly like CI via lib/resolve-provider.sh, LADR-026/027):
-#   OPENCODE_REVIEW_REPORT_PROVIDER          GEMINI (default) | COPILOT | OPENAI |
+#   OPENCODE_REVIEW_REPORT_PROVIDER          OPENAI (default) | GEMINI | COPILOT |
 #                                            ANTHROPIC | OPENCODE-GO-OPENAI |
 #                                            OPENCODE-GO-ANTHROPIC |
 #                                            OPENCODE-GO-RESPONSES | OPEN_ROUTER

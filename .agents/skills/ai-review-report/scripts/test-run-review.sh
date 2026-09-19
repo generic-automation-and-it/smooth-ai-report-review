@@ -368,10 +368,10 @@ run_precedence() {
   shift 2
   local actual
   actual="$(env -i "$@" bash -c '
-    OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
-    OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gemini-3.1-pro-preview}"
-    OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
-    OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+    OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}"
+    OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gpt-5.6-sol}"
+    OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
+    OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
     OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
     OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
     OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
@@ -389,21 +389,21 @@ run_precedence() {
 
 # Default path: all unset → literal defaults.
 run_precedence "defaults when env unset" \
-  "GEMINI|gemini-3.1-pro-preview|gemini-2.5-pro|gemini-3-flash-preview|1|0|100"
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100"
 
 # Env override: caller-provided value wins over default.
 run_precedence "caller env wins over default (provider)" \
-  "ANTHROPIC|gemini-3.1-pro-preview|gemini-2.5-pro|gemini-3-flash-preview|1|0|100" \
+  "ANTHROPIC|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100" \
   OPENCODE_REVIEW_REPORT_PROVIDER=ANTHROPIC
 
 run_precedence "caller env wins over default (all model tiers)" \
-  "GEMINI|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5|1|0|100" \
+  "OPENAI|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5|1|0|100" \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=claude-opus-4-8 \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=claude-sonnet-4-6 \
   OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=claude-haiku-4-5
 
 run_precedence "caller env wins over default (claude code + agents md + file count)" \
-  "GEMINI|gemini-3.1-pro-preview|gemini-2.5-pro|gemini-3-flash-preview|0|1|50" \
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|0|1|50" \
   OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE=0 \
   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK=1 \
   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT=50
@@ -412,7 +412,7 @@ run_precedence "caller env wins over default (claude code + agents md + file cou
 # This is the gate the workflow relies on: an unset Variable resolves to '' in
 # the env: block, but run-review.sh still picks a usable default.
 run_precedence "empty string falls through to default" \
-  "GEMINI|gemini-3.1-pro-preview|gemini-2.5-pro|gemini-3-flash-preview|1|0|100" \
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100" \
   OPENCODE_REVIEW_REPORT_PROVIDER= \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY= \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY= \

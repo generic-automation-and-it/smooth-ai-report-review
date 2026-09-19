@@ -298,7 +298,7 @@ SEMANTIC_PROMPT_EOF
   # the orchestrator already IS the review model (e.g. run-review.sh rewrote
   # it after a failed probe), the second stage is skipped — same model, same
   # outcome.
-  _grouping_orch="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+  _grouping_orch="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
   _grouping_ok=false
   if timeout 35s bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_grouping_orch" "" "" -- ci_temp/semantic_grouping_prompt.txt > ci_temp/semantic_grouping_raw.txt 2>/dev/null; then
     _grouping_ok=true
@@ -1206,7 +1206,7 @@ EOF
   # starving a stage, so the pre-split single-wrap behaviour is used verbatim.
   local _primary_budget _secondary_budget _secondary_model
   local _stage1_rc=0 _chunk_rc=0 _split_used=0 _stage_started _elapsed _remaining _stage1_fb
-  _secondary_model="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
+  _secondary_model="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
   read -r _primary_budget _secondary_budget \
     <<< "$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/split-chunk-budget.sh" "$_chunk_timeout")"
   # LADR-084: on the LADR-082 retry, do NOT split. Attempt 1 already ran this

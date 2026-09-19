@@ -115,7 +115,7 @@ jobs:
       # Provider selector — dispatch input wins, else repo Variable, else GEMINI.
       # Same OPENCODE_REVIEW_REPORT_* Variables/Secrets the review gate uses, so the
       # eval exercises the DESIGNED models (not a hardcoded chain).
-      OPENCODE_REVIEW_REPORT_PROVIDER: ${{ github.event.inputs.provider || vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
+      OPENCODE_REVIEW_REPORT_PROVIDER: ${{ github.event.inputs.provider || vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'OPENAI' }}
       # All provider credential pairs at job scope so opencode.json's
       # {env:OPENCODE_*} substitution resolves for whichever provider is selected.
       # API keys = Secrets (un-prefixed); gateway URLs = OPENCODE_REVIEW_REPORT_*
@@ -134,7 +134,7 @@ jobs:
       # Model chain — dispatch input overrides PRIMARY. SECONDARY/ORCHESTRATOR are
       # optional; run-evals.sh defaults blanks to PRIMARY so non-GEMINI dispatches
       # do not inherit Gemini literals from the review gate.
-      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+      OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ github.event.inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gpt-5.6-sol' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || '' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || '' }}
       OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}

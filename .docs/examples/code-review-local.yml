@@ -309,7 +309,7 @@ jobs:
             ((inputs.model_preset == 'OpenCode DeepSeek V4 Pro' || inputs.model_preset == 'OpenCode DeepSeek V4 Flash' || inputs.model_preset == 'OpenCode GLM-5.2' || inputs.model_preset == 'OpenCode GLM-5.1' || inputs.model_preset == 'OpenCode Grok 4.5' || inputs.model_preset == 'OpenCode Hy3' || inputs.model_preset == 'OpenCode Kimi K3' || inputs.model_preset == 'OpenCode Kimi K2.7 Code' || inputs.model_preset == 'OpenCode Kimi K2.6' || inputs.model_preset == 'OpenCode MiMo V2.5' || inputs.model_preset == 'OpenCode MiMo V2.5 Pro') && 'OPENCODE-GO-OPENAI') ||
             ((inputs.model_preset == 'OpenCode MiniMax M3' || inputs.model_preset == 'OpenCode MiniMax M2.7' || inputs.model_preset == 'OpenCode MiniMax M2.5' || inputs.model_preset == 'OpenCode Qwen3.8 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Max' || inputs.model_preset == 'OpenCode Qwen3.7 Plus' || inputs.model_preset == 'OpenCode Qwen3.6 Plus') && 'OPENCODE-GO-ANTHROPIC') ||
             ((inputs.model_preset == 'OpenRouter DeepSeek V4 Pro' || inputs.model_preset == 'OpenRouter Qwen3.7 Plus' || inputs.model_preset == 'OpenRouter GLM-5.1' || inputs.model_preset == 'OpenRouter MiniMax M3') && 'OPEN_ROUTER') ||
-            vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
+            vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'OPENAI' }}
           OPENCODE_REVIEW_REPORT_PROVIDER_ID: ${{
             ((inputs.model_preset == 'Anthropic Claude Opus 4.8' || inputs.model_preset == 'Anthropic Claude Sonnet 4.6' || inputs.model_preset == 'Anthropic Claude Haiku 4.5') && 'anthropic') ||
             (inputs.model_preset == 'OpenAI GPT-5.5' && 'openai') ||
@@ -323,7 +323,7 @@ jobs:
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-RESPONSES' && 'go-responses') ||
             (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
-            'gemini' }}
+            'openai' }}
           # API keys — Secrets only. URLs — Variables only.
           OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
           OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
@@ -364,14 +364,14 @@ jobs:
             (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
             (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
             (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
-            inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+            inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gpt-5.6-sol' }}
           # Mirror the 24-row mapping for SECONDARY and ORCHESTRATOR
           # (the canonical workflow pins the same model across all three
-          # tiers per preset). Without this, every non-Gemini
-          # `workflow_dispatch` would set SECONDARY=gemini-2.5-pro and
-          # ORCHESTRATOR=gemini-3-flash-preview, which would fail the
+          # tiers per preset). Without this, every non-OpenAI
+          # `workflow_dispatch` would set SECONDARY=gpt-5.5 and
+          # ORCHESTRATOR=gpt-5.6-terra, which would fail the
           # provider-model-family check in `lib/resolve-provider.sh:62-90`
-          # with "ANTHROPIC selected but OPENCODE_REVIEW_REPORT_MODEL_SECONDARY='gemini-2.5-pro'
+          # with "ANTHROPIC selected but OPENCODE_REVIEW_REPORT_MODEL_SECONDARY='gpt-5.5'
           # is not a Claude model". PR #86 review 4820469544 #1.
           OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: >-
             ${{
@@ -401,7 +401,7 @@ jobs:
             (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
             (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
             (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
-            vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
+            vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gpt-5.5' }}
           OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: >-
             ${{
             (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
@@ -430,7 +430,7 @@ jobs:
             (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
             (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
             (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
-            vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+            vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gpt-5.6-terra' }}
           OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
           OPENCODE_CLI_VERSION: ${{ vars.OPENCODE_CLI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT: ${{ inputs.file_limit || vars.OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT || '100' }}
