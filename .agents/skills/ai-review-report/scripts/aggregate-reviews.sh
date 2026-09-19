@@ -546,7 +546,9 @@ bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRAT
 # Without this, an empty pr_summary.md slips past the success branch and the posted
 # review loses its Overall Summary / Issues Summary / Recommendation entirely
 # (only "No holistic analysis section found" remains). Treat empty as failure so the
-# fail-safe REQUEST_CHANGES fallback below kicks in instead of a blank overview.
+# conservative REQUEST_CHANGES fallback below is installed instead of a blank
+# overview. LADR-085 allows complete chunk + sidecar evidence to replace that
+# temporary action later; incomplete coverage keeps it fail-closed.
 agg_size=$(wc -c < ci_temp/pr_summary.md 2>/dev/null || echo 0)
 if [ "$agg_ok" = "true" ] && [ "${agg_size:-0}" -lt 50 ]; then
   agg_ok=false
@@ -773,8 +775,11 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         #
         # The sync can SOFTEN a verdict, so it is allowed only where "no
         # Critical/High in the merged set" is actually evidence about the PR.
-        # Two cases where it is not, and where we keep the orchestrator's
-        # Recommendation plus the one-directional escalate-only override below:
+        # Partial sidecar coverage is not sufficient: a reviewed chunk may carry
+        # a blocker that is absent from the merged document. A failed summary is
+        # different when every chunk completed and every sidecar was ingested:
+        # summary generation is an enrichment step, not review coverage, and its
+        # infrastructure failure must not manufacture a code-level blocker.
         #
         #   1. PARTIAL sidecar coverage. A reviewed chunk contributed nothing to
         #      the merged set — most often because the sidecar is emitted last
@@ -782,14 +787,14 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         #      this document but present verbatim in Part 2, so softening here
         #      would post an APPROVE over a Critical the reader can see. Nobody
         #      dropped that finding on purpose; it just never arrived.
-        #   2. The orchestrator summary FAILED. Its fallback template hardcodes
-        #      REQUEST_CHANGES *because* nothing about the run is trustworthy
-        #      ("manual review required for safety"). Rewriting that to APPROVE
-        #      inverts a fail-closed guard into a fail-open one.
+        #   2. The orchestrator summary failed AND a chunk still failed. The
+        #      merged document intentionally excludes failed chunks, so it cannot
+        #      prove the absence of blockers. The final LADR-031 override also
+        #      keeps this path fail-closed.
         if [ -n "$MISSING_SIDECAR_CHUNKS" ]; then
           echo "ℹ️ Recommendation NOT synced — partial sidecar coverage (chunk(s) ${MISSING_SIDECAR_CHUNKS} contributed none, so their findings cannot be proven absent); keeping the orchestrator's counts and the escalate-only override"
-        elif [ "${agg_ok:-true}" != "true" ]; then
-          echo "ℹ️ Recommendation NOT synced — the orchestrator summary failed and its REQUEST_CHANGES fallback is a fail-closed guard; keeping it and the escalate-only override"
+        elif [ "${agg_ok:-true}" != "true" ] && [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+          echo "ℹ️ Recommendation NOT synced — the orchestrator summary and ${FAILED_CHUNK_COUNT} chunk(s) failed; keeping the REQUEST_CHANGES fallback"
         else
           FINDINGS_SYNCED_DECISION="$(
             SYNC_ORIGINAL_ACTION="${ORCHESTRATOR_ACTION:-}" \
@@ -804,6 +809,9 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
           fi
           if [ -n "${FINDINGS_SYNCED_DECISION:-}" ]; then
             echo "✅ Recommendation counts/decision synced from merged findings → ${FINDINGS_SYNCED_DECISION}"
+            if [ "${agg_ok:-true}" != "true" ]; then
+              echo "ℹ️ Summary generation failed, but all chunks completed with full structured coverage — using the deterministic findings decision"
+            fi
           else
             echo "⚠️ Could not sync Recommendation from merged findings — keeping the orchestrator's counts"
             FINDINGS_SYNCED_DECISION=""
@@ -936,10 +944,10 @@ EOF
 # Gated on `agg_ok` too: when the orchestrator's summary call failed, the fallback
 # template's `## 📋 Overall Summary` is not a narrative recap at all — it is the
 # only place the body says summary generation broke and the reader should go read
-# the per-chunk sections. Stripping it there deletes the diagnosis and leaves an
-# incremental body that jumps from the header straight to a REQUEST CHANGES with
-# no visible cause. Suppress noise on the healthy path, keep the explanation on
-# the degraded one.
+# the per-chunk sections. Stripping it there deletes the diagnosis regardless of
+# whether complete structured findings later resolve the temporary fallback to
+# APPROVE/COMMENT or incomplete coverage keeps REQUEST_CHANGES. Suppress noise on
+# the healthy path, keep the explanation on the degraded one.
 if [ "$REVIEW_TYPE" = "incremental" ] && [ "$agg_ok" = "true" ]; then
   awk '
     function fence_run(s, ch,   n) {

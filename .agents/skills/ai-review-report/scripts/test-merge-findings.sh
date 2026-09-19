@@ -1388,16 +1388,19 @@ else
   echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 26a-k"
 fi
 
-# The two preconditions live in the caller, so assert them at the source: a
-# refactor that drops either one reopens a fail-open path that no unit test of
-# the sync script itself can see.
+# Coverage preconditions live in the caller, so assert them at the source: a
+# refactor that drops one reopens a fail-open path that no unit test of the sync
+# script itself can see. Summary failure alone is intentionally not a guard:
+# complete chunk output plus full sidecar coverage owns the deterministic verdict.
 if [ -f "$AGG_SH" ]; then
   check "Test 26l: the sync is skipped on partial sidecar coverage" "1" \
     "$(awk '/Recommendation NOT synced/ && /partial sidecar coverage/ {n++} END{print n+0}' "$AGG_SH")"
   check "Test 26m: partial coverage is the guard, not just the message" "1" \
     "$(awk '/if \[ -n "\$MISSING_SIDECAR_CHUNKS" \]/{f=1} f && /Recommendation NOT synced/{print 1; exit}' "$AGG_SH")"
-  check "Test 26n: the sync is skipped when the orchestrator summary failed" "1" \
-    "$(awk '/elif \[ "\$\{agg_ok:-true\}" != "true" \]/{print 1; exit}' "$AGG_SH")"
+  check "Test 26n: summary failure skips sync only while a chunk remains failed" "1" \
+    "$(awk '/elif \[ "\$\{agg_ok:-true\}" != "true" \] && \[ "\$\{FAILED_CHUNK_COUNT:-0\}" -gt 0 \]/{print 1; exit}' "$AGG_SH")"
+  check "Test 26n2: recovered chunks let full sidecars decide after summary failure" "1" \
+    "$(grep -cF 'Summary generation failed, but all chunks completed with full structured coverage — using the deterministic findings decision' "$AGG_SH" || true)"
   check "Test 26o: the orchestrator action is forwarded so COMMENT survives" "1" \
     "$(awk '/SYNC_ORIGINAL_ACTION="\$\{ORCHESTRATOR_ACTION:-\}"/{print 1; exit}' "$AGG_SH")"
   check "Test 26p: the escalate-only fallback still guards the skip paths" "1" \

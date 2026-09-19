@@ -29,18 +29,20 @@
 #
 # WHEN THE CALLER MAY INVOKE THIS
 # -------------------------------
-# This script can SOFTEN a verdict, so the caller owns two preconditions that
-# are not checkable from here (see aggregate-reviews.sh):
+# This script can SOFTEN a verdict, so the caller owns preconditions that are
+# not checkable from here (see aggregate-reviews.sh):
 #   1. FULL sidecar coverage. On partial coverage the merged set is missing a
 #      reviewed chunk's findings entirely, so "no Critical/High in the merged
 #      set" is not evidence of "no Critical/High in the PR" — a truncated
 #      sidecar (the most common structured-findings failure) would soften the
 #      verdict on findings nobody dropped on purpose.
-#   2. The orchestrator summary SUCCEEDED. Its failure fallback template hard-
-#      codes REQUEST_CHANGES precisely because nothing about the run is
-#      trustworthy; rewriting that to APPROVE inverts a fail-closed guard.
-# In both cases the caller skips this script and keeps its own one-directional
-# escalate-only path.
+#   2. No chunk remains failed when the orchestrator summary also failed. A
+#      summary-only failure does not invalidate complete chunk reviews or their
+#      fully-ingested structured findings; in that case this script replaces the
+#      temporary REQUEST_CHANGES fallback with the deterministic findings verdict.
+#      If chunk coverage also failed, the caller keeps its fail-closed action.
+# On incomplete coverage the caller skips this script and keeps its own one-
+# directional escalate-only path.
 #
 # Decision rule (same tree the orchestrator prompt states):
 #   critical > 0 OR high > 0  → request_changes
