@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in the review gate, the skills, or the workflows is behaving wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report security problems here.** Use the Security tab → Advisories → Report a vulnerability, as described in [SECURITY.md](https://github.com/generic-automation-and-it/smooth-ai-report-review/blob/main/.github/SECURITY.md).
+
+        **Never paste a Secret's value** — an API key, a token. Variable values are fine.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: run-url
+    attributes:
+      label: Workflow run URL
+      description: If this is a CI failure, link the failing run. The job log is usually the fastest route to a diagnosis.
+      placeholder: https://github.com/<owner>/<repo>/actions/runs/<id>
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - ai-review-report (the CI gate)
+        - ai-review (/ai-review fix-skip executor)
+        - ai-analyse (autonomous low/medium fixer)
+        - git-commit-review-push
+        - Consumption path (reusable workflow / local job / plugin / npm / copy-install)
+        - Docs
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: |
+        The `OPENCODE_*` **Variable** values in play — provider, model chain, any toggle you changed. Redact nothing except Secrets, which you must not include at all.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: The relevant excerpt. Long logs are better linked than pasted.
+      render: shell

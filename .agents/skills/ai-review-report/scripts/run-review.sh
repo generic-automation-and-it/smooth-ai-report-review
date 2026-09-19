@@ -45,7 +45,7 @@
 #   GITHUB_SERVER_URL      — set by GitHub Actions automatically
 #   GITHUB_RUN_ID          — set by GitHub Actions automatically
 #   GITHUB_ACTIONS=true    — set by GitHub Actions automatically
-#   OPENCODE_REVIEW_REPORT_PROVIDER  [GEMINI]  — provider selector
+#   OPENCODE_REVIEW_REPORT_PROVIDER  [OPENAI]  — provider selector
 #   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / SECONDARY / ORCHESTRATOR — model chain
 #   OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE  [1]   — disable .claude support
 #   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
@@ -160,10 +160,10 @@ export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
 
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
-OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
-OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gemini-3.1-pro-preview}"
-OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
-OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}"
+OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gpt-5.6-sol}"
+OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
+OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
 export OPENCODE_REVIEW_REPORT_PROVIDER
 export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY
 export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY
@@ -593,8 +593,8 @@ bash "$LIB_DIR/opencode-health.sh" || true
 # 5f. Resolve provider → provider-id (gemini / openai / …). This is the
 # authoritative resolver (matches the post-checkout `Resolve provider/model
 # chain` step); the pre-checkout U/K mapping above is just a fail-fast.
-bash "$LIB_DIR/resolve-provider.sh"
-echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
+. "$LIB_DIR/resolve-provider.sh"
+echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID}"
 
 # 5g. Probe the two-tier review chain (PRIMARY → SECONDARY). On a soft-fail
 # (both models unavailable), set all_models_failed=true and post a
@@ -603,7 +603,7 @@ ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAU
 run_probe() {
   opencode run \
     --agent review \
-    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/$1" \
+    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/$1" \
     --format default \
     --log-level WARN \
     "Say 'OK'" 2>&1 || true
@@ -636,7 +636,7 @@ ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
 (
   _orch_out="$(timeout 60s opencode run \
     --agent review \
-    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
+    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
     --format default \
     --log-level WARN \
     "Say 'OK'" 2>&1 || true)"

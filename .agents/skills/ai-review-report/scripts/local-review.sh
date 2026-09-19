@@ -15,7 +15,7 @@ fi
 #   local-review.sh                          # Review current branch vs main
 #   local-review.sh --pr 1234                # Review PR #1234
 #   local-review.sh --base develop           # Review against a different base branch
-#   local-review.sh --model gemini-3-pro     # Use a specific model
+#   local-review.sh --model gpt-5.5           # Use a specific model
 #   local-review.sh --post                   # Post review to PR (requires --pr)
 #   local-review.sh --open                   # Open final review in $EDITOR after completion
 
@@ -32,17 +32,17 @@ REPO_ROOT="${OPENCODE_REVIEW_REPORT_REPO_ROOT:-$(cd "$SCRIPT_DIR/../../../.." &&
 # OPENCODE_REVIEW_REPORT_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
 # profile or via direnv); opencode reads them through the {env:...} placeholders
 # in opencode.json. The provider is chosen with --provider / OPENCODE_REVIEW_REPORT_PROVIDER
-# (default GEMINI). See the "Required environment variables" section of SKILL.md.
+# (default OPENAI). See the "Required environment variables" section of SKILL.md.
 
 # Defaults
 PR_NUMBER=""
 BASE_BRANCH="main"
-OPENCODE_MODEL="gemini-2.5-pro"
+OPENCODE_MODEL="gpt-5.6-sol"
 # Provider selector (GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER).
-# Default GEMINI; override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. For non-GEMINI providers you must
+# Default OPENAI; override with --provider or the OPENCODE_REVIEW_REPORT_PROVIDER env var. For non-OPENAI providers you must
 # also pass a matching --model (and export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
 # OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR); lib/resolve-provider.sh fails fast otherwise.
-OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
+OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}"
 OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
 OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED="${OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED:-0}"
 OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS="${OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS:-}"
@@ -95,18 +95,18 @@ while [[ $# -gt 0 ]]; do
     --help|-h)
       echo "Usage: local-review.sh [OPTIONS]"
       echo ""
-      echo "Run Gemini code review locally using the same scripts as CI."
+      echo "Run the AI code review locally using the same scripts as CI."
       echo ""
       echo "Options:"
       echo "  --pr NUMBER          Review a specific PR (fetches metadata via gh CLI)"
       echo "  --base BRANCH        Base branch to diff against (default: main)"
-      echo "  --model MODEL        Primary review model ID (default: gemini-2.5-pro). Must"
-      echo "                       be a model of the selected provider (e.g. gpt-5.5 for OPENAI)."
+      echo "  --model MODEL        Primary review model ID (default: gpt-5.6-sol). Must"
+      echo "                       be a model of the selected provider (e.g. gemini-2.5-pro for GEMINI)."
       echo "  --provider PROVIDER  GEMINI | COPILOT | OPENAI | ANTHROPIC |"
       echo "                       OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC |"
       echo "                       OPENCODE-GO-RESPONSES |"
       echo "                       OPEN_ROUTER"
-      echo "                       (default: GEMINI; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
+      echo "                       (default: OPENAI; or set OPENCODE_REVIEW_REPORT_PROVIDER)"
       echo "  --file-limit NUMBER Block review above this post-filter file count (default: 100)"
       echo "  --exclude-deleted    Exclude deleted paths from review; model still receives their names"
       echo "  --exclude-generated PATH  Exclude a generated file or directory from review (repeatable)"
@@ -126,8 +126,8 @@ while [[ $# -gt 0 ]]; do
       echo "      OPENCODE-GO-ANTHROPIC → OPENCODE_GO_ANTHROPIC_API_KEY  (URL is the fixed Zen base)"
       echo "      OPENCODE-GO-RESPONSES → OPENCODE_GO_OPENAI_API_KEY     (URL is the fixed Zen base)"
       echo "      OPEN_ROUTER           → OPENCODE_OPENROUTER_API_KEY    (URL is the fixed OpenRouter base)"
-      echo "  - For any non-GEMINI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY"
-      echo "    and OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini model IDs)"
+      echo "  - For any non-OPENAI provider also export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY"
+      echo "    and OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (that provider's model IDs)"
       echo "  - gh CLI installed and authenticated (for --pr and --post)"
       echo "  - jq installed"
       exit 0
@@ -210,8 +210,8 @@ fi
 # also what review-in-chunks.sh / aggregate-reviews.sh consume.
 export OPENCODE_REVIEW_REPORT_PROVIDER
 export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="$OPENCODE_MODEL"
-export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gemini-2.5-pro}"
-export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
+export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review

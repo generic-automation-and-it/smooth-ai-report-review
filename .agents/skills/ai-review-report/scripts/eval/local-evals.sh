@@ -15,15 +15,15 @@
 # Usage:
 #   ./local-evals.sh [--provider P] [--model M] [--samples N] [--recall-threshold N] [--filter SUBSTR]
 #
-#   --provider P           GEMINI (default) | COPILOT | OPENAI | ANTHROPIC |
+#   --provider P           OPENAI (default) | GEMINI | COPILOT | ANTHROPIC |
 #                          OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC |
 #                          OPENCODE-GO-RESPONSES | OPEN_ROUTER
 #                          (or set OPENCODE_REVIEW_REPORT_PROVIDER)
 #   --model M              chunk-review model under eval (default: the
 #                          OPENCODE_REVIEW_REPORT_MODEL_PRIMARY env/Variable, else
-#                          gemini-3.1-pro-preview). For non-GEMINI providers also
+#                          gpt-5.6-sol). For non-OPENAI providers also
 #                          export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY /
-#                          OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (non-gemini ids)
+#                          OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR (that provider's ids)
 #                          — else they default to --model; lib/resolve-provider.sh
 #                          fails fast on a gemini id under a non-GEMINI provider.
 #   --samples N            runs per fixture (default 1; >1 = precision worst-case, recall majority)
@@ -34,8 +34,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}"
-OPENCODE_MODEL="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gemini-3.1-pro-preview}"
+OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}"
+OPENCODE_MODEL="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gpt-5.6-sol}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

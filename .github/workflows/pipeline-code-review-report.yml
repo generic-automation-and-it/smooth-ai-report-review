@@ -277,8 +277,9 @@ jobs:
       )
 
     env:
-      # Provider selector, default GEMINI. Allowed:
+      # Provider selector, default OPENAI. Allowed:
       #   GEMINI | COPILOT | OPENAI | ANTHROPIC | OPENCODE-GO-OPENAI | OPENCODE-GO-ANTHROPIC | OPENCODE-GO-RESPONSES | OPEN_ROUTER
+      # OPENAI also requires OPENCODE_REVIEW_REPORT_OPENAI_URL plus OPENCODE_OPENAI_API_KEY.
       # OpenCode Go is split in three because its Zen gateway serves three SDK surfaces:
       # OpenAI-compatible (deepseek/kimi), Anthropic-compatible (qwen/minimax),
       # and OpenAI Responses (gpt/grok/muse) —
@@ -318,7 +319,7 @@ jobs:
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'OPEN_ROUTER') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'OPEN_ROUTER') ||
         (inputs.model_preset == 'OpenRouter MiniMax M3' && 'OPEN_ROUTER') ||
-        vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'GEMINI' }}
+        vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'OPENAI' }}
       OPENCODE_REVIEW_REPORT_PROVIDER_ID: >-
         ${{
         ((inputs.model_preset == 'Anthropic Claude Opus 4.8' || inputs.model_preset == 'Anthropic Claude Sonnet 4.6' || inputs.model_preset == 'Anthropic Claude Haiku 4.5') && 'anthropic') ||
@@ -333,7 +334,7 @@ jobs:
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-ANTHROPIC' && 'go-anthropic') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPENCODE-GO-RESPONSES' && 'go-responses') ||
         (vars.OPENCODE_REVIEW_REPORT_PROVIDER == 'OPEN_ROUTER' && 'openrouter') ||
-        'gemini' }}
+        'openai' }}
       # All eight providers' credentials are exported at job scope so opencode's
       # {env:OPENCODE_<P>_*} substitution in the OPENCODE_CONFIG file
       # resolves for whichever provider is selected. Unused pairs resolve empty and
@@ -379,7 +380,7 @@ jobs:
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
         (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
-        inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gemini-3.1-pro-preview' }}
+        inputs.model || vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gpt-5.6-sol' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: >-
         ${{
         (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
@@ -408,7 +409,7 @@ jobs:
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
         (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
-        vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gemini-2.5-pro' }}
+        vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gpt-5.5' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: >-
         ${{
         (inputs.model_preset == 'Anthropic Claude Opus 4.8' && 'claude-opus-4-8') ||
@@ -437,7 +438,7 @@ jobs:
         (inputs.model_preset == 'OpenRouter Qwen3.7 Plus' && 'qwen/qwen3.7-plus') ||
         (inputs.model_preset == 'OpenRouter GLM-5.1' && 'z-ai/glm-5.1') ||
         (inputs.model_preset == 'OpenRouter MiniMax M3' && 'minimax/minimax-m3') ||
-        vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gemini-3-flash-preview' }}
+        vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gpt-5.6-terra' }}
       # Optional custom opencode.json source. Precedence: opencode_config input
       # → OPENCODE_REVIEW_REPORT_CONFIG Variable → built-in.
       OPENCODE_REVIEW_REPORT_CONFIG: ${{ inputs.opencode_config || vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}

@@ -75,7 +75,7 @@ get_model_display_name() {
 }
 
 get_provider_display_name() {
-  case "${OPENCODE_REVIEW_REPORT_PROVIDER:-GEMINI}" in
+  case "${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}" in
     GEMINI)
       echo "Google Gemini"
       ;;
@@ -119,7 +119,7 @@ OPENCODE_PROVIDER_DISPLAY_NAME=$(get_provider_display_name)
 # probe, so the dead-orchestrator case normally never reaches this chain's
 # fallback. The orchestrator id is an explicit, independently-tunable env var
 # — no longer derived from the review model.
-ORCHESTRATOR_MODEL_ID="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gemini-3-flash-preview}"
+ORCHESTRATOR_MODEL_ID="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
 
 echo "Orchestrator model: $ORCHESTRATOR_MODEL_ID (review model was $OPENCODE_MODEL_ID)"
 

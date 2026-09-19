@@ -107,11 +107,15 @@ jobs:
           # gh CLI (preinstalled on ubuntu-latest) auth for --pr / --post.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ── Provider selection + credentials ──────────────────────────────
-          # Default provider is GEMINI. To use another, set OPENCODE_REVIEW_REPORT_PROVIDER
-          # and pass a matching --model plus the SECONDARY/ORCHESTRATOR model ids.
-          # Only the selected provider's key/url below must be set. See the repo
-          # README "Environment variables" table for the full matrix.
+          # Default provider is OPENAI (chain: gpt-5.6-sol / gpt-5.5 / gpt-5.6-terra).
+          # OPENAI has no hardcoded base URL, so OPENCODE_REVIEW_REPORT_OPENAI_URL is
+          # required as well as the key. To use another provider, set
+          # OPENCODE_REVIEW_REPORT_PROVIDER and pass a matching --model plus the
+          # SECONDARY/ORCHESTRATOR model ids. Only the selected provider's key/url
+          # below must be set. See the repo README "Environment variables" table.
           OPENCODE_REVIEW_REPORT_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_PROVIDER }}
+          OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
+          OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}
           OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
           OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
           # … add the other providers' *_URL vars / *_API_KEY secrets as needed
