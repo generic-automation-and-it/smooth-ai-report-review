@@ -49,19 +49,34 @@ if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
 fi
 ok "exact AGENTS.md basenames are excluded for native v2 scope loading"
 
-# The config declares `.agents/rules/*.md` AND `.agents/rules/**/*.md`; on v2
-# neither is resolved, so this finder is the only thing that loads them. Both
-# glob forms are one recursive `find` here — the pair exists in the config
-# because v1's glob engine distinguished them, not because they name different
-# files. A config entry with no counterpart here is declared-but-never-loaded.
+# On v2 nothing resolves the config's `instructions` array, so
+# find-context-files.sh is the only thing that loads those files. The docs
+# state that as a guarantee ("adding an entry without adding it here ships a
+# rule file that silently never reaches the model"), so the test has to check
+# the guarantee, not a hardcoded pair: a third tree added to the config must
+# fail CI until the finder enumerates it too. Deriving the list from the config
+# is the difference between testing the invariant and testing two examples.
 CONFIG="$SCRIPT_DIR/../assets/opencode.json"
-for declared in '.agents/rules' '.github/instructions'; do
-  grep -Fq "\"${declared}/" "$CONFIG" \
-    || fail "config no longer declares ${declared}/ in instructions — update this test with it"
-  grep -Fq "find ${declared} -type f" "$FINDER" \
-    || fail "config declares ${declared}/ but find-context-files.sh never enumerates it"
-done
-ok "every instructions default the config declares is also loaded explicitly"
+declared_roots="$(python3 - "$CONFIG" <<'PYEOF'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+roots = []
+for entry in cfg.get("instructions", []):
+    if "://" in entry:            # URLs are not a filesystem tree
+        continue
+    head = entry.split("*", 1)[0].rstrip("/")   # prefix before the first glob
+    if "/" in head and head not in roots:
+        roots.append(head)
+print("\n".join(roots))
+PYEOF
+)"
+[ -n "$declared_roots" ] || fail "could not derive any instructions root from $CONFIG"
+while IFS= read -r root; do
+  [ -n "$root" ] || continue
+  grep -Fq "find ${root} -type f" "$FINDER" \
+    || fail "opencode.json declares instructions under '${root}/' but find-context-files.sh never enumerates it — on v2 those files would be declared and never loaded"
+done <<< "$declared_roots"
+ok "every instructions root the config declares is enumerated by the finder ($(echo "$declared_roots" | tr '\n' ' ' | sed 's/ $//'))"
 
 # Scoped rules are excluded on purpose: they reach a review through
 # MANDATORY_CONTEXT_FILES, which the consuming repo controls per-run. Pulling
