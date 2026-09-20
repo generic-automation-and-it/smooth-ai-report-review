@@ -7,6 +7,12 @@ HEALTH="$SCRIPT_DIR/lib/opencode-health.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# Every probe runs under `env -i` — the same isolation test-install-opencode.sh
+# uses. Without it the caller's environment leaks in, and a developer with
+# OPENCODE_CONFIG exported saw the suite abort on its FIRST nominal-success
+# case: the inherited value activates the binding check while the stub emits no
+# config source, so the script correctly exits 3 and the test reads as a broken
+# gate rather than a leaky harness.
 fail() { echo "❌ $*" >&2; exit 1; }
 pass=0
 ok() { pass=$((pass + 1)); echo "✅ $*"; }
@@ -31,13 +37,13 @@ STUB
 chmod +x "$TMP/bin/opencode"
 
 : > "$TMP/calls"
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/success.out"
 grep -qx 'api get /api/info' "$TMP/calls" || fail "probe did not use the supported v2 API command"
 grep -q 'service healthy' "$TMP/success.out" || fail "valid /api/info payload was not accepted"
 ok "valid v2 /api/info payload passes"
 
-if env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+if env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   STUB_PAYLOAD='<html>not health json</html>' OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 \
   bash "$HEALTH" > "$TMP/invalid.out" 2>&1; then
   fail "non-JSON payload unexpectedly passed"
@@ -45,7 +51,7 @@ fi
 grep -q 'invalid payload' "$TMP/invalid.out" || fail "invalid payload failure was not actionable"
 ok "HTML/non-info payload fails"
 
-if env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+if env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   STUB_SLEEP=3 OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=1 \
   bash "$HEALTH" > "$TMP/timeout.out" 2>&1; then
   fail "timed-out probe unexpectedly passed"
@@ -61,7 +67,7 @@ ok "wedged v2 service probe is bounded"
 MANAGED="$TMP/opencode.resolved.json"
 printf '{}\n' > "$MANAGED"
 
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   OPENCODE_CONFIG="$MANAGED" \
   STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"$MANAGED\"}]" \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/bound.out" \
@@ -70,7 +76,7 @@ grep -q 'service healthy' "$TMP/bound.out" || fail "bound run did not report hea
 ok "service bound to the managed config passes"
 
 _health_rc=0
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   OPENCODE_CONFIG="$MANAGED" \
   STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"/home/dev/.config/opencode/opencode.json\"}]" \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/unbound.out" 2>&1 || _health_rc=$?
@@ -85,7 +91,7 @@ ok "service bound to a foreign config exits 3 with an actionable fix"
 # reviewing under an unknown provider and permission policy. Exit 3, not 1 —
 # exit 1 is advisory in CI, which would re-open the hole for this path only.
 _health_rc=0
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   OPENCODE_CONFIG="$MANAGED" \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/nocfg.out" 2>&1 || _health_rc=$?
 [ "$_health_rc" -eq 3 ] \
@@ -97,14 +103,14 @@ ok "an unverifiable binding fails closed and is distinguishable from a foreign o
 # The split is the whole point: a liveness blip must stay advisory (exit 1) so
 # CI's non-blocking treatment of LADR-028 survives, while 3 stays fatal.
 _health_rc=0
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   STUB_PAYLOAD='<html>not health json</html>' OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 \
   bash "$HEALTH" > "$TMP/live.out" 2>&1 || _health_rc=$?
 [ "$_health_rc" -eq 1 ] \
   || fail "a liveness failure must stay advisory (exit 1), got $_health_rc"
 ok "a liveness failure stays exit 1 (advisory) and never borrows the fatal code"
 
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"/somewhere/else.json\"}]" \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/unset.out" \
   || fail "an unset OPENCODE_CONFIG must skip the binding check"
@@ -116,7 +122,7 @@ ok "unset OPENCODE_CONFIG skips the binding check"
 # was enough for CI to proceed with the managed config never verified. Liveness
 # is now recorded and the binding question is asked regardless.
 _health_rc=0
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   OPENCODE_CONFIG="$MANAGED" STUB_RC=1 \
   STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"/home/dev/.config/opencode/opencode.json\"}]" \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/live_fail_foreign.out" 2>&1 || _health_rc=$?
@@ -129,7 +135,7 @@ ok "a liveness failure no longer bypasses a foreign-binding detection"
 # unreadable is ONE fault, already reported, and the run fails at its first
 # model call anyway.
 _health_rc=0
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   OPENCODE_CONFIG="$MANAGED" STUB_RC=1 \
   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/live_fail_unread.out" 2>&1 || _health_rc=$?
 [ "$_health_rc" -eq 1 ] \
@@ -147,7 +153,7 @@ ok "service-down plus unreadable binding stays advisory (LADR-028 preserved)"
 # escalation is removed, so it is also its own mutation test.
 _health_rc=0
 _t0=$(date +%s)
-env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   STUB_IGNORE_TERM=1 STUB_SLEEP=120 OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=2 \
   bash "$HEALTH" > "$TMP/wedged.out" 2>&1 || _health_rc=$?
 _elapsed=$(( $(date +%s) - _t0 ))
