@@ -46,10 +46,28 @@ done < ci_temp/changed_dirs.txt
 # should NOT be auto-included - they are only relevant when their feature area has changes
 
 # opencode v2 accepts an `instructions` config array but currently resolves
-# none of its files/globs/URLs. Preserve the shipped .github instruction
-# defaults through this explicit, working channel until v2 implements that
-# field. Dot-prefixed context paths are included in every chunk by
-# review-in-chunks.sh.
+# none of its files/globs/URLs. Every default the config declares must
+# therefore be enumerated here too, or it is declared and never loaded — the
+# LADR-087 false-OK shape. Keep the two lists in step: adding an entry to
+# `assets/opencode.json`'s `instructions` without adding it here ships a rule
+# file that silently never reaches the model.
+#
+# `find` recurses, so one traversal covers BOTH glob forms the config carries
+# (`dir/*.md` and `dir/**/*.md`). The pair exists in the config because v1's
+# glob engine treated them differently; it is not two different file sets.
+#
+# `.agents/rules-scoped/**` is deliberately NOT here. Scoped rules reach a
+# review through `MANDATORY_CONTEXT_FILES`, which the consuming repo controls
+# per-run; pulling the whole scoped tree into every chunk would duplicate them
+# and inflate prompts for chunks the scope does not apply to.
+#
+# Both trees are consumer-repo paths and are absent from this repo, so each
+# block is existence-guarded. Dot-prefixed context paths are included in every
+# chunk by review-in-chunks.sh.
+if [ -d .agents/rules ]; then
+  find .agents/rules -type f -name '*.md' \
+    >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
+fi
 if [ -d .github/instructions ]; then
   find .github/instructions -type f -name '*.instructions.md' \
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
