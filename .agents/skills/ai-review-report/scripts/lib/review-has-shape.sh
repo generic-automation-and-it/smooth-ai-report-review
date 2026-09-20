@@ -36,43 +36,58 @@ else
   cat > "$_rhs_src"
 fi
 
-# Two INDEPENDENT signals are required, not one marker: a severity/priority
-# marker AND a `file:line` anchor. Only the mandated "None found." placeholder
-# is exempt, because there the marker IS the content.
+# Completeness is decided by the LAST per-file section, then by two
+# INDEPENDENT signals within it.
 #
-# This replaced four rounds of regex tuning, and the tuning is why. Each round
-# found a longer prefix that still looked complete — a bare emoji, then the
-# emoji plus the `[VERIFIED] High Priority:` label — because the template emits
-# its parts in order, so EVERY truncation point leaves a valid-looking prefix.
-# Detecting completeness from a prefix is not winnable by inspection; the fifth
-# candidate regex still accepted both truncations.
+# Scope first, because a chunk is almost always MULTI-FILE and an earlier
+# complete section says nothing about whether the model finished. A body that
+# reports "None found." for file A and is then cut off part-way through file B
+# is not a completed review of that chunk — but every earlier version of this
+# predicate searched the whole body, so file A's result vouched for file B.
+# Narrowing to the final section is what makes the signals mean "the model
+# reached the end" rather than "the model started".
 #
-# The anchor wins because of WHERE it sits. The template puts `file:line` at the
-# end of the finding, after the description, so a response cut off in the
-# scaffolding has not reached it. The two signals are orthogonal: narration can
-# mention a filename, and a truncated finding can carry a severity marker, but
-# neither produces both.
+# Then two signals, because one marker is never enough. Four rounds of regex
+# tuning each closed one truncation shape and the next round found a longer
+# prefix, since the template emits its parts in order and every cut leaves a
+# valid-looking prefix. The `file:line` anchor works because of WHERE it sits —
+# at the end of a finding, after the description — so scaffolding cut short
+# never reaches it, and the signals are orthogonal: narration can name a file,
+# a truncated finding can carry a marker, neither produces both.
 #
-# Accepted cost, stated because it is a real fail-closed risk: a finding written
-# with no `file:line` is rejected and takes the fallback + retry + fail-closed
-# path. That shape is already off-contract — LADR-055 routes items with no
-# single location to `residual_risks`/`testing_gaps`, not to Issues Found — and
-# fail-closed is the correct direction for a gate whose worst outcome is an
-# unreviewed chunk counted as clean.
+# Accepted cost, stated because it is a real fail-closed risk: a finding
+# written with no `file:line` is rejected and takes the retry + fail-closed
+# path. That shape is already off-contract — LADR-055 routes location-less
+# items to `residual_risks`/`testing_gaps` — and fail-closed is the correct
+# direction for a gate whose worst outcome is an unreviewed chunk counted clean.
 
-# The mandated placeholder for an empty severity section. Exempt from the anchor
-# requirement: a clean review has no finding, so it has no location to cite.
-grep -qiF 'none found' "$_rhs_src" && exit 0
+# Narrow to the last per-file section. No heading at all means the whole body
+# is the section, which keeps LADR-077's deliberate acceptance of findings
+# written without the template scaffolding.
+_rhs_tail="$(mktemp)"
+trap 'rm -f "$_rhs_tail" 2>/dev/null' EXIT
+awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
+  "$_rhs_src" > "$_rhs_tail" 2>/dev/null || cp "$_rhs_src" "$_rhs_tail"
+[ -s "$_rhs_tail" ] || cp "$_rhs_src" "$_rhs_tail" 2>/dev/null
+
+# The mandated placeholder for an empty severity section. Exempt from the
+# anchor requirement: a clean result has no finding, so it has no location to
+# cite. Scoped to the last section, so it can only vouch for itself.
+grep -qiF 'none found' "$_rhs_tail" && exit 0
 
 # Anchor: `some/file.ext:123`. Required for every finding-based acceptance.
-if grep -qE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' "$_rhs_src"; then
+if grep -qE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' "$_rhs_tail"; then
   # Severity emoji, each as its own -e pattern: these are multi-byte and a
   # BRACKET expression over them decomposes into bytes and is locale-dependent.
   # (Alternation is safe; the bracket form is the trap.)
-  grep -qE -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$_rhs_src" && exit 0
-  # "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling. Safe
-  # to accept on its own here because the anchor is already established; on its
-  # own it matches ordinary prose ("check the high priority areas").
-  grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_src" && exit 0
+  grep -qE -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$_rhs_tail" && exit 0
+  # Priority wording additionally requires the mandated section marker. On its
+  # own it matches ordinary prose, and prose can carry a location too — "check
+  # the high priority areas in run-review.sh:1196" satisfied both signals while
+  # containing no review. Narration does not emit `Issues Found`.
+  if grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_tail" \
+     && grep -qiF 'issues found' "$_rhs_tail"; then
+    exit 0
+  fi
 fi
 exit 1

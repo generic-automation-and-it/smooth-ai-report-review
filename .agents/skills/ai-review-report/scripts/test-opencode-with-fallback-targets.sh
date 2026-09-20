@@ -205,6 +205,21 @@ predicate_case reject "narration that happens to name a file and line" \
   'Reading run-review.sh:1196 next.\n'
 predicate_case reject "an anchor with no severity marker at all" \
   'The file auth.cs:12 was examined.\n'
+
+# Completeness is scoped to the LAST per-file section. A chunk is almost always
+# multi-file, and an earlier complete section says nothing about whether the
+# model finished — every earlier version searched the whole body, so file A's
+# "None found." vouched for a file B that was never reviewed.
+predicate_case reject "multi-file, truncated after the first file's result" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b.cs\x60\n\n**Issues Found:**\n'
+predicate_case reject "multi-file, truncated mid-finding in the last file" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 x at a.cs:1\n\n### \xf0\x9f\x93\x84 File: \x60b.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority:'
+predicate_case accept "multi-file, every section complete" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 token logged at b.cs:12\n'
+# The CONJUNCTION, which is what the two-signal rule actually accepts. Both
+# halves were tested separately and passed; the combination never was.
+predicate_case reject "narration carrying a priority AND a location" \
+  'Let me check the high priority areas in run-review.sh:1196 before reviewing.\n'
 # The "None found." clause keeps a bare literal ON PURPOSE: there the marker IS
 # the content — it is the complete statement the template asks for when there
 # is nothing to report — and a response cut off inside it does not match.
