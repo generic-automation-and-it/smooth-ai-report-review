@@ -109,4 +109,32 @@ env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   || fail "an unset OPENCODE_CONFIG must skip the binding check"
 ok "unset OPENCODE_CONFIG skips the binding check"
 
+# --- A liveness failure must not smuggle the binding check past us ----------
+# The liveness result used to `exit 1` immediately, which skipped the binding
+# check entirely — and exit 1 is advisory in CI, so one flaky /api/info probe
+# was enough for CI to proceed with the managed config never verified. Liveness
+# is now recorded and the binding question is asked regardless.
+_health_rc=0
+env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+  OPENCODE_CONFIG="$MANAGED" STUB_RC=1 \
+  STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"/home/dev/.config/opencode/opencode.json\"}]" \
+  OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/live_fail_foreign.out" 2>&1 || _health_rc=$?
+[ "$_health_rc" -eq 3 ] \
+  || fail "a foreign binding must still be fatal when liveness also failed (got $_health_rc)"
+ok "a liveness failure no longer bypasses a foreign-binding detection"
+
+# The converse must stay true, or every blip becomes a hard abort and LADR-028's
+# deliberate non-blocking stance is gone: service not answering AND binding
+# unreadable is ONE fault, already reported, and the run fails at its first
+# model call anyway.
+_health_rc=0
+env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+  OPENCODE_CONFIG="$MANAGED" STUB_RC=1 \
+  OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/live_fail_unread.out" 2>&1 || _health_rc=$?
+[ "$_health_rc" -eq 1 ] \
+  || fail "service-down plus unreadable binding must stay advisory, not fatal (got $_health_rc)"
+grep -q 'one fault, not two' "$TMP/live_fail_unread.out" \
+  || fail "the single-fault case was not explained"
+ok "service-down plus unreadable binding stays advisory (LADR-028 preserved)"
+
 echo "All $pass opencode-health tests passed"

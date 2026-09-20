@@ -64,37 +64,50 @@ while [ "$SECONDS" -lt "$DEADLINE" ]; do
   sleep 1
 done
 
+# Liveness is RECORDED, not acted on yet. Exiting here would skip the binding
+# check below, and a liveness failure is advisory in CI — so a blip used to be
+# enough to make CI proceed with the managed config never verified at all,
+# which is the hole the binding check exists to close. Whatever the probe says,
+# the binding question still gets asked.
+_live_rc=0
 if kill -0 "$_api_pid" 2>/dev/null; then
   kill "$_api_pid" 2>/dev/null || true
   wait "$_api_pid" 2>/dev/null || true
   _api_pid=""
-  echo "❌ opencode v2 API info probe timed out after ${TIMEOUT}s." >&2
+  echo "⚠️ opencode v2 API info probe timed out after ${TIMEOUT}s." >&2
   tail -n 20 "$LOG" >&2 2>/dev/null || true
-  exit 1
-fi
-
-_api_rc=0
-wait "$_api_pid" || _api_rc=$?
-_api_pid=""
-if [ "$_api_rc" -ne 0 ]; then
-  echo "⚠️ opencode v2 API info probe failed (exit ${_api_rc})." >&2
-  tail -n 20 "$LOG" >&2 2>/dev/null || true
-  exit 1
-fi
-
-if command -v jq >/dev/null 2>&1; then
-  jq -e '(.version | type == "string" and length > 0) and (.pid | type == "number")' "$OUT" >/dev/null 2>&1 || {
-    echo "⚠️ opencode v2 API info probe returned an invalid payload." >&2
-    tail -n 20 "$OUT" >&2 2>/dev/null || true
-    exit 1
-  }
+  _live_rc=1
 else
-  grep -q '"version"[[:space:]]*:' "$OUT" 2>/dev/null && \
-    grep -q '"pid"[[:space:]]*:' "$OUT" 2>/dev/null || {
+  _api_rc=0
+  wait "$_api_pid" || _api_rc=$?
+  _api_pid=""
+  if [ "$_api_rc" -ne 0 ]; then
+    echo "⚠️ opencode v2 API info probe failed (exit ${_api_rc})." >&2
+    tail -n 20 "$LOG" >&2 2>/dev/null || true
+    _live_rc=1
+  fi
+fi
+
+if [ "$_live_rc" -eq 0 ]; then
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '(.version | type == "string" and length > 0) and (.pid | type == "number")' "$OUT" >/dev/null 2>&1 || {
       echo "⚠️ opencode v2 API info probe returned an invalid payload." >&2
       tail -n 20 "$OUT" >&2 2>/dev/null || true
-      exit 1
+      _live_rc=1
     }
+  else
+    grep -q '"version"[[:space:]]*:' "$OUT" 2>/dev/null && \
+      grep -q '"pid"[[:space:]]*:' "$OUT" 2>/dev/null || {
+        echo "⚠️ opencode v2 API info probe returned an invalid payload." >&2
+        tail -n 20 "$OUT" >&2 2>/dev/null || true
+        _live_rc=1
+      }
+  fi
+fi
+
+if [ "$_live_rc" -eq 0 ] && [ ! -s "$OUT" ]; then
+  echo "⚠️ opencode v2 API info probe returned no data." >&2
+  _live_rc=1
 fi
 
 # A v2 background service resolves its config ONCE, from the environment of
@@ -133,15 +146,21 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
     : > "$CFG"
   fi
   wait "$_cfg_pid" 2>/dev/null || true
-  if [ ! -s "$CFG" ]; then
+  if [ ! -s "$CFG" ] && [ "$_live_rc" -ne 0 ]; then
+    # Unverifiable AND the service is not answering: one fault, already
+    # reported. Calling this a config mismatch would turn every liveness blip
+    # into a hard abort, which is exactly what LADR-028 chose not to do — and
+    # the run will fail at its first model call anyway if opencode is really
+    # down. Stay advisory.
+    echo "⚠️ Binding not verified either — the service is not answering, so this is one fault, not two." >&2
+  elif [ ! -s "$CFG" ]; then
     echo "❌ Could not verify which config opencode is using — 'opencode debug config' returned nothing." >&2
     echo "    OPENCODE_CONFIG=${OPENCODE_CONFIG}" >&2
     echo "    Unverified is treated as unbound: continuing risks reviewing under a foreign provider, model chain and permission policy with nothing in the output to say so." >&2
     echo "    Usual cause is a wedged service — 'opencode service stop', then start this review again." >&2
     echo "    If the command itself is gone from this opencode build, that is a toolchain break, not a stale service." >&2
     exit 3
-  fi
-  if ! grep -qF "$OPENCODE_CONFIG" "$CFG"; then
+  elif ! grep -qF "$OPENCODE_CONFIG" "$CFG"; then
     echo "❌ opencode is NOT using the managed config for this run." >&2
     echo "    OPENCODE_CONFIG=${OPENCODE_CONFIG}" >&2
     echo "    A v2 background service binds its config when it starts, so an already-running service ignores this value." >&2
@@ -151,10 +170,10 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
   fi
 fi
 
-if [ -s "$OUT" ]; then
-  echo "✓ opencode v2 service healthy (/api/info)"
-  exit 0
+# Binding is settled (or deliberately not asserted). Only now does the recorded
+# liveness result decide the advisory exit.
+if [ "$_live_rc" -ne 0 ]; then
+  exit 1
 fi
-
-echo "⚠️ opencode v2 API info probe returned no data." >&2
-exit 1
+echo "✓ opencode v2 service healthy (/api/info)"
+exit 0
