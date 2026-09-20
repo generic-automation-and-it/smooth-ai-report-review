@@ -65,7 +65,7 @@ fi
 # is the section, which keeps LADR-077's deliberate acceptance of findings
 # written without the template scaffolding.
 _rhs_tail="$(mktemp)"
-trap 'rm -f "$_rhs_tail" 2>/dev/null' EXIT
+trap 'rm -f "$_rhs_src" "$_rhs_tail" 2>/dev/null' EXIT
 awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
   "$_rhs_src" > "$_rhs_tail" 2>/dev/null || cp "$_rhs_src" "$_rhs_tail"
 [ -s "$_rhs_tail" ] || cp "$_rhs_src" "$_rhs_tail" 2>/dev/null

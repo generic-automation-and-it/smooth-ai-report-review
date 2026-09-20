@@ -69,6 +69,9 @@ jobs:
             fi
           fi
 
+      - name: Verify OpenCode v2 plugin contract
+        run: bash .agents/skills/ai-review-report/scripts/test-opencode-v2-plugin.sh
+
       - name: Patch non-tag publish version
         run: |
           set -euo pipefail
