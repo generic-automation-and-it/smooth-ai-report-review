@@ -112,7 +112,7 @@ run_opencode() {
   # calibrated against that padding, so on v2 (which routes narration to
   # stderr) the floor started rejecting valid 138-byte reviews and burning the
   # whole fallback chain re-asking for them. This branch only ever ADDS
-  # acceptance: with OPENCODE_OUTPUT_MARKER unset every call site behaves
+  # acceptance: with OPENCODE_OUTPUT_SHAPE_CHECK unset every call site behaves
   # byte-identically to before, so the summary, semantic-grouping and analyse
   # callers are untouched.
   # Was a single literal marker. That could not express the real condition —
