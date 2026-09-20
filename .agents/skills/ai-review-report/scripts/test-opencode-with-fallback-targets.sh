@@ -174,6 +174,24 @@ predicate_case accept "the mandated empty-section placeholder" \
   '**Issues Found:**\n- None found.\n'
 predicate_case reject "the section marker alone (truncated)" \
   '**Issues Found:**\n'
+# A marker is not a finding. `grep -qF` on the emoji character asked "is this
+# byte present", not "did the model write a review", so a response truncated at
+# the marker passed and an unreviewed chunk would be aggregated with no
+# failed-coverage signal. Every clause was audited against truncation this
+# time, not only the one that was reported.
+predicate_case reject "a bare severity emoji with no newline" \
+  '\xf0\x9f\x94\xb4'
+predicate_case reject "a list marker and emoji, then nothing" \
+  '- \xf0\x9f\x9f\xa0\n'
+predicate_case reject "an emoji followed only by punctuation" \
+  '- \xf0\x9f\x9f\xa0 :\n'
+predicate_case accept "an emoji followed by actual finding text" \
+  '- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at auth.cs:12\n'
+# The "None found." clause keeps a bare literal ON PURPOSE: there the marker IS
+# the content — it is the complete statement the template asks for when there
+# is nothing to report — and a response cut off inside it does not match.
+predicate_case reject "a truncated None found placeholder" \
+  '**Issues Found:**\n- None fou'
 predicate_case reject "empty output" ''
 echo "✓ shape predicate: narration rejected, real findings accepted"
 

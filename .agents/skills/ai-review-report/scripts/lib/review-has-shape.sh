@@ -36,12 +36,26 @@ else
   cat > "$_rhs_src"
 fi
 
-# Severity emoji: -F with one -e each, because these are multi-byte and a
-# bracket expression over them is locale-dependent. Strong evidence on its own
-# — exploration narration does not emit 🔴/🟠/🟡/🔵.
-grep -qF -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$_rhs_src" && exit 0
-# The mandated placeholder for an empty severity section. Also strong: it is
-# the literal string the template asks for when there is nothing to report.
+# Severity emoji, each as its own -e pattern: these are multi-byte and a
+# BRACKET expression over them decomposes into bytes and is locale-dependent.
+# (Alternation is safe; the bracket form is the trap.)
+#
+# The marker must be followed by actual text on the same line. `grep -qF` on
+# the character alone asked "is this byte present", not "did the model write a
+# finding" — so `- 🟠` and even a bare `🔴` with no newline passed as completed
+# reviews, and an unreviewed chunk would be aggregated with no failed-coverage
+# signal. A real finding always has words after the marker; a response
+# truncated at the marker has none.
+grep -qE -e '🔴[^[:alnum:]]*[[:alnum:]]' \
+         -e '🟠[^[:alnum:]]*[[:alnum:]]' \
+         -e '🟡[^[:alnum:]]*[[:alnum:]]' \
+         -e '🔵[^[:alnum:]]*[[:alnum:]]' "$_rhs_src" && exit 0
+# The mandated placeholder for an empty severity section. Audited against the
+# same truncation threat and deliberately left as a bare literal: here the
+# marker IS the content. "None found." is the complete statement the template
+# asks for when there is nothing to report, and a response cut off inside it
+# ("- None fou") does not match. Adding a content requirement would reject the
+# valid clean review this predicate exists to accept.
 grep -qiF 'none found' "$_rhs_src" && exit 0
 # Priority wording — "High Priority", "🟡 Medium Priority:", "low-priority" —
 # is the WEAK clause, because it matches ordinary prose. "Let me check the high
