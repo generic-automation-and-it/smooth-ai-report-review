@@ -1089,6 +1089,32 @@ check "no uppercase --log-level value survives in the gate's sources" \
   "" "$(_loglevel_offenders)"
 unset -f _loglevel_offenders
 
+# ── A confirmed config-binding failure is fatal in CI too ──────────────────
+# lib/opencode-health.sh exits 3 when the managed config is not confirmed and
+# 1 for a mere liveness blip. Both CI entrypoints must act on 3 and keep 1
+# advisory. A bare `|| true` on the whole call (what shipped first) discards
+# the mismatch too, leaving the binding check as detection with no consequence
+# — CI reviewing under a foreign provider with no LADR-029 lockdown while
+# local-review.sh aborts on the identical condition.
+_health_wiring() {
+  local f="$1"
+  grep -q 'opencode-health.sh" || _health_rc=\$?' "$f" && \
+    grep -q '_health_rc" -eq 3' "$f" && echo wired || echo bare
+}
+check "run-review.sh acts on the fatal binding status" \
+  "wired" "$(_health_wiring "$SCRIPT_DIR/run-review.sh")"
+check "the analyse workflow acts on it too" \
+  "wired" "$(_health_wiring "$REPO_ROOT/.github/workflows/pipeline-ai-analyse.yml")"
+# The EXIT trap owns the unscoped `_rc`; a health variable of that name would
+# clobber the exit code the trap reports (same class as LADR-078's rule).
+check "the health status does not reuse the EXIT trap's _rc global" \
+  "" "$(grep -n 'opencode-health.sh" || _rc=' "$SCRIPT_DIR/run-review.sh" || true)"
+# local-review.sh and the eval harness abort on ANY non-zero already, so the
+# split must not have quietly relaxed them to advisory.
+check "local-review.sh still aborts on any health failure" \
+  "yes" "$(grep -q 'if ! bash "$SCRIPT_DIR/lib/opencode-health.sh"; then' "$SCRIPT_DIR/local-review.sh" && echo yes || echo no)"
+unset -f _health_wiring
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="

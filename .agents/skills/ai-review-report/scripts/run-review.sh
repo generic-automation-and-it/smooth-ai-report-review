@@ -596,7 +596,22 @@ unset _rtk_enabled
 # lib/opencode-health.sh verifies the binding afterwards.
 opencode service stop >/dev/null 2>&1 || true
 opencode stats >/dev/null 2>&1 || true
-bash "$LIB_DIR/opencode-health.sh" || true
+# Exit 3 means the managed config is NOT confirmed (foreign binding, or the
+# binding could not be read) — fatal here too, not just locally. Every other
+# non-zero is a liveness blip and stays advisory, which is LADR-028's
+# deliberate choice: /api/info says nothing about review correctness.
+# `|| true` on the whole call used to discard the mismatch as well, so the
+# binding check was real detection wired to a channel that threw the result
+# away: CI would keep reviewing under a foreign provider, model chain and
+# (worst) with no LADR-029 permission lockdown over untrusted PR code, while
+# `local-review.sh` aborted on the identical condition. NOT named `_rc` — the
+# EXIT trap owns that unscoped global.
+_health_rc=0
+bash "$LIB_DIR/opencode-health.sh" || _health_rc=$?
+if [ "$_health_rc" -eq 3 ]; then
+  echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
+  exit 1
+fi
 
 # 5f. Resolve provider → provider-id (gemini / openai / …). This is the
 # authoritative resolver (matches the post-checkout `Resolve provider/model
