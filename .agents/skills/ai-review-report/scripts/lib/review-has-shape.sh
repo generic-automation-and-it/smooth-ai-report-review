@@ -37,10 +37,29 @@ else
 fi
 
 # Severity emoji: -F with one -e each, because these are multi-byte and a
-# bracket expression over them is locale-dependent.
+# bracket expression over them is locale-dependent. Strong evidence on its own
+# — exploration narration does not emit 🔴/🟠/🟡/🔵.
 grep -qF -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$_rhs_src" && exit 0
-# "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling.
-grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_src" && exit 0
-# The mandated placeholder for an empty severity section.
+# The mandated placeholder for an empty severity section. Also strong: it is
+# the literal string the template asks for when there is nothing to report.
 grep -qiF 'none found' "$_rhs_src" && exit 0
+# Priority wording — "High Priority", "🟡 Medium Priority:", "low-priority" —
+# is the WEAK clause, because it matches ordinary prose. "Let me check the high
+# priority areas before reviewing." is 55 bytes of narration that satisfies it
+# while containing no review at all, and the chunk would then be aggregated as
+# clean with zero findings. It was tolerable while the 200-byte floor ran in
+# front of this predicate; with the floor gone (LADR-087) it is not.
+#
+# So this clause alone is not enough: the mandated section marker has to be
+# present too. That keeps it useful for a model that writes real findings in
+# prose rather than emoji, while narration — which has no `Issues Found`
+# section — is rejected and takes the fallback + fail-closed path.
+#
+# Deliberately NOT promoting `Issues Found` to a standalone clause: the marker
+# is emitted before any content, so a response truncated right after it would
+# pass while containing nothing (the finding-2 shape from the previous round).
+if grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_src" \
+   && grep -qiF 'issues found' "$_rhs_src"; then
+  exit 0
+fi
 exit 1

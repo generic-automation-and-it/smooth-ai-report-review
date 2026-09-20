@@ -141,4 +141,40 @@ grep -q 'lib/review-has-shape.sh' "${SCRIPT_DIR}/review-in-chunks.sh" || {
 }
 echo "✓ both chunk-review call sites use the same predicate as the chunk gate"
 
+# --- The predicate itself, directly (LADR-087) ------------------------------
+# Unit-tested here rather than only through the gate, because the gate-level
+# shape cases live in test-review-chunk-threshold.sh, which aborts early on
+# this repo's known-red assertion and therefore never reaches them.
+#
+# The clause that matters is priority wording: it matches ORDINARY PROSE, so
+# narration satisfied it while containing no review, and the chunk was
+# aggregated as clean with zero findings. It now requires the mandated section
+# marker to co-occur. Emoji and the "None found." placeholder stay standalone —
+# narration emits neither, and LADR-077 chose a generous matcher on purpose
+# because the flag forces REQUEST_CHANGES and a false positive blocks an
+# honest PR.
+predicate_case() { # predicate_case <expected accept|reject> <label> <body>
+  local want="$1" label="$2" body="$3" got
+  if printf '%b' "$body" | bash "$SHAPE"; then got=accept; else got=reject; fi
+  [ "$got" = "$want" ] || {
+    echo "FAIL: shape predicate should $want '$label' but returned $got" >&2
+    exit 1
+  }
+}
+
+predicate_case reject "narration mentioning a priority" \
+  'Let me check the high priority areas before reviewing.\n'
+predicate_case reject "narration mentioning several severities" \
+  'I will look for critical priority and medium priority problems next.\n'
+predicate_case accept "prose findings WITH the mandated section marker" \
+  '**Issues Found:**\n- High Priority: the token is logged in plaintext.\n'
+predicate_case accept "emoji findings without any heading (LADR-077)" \
+  '\xf0\x9f\x9f\xa1 stale link in the doc header.\n'
+predicate_case accept "the mandated empty-section placeholder" \
+  '**Issues Found:**\n- None found.\n'
+predicate_case reject "the section marker alone (truncated)" \
+  '**Issues Found:**\n'
+predicate_case reject "empty output" ''
+echo "✓ shape predicate: narration rejected, real findings accepted"
+
 echo "✓ opencode-with-fallback target tests passed"
