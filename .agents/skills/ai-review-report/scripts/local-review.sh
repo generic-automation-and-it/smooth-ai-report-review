@@ -200,7 +200,7 @@ done
 
 # Validate prerequisites
 if ! command -v opencode &>/dev/null; then
-  echo "❌ opencode CLI not found. Install v2 with: curl -fsSL https://opencode.ai/v2/install | bash"
+  echo "❌ opencode CLI not found. Install with: bash \"$SCRIPT_DIR/lib/install-opencode.sh\""
   exit 1
 fi
 
