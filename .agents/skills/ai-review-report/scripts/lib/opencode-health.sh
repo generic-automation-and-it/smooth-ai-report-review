@@ -38,6 +38,28 @@
 
 set -u
 
+# Terminate a bounded background probe and reap it. SIGTERM first, then SIGKILL
+# after a short grace.
+#
+# `kill` + `wait` alone is not a bound: a wedged process that ignores SIGTERM
+# leaves `wait` blocked forever, so the very timeout this code exists to
+# enforce becomes a no-op and the caller hangs instead of failing. That is the
+# opposite of the intent — the probe is bounded precisely because "opencode is
+# wedged" is the condition it has to detect.
+_oh_terminate() {
+  _oh_pid="$1"
+  _oh_grace=5
+  kill "$_oh_pid" 2>/dev/null || true
+  while [ "$_oh_grace" -gt 0 ] && kill -0 "$_oh_pid" 2>/dev/null; do
+    sleep 1
+    _oh_grace=$((_oh_grace - 1))
+  done
+  if kill -0 "$_oh_pid" 2>/dev/null; then
+    kill -9 "$_oh_pid" 2>/dev/null || true
+  fi
+  wait "$_oh_pid" 2>/dev/null || true
+}
+
 TIMEOUT="${OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT:-30}"
 OUT="/tmp/opencode-health.$$.out"
 LOG="/tmp/opencode-health.$$.log"
@@ -71,8 +93,7 @@ done
 # the binding question still gets asked.
 _live_rc=0
 if kill -0 "$_api_pid" 2>/dev/null; then
-  kill "$_api_pid" 2>/dev/null || true
-  wait "$_api_pid" 2>/dev/null || true
+  _oh_terminate "$_api_pid"
   _api_pid=""
   echo "⚠️ opencode v2 API info probe timed out after ${TIMEOUT}s." >&2
   tail -n 20 "$LOG" >&2 2>/dev/null || true
@@ -142,10 +163,11 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
     sleep 1
   done
   if kill -0 "$_cfg_pid" 2>/dev/null; then
-    kill "$_cfg_pid" 2>/dev/null || true
+    _oh_terminate "$_cfg_pid"
     : > "$CFG"
+  else
+    wait "$_cfg_pid" 2>/dev/null || true
   fi
-  wait "$_cfg_pid" 2>/dev/null || true
   if [ ! -s "$CFG" ] && [ "$_live_rc" -ne 0 ]; then
     # Unverifiable AND the service is not answering: one fault, already
     # reported. Calling this a config mismatch would turn every liveness blip

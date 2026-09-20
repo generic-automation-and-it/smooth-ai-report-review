@@ -23,6 +23,7 @@ if [ "${1:-}" = debug ] && [ "${2:-}" = config ]; then
   exit 0
 fi
 [ "${1:-}" = api ] && [ "${2:-}" = get ] && [ "${3:-}" = /api/info ] || exit 64
+if [ -n "${STUB_IGNORE_TERM:-}" ]; then trap '' TERM INT; fi
 [ -z "${STUB_SLEEP:-}" ] || sleep "$STUB_SLEEP"
 printf '%s\n' "${STUB_PAYLOAD:-{\"version\":\"2.0.11\",\"pid\":42}}"
 exit "${STUB_RC:-0}"
@@ -136,5 +137,23 @@ env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
 grep -q 'one fault, not two' "$TMP/live_fail_unread.out" \
   || fail "the single-fault case was not explained"
 ok "service-down plus unreadable binding stays advisory (LADR-028 preserved)"
+
+# --- A wedged probe that ignores SIGTERM must still be bounded -------------
+# `kill` + `wait` is not a bound: a process that ignores SIGTERM leaves `wait`
+# blocked forever, so the timeout becomes a no-op and the caller hangs instead
+# of failing — the opposite of the intent, since "opencode is wedged" is
+# exactly the condition the probe exists to detect. SIGKILL escalation after a
+# short grace is what makes the deadline real. This case hangs forever if the
+# escalation is removed, so it is also its own mutation test.
+_health_rc=0
+_t0=$(date +%s)
+env PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+  STUB_IGNORE_TERM=1 STUB_SLEEP=120 OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=2 \
+  bash "$HEALTH" > "$TMP/wedged.out" 2>&1 || _health_rc=$?
+_elapsed=$(( $(date +%s) - _t0 ))
+[ "$_health_rc" -ne 0 ] || fail "a wedged probe was reported healthy"
+[ "$_elapsed" -lt 30 ] \
+  || fail "the probe was not bounded — took ${_elapsed}s against a 2s timeout (SIGTERM ignored, no SIGKILL escalation?)"
+ok "a probe ignoring SIGTERM is still killed and bounded (${_elapsed}s)"
 
 echo "All $pass opencode-health tests passed"
