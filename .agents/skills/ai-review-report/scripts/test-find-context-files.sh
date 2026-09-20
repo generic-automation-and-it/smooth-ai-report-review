@@ -17,6 +17,12 @@ mkdir -p "$REPO/ci_temp" "$REPO/src/feature" "$REPO/.github/instructions/backend
 printf 'src/feature/app.ts\0' > "$REPO/ci_temp/changed_files.txt"
 touch "$REPO/AGENTS.md" "$REPO/src/AGENTS.md" "$REPO/src/feature/AGENTS.md"
 touch "$REPO/src/FEATURE_AGENTS.md" "$REPO/src/feature/LOCAL_AGENTS.md"
+# No underscore, on purpose. Every other custom fixture has one, so the suite
+# stayed green even if discovery were narrowed back to `*_AGENTS.md` — the
+# exact defect fixed twice already. The finder accepts every filename ending
+# in AGENTS.md except the exact standard basename; this fixture is what makes
+# the test able to tell the difference.
+touch "$REPO/src/feature/FooAGENTS.md"
 touch "$REPO/docs/AGENTS.md" "$REPO/docs/KEEP_AGENTS.md" "$REPO/docs/rules.txt"
 touch "$REPO/.github/instructions/root.instructions.md"
 touch "$REPO/.github/instructions/backend/nested.instructions.md"
@@ -33,6 +39,7 @@ touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 for expected in \
   src/FEATURE_AGENTS.md \
   src/feature/LOCAL_AGENTS.md \
+  src/feature/FooAGENTS.md \
   docs/KEEP_AGENTS.md \
   docs/rules.txt \
   .github/instructions/root.instructions.md \
