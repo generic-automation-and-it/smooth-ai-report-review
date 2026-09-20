@@ -231,17 +231,24 @@ jobs:
           # pin a concrete commit SHA. A full 40-char SHA is also what the
           # reusable workflow's own ref policy prefers (LADR-059).
           #
-          # IMPORTANT: the SHA MUST be a commit on `main` that contains
+          # IMPORTANT: the SHA MUST be a commit that contains
           # `.agents/skills/ai-review-report/scripts/run-review.sh` — the
-          # entrypoint this step then invokes. The SHA below is the tip of
-          # the PR (#86) that introduced the entrypoint. After PR #86 merges,
-          # the merge commit becomes the new tip; bump the pin to that
-          # commit (or to a tagged release). Pinning to a pre-entrypoint
-          # commit (e.g. an earlier `v1` floating tag's tip) 404s the script
-          # and the gate fails at "No such file or directory" on the next
-          # step — flagged by an AI agent on PR #86.
+          # entrypoint this step then invokes — AND is on the OpenCode v2 line
+          # (major `2`). Pinning a pre-entrypoint commit 404s the script and
+          # the gate dies at "No such file or directory" on the next step.
+          # Pinning a PRE-V2 commit is worse: the scripts resolve and run,
+          # then fail against a CLI that is no longer what they expect. This
+          # example shipped exactly that for a while — a pin from before the
+          # v2 migration, surrounded by comments that had been updated to v2,
+          # so it read as correct.
+          #
+          # The SHA below is the head of the v2 migration PR. Once that PR
+          # merges the merge commit becomes the new tip; bump the pin to it,
+          # or to a tagged release. A floating tag is deliberately NOT allowed
+          # here (see the versioning note at the top of this file), and
+          # `test-run-review.sh` asserts this stays a full 40-char SHA.
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: c72937139e53363f051b09c64f706e7df4e38a23 # PR #86 head — bump after merge
+          ref: 88d07e7835c15c72649134b41397aa7773ee1564 # v2 migration PR head — bump after merge
           path: .review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
