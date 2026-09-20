@@ -560,7 +560,7 @@ jobs:
       #    the latter is the CALLER's workflow commit, which does not exist in
       #    this repo, so the fetch dies on `upload-pack: not our ref`. Override
       #    with a full commit SHA (supply-chain pinned) or a trusted floating ref
-      #    (main / v1) — never a branch.
+      #    (main / v2) — never a branch.
       - name: Fetch review tooling
         if: "!hashFiles('.agents/skills/ai-review-report/scripts/review-in-chunks.sh')"
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
