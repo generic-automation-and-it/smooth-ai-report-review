@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALLER="$SCRIPT_DIR/lib/install-opencode.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -72,9 +73,15 @@ ok "a stale 1.x GitHub Variable fails fast with migration guidance"
 # documented default, and the old short-circuit accepted ANY cached version
 # when nothing was pinned — so a self-hosted runner or developer box carrying
 # v1 skipped the install entirely.
+# The cached binary lives where the v2 installer WRITES — $HOME/.opencode/bin —
+# so the install genuinely replaces it. The first version of this helper put the
+# shim in a separate bin dir earlier on PATH, which is the SHADOWING scenario
+# (covered separately below), not the cached one; the two were conflated and the
+# exit code then had to be swallowed with `|| true` to make the case pass, which
+# masked the very migration failure the test claims to guard.
 cached_case() {
   local name="$1" cached="$2" pin="$3" home bin
-  home="$TMP/$name/home"; bin="$TMP/$name/bin"
+  home="$TMP/$name/home"; bin="$home/.opencode/bin"
   mkdir -p "$home" "$bin"
   printf '#!/bin/bash\necho "opencode %s"\n' "$cached" > "$bin/opencode"
   chmod +x "$bin/opencode"
@@ -86,7 +93,8 @@ cached_case() {
 }
 
 : > "$TMP/cached_v1.curl"
-cached_case cached_v1 "1.18.31" "" || true
+cached_case cached_v1 "1.18.31" "" \
+  || fail "replacing a cached v1 must SUCCEED — the v2 installer overwrites \$HOME/.opencode/bin/opencode, so this is the migration path itself, not a shadowed install"
 grep -q 'https://opencode.ai/v2/install' "$TMP/cached_v1.curl" \
   || fail "a cached 1.x satisfied an unpinned request — v2 was never installed"
 grep -q 'predates v2' "$TMP/cached_v1.out" \
@@ -126,5 +134,28 @@ grep -q 'not a v2 release' "$TMP/shadow.out" \
 grep -q 'migrate-v1' "$TMP/shadow.out" \
   || fail "the shadowed-v1 failure did not point at the migration guide"
 ok "a package-managed v1 shadowing the install fails loudly, not green"
+
+# --- No raw install curl outside the shared lib (LADR-048) ------------------
+# The install-source-of-truth Non-Negotiable was violated in FIVE places across
+# this migration — README, local-review.sh twice, run-evals.sh — and each was
+# found by hand, one review round at a time, because nothing asserted it. The
+# rule is mechanical, so assert it mechanically.
+#
+# Allowed to contain the URL: the shared installer itself, this test's own
+# assertions, and prose in docs/changelogs describing what the installer does.
+_curl_offenders() {
+  grep -rln 'opencode\.ai/v2/install' \
+    --include='*.sh' --include='*.yml' --include='*.yaml' \
+    "$SCRIPT_DIR" "$REPO_ROOT/.github" "$REPO_ROOT/.docs" 2>/dev/null \
+    | grep -v 'lib/install-opencode\.sh$' \
+    | grep -v 'test-install-opencode\.sh$' \
+    | while IFS= read -r f; do
+        # Only complain when the URL is being handed to a shell, not merely named.
+        grep -qE 'curl[^|]*opencode\.ai/v2/install[^|]*\|[[:space:]]*(ba)?sh' "$f" && printf '%s ' "$f"
+      done
+}
+_offenders="$(_curl_offenders || true)"
+[ -z "$_offenders" ] || fail "raw install curl outside the shared lib (LADR-048): ${_offenders}"
+ok "no raw install curl outside lib/install-opencode.sh"
 
 echo "All $pass install-opencode tests passed"
