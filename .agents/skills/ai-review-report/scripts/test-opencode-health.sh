@@ -26,7 +26,7 @@ if [ "${1:-}" = debug ] && [ "${2:-}" = config ]; then
   # must treat as "cannot tell" and skip — same degrade path as an opencode
   # without `debug config`.
   [ -z "${STUB_CONFIG_SOURCES:-}" ] || printf '%s\n' "$STUB_CONFIG_SOURCES"
-  exit 0
+  exit "${STUB_CONFIG_RC:-0}"
 fi
 [ "${1:-}" = api ] && [ "${2:-}" = get ] && [ "${3:-}" = /api/info ] || exit 64
 if [ -n "${STUB_IGNORE_TERM:-}" ]; then trap '' TERM INT; fi
@@ -161,5 +161,19 @@ _elapsed=$(( $(date +%s) - _t0 ))
 [ "$_elapsed" -lt 30 ] \
   || fail "the probe was not bounded — took ${_elapsed}s against a 2s timeout (SIGTERM ignored, no SIGKILL escalation?)"
 ok "a probe ignoring SIGTERM is still killed and bounded (${_elapsed}s)"
+
+# --- A FAILED config inspection is not a passed binding check ---------------
+# `opencode debug config` can write part of its output — including the managed
+# path — and then exit non-zero. Matching that partial document would pass the
+# gate on an inspection that did not succeed, which is the same false-OK the
+# binding check exists to close.
+_health_rc=0
+env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
+  OPENCODE_CONFIG="$MANAGED" STUB_CONFIG_RC=1 \
+  STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"$MANAGED\"}]" \
+  OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/cfgfail.out" 2>&1 || _health_rc=$?
+[ "$_health_rc" -eq 3 ] \
+  || fail "a failed 'debug config' that still printed the managed path must not pass the binding gate (got $_health_rc)"
+ok "a failed config inspection is treated as unverified, not as a pass"
 
 echo "All $pass opencode-health tests passed"

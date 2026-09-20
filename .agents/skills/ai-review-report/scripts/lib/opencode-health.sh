@@ -166,7 +166,17 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
     _oh_terminate "$_cfg_pid"
     : > "$CFG"
   else
-    wait "$_cfg_pid" 2>/dev/null || true
+    # The EXIT STATUS matters, not just whether the file has bytes in it.
+    # `opencode debug config` can emit part of its output — including the
+    # managed path — and then fail, and the grep below would happily match
+    # that partial document and pass the gate on an inspection that did not
+    # succeed. Blank the file so a failed inspection routes into the same
+    # "not confirmed" classification as an empty one.
+    _cfg_rc=0
+    wait "$_cfg_pid" || _cfg_rc=$?
+    if [ "$_cfg_rc" -ne 0 ]; then
+      : > "$CFG"
+    fi
   fi
   if [ ! -s "$CFG" ] && [ "$_live_rc" -ne 0 ]; then
     # Unverifiable AND the service is not answering: one fault, already
