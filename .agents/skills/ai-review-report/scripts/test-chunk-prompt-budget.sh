@@ -29,6 +29,10 @@ SOURCE_COUNT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/count
 # lifetime, and omitting the validator aborts the run outright.
 SOURCE_TIMEOUT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+# The shape predicate review-in-chunks.sh delegates to (LADR-087). Without it
+# every chunk is judged structureless and fail-closed, which looks like a gate
+# bug rather than a missing file in this harness.
+SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -48,6 +52,7 @@ setup_repo() {
   cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review

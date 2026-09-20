@@ -24,10 +24,11 @@
 # Optional env:
 #   OPENCODE_AGENT            Agent name to run (default: review).
 #   OPENCODE_MIN_OUTPUT_BYTES Minimum stdout bytes for success (default: 200).
-#   OPENCODE_OUTPUT_MARKER    Literal string that proves the model reached its
-#                             output template. When set AND present in stdout,
-#                             the run succeeds regardless of length. Unset =
-#                             byte floor alone, exactly as before.
+#   OPENCODE_OUTPUT_SHAPE_CHECK  Path to a predicate script that answers "is
+#                             this a completed response?" (exit 0 = yes). When
+#                             set and it passes, the run succeeds regardless of
+#                             length. Unset = byte floor alone, exactly as
+#                             before, so non-chunk callers are unaffected.
 #
 # Stdout: opencode output. Stderr: passthrough.
 
@@ -55,7 +56,7 @@ fi
 PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
-OPENCODE_OUTPUT_MARKER="${OPENCODE_OUTPUT_MARKER:-}"
+OPENCODE_OUTPUT_SHAPE_CHECK="${OPENCODE_OUTPUT_SHAPE_CHECK:-}"
 
 model_target() {
   case "$1" in
@@ -114,8 +115,15 @@ run_opencode() {
   # acceptance: with OPENCODE_OUTPUT_MARKER unset every call site behaves
   # byte-identically to before, so the summary, semantic-grouping and analyse
   # callers are untouched.
-  if [ -n "$OPENCODE_OUTPUT_MARKER" ] \
-     && printf '%s' "$_out" | grep -qF -- "$OPENCODE_OUTPUT_MARKER"; then
+  # Was a single literal marker. That could not express the real condition —
+  # a completed section ends in EITHER a severity line OR the "None found."
+  # placeholder — so the marker had to be something emitted early, and a
+  # response truncated just after it was accepted here while the chunk gate
+  # rejected it downstream. Accepting costs the LADR-002 fallback: the
+  # secondary model never ran and the chunk fail-closed with rescue capacity
+  # unused. Both sites now ask the SAME predicate, so that gap cannot reopen.
+  if [ -n "$OPENCODE_OUTPUT_SHAPE_CHECK" ] && [ -x "$OPENCODE_OUTPUT_SHAPE_CHECK" ] \
+     && printf '%s' "$_out" | "$OPENCODE_OUTPUT_SHAPE_CHECK"; then
     printf '%s\n' "$_out"
     return 0
   fi

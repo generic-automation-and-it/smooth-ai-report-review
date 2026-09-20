@@ -51,99 +51,94 @@ run_case openrouter_bare openrouter 'openrouter/deepseek/deepseek-v4-pro' 'deeps
 # Analyse path: job pre-prefixes the target; must not be re-prefixed with the review provider.
 run_case analyse_path openai 'go-anthropic/minimax-m3' 'go-anthropic/minimax-m3'
 
-# --- Output marker beats the byte floor (LADR-087) ---------------------------
+# --- The shape predicate beats the byte floor (LADR-087) --------------------
 # A correct review of a clean file is short. The 200-byte floor was calibrated
-# against v1, which leaked the model's chain-of-thought onto stdout; v2 routes
-# it to stderr, so valid reviews started falling under the floor — rejected,
-# then re-asked from every model in the chain, then fail-closed as a "silent
-# failure". Eval run 35525187790 lost three fixtures exactly this way.
-# OPENCODE_OUTPUT_MARKER lets a caller name the string that proves the model
-# reached its template; unset, every call site keeps the pure byte floor.
+# against v1, which leaked chain-of-thought onto stdout; v2 routes it to
+# stderr, so valid reviews started falling under the floor and being re-asked
+# from every model in the chain. OPENCODE_OUTPUT_SHAPE_CHECK lets a caller
+# supply the predicate that decides; unset, every call site keeps the pure floor.
+SHAPE="${SCRIPT_DIR}/lib/review-has-shape.sh"
 marker_dir="${tmp_dir}/marker"
 mkdir -p "${marker_dir}/bin"
-cat > "${marker_dir}/bin/opencode" <<'SHORTSTUB'
+
+stub_emitting() { # stub_emitting <body-printf-format>
+  cat > "${marker_dir}/bin/opencode" <<STUB
 #!/bin/bash
 cat >/dev/null
-printf 'call\n' >> "$OPENCODE_STUB_CALLS"
-cat <<'REV'
-### 📄 File: `src/Ftp/FtpHelper.cs`
+printf 'call\\n' >> "\$OPENCODE_STUB_CALLS"
+printf '%s' "$1"
+STUB
+  chmod +x "${marker_dir}/bin/opencode"
+}
 
-**Issues Found:**
-- None found.
-REV
-SHORTSTUB
-chmod +x "${marker_dir}/bin/opencode"
-
-marker_case() { # marker_case <label> <marker>
+shape_case() { # shape_case <label> <shape-check-path>
   : > "${marker_dir}/$1.calls"
   PATH="${marker_dir}/bin:$PATH" \
     OPENCODE_STUB_CALLS="${marker_dir}/$1.calls" \
     OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai \
-    OPENCODE_OUTPUT_MARKER="$2" \
+    OPENCODE_OUTPUT_SHAPE_CHECK="$2" \
     bash "$HELPER" m1 m2 m3 -- "$prompt" > "${marker_dir}/$1.out" 2>/dev/null
-  echo "$?:$(wc -c < "${marker_dir}/$1.out" | tr -d ' '):$(wc -l < "${marker_dir}/$1.calls" | tr -d ' ')"
+  echo "$?:$(wc -l < "${marker_dir}/$1.calls" | tr -d ' ')"
 }
 
-# Unset marker: unchanged from before — rejected, and the whole chain is burned
-# re-asking. Pinning the old behaviour proves the change is additive, so the
-# summary / semantic-grouping / analyse callers cannot be affected by it.
-actual="$(marker_case no_marker "")"
-[ "$actual" = "1:0:3" ] || {
-  echo "FAIL: without a marker a short answer must still be rejected after trying every model (got '$actual')" >&2
+CLEAN='### 📄 File: `src/Ftp/FtpHelper.cs`
+
+**Issues Found:**
+- None found.
+'
+stub_emitting "$CLEAN"
+
+# Unchanged when no predicate is supplied: rejected, whole chain burned. This
+# pins that the feature is additive, so the summary / semantic-grouping /
+# analyse callers cannot be affected by it.
+actual="$(shape_case no_check "")"
+[ "$actual" = "1:3" ] || {
+  echo "FAIL: without a shape check a short answer must still be rejected after trying every model (got '$actual')" >&2
   exit 1
 }
-echo "✓ no marker: short output still rejected, chain still exhausted (unchanged)"
+echo "✓ no shape check: short output still rejected, chain still exhausted (unchanged)"
 
-actual="$(marker_case with_marker '**Issues Found:**')"
-[ "$actual" = "0:71:1" ] || {
-  echo "FAIL: a marked short review must be accepted on the first model (got '$actual')" >&2
+actual="$(shape_case with_check "$SHAPE")"
+[ "$actual" = "0:1" ] || {
+  echo "FAIL: a short but complete review must be accepted on the first model (got '$actual')" >&2
   exit 1
 }
-echo "✓ marker present: short review accepted, no fallback model burned"
+echo "✓ shape check passes: short complete review accepted, no fallback burned"
 
-# A marker the output does not carry must not rescue it — otherwise the option
-# would accept anything from a caller that sets it.
-actual="$(marker_case wrong_marker 'ZZ-NOT-IN-OUTPUT')"
-[ "$actual" = "1:0:3" ] || {
-  echo "FAIL: a marker absent from the output must not rescue it (got '$actual')" >&2
+# Finding 2. A response truncated right after the `**Issues Found:**` marker is
+# NOT a review. Accepting it here would SPEND the LADR-002 fallback — the
+# secondary never runs — and the chunk gate would then fail-close it anyway,
+# with rescue capacity available and unused. It must fall through instead.
+stub_emitting '### 📄 File: `src/Ftp/FtpHelper.cs`
+
+**Issues Found:**
+'
+actual="$(shape_case truncated_marker "$SHAPE")"
+[ "$actual" = "1:3" ] || {
+  echo "FAIL: a response truncated after the Issues Found marker must fall through to the fallback chain (got '$actual')" >&2
   exit 1
 }
-echo "✓ marker absent from output: falls back to the byte floor"
+echo "✓ marker-only truncation falls through to the fallback instead of consuming it"
 
-# The marker must prove the template was COMPLETED, not merely opened. The
-# heading is the template's first line, so a response truncated right after it
-# carries that marker while containing no review — which would be accepted as a
-# clean chunk. Pin the heading as an insufficient marker from this side too.
-cat > "${marker_dir}/bin/opencode" <<'TRUNCSTUB'
-#!/bin/bash
-cat >/dev/null
-printf 'call\n' >> "$OPENCODE_STUB_CALLS"
-printf '### 📄 File: `src/Ftp/FtpHelper.cs`\n'
-TRUNCSTUB
-chmod +x "${marker_dir}/bin/opencode"
-actual="$(marker_case truncated '**Issues Found:**')"
-[ "$actual" = "1:0:3" ] || {
+# The template's opening heading alone must not rescue it either.
+stub_emitting '### 📄 File: `src/Ftp/FtpHelper.cs`
+'
+actual="$(shape_case truncated_heading "$SHAPE")"
+[ "$actual" = "1:3" ] || {
   echo "FAIL: a response truncated after the file heading must not be accepted (got '$actual')" >&2
   exit 1
 }
 echo "✓ heading-only truncation is rejected, not mistaken for a clean review"
 
-# ...and the gate must not be configured with the heading as its marker.
-grep -q "CHUNK_OUTPUT_MARKER='### " "${SCRIPT_DIR}/review-in-chunks.sh" && {
-  echo "FAIL: the chunk marker is the template's first line — a truncation after it would pass" >&2
+# Both gates must ask the SAME question, or the gap this closed reopens.
+grep -q 'lib/review-has-shape.sh' "${SCRIPT_DIR}/review-in-chunks.sh" || {
+  echo "FAIL: review-in-chunks.sh no longer delegates to the shared shape predicate" >&2
   exit 1
 }
-echo "✓ the chunk marker is not the template's opening heading"
-
-# The gate's chunk call sites must actually pass one, or the fix is inert.
-grep -q 'OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout' "${SCRIPT_DIR}/review-in-chunks.sh" || {
-  echo "FAIL: review-in-chunks.sh does not declare an output marker for its chunk reviews" >&2
+[ "$(grep -c 'OPENCODE_OUTPUT_SHAPE_CHECK=' "${SCRIPT_DIR}/review-in-chunks.sh")" = "2" ] || {
+  echo "FAIL: both chunk-review invocations must supply the shape check" >&2
   exit 1
 }
-[ "$(grep -c 'OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout' "${SCRIPT_DIR}/review-in-chunks.sh")" = "2" ] || {
-  echo "FAIL: both chunk-review invocations (primary stage and secondary stage) must declare the marker" >&2
-  exit 1
-}
-echo "✓ both chunk-review call sites declare the marker"
+echo "✓ both chunk-review call sites use the same predicate as the chunk gate"
 
 echo "✓ opencode-with-fallback target tests passed"

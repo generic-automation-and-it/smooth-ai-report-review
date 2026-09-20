@@ -19,6 +19,10 @@ SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/ext
 # and an empty timeout string.
 SOURCE_TIMEOUT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+# The shape predicate review-in-chunks.sh delegates to (LADR-087). Omit it and
+# every chunk is judged structureless, which reads as a fail-closed bug in the
+# gate rather than a missing file in this harness.
+SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
 TMP_DIR="$(mktemp -d /tmp/review-chunk-threshold.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -33,6 +37,7 @@ setup_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -131,6 +136,7 @@ setup_large_file_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -425,6 +431,7 @@ cp "$SOURCE_COUNT_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/cou
 cp "$SOURCE_EXTRACT_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
 cp "$SOURCE_TIMEOUT_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 cp "$SOURCE_SPLIT_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+cp "$SOURCE_SHAPE_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'RTSTUB'
 #!/usr/bin/env bash
 prompt_file="${@: -1}"
@@ -544,6 +551,7 @@ setup_shape_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   # The mock replays whatever body the case under test wrote, so one sandbox
   # covers both the narration shape and the honest-review control.
@@ -738,6 +746,7 @@ setup_retry_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
   cp "${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
     "${test_repo}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
 

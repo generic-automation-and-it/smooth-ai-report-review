@@ -100,44 +100,19 @@ structured_findings_enabled() {
 # "None found" for the empty ones — measured across the six chunks of the
 # trigger run, the five real reviews scored 2-22 on every marker below and the
 # narration-only one scored 0 on all of them.
-# Marker that a chunk response reached its output template, used in place of
-# the byte floor in lib/opencode-with-fallback.sh (LADR-087). Exported to the
-# two chunk-review invocations only; every other caller of that lib leaves it
-# unset and keeps the pure floor.
-#
-# Deliberately NOT the `### 📄 File:` heading. The heading is the FIRST line the
-# template emits, so a response truncated immediately after it carries the
-# marker while containing no review at all — and with the floor gone that
-# 30-byte fragment would have been accepted by the transport, passed the
-# downstream shape check on its heading alone, and been aggregated as a
-# completed chunk with zero findings. An unreviewed chunk counted as clean is
-# the one failure this gate must never have. `**Issues Found:**` is emitted
-# after the heading, so it cannot be present in that fragment; the authoritative
-# gate remains chunk_review_has_shape below, which additionally requires the
-# section to have CONTENT.
-CHUNK_OUTPUT_MARKER='**Issues Found:**'
+# Predicate the transport gate uses in place of its byte floor (LADR-087).
+# Exported to the two chunk-review invocations only; every other caller of
+# lib/opencode-with-fallback.sh leaves it unset and keeps the pure floor.
+# It is the SAME script chunk_review_has_shape() below delegates to — the two
+# gates asking different questions is what let a truncated response be accepted
+# by the transport (spending the fallback) and then rejected by the chunk gate.
+CHUNK_SHAPE_CHECK="$(dirname "${BASH_SOURCE[0]}")/lib/review-has-shape.sh"
 
 chunk_review_has_shape() {
-  local md="$1"
-  [ -f "$md" ] || return 1
-  # Severity emoji: -F, one -e each, because these are multi-byte and a bracket
-  # expression over them is locale-dependent.
-  grep -qF -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$md" && return 0
-  # "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling.
-  grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$md" && return 0
-  # The mandated placeholder for an empty severity section.
-  grep -qiF 'none found' "$md" && return 0
-  # NO heading-only clause. It used to be here ("a markdown heading means the
-  # model reached the output template") and it was defensible while the
-  # 200-byte floor ran first: a heading plus 200 bytes is weak but not empty.
-  # With the floor gone (LADR-087) it became the accept-a-truncation clause —
-  # `### 📄 File: \`x.cs\`` and nothing else would have passed as a completed,
-  # zero-finding review. Every COMPLETE section satisfies one of the three
-  # clauses above, because the template mandates `**Issues Found:**` followed
-  # by either findings (severity emoji or priority wording) or the literal
-  # "None found." placeholder. So a heading with none of them is by definition
-  # a response that stopped partway, and the fail-closed path is the right one.
-  return 1
+  # Delegates to lib/review-has-shape.sh so the transport gate in
+  # lib/opencode-with-fallback.sh and this authoritative gate cannot disagree
+  # (LADR-087). See that lib for why a shared predicate rather than a literal.
+  bash "$(dirname "${BASH_SOURCE[0]}")/lib/review-has-shape.sh" "$1"
 }
 if structured_findings_enabled; then
   echo "🧩 Structured findings enabled (LADR-055)"
@@ -146,7 +121,8 @@ else
 fi
 echo ""
 
-# Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
+# Custom context is discovered dynamically via *AGENTS.md (every filename
+# ending in it, not only underscore-separated ones); standard AGENTS.md
 # scope is supplied natively by opencode v2 (LADR-087).
 
 # Load PR description and extract AI Review Notes section
@@ -662,7 +638,7 @@ EOF
     echo "  📋 No context files found for this chunk"
   fi
 
-  # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
+  # Custom *AGENTS.md files remain explicit context. Standard AGENTS.md files
   # are loaded natively by opencode v2 and are not repeated in this prompt.
 
   # Get absolute path for file access instructions
@@ -1277,7 +1253,7 @@ EOF
     _stage1_fb="$_secondary_model"
   fi
   _stage_started=$(date +%s)
-  if OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
   else
     _stage1_rc=$?
@@ -1299,7 +1275,7 @@ EOF
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
