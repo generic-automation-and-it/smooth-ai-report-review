@@ -17,11 +17,12 @@ mkdir -p "$REPO/ci_temp" "$REPO/src/feature" "$REPO/.github/instructions/backend
 printf 'src/feature/app.ts\0' > "$REPO/ci_temp/changed_files.txt"
 touch "$REPO/AGENTS.md" "$REPO/src/AGENTS.md" "$REPO/src/feature/AGENTS.md"
 touch "$REPO/src/FEATURE_AGENTS.md" "$REPO/src/feature/LOCAL_AGENTS.md"
-# No underscore, on purpose. Every other custom fixture has one, so the suite
-# stayed green even if discovery were narrowed back to `*_AGENTS.md` — the
-# exact defect fixed twice already. The finder accepts every filename ending
-# in AGENTS.md except the exact standard basename; this fixture is what makes
-# the test able to tell the difference.
+# No underscore, on purpose — this one must NOT be discovered. The convention
+# is `*_AGENTS.md`, and the underscore is what keeps the exact standard
+# `AGENTS.md` basename out of explicit context without needing a companion
+# carve-out (find(1)'s leading `*` matches zero characters). Asserted negative
+# below so a later widening to `*AGENTS.md` is caught here rather than by the
+# duplicate-injection it would cause.
 touch "$REPO/src/feature/FooAGENTS.md"
 touch "$REPO/docs/AGENTS.md" "$REPO/docs/KEEP_AGENTS.md" "$REPO/docs/rules.txt"
 touch "$REPO/.github/instructions/root.instructions.md"
@@ -39,7 +40,6 @@ touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 for expected in \
   src/FEATURE_AGENTS.md \
   src/feature/LOCAL_AGENTS.md \
-  src/feature/FooAGENTS.md \
   docs/KEEP_AGENTS.md \
   docs/rules.txt \
   .github/instructions/root.instructions.md \
@@ -49,12 +49,22 @@ for expected in \
   grep -Fxq "$expected" "$REPO/ci_temp/context_files.txt" \
     || fail "expected context path missing: $expected"
 done
-ok "custom *AGENTS.md, mandatory paths, and recursive .agents + GitHub rules are retained"
+ok "custom *_AGENTS.md, mandatory paths, and recursive .agents + GitHub rules are retained"
 
 if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
   fail "standard AGENTS.md was duplicated into explicit chunk context"
 fi
 ok "exact AGENTS.md basenames are excluded for native v2 scope loading"
+
+# The convention is the underscore, and it is what does the excluding above.
+# A non-underscore name is deliberately out of scope: widening the pattern to
+# `*AGENTS.md` to pick it up would also match the exact standard basename,
+# because find(1)'s leading `*` matches zero characters — and v2 already loads
+# every AGENTS.md natively, so that widening injects the same file twice.
+if grep -q 'FooAGENTS\.md' "$REPO/ci_temp/context_files.txt"; then
+  fail "a non-underscore AGENTS name was discovered — the pattern has been widened past the convention, which also re-admits the exact AGENTS.md basename"
+fi
+ok "non-underscore AGENTS names stay out of scope (the underscore is the exclusion)"
 
 # On v2 nothing resolves the config's `instructions` array, so
 # find-context-files.sh is the only thing that loads those files. The docs

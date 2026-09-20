@@ -1043,7 +1043,7 @@ EOF
 fi
 unset _trivial_skip_enabled
 
-# --- Step 13: Find explicit context (custom *AGENTS.md + .agents/rules + GitHub rules)
+# --- Step 13: Find explicit context (custom *_AGENTS.md + .agents/rules + GitHub rules)
 # When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
 # (1/true/yes/on), skip the mandatory context file loading AND the AGENTS.md
 # custom-context/rules discovery — the review runs without injected context

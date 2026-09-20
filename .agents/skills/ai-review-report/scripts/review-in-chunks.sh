@@ -121,8 +121,7 @@ else
 fi
 echo ""
 
-# Custom context is discovered dynamically via *AGENTS.md (every filename
-# ending in it, not only underscore-separated ones); standard AGENTS.md
+# Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
 # scope is supplied natively by opencode v2 (LADR-087).
 
 # Load PR description and extract AI Review Notes section
@@ -638,7 +637,7 @@ EOF
     echo "  📋 No context files found for this chunk"
   fi
 
-  # Custom *AGENTS.md files remain explicit context. Standard AGENTS.md files
+  # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
   # are loaded natively by opencode v2 and are not repeated in this prompt.
 
   # Get absolute path for file access instructions
