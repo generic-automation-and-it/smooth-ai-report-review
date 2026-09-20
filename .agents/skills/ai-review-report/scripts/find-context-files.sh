@@ -71,7 +71,7 @@ done < ci_temp/changed_dirs.txt
 # block is existence-guarded. Dot-prefixed context paths are included in every
 # chunk by review-in-chunks.sh.
 if [ -d .agents/rules ]; then
-  find .agents/rules -type f -name '*.md' \
+  find .agents/rules -type f -name '*.md' ! -name 'AGENTS.md' \
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
 fi
 if [ -d .github/instructions ]; then

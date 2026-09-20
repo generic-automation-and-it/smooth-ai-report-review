@@ -1341,7 +1341,7 @@ EOF
     if [ "$review_size" -eq 0 ]; then
       reject_reason="empty output (0 bytes)"
     elif ! chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
-      reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker, no \"None found\", no heading)"
+      reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker or completed \"None found\" result)"
     fi
     if [ -n "$reject_reason" ]; then
       echo "  ⚠️ Chunk ${chunk_num} produced no usable review: ${reject_reason} — opencode silent failure?"
