@@ -10,8 +10,10 @@
 # pipeline moved to `opencode` as its transport (LADR-023) — RTK's Gemini
 # hook had no equivalent interception point on opencode. RTK now ships a
 # first-class OpenCode plugin (`rtk init --opencode`), closing that gap, so
-# this lib re-adopts RTK wired to the opencode plugin surface instead of the
-# dead gemini-cli hook. See LADR-054 for the full decision record.
+# this lib re-adopted RTK wired to the opencode v1 plugin surface. OpenCode v2
+# has a new plugin API and RTK has not released its proposed `--opencode-v2`
+# integration yet, so this path is now skipped loudly on v2 (LADR-087). See
+# LADR-054 for the original decision record.
 #
 # Inputs (env vars, all optional):
 #   OPENCODE_TOOL_RTK_VERSION  — version pin (leading `v` stripped);
@@ -41,6 +43,26 @@
 #       non-zero as "RTK unavailable" and continue the review without it)
 
 set -uo pipefail
+
+# RTK's released `rtk init --opencode` writes a V1 plugin importing
+# @opencode-ai/plugin. OpenCode v2 does not execute V1 plugins. Installing it
+# would report success while providing zero token optimization, so skip before
+# downloading or mutating config. This is deliberately non-fatal: RTK is an
+# optional enhancement, never a review dependency.
+if command -v opencode >/dev/null 2>&1; then
+  _opencode_version="$(opencode --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){1,3}' | head -1 || true)"
+  _opencode_major="${_opencode_version%%.*}"
+  case "$_opencode_major" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$_opencode_major" -ge 2 ]; then
+        echo "⚠️  RTK disabled: released 'rtk init --opencode' installs a V1 plugin that OpenCode v2 cannot execute; continuing without RTK optimization." >&2
+        exit 0
+      fi
+      ;;
+  esac
+  unset _opencode_version _opencode_major
+fi
 
 REQUESTED_VERSION=""
 if [ -n "${OPENCODE_TOOL_RTK_VERSION:-}" ]; then

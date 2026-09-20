@@ -1,33 +1,32 @@
 #!/bin/bash
-# opencode-health.sh — provider-agnostic health check via the opencode server.
+# opencode-health.sh — provider-agnostic health check via the opencode v2 CLI.
 #
-# Replaces the old per-provider gateway probes (each provider's /models,
-# /v1beta/models, or /health endpoint, each with its own auth header). The
-# single health signal now is opencode ITSELF, identically for every
-# OPENCODE_REVIEW_REPORT_PROVIDER: start `opencode serve` on localhost, read the URL it prints
-#   opencode server listening on http(s)://127.0.0.1:4096
-# hit that server's /global/health, then tear the server down. No per-provider
-# URL/auth derivation, so it works the same for gemini / copilot / openai /
-# go-openai / go-anthropic / go-responses / openrouter.
+# OpenCode v2 starts an authenticated service and no longer exposes the v1
+# unauthenticated `/global/health` contract. Its supported diagnostic is:
+#   opencode api get /api/info
+# The CLI discovers the service and handles its generated credentials, then
+# prints JSON containing at least `version` and `pid`. No per-provider URL/auth
+# derivation is required.
 #
-# NOTE: /global/health reports that opencode itself is up — it does NOT prove the
+# NOTE: /api/info reports that opencode itself is up — it does NOT prove the
 # upstream model gateway is reachable or the API key valid. The real functional
 # check remains the "Assert Review Model Selection Works" step (CI) / the chunk
 # run (local), which makes an actual model call.
 #
-# Requires opencode on PATH AND its provider config already installed (so
-# `serve` starts cleanly), plus curl.
+# Requires opencode on PATH and its provider config already prepared.
 #
 # Optional env:
-#   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT  seconds to wait for the server + health (default 30)
+#   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT  seconds to wait for the API info probe (default 30)
 #
-# Exit 0 if /global/health returns 200; 1 otherwise. Callers decide whether a
+# Exit 0 if `/api/info` returns a valid info document; 1 otherwise. Callers decide whether a
 # failure is fatal (local preflight) or a non-blocking warning (CI diagnostic).
 
 set -u
 
 TIMEOUT="${OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT:-30}"
-LOG="/tmp/opencode-serve.$$.log"
+OUT="/tmp/opencode-health.$$.out"
+LOG="/tmp/opencode-health.$$.log"
+CFG="/tmp/opencode-health.$$.cfg"
 
 if ! command -v opencode >/dev/null 2>&1; then
   echo "❌ opencode CLI not found on PATH — install it before the health check." >&2
@@ -38,48 +37,92 @@ fi
 # OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE can override the value (default 1).
 export OPENCODE_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
 
-# Start the server in the background; capture its stdout/stderr so we can parse
-# the listening URL (opencode picks the port, so we don't assume 4096).
-opencode serve >"$LOG" 2>&1 &
-_serve_pid=$!
-trap '[ -n "${_serve_pid:-}" ] && kill "$_serve_pid" 2>/dev/null; wait "$_serve_pid" 2>/dev/null || true; rm -f "$LOG" "/tmp/opencode-health.$$.out" 2>/dev/null || true' EXIT
+# Run the supported v2 diagnostic in the background so a wedged service remains
+# bounded without relying on GNU `timeout` (local runs may be on macOS).
+opencode api get /api/info >"$OUT" 2>"$LOG" &
+_api_pid=$!
+trap '[ -n "${_api_pid:-}" ] && kill "$_api_pid" 2>/dev/null; wait "$_api_pid" 2>/dev/null || true; rm -f "$LOG" "$OUT" "$CFG" 2>/dev/null || true' EXIT
 
-# Single deadline shared by both waits below, so TIMEOUT bounds the TOTAL
-# (server-up + health-ready) wait — not 2× TIMEOUT as two independent loops did.
 DEADLINE=$((SECONDS + TIMEOUT))
-
-# Wait for the "listening on <url>" line (or the process to die early).
-BASE=""
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
-  BASE="$(grep -oE 'https?://[^[:space:]]+' "$LOG" 2>/dev/null | head -1)"
-  [ -n "$BASE" ] && break
-  kill -0 "$_serve_pid" 2>/dev/null || { echo "❌ opencode serve exited before reporting a URL:" >&2; tail -n 20 "$LOG" >&2 2>/dev/null || true; exit 1; }
+  kill -0 "$_api_pid" 2>/dev/null || break
   sleep 1
 done
 
-if [ -z "$BASE" ]; then
-  echo "❌ opencode serve did not report a listening URL within ${TIMEOUT}s." >&2
+if kill -0 "$_api_pid" 2>/dev/null; then
+  kill "$_api_pid" 2>/dev/null || true
+  wait "$_api_pid" 2>/dev/null || true
+  _api_pid=""
+  echo "❌ opencode v2 API info probe timed out after ${TIMEOUT}s." >&2
   tail -n 20 "$LOG" >&2 2>/dev/null || true
   exit 1
 fi
 
-HEALTH_URL="${BASE%/}/global/health"
-echo "Probing opencode health: ${HEALTH_URL}"
+_api_rc=0
+wait "$_api_pid" || _api_rc=$?
+_api_pid=""
+if [ "$_api_rc" -ne 0 ]; then
+  echo "⚠️ opencode v2 API info probe failed (exit ${_api_rc})." >&2
+  tail -n 20 "$LOG" >&2 2>/dev/null || true
+  exit 1
+fi
 
-# Poll /global/health until 200 (routes come up a beat after the socket binds).
-# Shares DEADLINE with the URL wait above (see note there).
-http_code="000"
-while [ "$SECONDS" -lt "$DEADLINE" ]; do
-  http_code="$(curl -sS -o "/tmp/opencode-health.$$.out" -w '%{http_code}' --max-time 5 "$HEALTH_URL" 2>/dev/null || echo 000)"
-  [ "$http_code" = "200" ] && break
-  sleep 1
-done
+if command -v jq >/dev/null 2>&1; then
+  jq -e '(.version | type == "string" and length > 0) and (.pid | type == "number")' "$OUT" >/dev/null 2>&1 || {
+    echo "⚠️ opencode v2 API info probe returned an invalid payload." >&2
+    tail -n 20 "$OUT" >&2 2>/dev/null || true
+    exit 1
+  }
+else
+  grep -q '"version"[[:space:]]*:' "$OUT" 2>/dev/null && \
+    grep -q '"pid"[[:space:]]*:' "$OUT" 2>/dev/null || {
+      echo "⚠️ opencode v2 API info probe returned an invalid payload." >&2
+      tail -n 20 "$OUT" >&2 2>/dev/null || true
+      exit 1
+    }
+fi
 
-if [ "$http_code" = "200" ]; then
-  echo "✓ opencode server healthy (${HEALTH_URL})"
+# A v2 background service resolves its config ONCE, from the environment of
+# whichever client started it. A later client's OPENCODE_CONFIG is ignored in
+# silence — verified on 2.0.11: with a service already up from config A,
+# `OPENCODE_CONFIG=B opencode debug config` still reports A. In CI the runner
+# is fresh so our own process starts the service and the binding is ours; on a
+# developer box a running session owns it, and then the managed config
+# (LADR-071) is simply NOT in effect — wrong provider/models, and the review
+# agent's permission lockdown (LADR-029) silently absent. That is the LADR-053
+# false-OK shape, so check the binding rather than assume it.
+#
+# Best-effort: an opencode without `debug config`, or an empty/failed read,
+# degrades to no check rather than a false alarm. Bounded with the same
+# background+deadline idiom as the probe above (no GNU `timeout` on macOS).
+if [ -n "${OPENCODE_CONFIG:-}" ]; then
+  : > "$CFG"
+  opencode debug config >"$CFG" 2>/dev/null &
+  _cfg_pid=$!
+  _cfg_deadline=$((SECONDS + TIMEOUT))
+  while [ "$SECONDS" -lt "$_cfg_deadline" ]; do
+    kill -0 "$_cfg_pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$_cfg_pid" 2>/dev/null; then
+    kill "$_cfg_pid" 2>/dev/null || true
+    : > "$CFG"
+  fi
+  wait "$_cfg_pid" 2>/dev/null || true
+  if [ -s "$CFG" ] && ! grep -qF "$OPENCODE_CONFIG" "$CFG"; then
+    echo "⚠️ opencode is NOT using the managed config for this run." >&2
+    echo "    OPENCODE_CONFIG=${OPENCODE_CONFIG}" >&2
+    echo "    A v2 background service binds its config when it starts, so an already-running service ignores this value." >&2
+    echo "    Without it the selected provider, model ids and the review agent's permission lockdown are all absent." >&2
+    echo "    Fix: run 'opencode service stop', then start this review again." >&2
+    exit 1
+  fi
+fi
+
+if [ -s "$OUT" ]; then
+  echo "✓ opencode v2 service healthy (/api/info)"
   exit 0
 fi
 
-echo "⚠️ opencode /global/health did not return 200 (last: ${http_code}) at ${HEALTH_URL}" >&2
-tail -n 20 "$LOG" >&2 2>/dev/null || true
+echo "⚠️ opencode v2 API info probe returned no data." >&2
 exit 1

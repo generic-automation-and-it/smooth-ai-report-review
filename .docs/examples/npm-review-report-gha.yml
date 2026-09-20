@@ -78,7 +78,7 @@ jobs:
           set -eo pipefail
           # Version policy — the npm analogue of the reusable workflow's
           # "commit SHA or trusted floating ref" rule:
-          #   supply-chain pinned  → npm install …/smooth-ai-review@1.0.1
+          #   supply-chain pinned  → npm install …/smooth-ai-review@2.0.0
           #   trusted floating     → the unpinned form below (resolves to latest)
           # Unpinned is fine for tracking releases, but every run then reviews
           # with whatever was published most recently. Pin the exact version

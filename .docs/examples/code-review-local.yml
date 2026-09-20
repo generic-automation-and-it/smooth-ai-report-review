@@ -22,7 +22,7 @@
 #   audit.
 #
 # Versioning: pin BOTH the workflow actions (e.g. actions/checkout@<sha>) AND the
-# upstream ref below. The floating major tag (`@v1`) is NOT safe here — the
+# upstream ref below. The floating major tag (`@v2`) is NOT safe here — the
 # whole point of SHA-pinning the upstream checkout is to preserve the guarantee
 # the policy is after. Update the `ref:` below in lockstep with upstream
 # releases you want to consume.
@@ -463,8 +463,7 @@ jobs:
           OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
-            'AGENTS.md
-            .docs/nfr/PROJECT_SETUP_AGENTS.md
+            '.docs/nfr/PROJECT_SETUP_AGENTS.md
             .agents/skills/code-review-standards/SKILL.md
             .docs/nfr/TOOL_SETUP_AGENTS.md
             .agents/rules-scoped/backend/testing-standards.instructions.md

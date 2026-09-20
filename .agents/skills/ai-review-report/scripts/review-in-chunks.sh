@@ -121,8 +121,8 @@ else
 fi
 echo ""
 
-# Testing rules are now discovered dynamically via *AGENTS.md pattern (Implementation #89)
-# No hardcoded path - Testing_Rules_AGENTS.md is found by find-context-files.sh
+# Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
+# scope is supplied natively by opencode v2 (LADR-087).
 
 # Load PR description and extract AI Review Notes section
 PR_DESCRIPTION=""
@@ -637,8 +637,8 @@ EOF
     echo "  📋 No context files found for this chunk"
   fi
 
-  # Testing rules are discovered via standard *AGENTS.md pattern (Implementation #89)
-  # Testing_Rules_AGENTS.md will be in context_files if test directory is in changed paths
+  # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
+  # are loaded natively by opencode v2 and are not repeated in this prompt.
 
   # Get absolute path for file access instructions
   local repo_root="${GITHUB_WORKSPACE:-$(pwd)}"

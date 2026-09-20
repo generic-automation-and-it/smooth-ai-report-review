@@ -137,14 +137,8 @@
     }
   },
   "instructions": [
-    ".agents/rules/*.md",
-    ".agents/rules/**/*.md",
-    ".agents/rules-scoped/**/*.instructions.md",
     ".github/instructions/*.instructions.md",
-    ".github/instructions/**/*.instructions.md",
-    ".github/instructions/AGENTS.md",
-    "docs/ADR/AGENTS.md",
-    "docs/hlds/AGENTS.md"
+    ".github/instructions/**/*.instructions.md"
   ],
   "share": "disabled",
   "permission": {

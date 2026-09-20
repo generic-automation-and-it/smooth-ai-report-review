@@ -77,10 +77,10 @@ run_opencode() {
   #   .agents/rules-scoped/*) are not auto-rejected in non-interactive `run` mode.
   # Prompt is fed via stdin (not "$(cat …)" argv expansion) so large chunks
   #   never hit ARG_MAX; matches the original `gemini < file` call shape.
-  # --log-level WARN: keeps stdout clean for the legacy parser surface.
+  # --log-level warn: keeps stdout clean for the legacy parser surface.
   #   On failure, review-in-chunks.sh's empty-output detector dumps the
   #   chunk file + stderr so diagnostics surface where it matters. To
-  #   debug a stuck/flaky chunk locally, re-run with --log-level INFO
+  #   debug a stuck/flaky chunk locally, re-run with --log-level info
   #   --print-logs.
   # --format default: human-readable markdown matching the legacy parser surface
   #   (sed/grep on DETAILED_SECTION_MARKER and per-priority emoji lines).
@@ -97,7 +97,7 @@ run_opencode() {
     --agent "${OPENCODE_AGENT}" \
     --model "${_target}" \
     --format default \
-    --log-level WARN \
+    --log-level warn \
     < "$prompt_file") || return 1
   if [ "${#_out}" -lt "${OPENCODE_MIN_OUTPUT_BYTES}" ]; then
     printf '%s' "$_out" >&2

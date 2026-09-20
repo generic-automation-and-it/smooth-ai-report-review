@@ -1,6 +1,6 @@
 {
   "name": "smooth-ai-review",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Marketplace backing manifest for the smooth-ai-report-review Claude Code plugins.",
   "author": {
     "name": "generic-automation-and-it"

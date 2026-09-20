@@ -173,7 +173,7 @@ export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
 # unset, we use the reusable workflow's built-in default. find-context-files.sh
 # warns-and-skips on missing paths, so exploratory local runs do not fail.
 if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
-  MANDATORY_CONTEXT_FILES=$'AGENTS.md\n.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
+  MANDATORY_CONTEXT_FILES=$'.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
 fi
 export MANDATORY_CONTEXT_FILES
 AGENTS_MD_EXEMPT_PATHS="${AGENTS_MD_EXEMPT_PATHS:-.docs/release-notes}"
@@ -587,6 +587,14 @@ unset _rtk_enabled
 . "$LIB_DIR/prepare-opencode-config.sh"
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
+# Stop any leftover background service FIRST. opencode v2 runs one shared
+# service per user and binds its config when that service STARTS — a service
+# already up silently ignores this process's OPENCODE_CONFIG (LADR-071/087),
+# so a reused self-hosted runner would review with the previous job's
+# provider, model ids and permissions and report nothing. Idempotent and free:
+# the `opencode stats` below starts a fresh one bound to our config.
+# lib/opencode-health.sh verifies the binding afterwards.
+opencode service stop >/dev/null 2>&1 || true
 opencode stats >/dev/null 2>&1 || true
 bash "$LIB_DIR/opencode-health.sh" || true
 
@@ -605,7 +613,7 @@ run_probe() {
     --agent review \
     --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/$1" \
     --format default \
-    --log-level WARN \
+    --log-level warn \
     "Say 'OK'" 2>&1 || true
 }
 
@@ -638,7 +646,7 @@ ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
     --agent review \
     --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
     --format default \
-    --log-level WARN \
+    --log-level warn \
     "Say 'OK'" 2>&1 || true)"
   if [ -z "$_orch_out" ] || echo "$_orch_out" | grep -iqE "$ERROR_PATTERN"; then
     echo "failed" > "$ORCH_PROBE_FILE"
@@ -1020,10 +1028,11 @@ EOF
 fi
 unset _trivial_skip_enabled
 
-# --- Step 13: Find context files (mandatory + *AGENTS.md ancestor walk) ------
+# --- Step 13: Find explicit context (custom *_AGENTS.md + GitHub rules) ------
 # When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
 # (1/true/yes/on), skip the mandatory context file loading AND the AGENTS.md
-# ancestor walk — the review runs without injected context files.
+# custom-context/rules discovery — the review runs without injected context
+# files. Native opencode v2 AGENTS.md scoping remains active.
 _bypass_mandatory_ctx="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
 case "${_bypass_mandatory_ctx,,}" in
   1|true|yes|on)

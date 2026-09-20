@@ -6,7 +6,9 @@
 # records every requested URL so the tests can assert *which* package was
 # looked up — the original bug was a lookup against `registry.npmjs.org/opencode`,
 # which 404s (the CLI publishes as `opencode-ai`), so the header silently
-# rendered "✅ up to date" while an update was available.
+# rendered "✅ up to date" while an update was available. OpenCode v2 no
+# longer has one stable unscoped CLI package, so the test now pins the official
+# v2 update metadata endpoint used by the installer.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,8 +59,8 @@ chmod +x "${stub_bin}/opencode" "${stub_bin}/curl"
 
 registry_dir="${tmp_dir}/registry"
 mkdir -p "$registry_dir"
-# npm latest: .../<pkg>/latest → <pkg>_latest.json
-write_npm_pkg() { printf '{"version":"%s"}\n' "$2" > "${registry_dir}/${1}_latest.json"; }
+# OpenCode v2 update API: .../update/api/latest/cli/npm.
+write_opencode_release() { printf '{"version":"%s","metadata":{"package":"@opencode/cli"}}\n' "$1" > "${registry_dir}/update_api_latest_cli_npm.json"; }
 # PyPI JSON API: .../pypi/<pkg>/json → pypi_<pkg>_json.json (registry base
 # already includes the /pypi segment, matching the real pypi.org/pypi shape).
 write_pypi_pkg() { printf '{"info":{"version":"%s"}}\n' "$2" > "${registry_dir}/pypi_${1}_json.json"; }
@@ -80,7 +82,7 @@ run_check() {
     HOME="$fake_home" \
     STUB_REGISTRY_DIR="$registry_dir" \
     STUB_CURL_LOG="$log" \
-    OPENCODE_NPM_REGISTRY="https://registry.example.test" \
+    OPENCODE_V2_UPDATE_API="https://updates.example.test/update/api/latest/cli/npm" \
     GRAPH_PYPI_REGISTRY="https://pypi.example.test/pypi" \
     RTK_GITHUB_API="https://api.example.test" \
     "$@" \
@@ -90,24 +92,24 @@ run_check() {
       printf "%s" "${OPENCODE_VERSION_INFO:-}"   > "$2.info"
       printf "%s" "${OPENCODE_VERSION_FOOTER:-}" > "$2.footer"
       { declare -p _cv_have_jq 2>/dev/null
-        declare -F _cv_npm_latest _cv_pypi_latest _cv_github_latest_tag _cv_is_newer 2>/dev/null; } > "$2.leaks" || true
+        declare -F _cv_opencode_latest _cv_pypi_latest _cv_github_latest_tag _cv_is_newer 2>/dev/null; } > "$2.leaks" || true
     ' _ "$LIB" "${tmp_dir}/${name}" >/dev/null
 }
 
 echo "=========================================="
-echo "Testing opencode CLI package name + update detection"
+echo "Testing opencode v2 update endpoint + update detection"
 echo "=========================================="
 
-write_npm_pkg "opencode-ai" "1.18.10"
+write_opencode_release "2.0.11"
 
-run_check update_available STUB_OPENCODE_VERSION=1.18.9
-grep -q '/opencode-ai/latest$' "${tmp_dir}/update_available.curl.log" \
-  || fail "CLI lookup did not request opencode-ai (regression: 'opencode' 404s on npm)"
-ok "CLI version is looked up under the 'opencode-ai' npm package"
+run_check update_available STUB_OPENCODE_VERSION=2.0.10
+grep -q '/update/api/latest/cli/npm$' "${tmp_dir}/update_available.curl.log" \
+  || fail "CLI lookup did not request the official v2 update endpoint"
+ok "CLI version is looked up through the official v2 update endpoint"
 
-grep -q '⬆️' "${tmp_dir}/update_available.info" || fail "no update marker for 1.18.9 → 1.18.10"
-grep -q 'v1.18.9' "${tmp_dir}/update_available.info" || fail "current version missing from header"
-grep -q 'v1.18.10' "${tmp_dir}/update_available.info" || fail "latest version missing from header"
+grep -q '⬆️' "${tmp_dir}/update_available.info" || fail "no update marker for 2.0.10 → 2.0.11"
+grep -q 'v2.0.10' "${tmp_dir}/update_available.info" || fail "current version missing from header"
+grep -q 'v2.0.11' "${tmp_dir}/update_available.info" || fail "latest version missing from header"
 ok "header announces an available CLI update"
 
 grep -q 'OPENCODE_CLI_VERSION' "${tmp_dir}/update_available.info" \
@@ -117,7 +119,7 @@ ok "update notice names OPENCODE_CLI_VERSION"
 grep -q '→' "${tmp_dir}/update_available.footer" || fail "footer missing the update arrow"
 ok "footer is rendered (regression: it read unexported vars in a child process)"
 
-run_check up_to_date STUB_OPENCODE_VERSION=1.18.10
+run_check up_to_date STUB_OPENCODE_VERSION=2.0.11
 grep -q '✅' "${tmp_dir}/up_to_date.info" || fail "no up-to-date marker when current == latest"
 grep -q '⬆️' "${tmp_dir}/up_to_date.info" && fail "false update notice when current == latest"
 grep -q '→' "${tmp_dir}/up_to_date.footer" && fail "footer claims an update when current == latest"
@@ -125,10 +127,10 @@ ok "current == latest renders ✅ and no update notice"
 
 # A pin ahead of the registry must not read as "update available" — the
 # original `!=` comparison would have announced a downgrade.
-run_check pin_ahead STUB_OPENCODE_VERSION=1.19.0
-grep -q '⬆️' "${tmp_dir}/pin_ahead.info" && fail "bogus update notice when the pin is ahead of npm latest"
+run_check pin_ahead STUB_OPENCODE_VERSION=2.1.0
+grep -q '⬆️' "${tmp_dir}/pin_ahead.info" && fail "bogus update notice when the pin is ahead of the v2 latest release"
 grep -q '✅' "${tmp_dir}/pin_ahead.info" || fail "pin ahead of latest should still render ✅"
-ok "a pin ahead of npm latest does not render a bogus update notice"
+ok "a pin ahead of the v2 latest release does not render a bogus update notice"
 
 echo ""
 echo "=========================================="
@@ -137,7 +139,7 @@ echo "=========================================="
 
 # code-review-graph absent from PATH (graph analysis disabled or install
 # failed) — no graph line should render, and no PyPI lookup should happen.
-run_check graph_absent STUB_OPENCODE_VERSION=1.18.10
+run_check graph_absent STUB_OPENCODE_VERSION=2.0.11
 grep -q 'code-review-graph' "${tmp_dir}/graph_absent.info" \
   && fail "graph line rendered even though code-review-graph is not on PATH"
 grep -q 'pypi' "${tmp_dir}/graph_absent.curl.log" \
@@ -155,7 +157,7 @@ chmod +x "${graph_bin}/code-review-graph"
 write_pypi_pkg "code-review-graph" "2.5.0"
 
 run_check graph_update_available \
-  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_OPENCODE_VERSION=2.0.11 \
   STUB_GRAPH_VERSION=2.4.0 \
   PATH="${graph_bin}:${stub_bin}:/usr/bin:/bin"
 grep -q '/code-review-graph/json$' "${tmp_dir}/graph_update_available.curl.log" \
@@ -171,7 +173,7 @@ grep -q 'OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION' "${tmp_dir}/graph_update_avail
 ok "header announces an available code-review-graph update and names the Variable"
 
 run_check graph_up_to_date \
-  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_OPENCODE_VERSION=2.0.11 \
   STUB_GRAPH_VERSION=2.5.0 \
   PATH="${graph_bin}:${stub_bin}:/usr/bin:/bin"
 grep -q 'code-review-graph' "${tmp_dir}/graph_up_to_date.info" \
@@ -187,7 +189,7 @@ echo "=========================================="
 
 # rtk absent from PATH (RTK disabled or install failed) — no rtk line should
 # render, and no GitHub Releases lookup should happen.
-run_check rtk_absent STUB_OPENCODE_VERSION=1.18.10
+run_check rtk_absent STUB_OPENCODE_VERSION=2.0.11
 grep -q '\*\*rtk:\*\*' "${tmp_dir}/rtk_absent.info" \
   && fail "rtk line rendered even though rtk is not on PATH"
 grep -q 'releases/latest' "${tmp_dir}/rtk_absent.curl.log" \
@@ -205,7 +207,7 @@ chmod +x "${rtk_bin}/rtk"
 write_github_release "rtk-ai/rtk" "0.44.1"
 
 run_check rtk_update_available \
-  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_OPENCODE_VERSION=2.0.11 \
   STUB_RTK_VERSION=0.44.0 \
   PATH="${rtk_bin}:${stub_bin}:/usr/bin:/bin"
 grep -q '/repos/rtk-ai/rtk/releases/latest$' "${tmp_dir}/rtk_update_available.curl.log" \
@@ -220,15 +222,15 @@ grep -q 'OPENCODE_TOOL_RTK_VERSION' "${tmp_dir}/rtk_update_available.info" \
   || fail "rtk update notice does not name the Variable to bump"
 ok "header announces an available rtk update and names the Variable"
 
-# opencode CLI is current in this run (STUB_OPENCODE_VERSION=1.18.10 == the
-# npm fixture) and code-review-graph is absent, so nothing has claimed the
+# opencode CLI is current in this run (STUB_OPENCODE_VERSION=2.0.11 == the
+# update fixture) and code-review-graph is absent, so nothing has claimed the
 # footer before rtk's block runs — rtk should take it over.
 grep -q '→' "${tmp_dir}/rtk_update_available.footer" || fail "footer missing the rtk update arrow"
 grep -q 'rtk' "${tmp_dir}/rtk_update_available.footer" || fail "footer did not fall through to rtk's update notice"
 ok "rtk's update notice claims the footer when nothing else has"
 
 run_check rtk_up_to_date \
-  STUB_OPENCODE_VERSION=1.18.10 \
+  STUB_OPENCODE_VERSION=2.0.11 \
   STUB_RTK_VERSION=0.44.1 \
   PATH="${rtk_bin}:${stub_bin}:/usr/bin:/bin"
 grep -q '\*\*rtk:\*\*' "${tmp_dir}/rtk_up_to_date.info" \
@@ -242,12 +244,12 @@ echo "=========================================="
 echo "Testing best-effort degradation"
 echo "=========================================="
 
-rm -f "${registry_dir}/opencode-ai_latest.json"
-run_check registry_down STUB_OPENCODE_VERSION=1.18.9
+rm -f "${registry_dir}/update_api_latest_cli_npm.json"
+run_check registry_down STUB_OPENCODE_VERSION=2.0.10
 grep -q '✅' "${tmp_dir}/registry_down.info" || fail "unreachable registry should still report the installed version"
 grep -q '⬆️' "${tmp_dir}/registry_down.info" && fail "unreachable registry must not invent an update"
-ok "unreachable npm registry degrades to installed-version-only, never blocks the review"
-write_npm_pkg "opencode-ai" "1.18.10"
+ok "unreachable v2 update endpoint degrades to installed-version-only, never blocks the review"
+write_opencode_release "2.0.11"
 
 cat > "${stub_bin}/opencode" <<'STUB'
 #!/bin/bash

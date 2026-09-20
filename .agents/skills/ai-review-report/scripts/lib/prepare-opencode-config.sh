@@ -30,8 +30,9 @@
 # (gemini → @ai-sdk/google, github-copilot, openai), so each defaults to its
 # native SDK endpoint. When a deployment fronts a provider with a gateway
 # (e.g. a LiteLLM proxy), it sets OPENCODE_REVIEW_REPORT_<P>_URL and this
-# script injects that value as the provider's options.baseURL in the resolved
-# copy (_inject_base_urls, LADR-034). API keys are still read via
+# script injects that value as the provider's `options.baseURL` (supported V1
+# shape) or `settings.baseURL` (native V2 override) in the resolved copy
+# (_inject_base_urls, LADR-034/087). API keys are still read via
 # {env:OPENCODE_*_API_KEY}.
 # An empty/unset URL var → no baseURL added (native base kept), which is why
 # the baseURL is injected dynamically rather than as a static {env:…} placeholder:
@@ -41,27 +42,28 @@
 # in opencode.json (no URL var): https://opencode.ai/zen/go/v1,
 # https://openrouter.ai/api/v1, and https://api.anthropic.com respectively.
 #
-# The resolved config also carries a top-level `instructions` array (LADR-070)
-# listing `.agents/rules/*.md` plus the legacy-layout `.github/instructions/`
-# and `docs/{ADR,hlds}/AGENTS.md` entries. Relative entries resolve against the project
-# directory walking up to the worktree root, NOT against the directory holding
-# the config file (only `{file:...}` substitution uses config-relative paths).
-# So the glob resolves inside the repo under review, exactly as it would from a
-# project-scoped config. No match reads as an empty list, never an error.
+# The resolved config carries the requested `.github/instructions/` defaults in
+# a top-level `instructions` array. OpenCode v2 accepts but does not currently
+# resolve this field. The working compatibility channel is
+# find-context-files.sh, which enumerates the same files as explicit context;
+# the array remains a future-facing declaration and a warning prevents custom
+# overrides from silently assuming it is active (LADR-087).
 #
-# That whole channel is opencode **v1** behaviour. opencode v2 accepts the same
-# key in its schema but does not resolve it (LADR-080) — see
-# _poc_warn_v2_instructions_inert below.
+# The committed config deliberately stays in the V1-compatible shape for now.
+# The official V2 migration guide guarantees supported V1 provider/agent fields
+# are normalized in memory; converting the nested provider and permission
+# shapes is therefore optional and would add migration risk without changing
+# behavior.
 
 # Per-provider baseURL injection (LADR-034). For each env-driven provider whose
-# OPENCODE_REVIEW_REPORT_<P>_URL is non-empty, set its options.baseURL in the
-# resolved config to that value (e.g. a LiteLLM proxy). Empty/unset → left
+# OPENCODE_REVIEW_REPORT_<P>_URL is non-empty, set its V1 options.baseURL or
+# V2 settings.baseURL in the resolved config to that value (e.g. a LiteLLM proxy). Empty/unset → left
 # alone (native SDK base). Idempotent: it always sets baseURL to the current env
 # value, so a refreshed-from-SRC config (no baseURL) is re-injected each run.
 # Only invoked for configs WE manage — we always manage our resolved copy.
 # Skipped (with a notice) when jq is unavailable.
 _poc_inject_base_urls() {
-  local dest="$1" pair id var url tmp
+  local dest="$1" pair id var url tmp shape jq_filter
   command -v jq >/dev/null 2>&1 || {
     echo "ℹ️  jq not found — skipping baseURL injection (providers use native SDK base)."
     return 0
@@ -74,12 +76,23 @@ _poc_inject_base_urls() {
               "openai:OPENCODE_REVIEW_REPORT_OPENAI_URL"; do
     id="${pair%%:*}"; var="${pair#*:}"; url="${!var:-}"
     [ -n "$url" ] || continue
-    jq -e --arg id "$id" '.provider[$id]' "$dest" >/dev/null 2>&1 || continue
+    shape=""
+    if jq -e --arg id "$id" '.providers[$id]' "$dest" >/dev/null 2>&1; then
+      shape="v2"
+    elif jq -e --arg id "$id" '.provider[$id]' "$dest" >/dev/null 2>&1; then
+      shape="v1"
+    else
+      continue
+    fi
     tmp="$(mktemp)"
-    if jq --arg id "$id" --arg url "$url" \
-          '.provider[$id].options.baseURL = $url' "$dest" > "$tmp" 2>/dev/null; then
+    if [ "$shape" = "v2" ]; then
+      jq_filter='.providers[$id].settings.baseURL = $url'
+    else
+      jq_filter='.provider[$id].options.baseURL = $url'
+    fi
+    if jq --arg id "$id" --arg url "$url" "$jq_filter" "$dest" > "$tmp" 2>/dev/null; then
       mv "$tmp" "$dest"
-      echo "✓ baseURL injected for provider '$id' (from $var)."
+      echo "✓ baseURL injected for provider '$id' (from $var, ${shape} config shape)."
     else
       rm -f "$tmp"
       echo "⚠️  Failed to inject baseURL for '$id' — left config unchanged." >&2
@@ -119,15 +132,17 @@ _poc_migrate_stale_managed_global_config() {
   fi
 }
 
-# LADR-080: opencode v2 accepts the `instructions` array in its config schema
+# LADR-080/087: opencode v2 accepts the `instructions` array in its config schema
 # but does NOT resolve its files, globs, or URLs — https://opencode.ai/v2/docs/instructions/
 # states it verbatim: "V2 does not currently resolve its files, glob patterns,
 # or URLs". So on a v2+ binary the LADR-070 channel is schema-valid and
 # completely inert: no error, no log line, just nothing prepended to the system
 # prompt. That is the LADR-053 false-OK failure shape — the feature asserts
-# exactly what it silently fails to do. Warn loudly rather than fail: the review
-# is still correct, only less informed, and choosing between pinning back to 1.x
-# and migrating the rules into per-directory AGENTS.md files is the caller's.
+# exactly what it silently fails to do. Warn loudly rather than fail. The
+# shipped `.github/instructions/**/*.instructions.md` defaults are also
+# enumerated explicitly by find-context-files.sh, so they remain effective.
+# Other entries supplied by an LADR-047 override are not loaded by v2 unless
+# the caller also exposes them through AGENTS.md or the explicit context list.
 #
 # Bash 3.2 safe: local-review.sh sources this lib and, unlike run-review.sh,
 # does NOT guard for Bash >= 4 — no ${var,,} expansion anywhere in here.
@@ -150,10 +165,10 @@ _poc_warn_v2_instructions_inert() {
   fi
   [ "$has_instructions" = yes ] || return 0
 
-  echo "WARNING: opencode ${version} (major ${major}) is installed and the resolved config carries an 'instructions' array (LADR-070)." >&2
-  echo "    opencode v2 accepts that key but does NOT resolve its files, globs, or URLs, so the repo-under-review rule files are silently NOT loaded." >&2
+  echo "WARNING: opencode ${version} (major ${major}) is installed and the resolved config carries an 'instructions' array (LADR-087)." >&2
+  echo "    opencode v2 accepts that key but does NOT resolve its files, globs, or URLs." >&2
   echo "    Ref: https://opencode.ai/v2/docs/instructions/ - 'V2 does not currently resolve its files, glob patterns, or URLs'." >&2
-  echo "    Fix: pin OPENCODE_CLI_VERSION to a 1.x release, or move those rules into per-directory AGENTS.md files (v2 loads those natively)." >&2
+  echo "    The shipped .github/instructions/**/*.instructions.md rules are loaded through find-context-files.sh; custom entries must use AGENTS.md or another explicit context path." >&2
 }
 
 _poc_main() {

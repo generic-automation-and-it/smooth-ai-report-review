@@ -1009,21 +1009,16 @@ check "sourced-lib failure still propagates under set -e (LADR-047 .. rejection)
   "failed_as_expected" "$_poc_test_out"
 unset _poc_test_home _poc_test_home2 _poc_test_out
 
-# ── instructions array + v2-inert warning (LADR-080) ───────────────────────
-# Two defects this pins. (1) Every glob in the array was single-level, so a
-# consumer nesting rules by area had them silently unloaded — both the
-# single-level and the `**` form must be present, because `**` is undocumented
-# for v1's glob engine and dropping either shape loses a real case. (2) opencode
-# v2 accepts `instructions` and resolves nothing, so a major bump kills LADR-070
-# with no error; the lib must WARN (never fail) and must stay silent on v1, on a
-# missing binary, and on an override that ships no array.
+# ── v2 instructions declaration + inert warning (LADR-087) ─────────────────
+# The shipped array mirrors the requested .github instruction defaults, while
+# find-context-files.sh is the active loader because v2 still resolves none of
+# these entries. The lib must WARN (never fail) so custom overrides cannot
+# mistake a schema-valid array for an active channel.
 echo ""
-echo "instructions array + v2-inert warning (LADR-080):"
+echo "v2 instructions declaration + explicit-loader warning (LADR-087):"
 
 _ladr080_cfg="$SCRIPT_DIR/../assets/opencode.json"
-for _pat in '.agents/rules/\*.md' '.agents/rules/\*\*/\*.md' \
-            '.agents/rules-scoped/\*\*/\*.instructions.md' \
-            '.github/instructions/\*.instructions.md' \
+for _pat in '.github/instructions/\*.instructions.md' \
             '.github/instructions/\*\*/\*.instructions.md'; do
   # shellcheck disable=SC2016
   _hit="$(grep -cF "$(printf '%s' "$_pat" | tr -d '\\')" "$_ladr080_cfg" || true)"
@@ -1064,10 +1059,35 @@ _ladr080_probe() {
 }
 check "v2 binary warns that instructions is inert"   "warned" "$(_ladr080_probe 2.0.1)"
 check "v3 pre-release binary warns too"              "warned" "$(_ladr080_probe 3.0.0-beta.1)"
-check "v1 binary stays silent"                       "silent" "$(_ladr080_probe 1.18.10)"
 check "no opencode on PATH stays silent"             "silent" "$(_ladr080_probe '')"
 unset -f _ladr080_probe
 unset _ladr080_cfg
+
+# ── opencode v2 --log-level is a lowercase choice (LADR-087) ───────────────
+# v2 validates --log-level against "all|trace|debug|info|warn|warning|error|
+# fatal|none" and rejects the v1-era uppercase spelling with an
+# InvalidValue CliError before it ever reaches the model. `WARN` therefore
+# fails EVERY opencode call — the chunk probes, the orchestrator probe and
+# every chunk review — while still producing plausible-looking output on
+# stderr. Grep the sources so the uppercase spelling cannot come back.
+_loglevel_offenders() {
+  local f offenders=""
+  for f in "$SCRIPT_DIR/run-review.sh" \
+           "$SCRIPT_DIR/lib/opencode-with-fallback.sh" \
+           "$SCRIPT_DIR/local-review.sh" \
+           "$SCRIPT_DIR/review-in-chunks.sh" \
+           "$SCRIPT_DIR/aggregate-reviews.sh"; do
+    [ -f "$f" ] || continue
+    grep -oE -- '--log-level[[:space:]]+[A-Za-z]+' "$f" 2>/dev/null \
+      | awk '{print $2}' \
+      | grep -vxE 'all|trace|debug|info|warn|warning|error|fatal|none' \
+      | while IFS= read -r bad; do printf '%s:%s ' "$(basename "$f")" "$bad"; done
+  done
+  printf '%s' "$offenders"
+}
+check "no uppercase --log-level value survives in the gate's sources" \
+  "" "$(_loglevel_offenders)"
+unset -f _loglevel_offenders
 
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""

@@ -100,5 +100,26 @@ ok "an unpinned (latest) install does not set RTK_VERSION, matching rtk's own la
 
 echo ""
 echo "=========================================="
+echo "Testing OpenCode v2 compatibility guard"
+echo "=========================================="
+
+v2_bin="${tmp_dir}/v2_bin"
+mkdir -p "$v2_bin"
+cat > "$v2_bin/opencode" <<'STUB'
+#!/bin/bash
+echo '2.0.11'
+STUB
+chmod +x "$v2_bin/opencode"
+: > "${tmp_dir}/v2.log"
+env -i PATH="${v2_bin}:${stub_bin}:/usr/bin:/bin" HOME="${tmp_dir}/v2_home" \
+  RTK_TEST_LOG="${tmp_dir}/v2.log" GITHUB_PATH=/dev/null \
+  bash "$LIB" > "${tmp_dir}/v2.stdout" 2>&1
+[ ! -s "${tmp_dir}/v2.log" ] || fail "RTK installer ran even though OpenCode v2 was detected"
+grep -q 'RTK disabled.*V1 plugin.*OpenCode v2' "${tmp_dir}/v2.stdout" \
+  || fail "v2 skip did not explain the incompatible RTK plugin"
+ok "OpenCode v2 skips the incompatible RTK plugin loudly and non-fatally"
+
+echo ""
+echo "=========================================="
 echo "✅ All ${pass_count} install-rtk tests passed"
 echo "=========================================="

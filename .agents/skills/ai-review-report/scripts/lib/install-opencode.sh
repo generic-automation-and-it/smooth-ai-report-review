@@ -9,7 +9,7 @@
 #
 # Contract (LADR-048): every workflow YAML or consumer-facing example that
 # installs opencode delegates to this script — no inline
-# `curl -fsSL https://opencode.ai/install | bash`. Duplicating the install
+# `curl -fsSL https://opencode.ai/v2/install | bash`. Duplicating the install
 # block silently reintroduces the pin-parity gap this lib closed.
 #
 # Inputs (env vars, all optional):
@@ -44,6 +44,16 @@ else
 fi
 echo "Requested opencode version: ${REQUESTED_VERSION}"
 
+if [ "$REQUESTED_VERSION" != "latest" ]; then
+  case "$REQUESTED_VERSION" in
+    2.*) ;;
+    *)
+      echo "❌ OPENCODE_CLI_VERSION must pin an OpenCode v2 release (2.x); got '${REQUESTED_VERSION}'." >&2
+      exit 1
+      ;;
+  esac
+fi
+
 install_needed="false"
 if command -v opencode >/dev/null 2>&1; then
   cached_version="$(opencode --version 2>/dev/null | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z]+)?' | head -1 | sed 's/^v//' || true)"
@@ -59,12 +69,12 @@ fi
 if [ "$install_needed" = "true" ]; then
   echo "Installing opencode (${REQUESTED_VERSION})..."
   if [ "$REQUESTED_VERSION" = "latest" ]; then
-    if ! curl -fsSL https://opencode.ai/install | bash; then
+    if ! curl -fsSL https://opencode.ai/v2/install | bash; then
       echo "❌ opencode install failed." >&2
       exit 1
     fi
   else
-    if ! curl -fsSL https://opencode.ai/install | bash -s -- --version "$REQUESTED_VERSION"; then
+    if ! curl -fsSL https://opencode.ai/v2/install | bash -s -- --version "$REQUESTED_VERSION"; then
       echo "❌ opencode install failed." >&2
       exit 1
     fi
