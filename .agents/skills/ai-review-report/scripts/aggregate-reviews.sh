@@ -172,7 +172,8 @@ echo "✅ Combined all chunk reviews"
 # Generate PR-level summary
 echo "Generating PR summary..."
 
-# Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
+# Custom context is discovered dynamically via *AGENTS.md (every filename
+# ending in it, not only underscore-separated ones); standard AGENTS.md
 # scope is supplied natively by opencode v2 (LADR-087).
 
 # Load PR description and extract AI Review Notes section
@@ -520,7 +521,7 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 
 EOF
 
-# Custom *_AGENTS.md files remain explicit chunk context; standard AGENTS.md
+# Custom *AGENTS.md files remain explicit chunk context; standard AGENTS.md
 # files are supplied by opencode v2's scoped discovery.
 
 cat >> ci_temp/summary_prompt.txt << 'EOF'
@@ -1050,7 +1051,7 @@ echo "---" >> ci_temp/final_review.md
 echo "" >> ci_temp/final_review.md
 echo "## 📚 AI Review Context Documents" >> ci_temp/final_review.md
 echo "" >> ci_temp/final_review.md
-echo "The following explicit context files (custom \`*_AGENTS.md\`, GitHub instructions, and mandatory paths) were provided to guide this review. Standard \`AGENTS.md\` scope was loaded natively by opencode v2:" >> ci_temp/final_review.md
+echo "The following explicit context files (custom \`*AGENTS.md\`, \`.agents/rules\`, GitHub instructions, and mandatory paths) were provided to guide this review. Standard \`AGENTS.md\` scope was loaded natively by opencode v2:" >> ci_temp/final_review.md
 echo "" >> ci_temp/final_review.md
 
 # Use all_context_files.txt collected from chunks (Implementation #90)
