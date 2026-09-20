@@ -167,9 +167,9 @@ predicate_case reject "narration mentioning a priority" \
 predicate_case reject "narration mentioning several severities" \
   'I will look for critical priority and medium priority problems next.\n'
 predicate_case accept "prose findings WITH the mandated section marker" \
-  '**Issues Found:**\n- High Priority: the token is logged in plaintext.\n'
+  '**Issues Found:**\n- High Priority: the token is logged in plaintext at auth.cs:12.\n'
 predicate_case accept "emoji findings without any heading (LADR-077)" \
-  '\xf0\x9f\x9f\xa1 stale link in the doc header.\n'
+  '\xf0\x9f\x9f\xa1 stale link in the doc header, alpha/a.txt:1 — retarget it.\n'
 predicate_case accept "the mandated empty-section placeholder" \
   '**Issues Found:**\n- None found.\n'
 predicate_case reject "the section marker alone (truncated)" \
@@ -187,6 +187,24 @@ predicate_case reject "an emoji followed only by punctuation" \
   '- \xf0\x9f\x9f\xa0 :\n'
 predicate_case accept "an emoji followed by actual finding text" \
   '- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at auth.cs:12\n'
+
+# The family four rounds of regex tuning could not close: the template emits
+# its parts in order, so every truncation point leaves a valid-looking prefix.
+# The anchor closes it because of WHERE it sits — at the END of the finding,
+# after the description — so a response cut off in the scaffolding never
+# reaches it.
+predicate_case reject "truncated at the severity label" \
+  '- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority:'
+predicate_case reject "truncated mid-tag" \
+  '- \xf0\x9f\x9f\xa0 [VERIF'
+predicate_case reject "section header plus a truncated finding" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority:'
+# The two signals are orthogonal, which is the point: narration can name a file
+# and a truncated finding can carry a marker, but neither produces both.
+predicate_case reject "narration that happens to name a file and line" \
+  'Reading run-review.sh:1196 next.\n'
+predicate_case reject "an anchor with no severity marker at all" \
+  'The file auth.cs:12 was examined.\n'
 # The "None found." clause keeps a bare literal ON PURPOSE: there the marker IS
 # the content — it is the complete statement the template asks for when there
 # is nothing to report — and a response cut off inside it does not match.

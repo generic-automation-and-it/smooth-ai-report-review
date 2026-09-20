@@ -441,7 +441,7 @@ if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
 fi
 echo "$model" >> "${SPLIT_CALLS_LOG:-/dev/null}"
 [ "$model" = "primary-model" ] && exit 124
-printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued by the secondary tier.\n\n%.0s' {1..20}
+printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued by the secondary tier — `alpha/a.txt:1`.\n\n%.0s' {1..20}
 RTSTUB
 chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
 # Record the budget each stage was handed, then run WITHOUT enforcing it, so the

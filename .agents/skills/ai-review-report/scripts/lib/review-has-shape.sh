@@ -36,44 +36,43 @@ else
   cat > "$_rhs_src"
 fi
 
-# Severity emoji, each as its own -e pattern: these are multi-byte and a
-# BRACKET expression over them decomposes into bytes and is locale-dependent.
-# (Alternation is safe; the bracket form is the trap.)
+# Two INDEPENDENT signals are required, not one marker: a severity/priority
+# marker AND a `file:line` anchor. Only the mandated "None found." placeholder
+# is exempt, because there the marker IS the content.
 #
-# The marker must be followed by actual text on the same line. `grep -qF` on
-# the character alone asked "is this byte present", not "did the model write a
-# finding" — so `- 🟠` and even a bare `🔴` with no newline passed as completed
-# reviews, and an unreviewed chunk would be aggregated with no failed-coverage
-# signal. A real finding always has words after the marker; a response
-# truncated at the marker has none.
-grep -qE -e '🔴[^[:alnum:]]*[[:alnum:]]' \
-         -e '🟠[^[:alnum:]]*[[:alnum:]]' \
-         -e '🟡[^[:alnum:]]*[[:alnum:]]' \
-         -e '🔵[^[:alnum:]]*[[:alnum:]]' "$_rhs_src" && exit 0
-# The mandated placeholder for an empty severity section. Audited against the
-# same truncation threat and deliberately left as a bare literal: here the
-# marker IS the content. "None found." is the complete statement the template
-# asks for when there is nothing to report, and a response cut off inside it
-# ("- None fou") does not match. Adding a content requirement would reject the
-# valid clean review this predicate exists to accept.
+# This replaced four rounds of regex tuning, and the tuning is why. Each round
+# found a longer prefix that still looked complete — a bare emoji, then the
+# emoji plus the `[VERIFIED] High Priority:` label — because the template emits
+# its parts in order, so EVERY truncation point leaves a valid-looking prefix.
+# Detecting completeness from a prefix is not winnable by inspection; the fifth
+# candidate regex still accepted both truncations.
+#
+# The anchor wins because of WHERE it sits. The template puts `file:line` at the
+# end of the finding, after the description, so a response cut off in the
+# scaffolding has not reached it. The two signals are orthogonal: narration can
+# mention a filename, and a truncated finding can carry a severity marker, but
+# neither produces both.
+#
+# Accepted cost, stated because it is a real fail-closed risk: a finding written
+# with no `file:line` is rejected and takes the fallback + retry + fail-closed
+# path. That shape is already off-contract — LADR-055 routes items with no
+# single location to `residual_risks`/`testing_gaps`, not to Issues Found — and
+# fail-closed is the correct direction for a gate whose worst outcome is an
+# unreviewed chunk counted as clean.
+
+# The mandated placeholder for an empty severity section. Exempt from the anchor
+# requirement: a clean review has no finding, so it has no location to cite.
 grep -qiF 'none found' "$_rhs_src" && exit 0
-# Priority wording — "High Priority", "🟡 Medium Priority:", "low-priority" —
-# is the WEAK clause, because it matches ordinary prose. "Let me check the high
-# priority areas before reviewing." is 55 bytes of narration that satisfies it
-# while containing no review at all, and the chunk would then be aggregated as
-# clean with zero findings. It was tolerable while the 200-byte floor ran in
-# front of this predicate; with the floor gone (LADR-087) it is not.
-#
-# So this clause alone is not enough: the mandated section marker has to be
-# present too. That keeps it useful for a model that writes real findings in
-# prose rather than emoji, while narration — which has no `Issues Found`
-# section — is rejected and takes the fallback + fail-closed path.
-#
-# Deliberately NOT promoting `Issues Found` to a standalone clause: the marker
-# is emitted before any content, so a response truncated right after it would
-# pass while containing nothing (the finding-2 shape from the previous round).
-if grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_src" \
-   && grep -qiF 'issues found' "$_rhs_src"; then
-  exit 0
+
+# Anchor: `some/file.ext:123`. Required for every finding-based acceptance.
+if grep -qE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' "$_rhs_src"; then
+  # Severity emoji, each as its own -e pattern: these are multi-byte and a
+  # BRACKET expression over them decomposes into bytes and is locale-dependent.
+  # (Alternation is safe; the bracket form is the trap.)
+  grep -qE -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$_rhs_src" && exit 0
+  # "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling. Safe
+  # to accept on its own here because the anchor is already established; on its
+  # own it matches ordinary prose ("check the high priority areas").
+  grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_src" && exit 0
 fi
 exit 1
