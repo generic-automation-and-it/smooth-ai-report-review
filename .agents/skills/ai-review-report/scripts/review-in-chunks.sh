@@ -100,14 +100,22 @@ structured_findings_enabled() {
 # "None found" for the empty ones — measured across the six chunks of the
 # trigger run, the five real reviews scored 2-22 on every marker below and the
 # narration-only one scored 0 on all of them.
-# The chunk prompt mandates this heading as the first line of every per-file
-# section (see the output template further down). Its presence proves the model
-# reached the template rather than spending its turn narrating, which is the
-# thing the byte floor in lib/opencode-with-fallback.sh was standing in for —
-# badly, once v2 stopped padding stdout with chain-of-thought (LADR-087).
-# Exported to the two chunk-review invocations only; every other caller of that
-# lib leaves it unset and keeps the pure byte floor.
-CHUNK_OUTPUT_MARKER='### 📄 File:'
+# Marker that a chunk response reached its output template, used in place of
+# the byte floor in lib/opencode-with-fallback.sh (LADR-087). Exported to the
+# two chunk-review invocations only; every other caller of that lib leaves it
+# unset and keeps the pure floor.
+#
+# Deliberately NOT the `### 📄 File:` heading. The heading is the FIRST line the
+# template emits, so a response truncated immediately after it carries the
+# marker while containing no review at all — and with the floor gone that
+# 30-byte fragment would have been accepted by the transport, passed the
+# downstream shape check on its heading alone, and been aggregated as a
+# completed chunk with zero findings. An unreviewed chunk counted as clean is
+# the one failure this gate must never have. `**Issues Found:**` is emitted
+# after the heading, so it cannot be present in that fragment; the authoritative
+# gate remains chunk_review_has_shape below, which additionally requires the
+# section to have CONTENT.
+CHUNK_OUTPUT_MARKER='**Issues Found:**'
 
 chunk_review_has_shape() {
   local md="$1"
@@ -119,8 +127,16 @@ chunk_review_has_shape() {
   grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$md" && return 0
   # The mandated placeholder for an empty severity section.
   grep -qiF 'none found' "$md" && return 0
-  # A markdown heading means the model reached the output template.
-  grep -qE '^#{1,6} ' "$md" && return 0
+  # NO heading-only clause. It used to be here ("a markdown heading means the
+  # model reached the output template") and it was defensible while the
+  # 200-byte floor ran first: a heading plus 200 bytes is weak but not empty.
+  # With the floor gone (LADR-087) it became the accept-a-truncation clause —
+  # `### 📄 File: \`x.cs\`` and nothing else would have passed as a completed,
+  # zero-finding review. Every COMPLETE section satisfies one of the three
+  # clauses above, because the template mandates `**Issues Found:**` followed
+  # by either findings (severity emoji or priority wording) or the literal
+  # "None found." placeholder. So a heading with none of them is by definition
+  # a response that stopped partway, and the fail-closed path is the right one.
   return 1
 }
 if structured_findings_enabled; then

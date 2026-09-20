@@ -680,6 +680,20 @@ _sh "a short clean review keeps its body instead of a failure marker" "1" \
 _sh "a short clean review costs no retry sweep" "0" \
   "$(grep -c 'produced no usable review' "${TMP_DIR}/clean-short.log" 2>/dev/null || true)"
 
+# A response truncated right after the template's opening heading is NOT a
+# review. While the 200-byte floor ran first this was academic; with the floor
+# gone the old "a markdown heading means the model reached the template" clause
+# became the accept-a-truncation clause, and an unreviewed chunk would have
+# been aggregated as clean with zero findings — defects escaping the gate with
+# nothing in the coverage block to show for it.
+printf '### 📄 File: `src/Project.Infrastructure/Ftp/FtpHelper.cs`\n' \
+  > "${TMP_DIR}/heading-only.txt"
+run_shape_case "heading-only" "${TMP_DIR}/heading-only.txt"
+_sh "a heading with no findings section is not a review" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "heading-only truncation is diagnosed as missing structure" "1" \
+  "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
+
 # Truly empty output keeps its own diagnosis: "nothing came back" and
 # "narration came back" are different failures and the log line is the only
 # place a maintainer sees which one fired.
@@ -691,7 +705,7 @@ _sh "empty output is diagnosed as empty, not as missing structure (both attempts
   "$(grep -c 'empty output (0 bytes)' "${TMP_DIR}/empty-output.log" 2>/dev/null || true)"
 
 if [ "$_sh_fail" -ne 0 ]; then
-  for _l in narration-only real-review emoji-only clean-short empty-output; do
+  for _l in narration-only real-review emoji-only clean-short heading-only empty-output; do
     echo "--- ${_l}.log (tail) ---"
     tail -25 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
   done

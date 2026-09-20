@@ -94,7 +94,7 @@ actual="$(marker_case no_marker "")"
 }
 echo "✓ no marker: short output still rejected, chain still exhausted (unchanged)"
 
-actual="$(marker_case with_marker '### 📄 File:')"
+actual="$(marker_case with_marker '**Issues Found:**')"
 [ "$actual" = "0:71:1" ] || {
   echo "FAIL: a marked short review must be accepted on the first model (got '$actual')" >&2
   exit 1
@@ -109,6 +109,31 @@ actual="$(marker_case wrong_marker 'ZZ-NOT-IN-OUTPUT')"
   exit 1
 }
 echo "✓ marker absent from output: falls back to the byte floor"
+
+# The marker must prove the template was COMPLETED, not merely opened. The
+# heading is the template's first line, so a response truncated right after it
+# carries that marker while containing no review — which would be accepted as a
+# clean chunk. Pin the heading as an insufficient marker from this side too.
+cat > "${marker_dir}/bin/opencode" <<'TRUNCSTUB'
+#!/bin/bash
+cat >/dev/null
+printf 'call\n' >> "$OPENCODE_STUB_CALLS"
+printf '### 📄 File: `src/Ftp/FtpHelper.cs`\n'
+TRUNCSTUB
+chmod +x "${marker_dir}/bin/opencode"
+actual="$(marker_case truncated '**Issues Found:**')"
+[ "$actual" = "1:0:3" ] || {
+  echo "FAIL: a response truncated after the file heading must not be accepted (got '$actual')" >&2
+  exit 1
+}
+echo "✓ heading-only truncation is rejected, not mistaken for a clean review"
+
+# ...and the gate must not be configured with the heading as its marker.
+grep -q "CHUNK_OUTPUT_MARKER='### " "${SCRIPT_DIR}/review-in-chunks.sh" && {
+  echo "FAIL: the chunk marker is the template's first line — a truncation after it would pass" >&2
+  exit 1
+}
+echo "✓ the chunk marker is not the template's opening heading"
 
 # The gate's chunk call sites must actually pass one, or the fix is inert.
 grep -q 'OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout' "${SCRIPT_DIR}/review-in-chunks.sh" || {
