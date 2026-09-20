@@ -24,6 +24,10 @@
 # Optional env:
 #   OPENCODE_AGENT            Agent name to run (default: review).
 #   OPENCODE_MIN_OUTPUT_BYTES Minimum stdout bytes for success (default: 200).
+#   OPENCODE_OUTPUT_MARKER    Literal string that proves the model reached its
+#                             output template. When set AND present in stdout,
+#                             the run succeeds regardless of length. Unset =
+#                             byte floor alone, exactly as before.
 #
 # Stdout: opencode output. Stderr: passthrough.
 
@@ -51,6 +55,7 @@ fi
 PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
+OPENCODE_OUTPUT_MARKER="${OPENCODE_OUTPUT_MARKER:-}"
 
 model_target() {
   case "$1" in
@@ -99,6 +104,21 @@ run_opencode() {
     --format default \
     --log-level warn \
     < "$prompt_file") || return 1
+  # The byte floor is a proxy for "the model produced nothing"; when the caller
+  # can name a marker that proves otherwise, the marker wins (LADR-087). A
+  # correct review of a clean file is legitimately short — v1 padded every
+  # response with chain-of-thought on stdout and the 200-byte floor was
+  # calibrated against that padding, so on v2 (which routes narration to
+  # stderr) the floor started rejecting valid 138-byte reviews and burning the
+  # whole fallback chain re-asking for them. This branch only ever ADDS
+  # acceptance: with OPENCODE_OUTPUT_MARKER unset every call site behaves
+  # byte-identically to before, so the summary, semantic-grouping and analyse
+  # callers are untouched.
+  if [ -n "$OPENCODE_OUTPUT_MARKER" ] \
+     && printf '%s' "$_out" | grep -qF -- "$OPENCODE_OUTPUT_MARKER"; then
+    printf '%s\n' "$_out"
+    return 0
+  fi
   if [ "${#_out}" -lt "${OPENCODE_MIN_OUTPUT_BYTES}" ]; then
     printf '%s' "$_out" >&2
     return 1

@@ -100,6 +100,15 @@ structured_findings_enabled() {
 # "None found" for the empty ones — measured across the six chunks of the
 # trigger run, the five real reviews scored 2-22 on every marker below and the
 # narration-only one scored 0 on all of them.
+# The chunk prompt mandates this heading as the first line of every per-file
+# section (see the output template further down). Its presence proves the model
+# reached the template rather than spending its turn narrating, which is the
+# thing the byte floor in lib/opencode-with-fallback.sh was standing in for —
+# badly, once v2 stopped padding stdout with chain-of-thought (LADR-087).
+# Exported to the two chunk-review invocations only; every other caller of that
+# lib leaves it unset and keeps the pure byte floor.
+CHUNK_OUTPUT_MARKER='### 📄 File:'
+
 chunk_review_has_shape() {
   local md="$1"
   [ -f "$md" ] || return 1
@@ -1252,7 +1261,7 @@ EOF
     _stage1_fb="$_secondary_model"
   fi
   _stage_started=$(date +%s)
-  if timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
   else
     _stage1_rc=$?
@@ -1274,7 +1283,7 @@ EOF
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_OUTPUT_MARKER="$CHUNK_OUTPUT_MARKER" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
@@ -1316,14 +1325,30 @@ EOF
     # happened instead of silently aggregating it as a review.
     local review_size
     review_size=$(wc -c < "ci_temp/reviews/chunk_${chunk_num}.md" 2>/dev/null || echo 0)
-    # Two shapes of the same no-op, one reason string (LADR-077). The byte floor
-    # catches "nothing came back"; the shape check catches "narration came back"
-    # — output over the floor that never reached the review template. Both are a
-    # chunk that was not reviewed, and both must take the LADR-031 fail-closed
-    # path rather than be aggregated as a review.
+    # Structure, not length, decides whether a chunk was reviewed (LADR-077,
+    # amended LADR-087). `chunk_review_has_shape` already encodes what "a model
+    # reached the output template" means — a severity marker, a priority
+    # phrase, the mandated "None found" placeholder, or a heading — so length
+    # has nothing to add and was actively wrong: a byte floor ran FIRST and
+    # short-circuited the shape check, so a correct, complete review of a clean
+    # file was rejected as a silent failure for being short.
+    #
+    # That is not hypothetical. On v1 the model's chain-of-thought leaked onto
+    # stdout and padded every review by a few hundred bytes; v2 routes it to
+    # stderr, and the floor had been silently calibrated against that padding.
+    # Eval run 35525187790 lost DR-004/DR-012/DR-013 this way — DR-013's v1
+    # output was 446 bytes, of which 308 were narration, leaving a review
+    # byte-identical to the 138-byte v2 one the floor then threw away. In the
+    # gate the same rejection sets the LADR-031 fail-closed flag, so a chunk
+    # with genuinely nothing to report would block a clean PR, and the cleaner
+    # the chunk the likelier it happened.
+    #
+    # Keep 0 bytes as its own reason: "nothing came back" and "narration came
+    # back" are different diagnoses and the log line is the only place a
+    # maintainer sees which one fired.
     local reject_reason=""
-    if [ "$review_size" -lt 200 ]; then
-      reject_reason="empty/tiny output (${review_size} bytes)"
+    if [ "$review_size" -eq 0 ]; then
+      reject_reason="empty output (0 bytes)"
     elif ! chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
       reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker, no \"None found\", no heading)"
     fi

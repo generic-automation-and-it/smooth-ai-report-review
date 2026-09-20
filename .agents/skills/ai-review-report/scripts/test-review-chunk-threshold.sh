@@ -656,8 +656,42 @@ run_shape_case "emoji-only" "${TMP_DIR}/emoji-only.txt"
 _sh "a severity emoji alone is review shape" "0" \
   "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
 
+# A correct review of a clean file is SHORT, and length must not decide its
+# fate (LADR-087). This body is 137 bytes — well under the 200-byte floor that
+# used to run first and short-circuit the shape check. Eval run 35525187790
+# lost DR-004, DR-012 and DR-013 exactly here: v1 padded every response with
+# chain-of-thought on stdout, v2 routes it to stderr, and the floor had been
+# calibrated against the padding. DR-013's v1 output was 446 bytes of which
+# 308 were narration, leaving a review byte-identical in length to the 138-byte
+# v2 one the floor then discarded. In the gate that sets the LADR-031
+# fail-closed flag, so the cleaner the chunk the likelier it blocked a good PR.
+{
+  printf '### 📄 File: `src/Project.Infrastructure/Ftp/FtpHelper.cs`\n\n'
+  printf '**Issues Found:**\n- None found.\n\n'
+  printf '**Pre-existing (informational):**\n- None.\n'
+} > "${TMP_DIR}/clean-short.txt"
+_sh "the clean-review fixture is genuinely under the old byte floor" "1" \
+  "$([ "$(wc -c < "${TMP_DIR}/clean-short.txt")" -lt 200 ] && echo 1 || echo 0)"
+run_shape_case "clean-short" "${TMP_DIR}/clean-short.txt"
+_sh "a short clean review is NOT flagged as a silent failure" "0" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "a short clean review keeps its body instead of a failure marker" "1" \
+  "$(grep -c 'None found' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.md" 2>/dev/null || true)"
+_sh "a short clean review costs no retry sweep" "0" \
+  "$(grep -c 'produced no usable review' "${TMP_DIR}/clean-short.log" 2>/dev/null || true)"
+
+# Truly empty output keeps its own diagnosis: "nothing came back" and
+# "narration came back" are different failures and the log line is the only
+# place a maintainer sees which one fired.
+: > "${TMP_DIR}/empty.txt"
+run_shape_case "empty-output" "${TMP_DIR}/empty.txt"
+_sh "empty output is still fail-closed" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "empty output is diagnosed as empty, not as missing structure (both attempts)" "2" \
+  "$(grep -c 'empty output (0 bytes)' "${TMP_DIR}/empty-output.log" 2>/dev/null || true)"
+
 if [ "$_sh_fail" -ne 0 ]; then
-  for _l in narration-only real-review emoji-only; do
+  for _l in narration-only real-review emoji-only clean-short empty-output; do
     echo "--- ${_l}.log (tail) ---"
     tail -25 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
   done
