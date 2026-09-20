@@ -18,8 +18,23 @@
 # Optional env:
 #   OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT  seconds to wait for the API info probe (default 30)
 #
-# Exit 0 if `/api/info` returns a valid info document; 1 otherwise. Callers decide whether a
-# failure is fatal (local preflight) or a non-blocking warning (CI diagnostic).
+# Exit status is deliberately three-valued, because the two things this script
+# checks carry different consequences:
+#   0  opencode is up AND (when OPENCODE_CONFIG is set) the managed config is
+#      confirmed to be the one actually loaded.
+#   1  liveness problem — /api/info did not answer, timed out, or returned a
+#      payload that is not an info document. ADVISORY: it says nothing about
+#      review correctness, so CI logs it and proceeds (LADR-028's deliberate
+#      choice), while the local preflight aborts.
+#   3  the managed config is NOT confirmed — either the service is bound to a
+#      different config, or the binding could not be read at all. FATAL
+#      EVERYWHERE, including CI. Unlike a liveness blip this has a direct,
+#      silent effect on the review: the wrong provider and model ids, and no
+#      LADR-029 permission lockdown on untrusted PR code, with nothing in the
+#      posted output to say so.
+# A caller that treats every non-zero the same turns 3 back into a log line —
+# which is exactly the hole this split exists to close, so check for 3
+# explicitly rather than inverting the test.
 
 set -u
 
@@ -92,9 +107,18 @@ fi
 # agent's permission lockdown (LADR-029) silently absent. That is the LADR-053
 # false-OK shape, so check the binding rather than assume it.
 #
-# Best-effort: an opencode without `debug config`, or an empty/failed read,
-# degrades to no check rather than a false alarm. Bounded with the same
-# background+deadline idiom as the probe above (no GNU `timeout` on macOS).
+# "Could not read the binding" is treated exactly like "the binding is wrong",
+# and both exit 3. This used to degrade to no check, on the reasoning that a
+# false alarm was worse than a missed one. That was backwards: `debug config`
+# is a documented v2 command and install-opencode.sh now guarantees a major
+# >= 2, so an empty read means something is genuinely wrong — while the cost
+# of the two outcomes is not symmetric at all. A false alarm is a loud message
+# naming the exact command to run; a false pass is a review that silently ran
+# under someone else's provider with the permission lockdown absent. Fail
+# closed, and say which of the two cases fired so a future opencode that drops
+# `debug config` is diagnosable in one read rather than looking like a stale
+# service. Bounded with the same background+deadline idiom as the probe above
+# (no GNU `timeout` on macOS).
 if [ -n "${OPENCODE_CONFIG:-}" ]; then
   : > "$CFG"
   opencode debug config >"$CFG" 2>/dev/null &
@@ -109,13 +133,21 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
     : > "$CFG"
   fi
   wait "$_cfg_pid" 2>/dev/null || true
-  if [ -s "$CFG" ] && ! grep -qF "$OPENCODE_CONFIG" "$CFG"; then
-    echo "⚠️ opencode is NOT using the managed config for this run." >&2
+  if [ ! -s "$CFG" ]; then
+    echo "❌ Could not verify which config opencode is using — 'opencode debug config' returned nothing." >&2
+    echo "    OPENCODE_CONFIG=${OPENCODE_CONFIG}" >&2
+    echo "    Unverified is treated as unbound: continuing risks reviewing under a foreign provider, model chain and permission policy with nothing in the output to say so." >&2
+    echo "    Usual cause is a wedged service — 'opencode service stop', then start this review again." >&2
+    echo "    If the command itself is gone from this opencode build, that is a toolchain break, not a stale service." >&2
+    exit 3
+  fi
+  if ! grep -qF "$OPENCODE_CONFIG" "$CFG"; then
+    echo "❌ opencode is NOT using the managed config for this run." >&2
     echo "    OPENCODE_CONFIG=${OPENCODE_CONFIG}" >&2
     echo "    A v2 background service binds its config when it starts, so an already-running service ignores this value." >&2
     echo "    Without it the selected provider, model ids and the review agent's permission lockdown are all absent." >&2
     echo "    Fix: run 'opencode service stop', then start this review again." >&2
-    exit 1
+    exit 3
   fi
 fi
 
