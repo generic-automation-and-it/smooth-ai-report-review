@@ -336,16 +336,42 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
   #
   # `[^[:space:]]` after the colon is load-bearing: it rejects a bare
   # `- 🔵 Low Priority:` that was cut off before any content.
-  _rhs_low_line='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?low( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  _rhs_low_line='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(low)( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  # ...and the three tiers above it must have been EMITTED, or the route proves
+  # nothing about completion (review 5271360715, finding 1). `_rhs_ph_tier` only
+  # proves that SOME one complete placeholder token exists, so on its own it let
+  # a section carrying Critical, High and a Low finding -- but no Medium at all
+  # -- pass as finished. That hole predates the low-finding route (the old
+  # placeholder pair accepted a bare Critical plus Low just as readily), but
+  # this route widened it, so it is fixed here.
+  #
+  # Presence, deliberately, NOT a placeholder: a tier that carries a real
+  # finding was emitted just as surely as one that says "none found", and
+  # demanding "none found" for Critical/High/Medium would re-create the exact
+  # defect this pair of fixes exists to close -- a section whose Medium finding
+  # writes its location as prose would fail both routes and be discarded.
+  _rhs_t_crit='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?critical( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  _rhs_t_high='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?high( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  _rhs_t_med='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?medium( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
   if [ -n "$_rhs_issues" ]; then
     if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
        || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
       return 0
     fi
-    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier" \
-       && { printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low" \
-            || printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_low_line"; }; then
-      return 0
+    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier"; then
+      # Route A -- every tier resolved to the placeholder (one per line, or the
+      # compact chain). Unchanged from before the low-finding route existed.
+      if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
+        return 0
+      fi
+      # Route B -- the low tier carries a real finding. Only completion evidence
+      # counts here, so all three tiers above it must be present too.
+      if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_low_line" \
+         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_crit" \
+         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_high" \
+         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_med"; then
+        return 0
+      fi
     fi
   fi
 

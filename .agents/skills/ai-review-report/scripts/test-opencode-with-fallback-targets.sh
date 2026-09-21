@@ -440,7 +440,7 @@ predicate_case reject "compact chain that never reaches the low tier" \
 predicate_case accept "clean tiers plus a real Low finding, prose location" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: None found\n- \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: the changelog row (line 106) announces an area the layout table never rows\n'
 predicate_case accept "clean tiers plus a Low finding about another file" \
-  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x94\xb5 [SPECULATIVE] Low Priority: the launchers under npm/cli/ hardcode spawn("python3") at npm/cli/_run.js:18\n'
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: None found\n- \xf0\x9f\x94\xb5 [SPECULATIVE] Low Priority: the launchers under npm/cli/ hardcode spawn("python3") at npm/cli/_run.js:18\n'
 # The relaxation must not swallow a response cut off before the finding text.
 predicate_case reject "a low tier cut off before any content" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x94\xb5 Low Priority:'
@@ -448,6 +448,24 @@ predicate_case reject "a low tier cut off before any content" \
 # evidence the model reached the end of the tier list.
 predicate_case reject "a lone low line with no tier placeholder present" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb5 Low Priority: something looks off in the handler and I am still'
+# Route B is completion evidence or it is nothing (review 5271360715, finding
+# 1). A complete placeholder token proves only that SOME tier resolved, so
+# without this the tiers above low may simply never have been emitted.
+# Both reject fixtures write their location as PROSE on purpose. A `file:line`
+# anywhere in the section satisfies the anchor route, which is a legitimate
+# accept and would mask whatever route B does -- so an anchor here would make
+# these two assertions vacuous.
+predicate_case reject "a Low finding with the Medium tier never emitted" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x94\xb5 [SPECULATIVE] Low Priority: the launchers hardcode a Unix-only interpreter name (line 18)\n'
+predicate_case reject "a Low finding with only the Critical tier emitted" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x94\xb5 Low Priority: the changelog row (line 106) is unlisted\n'
+# Presence, not a placeholder: a tier carrying a real finding was emitted just
+# as surely, and demanding "none found" here would discard a section whose
+# Medium finding happens to write its location as prose.
+predicate_case accept "a Medium FINDING still counts as the tier being emitted" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: the layout table omits a row (line 17)\n- \xf0\x9f\x94\xb5 Low Priority: the changelog row (line 106) is unlisted\n'
+predicate_case accept "compact chain above a separate Low finding" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found \xc2\xb7 \xf0\x9f\x9f\xa0 High: None found \xc2\xb7 \xf0\x9f\x9f\xa1 Medium: None found\n- \xf0\x9f\x94\xb5 Low Priority: the changelog row (line 106) is unlisted\n'
 # Review 5264530992, finding 1: the placeholder must sit INSIDE the Issues
 # Found subsection. The template's Pre-existing section carries its own
 # "None found", and an empty Issues Found followed by it is not a clean review.
