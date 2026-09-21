@@ -400,6 +400,19 @@ predicate_case accept "list placeholder under Issues Found, then Pre-existing pl
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found\n'
 predicate_case accept "per-severity placeholders under Issues Found, then Pre-existing" \
   '**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n- \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: None found\n\n**Pre-existing (informational):**\n- None found\n'
+# Review 5266005570, finding 1: the list placeholder is the documented shape,
+# not any bullet that happens to end in "none found". A narration bullet
+# under the marker is an unfinished response.
+predicate_case reject "a narration bullet ending in none found" \
+  '**Issues Found:**\n- Checked callers; none found.'
+predicate_case reject "a narration bullet with a severity word and none found" \
+  '**Issues Found:**\n- Looked for high priority leaks in the handler, none found'
+predicate_case accept "per-severity placeholder without the tag" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 High Priority: None found\n'
+predicate_case accept "per-severity placeholder without the emoji" \
+  '**Issues Found:**\n- [VERIFIED] Medium Priority: None found.\n'
+predicate_case accept "bare Critical label placeholder" \
+  '**Issues Found:**\n- Critical: None found\n'
 
 # Review 5263305644, finding 2. Scoping to the last section cannot see a file
 # the model never mentioned: file A's complete section is then the last one

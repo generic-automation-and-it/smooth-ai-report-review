@@ -231,8 +231,17 @@ _rhs_issues="$(awk '
   on && ($0 ~ /^#/ || $0 ~ /^[[:space:]]*\*\*[^*]+\*\*/) { on = 0 }
   on { print }
 ' "$_rhs_tail" 2>/dev/null)"
+#
+# The list form is the DOCUMENTED shapes only, not "any bullet ending in
+# none found": `- None found` and the per-severity
+# `- 🔴 [VERIFIED] Critical: None found`. A narration bullet such as
+# `- Checked callers; none found.` under the marker was accepted by the
+# earlier `[-*].*none found` (review 5266005570, finding 1) — an unfinished
+# response passing as a clean review. Emoji are matched by alternation, never a
+# bracket expression (multi-byte).
+_rhs_ph='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?((critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*)?none found[.]?[[:space:]]*$'
 if [ -n "$_rhs_issues" ]; then
-  if printf '%s\n' "$_rhs_issues" | grep -qiE '^[[:space:]]*[-*].*none found[.]?[[:space:]]*$' \
+  if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph" \
      || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
     exit 0
   fi
