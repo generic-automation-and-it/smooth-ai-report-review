@@ -431,7 +431,16 @@ fi
 # which would read as "nothing forbidden" and pass every sample. Round four
 # (review 5264530992, finding 2): "backend(s)" joins the store nouns, so
 # "using both backends is redundant" is caught while "the backends can drift"
-# (a consistency finding) is not.
+# (a consistency finding) is not. Round five (review 5265814254, finding 1):
+# "storing the payload in both the database and object store duplicates the
+# data" names both stores explicitly and sat outside every window. Rather than
+# widen a window (which broke the complexity ceiling AND let a retry sentence
+# through), the pattern was consolidated — the subject/noun branch and the
+# active-verb branch are one alternation now, and a named-both-stores branch
+# was added — so it is shorter than before while catching more. "duplicate(s)
+# the object store" no longer counts on its own: that is the retry sense
+# ("duplicates the object store upload"), and "duplicated in two stores" is
+# matched explicitly instead.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -456,6 +465,9 @@ done <<'POS'
 - 🟠 [VERIFIED] High Priority: Using both backends is redundant; one durable store is enough.
 - 🟡 [VERIFIED] Medium Priority: Both backends are redundant for this payload.
 - 🟡 [VERIFIED] Medium Priority: The secondary backend is unnecessary because the database already holds the data.
+- 🟠 [VERIFIED] High Priority: Storing the payload in both the database and object store duplicates the data.
+- 🟡 [VERIFIED] Medium Priority: Writing the payload to both the primary database and the object store is redundant.
+- 🟡 [VERIFIED] Medium Priority: Keeping the entry in both the object store and the database is unnecessary.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -481,6 +493,8 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: If the object store call is retried it will duplicate the payload upload; make it idempotent on entry.Id.
 - 🟡 [VERIFIED] Medium Priority: If the secondary backend is unavailable the primary write still commits, leaving the backends inconsistent.
 - 🟡 [VERIFIED] Medium Priority: The two backends can drift when the object store write fails after the database commit.
+- 🟡 [VERIFIED] Medium Priority: Storing the payload in both stores is required by DR-002, but a retry after a partial failure duplicates the object store upload unless it is idempotent.
+- 🟡 [VERIFIED] Medium Priority: Writing to both the database and the object store is the documented design; the risk is that a retried command duplicates the archive object.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
