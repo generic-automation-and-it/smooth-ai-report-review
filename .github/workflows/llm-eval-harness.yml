@@ -117,7 +117,13 @@ jobs:
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          # The suites below assert on the gate workflow, the analyse workflow,
+          # the .docs/examples callers, and the README (env-var parity,
+          # checkout shape, example pins, raw-installer scan), so a change that
+          # touches only one of those files must still run them — with a
+          # narrower scope a workflow-only PR set relevant=false and left this
+          # required job green without running a single regression.
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/|\.docs/examples/|README\.md$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
