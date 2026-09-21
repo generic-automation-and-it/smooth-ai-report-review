@@ -293,6 +293,19 @@ predicate_case reject "narration that happens to name a file and line" \
   'Reading run-review.sh:1196 next.\n'
 predicate_case reject "an anchor with no severity marker at all" \
   'The file auth.cs:12 was examined.\n'
+# Review 5264629523, finding 2: the anchor is a PATH token followed by a line
+# number, and a path need not have an extension. Requiring one rejected every
+# complete finding on Dockerfile / Makefile / LICENSE as incomplete and
+# fail-closed the chunk. What makes the token a path is a letter or a slash —
+# a clock reading or a ratio has neither, and must not count.
+predicate_case accept "a finding anchored on an extensionless file" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: image runs as root — Dockerfile:12\n'
+predicate_case accept "a finding anchored on an extensionless file in a directory" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa1 [VERIFIED] Medium Priority: phony target missing at build/Makefile:4\n'
+predicate_case reject "a clock reading is not an anchor" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: the job at 12:30 failed'
+predicate_case reject "a ratio is not an anchor" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: a 3:1 fan-out'
 
 # Completeness is scoped to the LAST per-file section. A chunk is almost always
 # multi-file, and an earlier complete section says nothing about whether the

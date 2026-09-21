@@ -194,7 +194,14 @@ if [ -n "$_rhs_issues" ]; then
   fi
 fi
 
-# Anchor: `some/file.ext:123`. Required for every finding-based acceptance —
+# Anchor: `some/file.ext:123`, or an extensionless `Dockerfile:12`. The path
+# token must contain a letter or a slash — that is what makes it a path rather
+# than a clock reading or a ratio: `12:30` and `3:1` must not count, or the
+# narration-with-a-number hole reopens. The first cut required a dot and an
+# extension instead, which rejected every complete finding on `Dockerfile`,
+# `Makefile`, `LICENSE` and the like as an incomplete review, burned the
+# fallback and retry on it, and fail-closed the chunk (review 5264629523,
+# finding 2). Required for every finding-based acceptance —
 # and required INSIDE the finding, not anywhere in the section. The two
 # signals used to be tested independently over the whole tail, so narration
 # carrying a location ("Reading auth.cs:12 next.") followed by a finding
@@ -217,7 +224,7 @@ fi
 # are multi-byte and a bracket over them decomposes into bytes.
 _rhs_blocks="$(awk '
   function close_block() { if (kind != "" && blk ~ A) hit[kind] = 1; kind = ""; blk = "" }
-  BEGIN { A = "[A-Za-z0-9_./-]+[.][A-Za-z0-9]+:[0-9]+" }
+  BEGIN { A = "[A-Za-z0-9_./-]*[A-Za-z/][A-Za-z0-9_./-]*:[0-9]+" }
   {
     low = tolower($0)
     if ($0 ~ /🔴|🟠|🟡|🔵/) { close_block(); kind = "e"; blk = $0; next }
