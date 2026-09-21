@@ -526,6 +526,12 @@ review_chunk() {
   shift
   local files=("$@")
   local chunk_num="$CHUNK_NUM"
+  # The chunk's file inventory, handed to the shape predicate at all three
+  # places it is asked (two transport calls, one chunk gate) so a review that
+  # silently omits a file cannot pass as complete (review 5263305644, finding
+  # 2). See lib/review-has-shape.sh for the mention-not-heading semantics.
+  local _expected_files
+  _expected_files="$(printf '%s\n' "${files[@]}")"
 
   echo "==========================================
 "
@@ -1252,7 +1258,7 @@ EOF
     _stage1_fb="$_secondary_model"
   fi
   _stage_started=$(date +%s)
-  if OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
   else
     _stage1_rc=$?
@@ -1274,7 +1280,7 @@ EOF
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
@@ -1340,8 +1346,8 @@ EOF
     local reject_reason=""
     if [ "$review_size" -eq 0 ]; then
       reject_reason="empty output (0 bytes)"
-    elif ! chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
-      reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker or completed \"None found\" result)"
+    elif ! OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
+      reject_reason="no review structure (${review_size} bytes — no severity marker or completed \"None found\" result, or a chunk file never mentioned)"
     fi
     if [ -n "$reject_reason" ]; then
       echo "  ⚠️ Chunk ${chunk_num} produced no usable review: ${reject_reason} — opencode silent failure?"

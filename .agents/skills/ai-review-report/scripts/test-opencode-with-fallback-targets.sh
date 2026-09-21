@@ -333,6 +333,53 @@ predicate_case accept "inline placeholder after the marker" \
 predicate_case accept "placeholder with a trailing period" \
   '**Issues Found:**\n- None found.\n'
 
+# Review 5263305644, finding 2. Scoping to the last section cannot see a file
+# the model never mentioned: file A's complete section is then the last one
+# and the chunk passes with file B unreviewed. With the chunk inventory
+# supplied, every path must be mentioned somewhere in the body — by basename,
+# in a heading or a finding anchor. Single-file chunks keep LADR-077's
+# heading-free acceptance untouched.
+inventory_case() { # inventory_case <expected> <label> <inventory> <body>
+  local want="$1" label="$2" inv="$3" body="$4" got
+  if printf '%b' "$body" | OPENCODE_EXPECTED_CHUNK_FILES="$inv" bash "$SHAPE"; then got=accept; else got=reject; fi
+  [ "$got" = "$want" ] || {
+    echo "FAIL: with inventory, shape predicate should $want '$label' but returned $got" >&2
+    exit 1
+  }
+}
+TWO=$'src/a.cs\nsrc/b.cs'
+inventory_case reject "two files, only the first reviewed" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case reject "two files, neither named" "$TWO" \
+  '**Issues Found:**\n- None found.\n'
+inventory_case accept "two files, both sections present" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b.cs\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "two files, second named only in a finding anchor" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at src/b.cs:12\n'
+inventory_case accept "single file, heading-free clean body (LADR-077)" 'src/a.cs' \
+  '**Issues Found:**\n- None found.\n'
+inventory_case reject "two files, both named, but the last section is truncated" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n'
+echo "✓ shape predicate: an omitted file in a multi-file chunk is not a completed review"
+
+# The transport honours the inventory too, so an omission falls through to the
+# fallback instead of consuming it — and every call site hands it over.
+stub_emitting "$CLEAN"
+: > "${marker_dir}/inventory.calls"
+PATH="${marker_dir}/bin:$PATH" OPENCODE_STUB_CALLS="${marker_dir}/inventory.calls" \
+  OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OUTPUT_SHAPE_CHECK="$SHAPE" \
+  OPENCODE_EXPECTED_CHUNK_FILES=$'src/Ftp/FtpHelper.cs\nsrc/Ftp/FtpClient.cs' \
+  bash "$HELPER" m1 m2 m3 -- "$prompt" > /dev/null 2>&1 && rc=0 || rc=$?
+calls="$(wc -l < "${marker_dir}/inventory.calls" | tr -d ' ')"
+[ "$rc:$calls" = "1:3" ] || {
+  echo "FAIL: a one-file review of a two-file chunk must fall through the whole chain (got '$rc:$calls')" >&2
+  exit 1
+}
+[ "$(grep -c 'OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files"' "${SCRIPT_DIR}/review-in-chunks.sh")" = "3" ] || {
+  echo "FAIL: both transport calls and the chunk gate must pass the chunk inventory to the predicate" >&2
+  exit 1
+}
+echo "✓ transport rejects an omitted file; all three call sites pass the inventory"
 echo "✓ shape predicate: narration rejected, real findings accepted"
 
 echo "✓ opencode-with-fallback target tests passed"

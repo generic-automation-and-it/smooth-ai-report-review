@@ -3,6 +3,8 @@
 #
 # Usage:  review-has-shape.sh <file>     # or pipe the text on stdin
 # Exit 0 = yes, 1 = no. Prints nothing.
+# Optional env: OPENCODE_EXPECTED_CHUNK_FILES — newline-separated paths the
+# chunk asked the model to review; with two or more, each must be mentioned.
 #
 # One predicate, two callers, on purpose. `review-in-chunks.sh` uses it to
 # decide whether a chunk was reviewed at all (LADR-031 fail-closed), and
@@ -79,6 +81,35 @@ fi
 # path. That shape is already off-contract — LADR-055 routes location-less
 # items to `residual_risks`/`testing_gaps` — and fail-closed is the correct
 # direction for a gate whose worst outcome is an unreviewed chunk counted clean.
+
+# Omission, which scoping cannot see. The last-section rule catches a review
+# cut off part-way through file B; it cannot catch a review that never
+# mentions file B at all — file A's complete section is then the last one, and
+# the chunk passes with a file unreviewed and no failure flag (review
+# 5263305644, finding 2). So the caller may supply the chunk's file inventory
+# in OPENCODE_EXPECTED_CHUNK_FILES (newline-separated paths), and every one
+# must be MENTIONED somewhere in the body. Mentioned, not headed: a model that
+# reviewed a file names it, in a heading or in a finding's `file:line`, while
+# one that skipped it has no reason to. Matched on the basename, because the
+# template's heading shows `filename` and models abbreviate the directory —
+# requiring the full path would fail-close honest reviews. Applied only to
+# chunks of two or more files: a single-file chunk keeps LADR-077's
+# heading-free acceptance, where a `None found.` body need not name the file.
+if [ -n "${OPENCODE_EXPECTED_CHUNK_FILES:-}" ]; then
+  _rhs_expected_n=0
+  _rhs_missing=""
+  while IFS= read -r _rhs_path; do
+    [ -n "$_rhs_path" ] || continue
+    _rhs_expected_n=$((_rhs_expected_n + 1))
+    grep -qF "$(basename "$_rhs_path")" "$_rhs_src" || _rhs_missing="${_rhs_missing}${_rhs_path}
+"
+  done <<EOF_EXPECTED
+${OPENCODE_EXPECTED_CHUNK_FILES}
+EOF_EXPECTED
+  if [ "$_rhs_expected_n" -ge 2 ] && [ -n "$_rhs_missing" ]; then
+    exit 1
+  fi
+fi
 
 # Narrow to the last per-file section. No heading at all means the whole body
 # is the section, which keeps LADR-077's deliberate acceptance of findings
