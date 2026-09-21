@@ -169,8 +169,10 @@ _is_raw_install() { # _is_raw_install <file>
   while IFS= read -r out; do
     [ -n "$out" ] || continue
     local esc; esc="$(printf '%s' "$out" | sed 's/[][\.^$*+?{}|()]/\\&/g')"
+    # The curl line itself is NOT excluded: `curl … -o /tmp/oc && bash /tmp/oc`
+    # executes on the same line (review 5266682360, finding 3). The path in
+    # `-o /tmp/oc` cannot match because it is not at command position.
     printf '%s\n' "$joined" \
-      | grep -vE 'curl[^|]*opencode\.ai/v2/install' \
       | grep -qE "(^[[:space:]]*|[;&|(][[:space:]]*)(((ba|z|da)?sh|source|\.)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?${esc}([[:space:]]|;|&|\||$)" \
       && return 0
   done <<EOF_OUTS
@@ -228,7 +230,9 @@ printf 'curl -fsSL https://opencode.ai/v2/install | /usr/bin/env zsh\n' > "$TMP/
 printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/opencode-install\nbash /tmp/opencode-install\n' > "$TMP/rawfix/download-execute.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install --output ./oc.sh\nchmod +x ./oc.sh\n./oc.sh --version 2.0.11\n' > "$TMP/rawfix/download-chmod-run.sh"
 printf 'run: |\n  curl -fsSL https://opencode.ai/v2/install > install.sh\n  sh -e install.sh\n' > "$TMP/rawfix/download-redirect.yml"
-for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh download-execute.sh download-chmod-run.sh download-redirect.yml; do
+printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/oc && bash /tmp/oc\n' > "$TMP/rawfix/download-execute-same-line.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/oc; /tmp/oc --version 2.0.11\n' > "$TMP/rawfix/download-run-semicolon.sh"
+for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh download-execute.sh download-chmod-run.sh download-redirect.yml download-execute-same-line.sh download-run-semicolon.sh; do
   _is_raw_install "$TMP/rawfix/$_f" || fail "raw-install matcher missed $_f"
 done
 # Not a shell: the URL piped into something that merely records it.
