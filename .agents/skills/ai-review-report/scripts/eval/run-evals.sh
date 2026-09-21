@@ -108,7 +108,7 @@ command -v git >/dev/null 2>&1 || die "git not found."
 [ -d "$CORPUS_DIR" ]   || die "corpus dir not found at $CORPUS_DIR."
 
 if [ "$SELFTEST" != "1" ]; then
-  command -v opencode >/dev/null 2>&1 || die "opencode v2 CLI not found (install: bash \"$SKILL_SCRIPTS_DIR/lib/install-opencode.sh\" — the shared installer honours OPENCODE_CLI_VERSION; a raw curl drifts from CI)."
+  command -v opencode >/dev/null 2>&1 || die "opencode v2 CLI not found (install: bash \"$SKILL_SCRIPTS_DIR/lib/install-opencode.sh\" && export PATH=\"\$HOME/.opencode/bin:\$PATH\" — the installer only sets PATH in its own shell, so export it here before re-running; the shared installer honours OPENCODE_CLI_VERSION, a raw curl drifts from CI)."
   command -v timeout  >/dev/null 2>&1 || die "timeout not found (run via eval/local-evals.sh on macOS — it installs a shim)."
   [ -f "$REVIEW_SCRIPT" ] || die "review-in-chunks.sh not found at $REVIEW_SCRIPT (workflow↔script path coupling)."
   [ -f "$DR_STANDARDS_BASE_SRC" ] || die "DR standards not found at $DR_STANDARDS_BASE_SRC."
