@@ -409,6 +409,49 @@ else
   bad "DR-014 forbidden_claim false-matched $_q_neg_hit out-of-scope finding(s) — pattern too loose"
 fi
 
+# DR-002's pattern was `(redundant|duplicate|…).{0,60}(storage|store|write|persist)`,
+# and a 60-character window let "retrying may then DUPLICATE or conflict with
+# the first WRITE" — an atomicity finding, not a redundancy claim — fail the
+# run (35566556046) while the SAME atomicity finding worded differently passed
+# the run before it. The pattern now binds the adjective to its noun within two
+# words, in either order, so the forbidden claim is "the dual write is
+# redundant", not any sentence that happens to contain both words.
+DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
+_q2_pos_miss=0
+while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  printf '%s\n' "$_line" | grep -qiE "$DR02" || { _q2_pos_miss=$((_q2_pos_miss+1)); echo "   ↳ MISSED: $_line"; } || true
+done <<'POS'
+- 🟠 [VERIFIED] High Priority: Writing the payload to both stores is redundant storage; keep the database write only.
+- 🟡 [VERIFIED] Medium Priority: The second write to the object store is a duplicate write of the same payload.
+- 🟡 [VERIFIED] Medium Priority: Storing the payload twice is unnecessary duplication of storage.
+- 🔵 [VERIFIED] Low Priority: The two writes are redundant — the object store copy duplicates the database row.
+- 🟡 [VERIFIED] Medium Priority: The dual write is superfluous persistence; one store suffices.
+- 🟠 [VERIFIED] High Priority: Payload is duplicated in two stores with no reason given.
+POS
+if [ "$_q2_pos_miss" -eq 0 ]; then
+  ok "DR-002 forbidden_claim fires on redundant-storage objections"
+else
+  bad "DR-002 forbidden_claim missed $_q2_pos_miss redundant-storage objection(s) — pattern too tight"
+fi
+_q2_neg_hit=0
+while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  if printf '%s\n' "$_line" | grep -qiE "$DR02"; then
+    _q2_neg_hit=$((_q2_neg_hit+1)); echo "   ↳ FALSE MATCH: $_line"
+  fi
+done <<'NEG'
+- 🟠 [VERIFIED] High Priority: An object-store failure can leave an operational log stored only in the primary database, violating DR-002's requirement that both copies exist; retrying may then duplicate or conflict with the first write.
+- 🟡 [VERIFIED] Medium Priority: A transient object-store failure can leave a log only in the primary database, violating the documented requirement that logs reach both stores.
+- 🟠 [VERIFIED] High Priority: Once the primary write succeeds, an exception from PutAsync leaves the stores inconsistent and prevents fallback replay.
+- 🟡 [VERIFIED] Medium Priority: The object-store key is entry.Id, so a retried command with a fresh id writes a second, orphaned copy rather than overwriting.
+NEG
+if [ "$_q2_neg_hit" -eq 0 ]; then
+  ok "DR-002 forbidden_claim ignores atomicity and retry findings"
+else
+  bad "DR-002 forbidden_claim false-matched $_q2_neg_hit atomicity finding(s) — pattern too loose"
+fi
+
 # NOT tested here: that the archived triage artifact is the OFFENDING sample
 # rather than whatever ran last. Artifact archiving is deliberately skipped
 # under EVAL_SELFTEST (there is no real review to keep), so any assertion on it
