@@ -44,7 +44,9 @@
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
 #               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
 #                 blank → committed default; LADR-047),
-#               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
+#               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin
+#                 for supply-chain hygiene; blank → reuse an existing v2, or
+#                 install the latest v2 when none is available),
 #               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED (default 0), and
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS (newline-separated exact
