@@ -162,7 +162,7 @@ awk -v mapdata="$map" -v tol="$TOLERANCE" '
       #   2. a separator (punctuation or prose) followed by another number.
       if (tolower(m) ~ /findings/) { out = out pre m; continue }
       if (after == "-" || after == ",") { out = out pre m; continue }
-      if (rest ~ /^[ \t]*(and|or|to|through|thru|&|\+|-|,|;|\/)[ \t]*[0-9]/) { out = out pre m; continue }
+      if (rest ~ /^[ \t]*(and|or|to|through|thru|&|\+|-|,|;|\/)[ \t]*([Ff]indings?[ \t]+)?[0-9]/) { out = out pre m; continue }
       if (anchor_state == "ambig") { out = out pre m; continue }
       if (anchor_state == "none") {
         word = (m ~ /^F/) ? "No numbered finding" : "no numbered finding"
