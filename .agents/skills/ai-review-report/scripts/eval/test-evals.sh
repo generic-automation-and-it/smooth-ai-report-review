@@ -470,6 +470,10 @@ fi
 # duplicate VERB with a both-stores object — sat outside every branch; a
 # narrow verb→(across|in|to) (both|two|dual) stores branch is added, and a
 # retry sentence that duplicates an upload to ONE archive is pinned as ignored.
+# Round twelve (review 5266893822, finding 3): the both-named-stores branch
+# accepted the past participle, so "writes to both … are duplicated when the
+# command is retried" — a retry finding naming both destinations — matched;
+# that branch now takes only the present forms (duplicates/duplicating).
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -540,6 +544,7 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: Retries cause unnecessary archive writes.
 - 🟡 [VERIFIED] Medium Priority: A retry produces a redundant write to the archive when the first upload actually succeeded.
 - 🟡 [VERIFIED] Medium Priority: A retried command duplicates the upload to the archive because the key is regenerated.
+- 🟡 [VERIFIED] Medium Priority: Writes to both the database and the object store are duplicated when the command is retried after a timeout.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
