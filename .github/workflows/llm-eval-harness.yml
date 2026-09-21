@@ -140,6 +140,7 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-run-review.sh
             .agents/skills/ai-review-report/scripts/test-install-rtk.sh
             .agents/skills/ai-review-report/scripts/test-check-versions.sh
+            .agents/skills/ai-review-report/scripts/eval/test-evals.sh
           )
           for test_script in "${tests[@]}"; do
             echo "::group::${test_script}"
