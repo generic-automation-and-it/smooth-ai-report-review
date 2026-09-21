@@ -152,9 +152,31 @@ ok "a package-managed v1 shadowing the install fails loudly, not green"
 # let a `curl` in one step, the URL in a comment, and a `| bash` in another
 # step match as one pipeline.
 _is_raw_install() { # _is_raw_install <file>
-  sed -e ':a' -e '/\\[[:space:]]*$/{N; s/\\[[:space:]]*\n[[:space:]]*/ /; ba}' \
-      -e '/|[[:space:]]*$/{N; s/|[[:space:]]*\n[[:space:]]*/| /; ba}' "$1" \
-    | grep -qE 'curl[^|]*opencode\.ai/v2/install([^|]*\|)+[[:space:]]*(sudo[[:space:]]+(-E[[:space:]]+)?)?(([^[:space:]|]*/)?env[[:space:]]+)?([^[:space:]|]*/)?(ba|z|da)?sh([[:space:]]|$)'
+  local joined
+  joined="$(sed -e ':a' -e '/\\[[:space:]]*$/{N; s/\\[[:space:]]*\n[[:space:]]*/ /; ba}' \
+      -e '/|[[:space:]]*$/{N; s/|[[:space:]]*\n[[:space:]]*/| /; ba}' "$1")"
+  # Piped form: the installer body handed straight to an interpreter.
+  printf '%s\n' "$joined" \
+    | grep -qE 'curl[^|]*opencode\.ai/v2/install([^|]*\|)+[[:space:]]*(sudo[[:space:]]+(-E[[:space:]]+)?)?(([^[:space:]|]*/)?env[[:space:]]+)?([^[:space:]|]*/)?(ba|z|da)?sh([[:space:]]|$)' \
+    && return 0
+  # Download-then-execute form (review 5266540555, finding 2): the installer
+  # saved to a path with -o/--output/>, and that path later run by an
+  # interpreter, sourced, or executed directly. Both halves are required —
+  # a download that is only checksummed is not an install, which is why the
+  # path must sit at COMMAND position (line start or after ; & | or a paren),
+  # optionally behind an interpreter: `sha256sum /tmp/oc` does not count.
+  local out
+  while IFS= read -r out; do
+    [ -n "$out" ] || continue
+    local esc; esc="$(printf '%s' "$out" | sed 's/[][\.^$*+?{}|()]/\\&/g')"
+    printf '%s\n' "$joined" \
+      | grep -vE 'curl[^|]*opencode\.ai/v2/install' \
+      | grep -qE "(^[[:space:]]*|[;&|(][[:space:]]*)(((ba|z|da)?sh|source|\.)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?${esc}([[:space:]]|;|&|\||$)" \
+      && return 0
+  done <<EOF_OUTS
+$(printf '%s\n' "$joined" | grep -E 'curl[^|]*opencode\.ai/v2/install' | grep -oE '(-o|--output|>)[[:space:]]*[^[:space:];&|]+' | sed -E 's/^(-o|--output|>)[[:space:]]*//')
+EOF_OUTS
+  return 1
 }
 # The interpreter may be reached through a path, `env`, `sudo`, or an
 # intermediate pipe stage (`| tee log | bash`); the first matcher required the
@@ -203,13 +225,17 @@ printf 'curl -fsSL https://opencode.ai/v2/install | env bash -s -- --version 2.0
 printf 'curl -fsSL https://opencode.ai/v2/install | sudo -E bash\n' > "$TMP/rawfix/sudo-bash.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install | tee /tmp/install.log | sh\n' > "$TMP/rawfix/tee-pipe.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install | /usr/bin/env zsh\n' > "$TMP/rawfix/env-zsh.sh"
-for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh; do
+printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/opencode-install\nbash /tmp/opencode-install\n' > "$TMP/rawfix/download-execute.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install --output ./oc.sh\nchmod +x ./oc.sh\n./oc.sh --version 2.0.11\n' > "$TMP/rawfix/download-chmod-run.sh"
+printf 'run: |\n  curl -fsSL https://opencode.ai/v2/install > install.sh\n  sh -e install.sh\n' > "$TMP/rawfix/download-redirect.yml"
+for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh download-execute.sh download-chmod-run.sh download-redirect.yml; do
   _is_raw_install "$TMP/rawfix/$_f" || fail "raw-install matcher missed $_f"
 done
 # Not a shell: the URL piped into something that merely records it.
 printf 'curl -fsSL https://opencode.ai/v2/install | sha256sum > install.sha\n' > "$TMP/rawfix/checksum.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install | shasum -a 256\n' > "$TMP/rawfix/shasum.sh"
-for _f in checksum.sh shasum.sh; do
+printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/oc\nsha256sum /tmp/oc > /tmp/oc.sha\n' > "$TMP/rawfix/download-checksum.sh"
+for _f in checksum.sh shasum.sh download-checksum.sh; do
   _is_raw_install "$TMP/rawfix/$_f" && fail "raw-install matcher false-matched $_f"
 done
 for _f in comment.sh separate.sh; do
