@@ -91,7 +91,23 @@ awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s
 # The mandated placeholder for an empty severity section. Exempt from the
 # anchor requirement: a clean result has no finding, so it has no location to
 # cite. Scoped to the last section, so it can only vouch for itself.
-grep -qiF 'none found' "$_rhs_tail" && exit 0
+#
+# Not a bare substring, though. "none found" is ordinary prose — "checked the
+# callers, none found so far, reading on" is narration, and a substring match
+# accepted it as a completed clean review (review 5263305644, finding 1): the
+# transport stopped the fallback and the chunk passed unreviewed, the exact
+# hole the priority clause below had already been closed against. Two things
+# must hold instead: the mandated `Issues Found` marker is present, and the
+# placeholder is written AS the template writes it — a list item that ends in
+# "None found" (`- None found.` or the per-severity
+# `- 🔴 [VERIFIED] Critical: None found`), or inline after the marker
+# (`**Issues Found:** None found.`). Narration emits neither shape.
+if grep -qiF 'issues found' "$_rhs_tail"; then
+  if grep -qiE '^[[:space:]]*[-*].*none found[.]?[[:space:]]*$' "$_rhs_tail" \
+     || grep -qiE 'issues found[^[:alnum:]]{0,8}none found' "$_rhs_tail"; then
+    exit 0
+  fi
+fi
 
 # Anchor: `some/file.ext:123`. Required for every finding-based acceptance.
 if grep -qE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' "$_rhs_tail"; then

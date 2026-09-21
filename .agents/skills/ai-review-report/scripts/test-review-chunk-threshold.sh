@@ -45,7 +45,14 @@ prompt_file="${@: -1}"
 if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
   echo "semantic grouping unavailable in test"
 else
-  printf '### Test Review\n\n- 🔵 [VERIFIED] Low Priority: none found in test run.\n\n%.0s' {1..20}
+  printf '### Test Review\n\n'
+  # Template-shaped clean review, one section per file the prompt lists. The
+  # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+  # prose substring, and with two or more files every one must be mentioned
+  # (review 5263305644) — so the stub reads the inventory back out of the
+  # prompt instead of pretending a file-less body is a review.
+  awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+    | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
 fi
 EOF
   chmod +x "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
@@ -144,7 +151,14 @@ prompt_file="${@: -1}"
 if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
   echo "semantic grouping unavailable in test"
 else
-  printf '### Test Review\n\n- 🔵 [VERIFIED] Low Priority: none found in test run.\n\n%.0s' {1..20}
+  printf '### Test Review\n\n'
+  # Template-shaped clean review, one section per file the prompt lists. The
+  # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+  # prose substring, and with two or more files every one must be mentioned
+  # (review 5263305644) — so the stub reads the inventory back out of the
+  # prompt instead of pretending a file-less body is a review.
+  awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+    | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
 fi
 EOF
   chmod +x "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
@@ -774,7 +788,13 @@ mode="$(sed -n "$((n+1))p" "$RETRY_MODES_FILE")"
 echo "START ${n} ${c}" >> "${RETRY_EVENTS_LOG}"
 emit_review() {
   printf '### Review of chunk %s (attempt %s)\n\n' "$n" "$c"
-  printf -- '- 🔵 [VERIFIED] Low Priority: none found in test run, chunk %s attempt %s.\n\n%.0s' "$n" "$c" 1 2 3 4 5 6 7 8 9 10
+  # Template-shaped clean review, one section per file the prompt lists. The
+  # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+  # prose substring, and with two or more files every one must be mentioned
+  # (review 5263305644) — so the stub reads the inventory back out of the
+  # prompt instead of pretending a file-less body is a review.
+  awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+    | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
 }
 case "$mode" in
   pass) ;;

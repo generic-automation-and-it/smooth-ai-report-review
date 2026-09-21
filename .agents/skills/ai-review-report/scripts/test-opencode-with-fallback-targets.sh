@@ -314,6 +314,25 @@ predicate_case reject "narration carrying a priority AND a location" \
 predicate_case reject "a truncated None found placeholder" \
   '**Issues Found:**\n- None fou'
 predicate_case reject "empty output" ''
+# Review 5263305644, finding 1. "none found" is ordinary prose, and a bare
+# substring match accepted narration as a completed clean review — the
+# transport stopped the fallback and the chunk passed unreviewed. The
+# placeholder must now sit under the mandated marker AND be written as the
+# template writes it: a list item ending in "None found", or inline after the
+# marker. Every real shape the chunk reviews emit is pinned as accepted.
+predicate_case reject "narration that says none found" \
+  'Checked the callers; none found so far, reading run-review.sh next.\n'
+predicate_case reject "prose carrying both phrases" \
+  'No issues found in the callers, none found so far.\n'
+predicate_case reject "none found list item with no Issues Found marker" \
+  '- None found.\n'
+predicate_case accept "per-severity placeholders under the marker" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: None found\n'
+predicate_case accept "inline placeholder after the marker" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
+predicate_case accept "placeholder with a trailing period" \
+  '**Issues Found:**\n- None found.\n'
+
 echo "✓ shape predicate: narration rejected, real findings accepted"
 
 echo "✓ opencode-with-fallback target tests passed"
