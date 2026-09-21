@@ -95,6 +95,60 @@ while IFS= read -r root; do
 done <<< "$declared_roots"
 ok "every instructions root the config declares is enumerated by the finder ($(echo "$declared_roots" | tr '\n' ' ' | sed 's/ $//'))"
 
+# The root check above is necessary but not sufficient: it collapses every
+# pattern under a root to that root, so a NEW pattern under an existing root —
+# `.github/instructions/*.md`, say — reads as covered while the finder still
+# enumerates only `*.instructions.md` (review 5266192686, finding 2). So every
+# declared glob is also tested BEHAVIOURALLY: a representative fixture is
+# written for it (`*` → `probe`, `**` → `deep/x`), the finder is re-run, and
+# the fixture must be discovered. A control pattern the finder does not
+# enumerate must NOT be discovered, or this check is decoration.
+CONFIG_PATTERNS="$(python3 - "$CONFIG" <<'PYEOF2'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+for entry in cfg.get("instructions", []):
+    if "://" in entry:
+        continue
+    print(entry)
+PYEOF2
+)"
+_fixture_for() { # _fixture_for <glob> <stem>  → a concrete path matching the glob
+  python3 - "$1" "$2" <<'PYEOF3'
+import sys
+pat, stem = sys.argv[1], sys.argv[2]
+out = pat.replace("**", "deep/x")
+head, star, tail = out.partition("*")
+print(head + stem + tail if star else out)
+PYEOF3
+}
+PROBE_REPO="$TMP/probe-repo"; mkdir -p "$PROBE_REPO/ci_temp"
+printf 'src/app.ts\0' > "$PROBE_REPO/ci_temp/changed_files.txt"
+_probe_paths=""
+while IFS= read -r pat; do
+  [ -n "$pat" ] || continue
+  f="$(_fixture_for "$pat" probe)"
+  mkdir -p "$PROBE_REPO/$(dirname "$f")"; touch "$PROBE_REPO/$f"
+  _probe_paths="${_probe_paths}${f}
+"
+done <<< "$CONFIG_PATTERNS"
+# Control: declared nowhere, enumerated nowhere — must stay undiscovered.
+CONTROL="$(_fixture_for '.github/instructions/*.md' control)"
+mkdir -p "$PROBE_REPO/$(dirname "$CONTROL")"; touch "$PROBE_REPO/$CONTROL"
+# The finder requires MANDATORY_CONTEXT_FILES to be set (absent paths warn and
+# skip), and exits non-zero otherwise — under `set -e` that would end this
+# script here with no assertion printed.
+( cd "$PROBE_REPO" && GITHUB_OUTPUT="$PROBE_REPO/output" MANDATORY_CONTEXT_FILES='AGENTS.md' bash "$FINDER" > "$PROBE_REPO/run.log" 2>&1 ) \
+  || fail "the finder exited non-zero in the probe repo: $(tail -3 "$PROBE_REPO/run.log" | tr '\n' ' ')"
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  grep -Fxq "$f" "$PROBE_REPO/ci_temp/context_files.txt" \
+    || fail "opencode.json declares a pattern whose representative file '$f' the finder did not discover — on v2 that pattern is declared and never loaded"
+done <<< "$_probe_paths"
+if grep -Fxq "$CONTROL" "$PROBE_REPO/ci_temp/context_files.txt"; then
+  fail "the control fixture '$CONTROL' was discovered although no declared pattern covers it — the behavioural check cannot discriminate"
+fi
+ok "every declared instructions glob discovers a representative file, and an undeclared sibling does not"
+
 # Scoped rules are excluded on purpose: they reach a review through
 # MANDATORY_CONTEXT_FILES, which the consuming repo controls per-run. Pulling
 # the whole tree into every chunk would duplicate them and inflate prompts for
