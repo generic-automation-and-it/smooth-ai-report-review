@@ -85,7 +85,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054, e.g. "0.44.1"). Blank → OPENCODE_TOOL_RTK_VERSION Variable, else latest. Only used when RTK is enabled (OPENCODE_REVIEW_REPORT_ENABLE_RTK Variable, default on).'
+        description: 'RTK binary version pin (LADR-054, e.g. "0.44.1"). On OpenCode v2 the binary remains installed, but plugin initialization is bypassed unless RTK exposes --opencode-v2. Blank → OPENCODE_TOOL_RTK_VERSION Variable.'
         required: false
         type: string
         default: ''
@@ -106,7 +106,7 @@ on:
         type: string
         default: ''
   # Reusable-workflow entry point: consuming repos call this workflow with
-  #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
+  #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v2
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
   # README "Use as a reusable workflow" section). Notes:
   # - The job body is a thin wrapper around scripts/run-review.sh — the same
@@ -153,7 +153,7 @@ on:
         type: string
         default: 'ubuntu-latest'
       tools_ref:
-        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from — a full commit SHA (supply-chain pinned) or a trusted floating ref (main / latest / v1), never a branch. Default: the commit of this reusable workflow file.'
+        description: 'Ref of generic-automation-and-it/smooth-ai-report-review to fetch the review scripts from — a full commit SHA (supply-chain pinned) or a trusted floating ref (main / latest / v2), never a branch. Default: the commit of this reusable workflow file.'
         required: false
         type: string
         default: ''
@@ -188,7 +188,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable, else latest.'
+        description: 'RTK binary version pin (LADR-054). On OpenCode v2 the binary remains installed, but plugin initialization is bypassed unless RTK exposes --opencode-v2. Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable.'
         required: false
         type: string
         default: ''
@@ -503,8 +503,7 @@ jobs:
       OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
-        'AGENTS.md
-        .docs/nfr/PROJECT_SETUP_AGENTS.md
+        '.docs/nfr/PROJECT_SETUP_AGENTS.md
         .agents/skills/code-review-standards/SKILL.md
         .docs/nfr/TOOL_SETUP_AGENTS.md
         .agents/rules-scoped/backend/testing-standards.instructions.md
@@ -561,13 +560,13 @@ jobs:
       #    the latter is the CALLER's workflow commit, which does not exist in
       #    this repo, so the fetch dies on `upload-pack: not our ref`. Override
       #    with a full commit SHA (supply-chain pinned) or a trusted floating ref
-      #    (main / v1) — never a branch.
+      #    (main / v2) — never a branch.
       - name: Fetch review tooling
         if: "!hashFiles('.agents/skills/ai-review-report/scripts/review-in-chunks.sh')"
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.job_workflow_sha || 'v1' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || inputs.tools_ref || github.job_workflow_sha || 'v2' }}
           path: .smooth-ai-review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────

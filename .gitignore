@@ -431,8 +431,16 @@ FodyWeavers.xsd
 # Conductor machine-local overrides (not part of the repo)
 .conductor/settings.local.toml
 
-# AI review gate working directory (created at run time)
-ci_temp/
+# AI review gate working directory (created at run time).
+#
+# NO trailing slash, deliberately. `local-review.sh` creates ci_temp as a
+# SYMLINK into .context/ (so scratch never lands in the repo), and a
+# `ci_temp/` pattern matches directories only — a symlink is not one, so
+# the rule missed it and every local run left ci_temp untracked. That is
+# how it gets committed: `git add -A` picks up a symlink pointing into a
+# gitignored directory, which lands in the repo as a dangling link. CI
+# creates a real directory, so the gap only ever showed up locally.
+ci_temp
 
 # Diagnostic stderr logs the gate preserves when a chunk or the summary call
 # fails (`lib/report-error-log.sh`). Deliberately a SIBLING of ci_temp/ rather

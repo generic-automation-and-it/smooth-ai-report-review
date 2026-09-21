@@ -42,6 +42,10 @@ cat > "$HOME/.local/bin/rtk" <<'RTKSTUB'
 #!/bin/bash
 if [ "${1:-}" = "--version" ]; then
   echo "rtk ${STUB_INSTALLED_VERSION:-0.44.1}"
+elif [ "${1:-}" = "init" ] && [ "${2:-}" = "--help" ]; then
+  echo "Usage: rtk init [${STUB_RTK_INIT_HELP:---opencode}]"
+elif [ "${1:-}" = "init" ]; then
+  echo "RTK_INIT_ARGS=$*" >> "$RTK_TEST_LOG"
 else
   exit 0
 fi
@@ -97,6 +101,38 @@ run_install latest
 grep -q '^RTK_VERSION_SEEN=<unset>$' "${tmp_dir}/latest.log" \
   || fail "RTK_VERSION should be unset for an unpinned install, letting rtk's installer resolve latest itself (got: $(cat "${tmp_dir}/latest.log" 2>/dev/null))"
 ok "an unpinned (latest) install does not set RTK_VERSION, matching rtk's own latest-resolution logic"
+
+echo ""
+echo "=========================================="
+echo "Testing OpenCode v2 compatibility guard"
+echo "=========================================="
+
+v2_bin="${tmp_dir}/v2_bin"
+mkdir -p "$v2_bin"
+cat > "$v2_bin/opencode" <<'STUB'
+#!/bin/bash
+echo '2.0.11'
+STUB
+chmod +x "$v2_bin/opencode"
+run_install v2_legacy \
+  PATH="${v2_bin}:${stub_bin}:/usr/bin:/bin" \
+  STUB_RTK_INIT_HELP="--opencode"
+grep -q '^RTK_VERSION_SEEN=<unset>$' "${tmp_dir}/v2_legacy.log" \
+  || fail "OpenCode v2 did not retain/install the RTK binary"
+grep -q '^RTK_INIT_ARGS=' "${tmp_dir}/v2_legacy.log" \
+  && fail "legacy --opencode initialization ran on OpenCode v2"
+grep -q "OpenCode integration was bypassed.*does not expose 'rtk init --opencode-v2'" "${tmp_dir}/v2_legacy.stdout" \
+  || fail "v2 bypass did not explain the missing compatible RTK plugin"
+ok "OpenCode v2 retains RTK but bypasses the incompatible legacy plugin non-fatally"
+
+run_install v2_compatible \
+  PATH="${v2_bin}:${stub_bin}:/usr/bin:/bin" \
+  STUB_RTK_INIT_HELP="--opencode --opencode-v2"
+grep -q '^RTK_INIT_ARGS=init -g --opencode-v2 --auto-patch --hook-only$' "${tmp_dir}/v2_compatible.log" \
+  || fail "OpenCode v2 did not initialize RTK through --opencode-v2 when advertised"
+grep -q '✓ rtk ready (version: 0.44.1)' "${tmp_dir}/v2_compatible.stdout" \
+  || fail "compatible OpenCode v2 integration did not report RTK ready"
+ok "OpenCode v2 automatically activates a future --opencode-v2 integration"
 
 echo ""
 echo "=========================================="

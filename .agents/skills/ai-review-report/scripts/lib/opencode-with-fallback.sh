@@ -24,6 +24,13 @@
 # Optional env:
 #   OPENCODE_AGENT            Agent name to run (default: review).
 #   OPENCODE_MIN_OUTPUT_BYTES Minimum stdout bytes for success (default: 200).
+#   OPENCODE_OUTPUT_SHAPE_CHECK  Path to a predicate script that answers "is
+#                             this a completed response?" (exit 0 = yes). When
+#                             set, the predicate is AUTHORITATIVE: its verdict
+#                             decides regardless of length, in both directions.
+#                             Unset = byte floor alone, exactly as before, so
+#                             non-chunk callers are unaffected. A set-but-missing
+#                             path warns and degrades to the byte floor.
 #
 # Stdout: opencode output. Stderr: passthrough.
 
@@ -51,6 +58,7 @@ fi
 PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
+OPENCODE_OUTPUT_SHAPE_CHECK="${OPENCODE_OUTPUT_SHAPE_CHECK:-}"
 
 model_target() {
   case "$1" in
@@ -77,10 +85,10 @@ run_opencode() {
   #   .agents/rules-scoped/*) are not auto-rejected in non-interactive `run` mode.
   # Prompt is fed via stdin (not "$(cat …)" argv expansion) so large chunks
   #   never hit ARG_MAX; matches the original `gemini < file` call shape.
-  # --log-level WARN: keeps stdout clean for the legacy parser surface.
+  # --log-level warn: keeps stdout clean for the legacy parser surface.
   #   On failure, review-in-chunks.sh's empty-output detector dumps the
   #   chunk file + stderr so diagnostics surface where it matters. To
-  #   debug a stuck/flaky chunk locally, re-run with --log-level INFO
+  #   debug a stuck/flaky chunk locally, re-run with --log-level info
   #   --print-logs.
   # --format default: human-readable markdown matching the legacy parser surface
   #   (sed/grep on DETAILED_SECTION_MARKER and per-priority emoji lines).
@@ -97,8 +105,51 @@ run_opencode() {
     --agent "${OPENCODE_AGENT}" \
     --model "${_target}" \
     --format default \
-    --log-level WARN \
+    --log-level warn \
     < "$prompt_file") || return 1
+  # The byte floor is a proxy for "the model produced nothing"; when the caller
+  # can name a predicate that answers the real question, the predicate decides
+  # and length is not consulted at all (LADR-087). A correct review of a clean
+  # file is legitimately short — v1 padded every response with chain-of-thought
+  # on stdout and the 200-byte floor was calibrated against that padding, so
+  # on v2 (which routes narration to stderr) the floor started rejecting valid
+  # 138-byte reviews and burning the whole fallback chain re-asking for them.
+  # With OPENCODE_OUTPUT_SHAPE_CHECK unset every call site behaves
+  # byte-identically to before, so the summary, semantic-grouping, trivial-PR
+  # and analyse callers are untouched.
+  #
+  # The predicate is authoritative in BOTH directions, not an exemption from
+  # the floor. The first cut only let it ADD acceptance — a passing predicate
+  # rescued short output, but a failing one fell through to the floor, so a
+  # narration-only answer of >= 200 bytes was still accepted here. That is the
+  # exact disagreement the shared predicate exists to prevent: the transport
+  # says "done", spends the LADR-002 fallback on it, and the chunk gate then
+  # rejects the same bytes and fail-closes with the secondary model never run
+  # (review 5261655825, finding 1; the 733-byte narration shape from the
+  # trigger run is the concrete case). Both sites ask the SAME predicate, and
+  # both act on its "no".
+  #
+  # Was a single literal marker before that. A literal could not express the
+  # real condition — a completed section ends in EITHER a severity line OR the
+  # "None found." placeholder — so the marker had to be something emitted
+  # early, and a response truncated just after it was accepted here while the
+  # chunk gate rejected it downstream.
+  #
+  # Invoked through `bash`, not exec, so a copy-install that dropped the exec
+  # bit cannot silently turn the predicate off; the chunk gate calls it the
+  # same way. A set-but-missing path is a packaging fault: warn once per call
+  # and degrade to the byte floor rather than reject every model in the chain.
+  if [ -n "$OPENCODE_OUTPUT_SHAPE_CHECK" ]; then
+    if [ -f "$OPENCODE_OUTPUT_SHAPE_CHECK" ]; then
+      if printf '%s' "$_out" | bash "$OPENCODE_OUTPUT_SHAPE_CHECK"; then
+        printf '%s\n' "$_out"
+        return 0
+      fi
+      printf '%s' "$_out" >&2
+      return 1
+    fi
+    echo "opencode-with-fallback.sh: OPENCODE_OUTPUT_SHAPE_CHECK not found: ${OPENCODE_OUTPUT_SHAPE_CHECK} — falling back to the ${OPENCODE_MIN_OUTPUT_BYTES}-byte floor" >&2
+  fi
   if [ "${#_out}" -lt "${OPENCODE_MIN_OUTPUT_BYTES}" ]; then
     printf '%s' "$_out" >&2
     return 1

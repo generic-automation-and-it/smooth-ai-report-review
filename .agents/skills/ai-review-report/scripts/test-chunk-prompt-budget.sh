@@ -29,6 +29,10 @@ SOURCE_COUNT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/count
 # lifetime, and omitting the validator aborts the run outright.
 SOURCE_TIMEOUT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+# The shape predicate review-in-chunks.sh delegates to (LADR-087). Without it
+# every chunk is judged structureless and fail-closed, which looks like a gate
+# bug rather than a missing file in this harness.
+SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -48,6 +52,7 @@ setup_repo() {
   cp "${SOURCE_COUNT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
@@ -91,7 +96,14 @@ DETAILED_SECTION_MARKER
 SUMMARY
     ;;
   *)
-    printf '### Test Review\n\n- 🔵 [VERIFIED] Low Priority: none found in test run.\n\n%.0s' {1..20}
+    printf '### Test Review\n\n'
+    # Template-shaped clean review, one section per file the prompt lists. The
+    # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+    # prose substring, and with two or more files every one must be mentioned
+    # (review 5263305644) — so the stub reads the inventory back out of the
+    # prompt instead of pretending a file-less body is a review.
+    awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+      | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
     ;;
 esac
 EOF

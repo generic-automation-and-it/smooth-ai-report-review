@@ -22,7 +22,7 @@
 #   audit.
 #
 # Versioning: pin BOTH the workflow actions (e.g. actions/checkout@<sha>) AND the
-# upstream ref below. The floating major tag (`@v1`) is NOT safe here — the
+# upstream ref below. The floating major tag (`@v2`) is NOT safe here — the
 # whole point of SHA-pinning the upstream checkout is to preserve the guarantee
 # the policy is after. Update the `ref:` below in lockstep with upstream
 # releases you want to consume.
@@ -44,13 +44,15 @@
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR},
 #               OPENCODE_REVIEW_REPORT_CONFIG (custom opencode.json path, repo-relative,
 #                 blank → committed default; LADR-047),
-#               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin for supply-chain hygiene; blank → latest, which is the weak default),
+#               OPENCODE_CLI_VERSION (opencode version pin — recommended to pin
+#                 for supply-chain hygiene; blank → reuse an existing v2, or
+#                 install the latest v2 when none is available),
 #               OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT (too-many-files threshold, default 100),
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED (default 0), and
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS (newline-separated exact
 #                 paths or directory prefixes, default empty),
 #               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
-#                 workflow's 6-path list — override with your repo's real context files),
+#                 workflow's context list — override with your repo's real context files),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),
@@ -231,17 +233,28 @@ jobs:
           # pin a concrete commit SHA. A full 40-char SHA is also what the
           # reusable workflow's own ref policy prefers (LADR-059).
           #
-          # IMPORTANT: the SHA MUST be a commit on `main` that contains
+          # IMPORTANT: the SHA MUST be a commit that contains
           # `.agents/skills/ai-review-report/scripts/run-review.sh` — the
-          # entrypoint this step then invokes. The SHA below is the tip of
-          # the PR (#86) that introduced the entrypoint. After PR #86 merges,
-          # the merge commit becomes the new tip; bump the pin to that
-          # commit (or to a tagged release). Pinning to a pre-entrypoint
-          # commit (e.g. an earlier `v1` floating tag's tip) 404s the script
-          # and the gate fails at "No such file or directory" on the next
-          # step — flagged by an AI agent on PR #86.
+          # entrypoint this step then invokes — AND is on the OpenCode v2 line
+          # (major `2`). Pinning a pre-entrypoint commit 404s the script and
+          # the gate dies at "No such file or directory" on the next step.
+          # Pinning a PRE-V2 commit is worse: the scripts resolve and run,
+          # then fail against a CLI that is no longer what they expect. This
+          # example shipped exactly that for a while — a pin from before the
+          # v2 migration, surrounded by comments that had been updated to v2,
+          # so it read as correct.
+          #
+          # The SHA below is the latest CODE commit of the v2 migration PR
+          # (#149) at the time this file was last touched. No commit inside a
+          # PR can name that PR's merge commit, so by construction this pin is
+          # "intermediate" until merge; it is re-bumped on every review round
+          # and then bumped once more to the merge commit or a tagged v2
+          # release. Reviewers: this is the documented state, not a stale
+          # pin. A floating tag is deliberately NOT allowed here (see the
+          # versioning note at the top of this file), and `test-run-review.sh`
+          # asserts this stays a full 40-char SHA.
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: c72937139e53363f051b09c64f706e7df4e38a23 # PR #86 head — bump after merge
+          ref: 35ac07ec26f0c0f10f69db30839e495c3224ee21 # v2 migration PR head — bump after merge
           path: .review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
@@ -463,8 +476,7 @@ jobs:
           OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
           MANDATORY_CONTEXT_FILES: >-
             ${{ vars.MANDATORY_CONTEXT_FILES ||
-            'AGENTS.md
-            .docs/nfr/PROJECT_SETUP_AGENTS.md
+            '.docs/nfr/PROJECT_SETUP_AGENTS.md
             .agents/skills/code-review-standards/SKILL.md
             .docs/nfr/TOOL_SETUP_AGENTS.md
             .agents/rules-scoped/backend/testing-standards.instructions.md

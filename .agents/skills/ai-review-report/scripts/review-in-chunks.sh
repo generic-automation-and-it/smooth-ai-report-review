@@ -100,19 +100,19 @@ structured_findings_enabled() {
 # "None found" for the empty ones — measured across the six chunks of the
 # trigger run, the five real reviews scored 2-22 on every marker below and the
 # narration-only one scored 0 on all of them.
+# Predicate the transport gate uses in place of its byte floor (LADR-087).
+# Exported to the two chunk-review invocations only; every other caller of
+# lib/opencode-with-fallback.sh leaves it unset and keeps the pure floor.
+# It is the SAME script chunk_review_has_shape() below delegates to — the two
+# gates asking different questions is what let a truncated response be accepted
+# by the transport (spending the fallback) and then rejected by the chunk gate.
+CHUNK_SHAPE_CHECK="$(dirname "${BASH_SOURCE[0]}")/lib/review-has-shape.sh"
+
 chunk_review_has_shape() {
-  local md="$1"
-  [ -f "$md" ] || return 1
-  # Severity emoji: -F, one -e each, because these are multi-byte and a bracket
-  # expression over them is locale-dependent.
-  grep -qF -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$md" && return 0
-  # "High Priority", "🟡 Medium Priority:", "low-priority" — any spelling.
-  grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$md" && return 0
-  # The mandated placeholder for an empty severity section.
-  grep -qiF 'none found' "$md" && return 0
-  # A markdown heading means the model reached the output template.
-  grep -qE '^#{1,6} ' "$md" && return 0
-  return 1
+  # Delegates to lib/review-has-shape.sh so the transport gate in
+  # lib/opencode-with-fallback.sh and this authoritative gate cannot disagree
+  # (LADR-087). See that lib for why a shared predicate rather than a literal.
+  bash "$(dirname "${BASH_SOURCE[0]}")/lib/review-has-shape.sh" "$1"
 }
 if structured_findings_enabled; then
   echo "🧩 Structured findings enabled (LADR-055)"
@@ -121,8 +121,8 @@ else
 fi
 echo ""
 
-# Testing rules are now discovered dynamically via *AGENTS.md pattern (Implementation #89)
-# No hardcoded path - Testing_Rules_AGENTS.md is found by find-context-files.sh
+# Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
+# scope is supplied natively by opencode v2 (LADR-087).
 
 # Load PR description and extract AI Review Notes section
 PR_DESCRIPTION=""
@@ -526,6 +526,12 @@ review_chunk() {
   shift
   local files=("$@")
   local chunk_num="$CHUNK_NUM"
+  # The chunk's file inventory, handed to the shape predicate at all three
+  # places it is asked (two transport calls, one chunk gate) so a review that
+  # silently omits a file cannot pass as complete (review 5263305644, finding
+  # 2). See lib/review-has-shape.sh for the mention-not-heading semantics.
+  local _expected_files
+  _expected_files="$(printf '%s\n' "${files[@]}")"
 
   echo "==========================================
 "
@@ -637,8 +643,8 @@ EOF
     echo "  📋 No context files found for this chunk"
   fi
 
-  # Testing rules are discovered via standard *AGENTS.md pattern (Implementation #89)
-  # Testing_Rules_AGENTS.md will be in context_files if test directory is in changed paths
+  # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
+  # are loaded natively by opencode v2 and are not repeated in this prompt.
 
   # Get absolute path for file access instructions
   local repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
@@ -1252,7 +1258,7 @@ EOF
     _stage1_fb="$_secondary_model"
   fi
   _stage_started=$(date +%s)
-  if timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
   else
     _stage1_rc=$?
@@ -1274,7 +1280,7 @@ EOF
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
@@ -1316,16 +1322,32 @@ EOF
     # happened instead of silently aggregating it as a review.
     local review_size
     review_size=$(wc -c < "ci_temp/reviews/chunk_${chunk_num}.md" 2>/dev/null || echo 0)
-    # Two shapes of the same no-op, one reason string (LADR-077). The byte floor
-    # catches "nothing came back"; the shape check catches "narration came back"
-    # — output over the floor that never reached the review template. Both are a
-    # chunk that was not reviewed, and both must take the LADR-031 fail-closed
-    # path rather than be aggregated as a review.
+    # Structure, not length, decides whether a chunk was reviewed (LADR-077,
+    # amended LADR-087). `chunk_review_has_shape` already encodes what "a model
+    # reached the output template" means — a severity marker, a priority
+    # phrase, the mandated "None found" placeholder, or a heading — so length
+    # has nothing to add and was actively wrong: a byte floor ran FIRST and
+    # short-circuited the shape check, so a correct, complete review of a clean
+    # file was rejected as a silent failure for being short.
+    #
+    # That is not hypothetical. On v1 the model's chain-of-thought leaked onto
+    # stdout and padded every review by a few hundred bytes; v2 routes it to
+    # stderr, and the floor had been silently calibrated against that padding.
+    # Eval run 35525187790 lost DR-004/DR-012/DR-013 this way — DR-013's v1
+    # output was 446 bytes, of which 308 were narration, leaving a review
+    # byte-identical to the 138-byte v2 one the floor then threw away. In the
+    # gate the same rejection sets the LADR-031 fail-closed flag, so a chunk
+    # with genuinely nothing to report would block a clean PR, and the cleaner
+    # the chunk the likelier it happened.
+    #
+    # Keep 0 bytes as its own reason: "nothing came back" and "narration came
+    # back" are different diagnoses and the log line is the only place a
+    # maintainer sees which one fired.
     local reject_reason=""
-    if [ "$review_size" -lt 200 ]; then
-      reject_reason="empty/tiny output (${review_size} bytes)"
-    elif ! chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
-      reject_reason="no review structure (${review_size} bytes of exploration narration — no severity marker, no \"None found\", no heading)"
+    if [ "$review_size" -eq 0 ]; then
+      reject_reason="empty output (0 bytes)"
+    elif ! OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" chunk_review_has_shape "ci_temp/reviews/chunk_${chunk_num}.md"; then
+      reject_reason="no review structure (${review_size} bytes — no severity marker or completed \"None found\" result, or a chunk file never mentioned)"
     fi
     if [ -n "$reject_reason" ]; then
       echo "  ⚠️ Chunk ${chunk_num} produced no usable review: ${reject_reason} — opencode silent failure?"

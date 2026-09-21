@@ -108,7 +108,7 @@ command -v git >/dev/null 2>&1 || die "git not found."
 [ -d "$CORPUS_DIR" ]   || die "corpus dir not found at $CORPUS_DIR."
 
 if [ "$SELFTEST" != "1" ]; then
-  command -v opencode >/dev/null 2>&1 || die "opencode CLI not found (install: curl -fsSL https://opencode.ai/install | bash)."
+  command -v opencode >/dev/null 2>&1 || die "opencode v2 CLI not found (install: bash \"$SKILL_SCRIPTS_DIR/lib/install-opencode.sh\" && export PATH=\"\$HOME/.opencode/bin:\$PATH\" — the installer only sets PATH in its own shell, so export it here before re-running; the shared installer honours OPENCODE_CLI_VERSION, a raw curl drifts from CI)."
   command -v timeout  >/dev/null 2>&1 || die "timeout not found (run via eval/local-evals.sh on macOS — it installs a shim)."
   [ -f "$REVIEW_SCRIPT" ] || die "review-in-chunks.sh not found at $REVIEW_SCRIPT (workflow↔script path coupling)."
   [ -f "$DR_STANDARDS_BASE_SRC" ] || die "DR standards not found at $DR_STANDARDS_BASE_SRC."
@@ -129,6 +129,12 @@ if [ "$SELFTEST" != "1" ]; then
   # shellcheck source=../lib/resolve-provider.sh
   source "$SKILL_SCRIPTS_DIR/lib/resolve-provider.sh"
   . "$SKILL_SCRIPTS_DIR/lib/prepare-opencode-config.sh"
+  # opencode v2 binds its shared background service's config when the service
+  # STARTS, so anything that already warmed one — including the harness
+  # workflow's own `opencode stats` — owns the config for the rest of the run
+  # and silently ignores the OPENCODE_CONFIG just exported (LADR-087). Stop it
+  # so the health check below starts a fresh service bound to ours.
+  opencode service stop >/dev/null 2>&1 || true
   bash "$SKILL_SCRIPTS_DIR/lib/opencode-health.sh" || die "opencode health check failed — cannot run evals."
 fi
 

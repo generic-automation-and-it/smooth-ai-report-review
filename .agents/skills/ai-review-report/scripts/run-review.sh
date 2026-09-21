@@ -173,7 +173,7 @@ export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
 # unset, we use the reusable workflow's built-in default. find-context-files.sh
 # warns-and-skips on missing paths, so exploratory local runs do not fail.
 if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
-  MANDATORY_CONTEXT_FILES=$'AGENTS.md\n.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
+  MANDATORY_CONTEXT_FILES=$'.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
 fi
 export MANDATORY_CONTEXT_FILES
 AGENTS_MD_EXEMPT_PATHS="${AGENTS_MD_EXEMPT_PATHS:-.docs/release-notes}"
@@ -559,11 +559,12 @@ if [ -x "$HOME/.opencode/bin/opencode" ]; then
   echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
 fi
 
-# 5c-bis. Install rtk-ai/rtk and wire its OpenCode plugin (LADR-054, opt-in).
-# Runs after opencode itself is installed and on PATH, since RTK's plugin
-# init targets opencode's config surface. Graceful degradation: a failure
-# here must not fail the review — RTK is a token-optimization enhancement,
-# not a hard dependency like opencode itself.
+# 5c-bis. Install rtk-ai/rtk and wire a compatible OpenCode plugin (LADR-054,
+# opt-in). On v2 the installer retains the binary but bypasses initialization
+# until `rtk init --help` advertises `--opencode-v2`. Runs after opencode is on
+# PATH because integration selection depends on its major version. Graceful
+# degradation: a failure here must not fail the review — RTK is a token-
+# optimization enhancement, not a hard dependency like opencode itself.
 _rtk_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
 if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -x "$LIB_DIR/install-rtk.sh" ]; then
@@ -587,8 +588,31 @@ unset _rtk_enabled
 . "$LIB_DIR/prepare-opencode-config.sh"
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
+# Stop any leftover background service FIRST. opencode v2 runs one shared
+# service per user and binds its config when that service STARTS — a service
+# already up silently ignores this process's OPENCODE_CONFIG (LADR-071/087),
+# so a reused self-hosted runner would review with the previous job's
+# provider, model ids and permissions and report nothing. Idempotent and free:
+# the `opencode stats` below starts a fresh one bound to our config.
+# lib/opencode-health.sh verifies the binding afterwards.
+opencode service stop >/dev/null 2>&1 || true
 opencode stats >/dev/null 2>&1 || true
-bash "$LIB_DIR/opencode-health.sh" || true
+# Exit 3 means the managed config is NOT confirmed (foreign binding, or the
+# binding could not be read) — fatal here too, not just locally. Every other
+# non-zero is a liveness blip and stays advisory, which is LADR-028's
+# deliberate choice: /api/info says nothing about review correctness.
+# `|| true` on the whole call used to discard the mismatch as well, so the
+# binding check was real detection wired to a channel that threw the result
+# away: CI would keep reviewing under a foreign provider, model chain and
+# (worst) with no LADR-029 permission lockdown over untrusted PR code, while
+# `local-review.sh` aborted on the identical condition. NOT named `_rc` — the
+# EXIT trap owns that unscoped global.
+_health_rc=0
+bash "$LIB_DIR/opencode-health.sh" || _health_rc=$?
+if [ "$_health_rc" -eq 3 ]; then
+  echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
+  exit 1
+fi
 
 # 5f. Resolve provider → provider-id (gemini / openai / …). This is the
 # authoritative resolver (matches the post-checkout `Resolve provider/model
@@ -605,7 +629,7 @@ run_probe() {
     --agent review \
     --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/$1" \
     --format default \
-    --log-level WARN \
+    --log-level warn \
     "Say 'OK'" 2>&1 || true
 }
 
@@ -638,7 +662,7 @@ ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
     --agent review \
     --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
     --format default \
-    --log-level WARN \
+    --log-level warn \
     "Say 'OK'" 2>&1 || true)"
   if [ -z "$_orch_out" ] || echo "$_orch_out" | grep -iqE "$ERROR_PATTERN"; then
     echo "failed" > "$ORCH_PROBE_FILE"
@@ -1020,10 +1044,11 @@ EOF
 fi
 unset _trivial_skip_enabled
 
-# --- Step 13: Find context files (mandatory + *AGENTS.md ancestor walk) ------
+# --- Step 13: Find explicit context (custom *_AGENTS.md + .agents/rules + GitHub rules)
 # When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
 # (1/true/yes/on), skip the mandatory context file loading AND the AGENTS.md
-# ancestor walk — the review runs without injected context files.
+# custom-context/rules discovery — the review runs without injected context
+# files. Native opencode v2 AGENTS.md scoping remains active.
 _bypass_mandatory_ctx="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
 case "${_bypass_mandatory_ctx,,}" in
   1|true|yes|on)

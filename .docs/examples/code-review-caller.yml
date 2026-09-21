@@ -21,15 +21,16 @@
 #
 # Recommended: pin the opencode CLI version.
 #   Set OPENCODE_CLI_VERSION as a repo/org Variable (e.g. 'major.minor.patch')
-#   so every CI run installs the same opencode binary. Unset = latest, which
-#   pulls whatever is current upstream on every run — no reproducibility and
-#   silent behaviour drift when upstream ships a change. The reusable workflow's
+#   so every CI run installs the same opencode binary. Unset = any v2: a
+#   fresh runner pulls whatever is current upstream, a machine with a v2
+#   binary already on PATH keeps it as is — no reproducibility either way,
+#   and silent behaviour drift when upstream ships a change. The reusable workflow's
 #   env: block references `vars.OPENCODE_CLI_VERSION`, so the
 #   Variable is read from THIS repo/org automatically; nothing needs to be
 #   passed through `with:` or `env:` here. See the README "Recommended: pin
 #   the opencode version" callout for the why + how.
 #
-# Versioning: pin @v1 (floating major) or an exact tag/SHA for stricter supply-chain
+# Versioning: pin @v2 (floating major) or an exact tag/SHA for stricter supply-chain
 # control. The review scripts are fetched at the same ref as the workflow by default.
 #
 # Optional autonomous low/medium fixing: copy
@@ -178,7 +179,7 @@ jobs:
         )
       ) ||
       (github.event_name == 'workflow_dispatch')
-    uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v1
+    uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v2
     with:
       pr_number: ${{ inputs.pr_number || '' }}
       model: ${{ inputs.model || '' }}
@@ -197,16 +198,16 @@ jobs:
       # runner: self-hosted          # uncomment for private-network gateways
       # tools_ref: main              # override which ref the review scripts come from —
       #                              # a full commit SHA (supply-chain pinned) or a trusted
-      #                              # floating ref (main / latest / v1), never a branch.
+      #                              # floating ref (main / latest / v2), never a branch.
       #                              # Default: the exact commit of the workflow called above.
       # mandatory_context_files: >-  # override the context files resolved in YOUR repo
-      #   AGENTS.md
       #   .docs/nfr/PROJECT_SETUP_AGENTS.md
       # agents_md_exempt_paths: '.docs/release-notes'
       # opencode_config: .github/opencode.json   # ship your OWN opencode.json (path in YOUR repo);
       #                                           # must keep {env:OPENCODE_*} credential placeholders
-      # rtk_version: '0.44.1'                    # pin the rtk-ai/rtk token-optimizer version (LADR-054);
-      #                                           # blank → OPENCODE_TOOL_RTK_VERSION Variable, else latest
+      # rtk_version: '0.44.1'                    # RTK binary version pin (LADR-054). On OpenCode v2 the binary remains installed,
+      #                                           # but plugin initialization is bypassed unless RTK exposes --opencode-v2.
+      #                                           # Blank → OPENCODE_TOOL_RTK_VERSION Variable
     # Explicit mapping works for same-org AND cross-org callers. Only the selected
     # provider's key needs to exist in your repo/org; unset ones resolve empty and
     # are never used. (Same-org callers may replace this whole block with

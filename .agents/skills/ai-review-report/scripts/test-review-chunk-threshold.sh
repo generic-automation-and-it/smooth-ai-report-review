@@ -19,6 +19,10 @@ SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/ext
 # and an empty timeout string.
 SOURCE_TIMEOUT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+# The shape predicate review-in-chunks.sh delegates to (LADR-087). Omit it and
+# every chunk is judged structureless, which reads as a fail-closed bug in the
+# gate rather than a missing file in this harness.
+SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
 TMP_DIR="$(mktemp -d /tmp/review-chunk-threshold.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -33,6 +37,7 @@ setup_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -40,7 +45,14 @@ prompt_file="${@: -1}"
 if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
   echo "semantic grouping unavailable in test"
 else
-  printf '### Test Review\n\n- 🔵 [VERIFIED] Low Priority: none found in test run.\n\n%.0s' {1..20}
+  printf '### Test Review\n\n'
+  # Template-shaped clean review, one section per file the prompt lists. The
+  # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+  # prose substring, and with two or more files every one must be mentioned
+  # (review 5263305644) — so the stub reads the inventory back out of the
+  # prompt instead of pretending a file-less body is a review.
+  awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+    | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
 fi
 EOF
   chmod +x "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
@@ -131,6 +143,7 @@ setup_large_file_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -138,7 +151,14 @@ prompt_file="${@: -1}"
 if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
   echo "semantic grouping unavailable in test"
 else
-  printf '### Test Review\n\n- 🔵 [VERIFIED] Low Priority: none found in test run.\n\n%.0s' {1..20}
+  printf '### Test Review\n\n'
+  # Template-shaped clean review, one section per file the prompt lists. The
+  # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+  # prose substring, and with two or more files every one must be mentioned
+  # (review 5263305644) — so the stub reads the inventory back out of the
+  # prompt instead of pretending a file-less body is a review.
+  awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+    | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
 fi
 EOF
   chmod +x "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
@@ -386,8 +406,19 @@ _ct "the split is two bare integers on stdout" "1" \
 # the two stages separately.
 _ct "the call site resolves the split via lib/split-chunk-budget.sh" "1" \
   "$(grep -c 'split-chunk-budget\.sh" "\$_chunk_timeout"' "$_ric")"
-_ct "the call site guards a non-integer primary back to the validated budget" "1" \
-  "$(grep -c '_primary_budget="\$_chunk_timeout"' "$_ric")"
+# Evaluate the actual invalid-budget guard, not a global assignment count:
+# LADR-084 intentionally uses the same assignment in the retry-collapse block.
+_primary_guard="$(awk '/^  if ! \[\[ "\$_primary_budget"/{f=1} f{print} f&&/^  fi$/{exit}' "$_ric")"
+_ct "the invalid-primary guard can be extracted from the call site" "1" \
+  "$(if [ -n "$_primary_guard" ]; then echo 1; else echo 0; fi)"
+for _bad in abc 0 -5 ''; do
+  _ct "invalid primary '$_bad' restores the validated budget and clears the reserve" "868 0" \
+    "$( _primary_budget="$_bad" _secondary_budget=268 _chunk_timeout=868 \
+        bash -c "$_primary_guard"$'\n''printf "%s %s\n" "$_primary_budget" "$_secondary_budget"' )"
+done
+_ct "a valid primary preserves the normal split" "600 268" \
+  "$( _primary_budget=600 _secondary_budget=268 _chunk_timeout=868 \
+      bash -c "$_primary_guard"$'\n''printf "%s %s\n" "$_primary_budget" "$_secondary_budget"' )"
 _ct "stage 1 is bounded by the primary share, not the total" "1" \
   "$(grep -c 'timeout "\${_primary_budget}s"' "$_ric")"
 # The remainder formula is the load-bearing line: elapsed + (total - elapsed)
@@ -425,6 +456,7 @@ cp "$SOURCE_COUNT_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/cou
 cp "$SOURCE_EXTRACT_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
 cp "$SOURCE_TIMEOUT_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 cp "$SOURCE_SPLIT_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+cp "$SOURCE_SHAPE_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'RTSTUB'
 #!/usr/bin/env bash
 prompt_file="${@: -1}"
@@ -434,7 +466,7 @@ if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
 fi
 echo "$model" >> "${SPLIT_CALLS_LOG:-/dev/null}"
 [ "$model" = "primary-model" ] && exit 124
-printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued by the secondary tier.\n\n%.0s' {1..20}
+printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued by the secondary tier — `alpha/a.txt:1`.\n\n%.0s' {1..20}
 RTSTUB
 chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
 # Record the budget each stage was handed, then run WITHOUT enforcing it, so the
@@ -544,6 +576,7 @@ setup_shape_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
 
   # The mock replays whatever body the case under test wrote, so one sandbox
   # covers both the narration shape and the honest-review control.
@@ -656,8 +689,73 @@ run_shape_case "emoji-only" "${TMP_DIR}/emoji-only.txt"
 _sh "a severity emoji alone is review shape" "0" \
   "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
 
+# A correct review of a clean file is SHORT, and length must not decide its
+# fate (LADR-087). This body is 137 bytes — well under the 200-byte floor that
+# used to run first and short-circuit the shape check. Eval run 35525187790
+# lost DR-004, DR-012 and DR-013 exactly here: v1 padded every response with
+# chain-of-thought on stdout, v2 routes it to stderr, and the floor had been
+# calibrated against the padding. DR-013's v1 output was 446 bytes of which
+# 308 were narration, leaving a review byte-identical in length to the 138-byte
+# v2 one the floor then discarded. In the gate that sets the LADR-031
+# fail-closed flag, so the cleaner the chunk the likelier it blocked a good PR.
+{
+  printf '### 📄 File: `src/Project.Infrastructure/Ftp/FtpHelper.cs`\n\n'
+  printf '**Issues Found:**\n- None found.\n\n'
+  printf '**Pre-existing (informational):**\n- None.\n'
+} > "${TMP_DIR}/clean-short.txt"
+_sh "the clean-review fixture is genuinely under the old byte floor" "1" \
+  "$([ "$(wc -c < "${TMP_DIR}/clean-short.txt")" -lt 200 ] && echo 1 || echo 0)"
+run_shape_case "clean-short" "${TMP_DIR}/clean-short.txt"
+_sh "a short clean review is NOT flagged as a silent failure" "0" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "a short clean review keeps its body instead of a failure marker" "1" \
+  "$(grep -c 'None found' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.md" 2>/dev/null || true)"
+_sh "a short clean review costs no retry sweep" "0" \
+  "$(grep -c 'produced no usable review' "${TMP_DIR}/clean-short.log" 2>/dev/null || true)"
+
+# A response truncated right after the template's opening heading is NOT a
+# review. While the 200-byte floor ran first this was academic; with the floor
+# gone the old "a markdown heading means the model reached the template" clause
+# became the accept-a-truncation clause, and an unreviewed chunk would have
+# been aggregated as clean with zero findings — defects escaping the gate with
+# nothing in the coverage block to show for it.
+printf '### 📄 File: `src/Project.Infrastructure/Ftp/FtpHelper.cs`\n' \
+  > "${TMP_DIR}/heading-only.txt"
+run_shape_case "heading-only" "${TMP_DIR}/heading-only.txt"
+_sh "a heading with no findings section is not a review" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "heading-only truncation is diagnosed as missing structure" "1" \
+  "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
+
+# A severity heading is still a heading, not a finding. The heading contains an
+# emoji, so the order of the heading and emoji checks in review-has-shape.sh is
+# load-bearing: emoji-first opens a false finding block and lets later narration
+# carrying a file:line anchor complete it.
+cat > "${TMP_DIR}/emoji-heading-narration.txt" << 'EOF'
+### 📄 File: `alpha/a.txt`
+
+**Issues Found:**
+### 🔴 Critical Issues
+I am checking alpha/a.txt:1 before deciding whether there is a substantive finding to report.
+EOF
+run_shape_case "emoji-heading-narration" "${TMP_DIR}/emoji-heading-narration.txt"
+_sh "narration below an emoji severity heading is not accepted as a finding" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "emoji-heading narration is diagnosed as missing review structure" "1" \
+  "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
+
+# Truly empty output keeps its own diagnosis: "nothing came back" and
+# "narration came back" are different failures and the log line is the only
+# place a maintainer sees which one fired.
+: > "${TMP_DIR}/empty.txt"
+run_shape_case "empty-output" "${TMP_DIR}/empty.txt"
+_sh "empty output is still fail-closed" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "empty output is diagnosed as empty, not as missing structure (both attempts)" "2" \
+  "$(grep -c 'empty output (0 bytes)' "${TMP_DIR}/empty-output.log" 2>/dev/null || true)"
+
 if [ "$_sh_fail" -ne 0 ]; then
-  for _l in narration-only real-review emoji-only; do
+  for _l in narration-only real-review emoji-only clean-short heading-only emoji-heading-narration empty-output; do
     echo "--- ${_l}.log (tail) ---"
     tail -25 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
   done
@@ -690,6 +788,7 @@ setup_retry_repo() {
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
   cp "${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
     "${test_repo}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
 
@@ -717,7 +816,13 @@ mode="$(sed -n "$((n+1))p" "$RETRY_MODES_FILE")"
 echo "START ${n} ${c}" >> "${RETRY_EVENTS_LOG}"
 emit_review() {
   printf '### Review of chunk %s (attempt %s)\n\n' "$n" "$c"
-  printf -- '- 🔵 [VERIFIED] Low Priority: none found in test run, chunk %s attempt %s.\n\n%.0s' "$n" "$c" 1 2 3 4 5 6 7 8 9 10
+  # Template-shaped clean review, one section per file the prompt lists. The
+  # predicate (lib/review-has-shape.sh) no longer accepts "none found" as a
+  # prose substring, and with two or more files every one must be mentioned
+  # (review 5263305644) — so the stub reads the inventory back out of the
+  # prompt instead of pretending a file-less body is a review.
+  awk 'f && !/^- `/ {exit} f {sub(/^- `/,""); sub(/`$/,""); print} /^\*\*Files in this chunk:\*\*$/ {f=1}' "$prompt_file" \
+    | while IFS= read -r _p; do printf '### 📄 File: `%s`\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found.\n\n' "$_p"; done
 }
 case "$mode" in
   pass) ;;

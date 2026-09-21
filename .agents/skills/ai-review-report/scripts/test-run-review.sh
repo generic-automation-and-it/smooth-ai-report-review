@@ -1009,21 +1009,16 @@ check "sourced-lib failure still propagates under set -e (LADR-047 .. rejection)
   "failed_as_expected" "$_poc_test_out"
 unset _poc_test_home _poc_test_home2 _poc_test_out
 
-# ── instructions array + v2-inert warning (LADR-080) ───────────────────────
-# Two defects this pins. (1) Every glob in the array was single-level, so a
-# consumer nesting rules by area had them silently unloaded — both the
-# single-level and the `**` form must be present, because `**` is undocumented
-# for v1's glob engine and dropping either shape loses a real case. (2) opencode
-# v2 accepts `instructions` and resolves nothing, so a major bump kills LADR-070
-# with no error; the lib must WARN (never fail) and must stay silent on v1, on a
-# missing binary, and on an override that ships no array.
+# ── v2 instructions declaration + inert warning (LADR-087) ─────────────────
+# The shipped array mirrors the requested .github instruction defaults, while
+# find-context-files.sh is the active loader because v2 still resolves none of
+# these entries. The lib must WARN (never fail) so custom overrides cannot
+# mistake a schema-valid array for an active channel.
 echo ""
-echo "instructions array + v2-inert warning (LADR-080):"
+echo "v2 instructions declaration + explicit-loader warning (LADR-087):"
 
 _ladr080_cfg="$SCRIPT_DIR/../assets/opencode.json"
-for _pat in '.agents/rules/\*.md' '.agents/rules/\*\*/\*.md' \
-            '.agents/rules-scoped/\*\*/\*.instructions.md' \
-            '.github/instructions/\*.instructions.md' \
+for _pat in '.github/instructions/\*.instructions.md' \
             '.github/instructions/\*\*/\*.instructions.md'; do
   # shellcheck disable=SC2016
   _hit="$(grep -cF "$(printf '%s' "$_pat" | tr -d '\\')" "$_ladr080_cfg" || true)"
@@ -1057,17 +1052,85 @@ _ladr080_probe() {
     printf '#!/bin/bash\necho "opencode %s"\n' "$version" > "$bin/opencode"
     chmod +x "$bin/opencode"
   fi
-  out="$(cd "$cwd" && HOME="$home" PATH="$bin:$PATH" bash -c \
+  # GITHUB_ENV cleared: sourcing the lib under Actions would otherwise persist
+  # a temp OPENCODE_CONFIG path into later steps (same trap as
+  # test-prepare-opencode-v2-config.sh).
+  out="$(cd "$cwd" && HOME="$home" PATH="$bin:$PATH" GITHUB_ENV= bash -c \
     ". '$SCRIPT_DIR/lib/prepare-opencode-config.sh'" 2>&1 >/dev/null || true)"
   rm -rf "$bin" "$home" "$cwd"
   if printf '%s' "$out" | grep -q 'does NOT resolve'; then echo warned; else echo silent; fi
 }
 check "v2 binary warns that instructions is inert"   "warned" "$(_ladr080_probe 2.0.1)"
 check "v3 pre-release binary warns too"              "warned" "$(_ladr080_probe 3.0.0-beta.1)"
-check "v1 binary stays silent"                       "silent" "$(_ladr080_probe 1.18.10)"
 check "no opencode on PATH stays silent"             "silent" "$(_ladr080_probe '')"
 unset -f _ladr080_probe
 unset _ladr080_cfg
+
+# ── opencode v2 --log-level is a lowercase choice (LADR-087) ───────────────
+# v2 validates --log-level against "all|trace|debug|info|warn|warning|error|
+# fatal|none" and rejects the v1-era uppercase spelling with an
+# InvalidValue CliError before it ever reaches the model. `WARN` therefore
+# fails EVERY opencode call — the chunk probes, the orchestrator probe and
+# every chunk review — while still producing plausible-looking output on
+# stderr. Grep the sources so the uppercase spelling cannot come back.
+_loglevel_offenders() {
+  local f offenders=""
+  for f in "$SCRIPT_DIR/run-review.sh" \
+           "$SCRIPT_DIR/lib/opencode-with-fallback.sh" \
+           "$SCRIPT_DIR/local-review.sh" \
+           "$SCRIPT_DIR/review-in-chunks.sh" \
+           "$SCRIPT_DIR/aggregate-reviews.sh"; do
+    [ -f "$f" ] || continue
+    grep -oE -- '--log-level[[:space:]]+[A-Za-z]+' "$f" 2>/dev/null \
+      | awk '{print $2}' \
+      | grep -vxE 'all|trace|debug|info|warn|warning|error|fatal|none' \
+      | while IFS= read -r bad; do printf '%s:%s ' "$(basename "$f")" "$bad"; done
+  done
+  printf '%s' "$offenders"
+}
+check "no uppercase --log-level value survives in the gate's sources" \
+  "" "$(_loglevel_offenders)"
+unset -f _loglevel_offenders
+
+# ── A confirmed config-binding failure is fatal in CI too ──────────────────
+# lib/opencode-health.sh exits 3 when the managed config is not confirmed and
+# 1 for a mere liveness blip. Both CI entrypoints must act on 3 and keep 1
+# advisory. A bare `|| true` on the whole call (what shipped first) discards
+# the mismatch too, leaving the binding check as detection with no consequence
+# — CI reviewing under a foreign provider with no LADR-029 lockdown while
+# local-review.sh aborts on the identical condition.
+# "Wired" means the status is captured AND the exit-3 branch actually aborts.
+# Two independent greps proved only that a call and a comparison exist
+# somewhere in the file; a regression that logged status 3 and carried on
+# would still have passed (review 5265948835, finding 2). The abort is read
+# out of the `if [ "$_health_rc" -eq 3 ]` block itself.
+_health_wiring() {
+  local f="$1" block
+  grep -q 'opencode-health.sh" || _health_rc=\$?' "$f" || { echo bare; return; }
+  block="$(awk '/if \[ "\$_health_rc" -eq 3 \]/ { on = 1 } on { print } on && /^[[:space:]]*fi[[:space:]]*$/ { exit }' "$f")"
+  [ -n "$block" ] || { echo bare; return; }
+  printf '%s\n' "$block" | grep -qE '^[[:space:]]*exit 1[[:space:]]*$' && echo wired || echo bare
+}
+# Mutation of the matcher itself: the same block with the abort replaced by a
+# log line must read as bare, or the check above is decoration.
+_hw_mut="$(mktemp)"
+sed 's/^\([[:space:]]*\)exit 1$/\1echo "would abort"/' "$SCRIPT_DIR/run-review.sh" > "$_hw_mut"
+check "the wiring check turns red when the exit-3 branch stops aborting" \
+  "bare" "$(_health_wiring "$_hw_mut")"
+rm -f "$_hw_mut"
+check "run-review.sh acts on the fatal binding status" \
+  "wired" "$(_health_wiring "$SCRIPT_DIR/run-review.sh")"
+check "the analyse workflow acts on it too" \
+  "wired" "$(_health_wiring "$REPO_ROOT/.github/workflows/pipeline-ai-analyse.yml")"
+# The EXIT trap owns the unscoped `_rc`; a health variable of that name would
+# clobber the exit code the trap reports (same class as LADR-078's rule).
+check "the health status does not reuse the EXIT trap's _rc global" \
+  "" "$(grep -n 'opencode-health.sh" || _rc=' "$SCRIPT_DIR/run-review.sh" || true)"
+# local-review.sh and the eval harness abort on ANY non-zero already, so the
+# split must not have quietly relaxed them to advisory.
+check "local-review.sh still aborts on any health failure" \
+  "yes" "$(grep -q 'if ! bash "$SCRIPT_DIR/lib/opencode-health.sh"; then' "$SCRIPT_DIR/local-review.sh" && echo yes || echo no)"
+unset -f _health_wiring
 
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""

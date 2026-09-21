@@ -40,8 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Pin opencode to a specific version for supply-chain hygiene +
-      # reproducibility (recommended). Unset = latest, which pulls whatever
-      # is current upstream on every run with no reproducibility. Set the
+      # reproducibility (recommended). Unset = any v2: a fresh runner pulls
+      # whatever is current upstream, a machine with a v2 binary already on
+      # PATH keeps it as is — no reproducibility either way. Set the
       # OPENCODE_CLI_VERSION repo/org Variable to something
       # like 'major.minor.patch' to enable the pin. The shared installer (LADR-048)
       # honours it across every install path in this repo.
@@ -78,7 +79,7 @@ jobs:
           set -eo pipefail
           # Version policy — the npm analogue of the reusable workflow's
           # "commit SHA or trusted floating ref" rule:
-          #   supply-chain pinned  → npm install …/smooth-ai-review@1.0.1
+          #   supply-chain pinned  → npm install …/smooth-ai-review@2.0.0
           #   trusted floating     → the unpinned form below (resolves to latest)
           # Unpinned is fine for tracking releases, but every run then reviews
           # with whatever was published most recently. Pin the exact version

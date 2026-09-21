@@ -409,6 +409,170 @@ else
   bad "DR-014 forbidden_claim false-matched $_q_neg_hit out-of-scope finding(s) — pattern too loose"
 fi
 
+# DR-002's pattern was `(redundant|duplicate|…).{0,60}(storage|store|write|persist)`,
+# and a 60-character window let "retrying may then DUPLICATE or conflict with
+# the first WRITE" — an atomicity finding, not a redundancy claim — fail the
+# run (35566556046) while the SAME atomicity finding worded differently passed
+# the run before it. The pattern now binds the adjective to its noun within two
+# words, in either order, so the forbidden claim is "the dual write is
+# redundant", not any sentence that happens to contain both words. Round two
+# (review 5263727118, finding 1): "duplicate write(s)" is the RETRY sense
+# almost every time a model writes it, so "duplicate" pairs only with the
+# storage nouns, while the named-store forms — "the object-store write is
+# redundant with the database write", "the secondary write is unnecessary" —
+# are matched explicitly. Both lists below carry the concise phrasings that
+# broke the previous pattern in each direction. Round three (review
+# 5264311874, finding 2) adds the active-verb and adverb forms — "writing to
+# both stores DUPLICATES the data", "NEEDLESSLY writes twice" — keyed on an
+# architectural subject (both/dual/object-store/archive …), because a bare
+# "duplicates the entry" is what a retry finding says too. The pattern is kept
+# under the complexity ceiling of non-GNU greps on purpose: a longer draft
+# compiled on GNU grep and was rejected by another implementation outright,
+# which would read as "nothing forbidden" and pass every sample. Round four
+# (review 5264530992, finding 2): "backend(s)" joins the store nouns, so
+# "using both backends is redundant" is caught while "the backends can drift"
+# (a consistency finding) is not. Round five (review 5265814254, finding 1):
+# "storing the payload in both the database and object store duplicates the
+# data" names both stores explicitly and sat outside every window. Rather than
+# widen a window (which broke the complexity ceiling AND let a retry sentence
+# through), the pattern was consolidated — the subject/noun branch and the
+# active-verb branch are one alternation now, and a named-both-stores branch
+# was added — so it is shorter than before while catching more. "duplicate(s)
+# the object store" no longer counts on its own: that is the retry sense
+# ("duplicates the object store upload"), and "duplicated in two stores" is
+# matched explicitly instead. Round six (review 5265948835, finding 1): "both
+# writes are duplicated on retry" and "retrying creates duplicate copies" are
+# retry findings too, so the past participle "duplicated" left the
+# subject-is-adjective branch (with a word boundary, so "duplicate" cannot
+# match its own prefix) and "copies" left the generic duplicate branch. The
+# redundancy sense of those words is still caught through the named-subject
+# and adverb branches. Round seven (review 5266343056, finding 3): the adverb
+# branch paired "unnecessarily/needlessly" with any storage verb, so an
+# ordering finding — "unnecessarily persists the primary row before the
+# archive call" — matched. With a storage VERB the adverb now also needs a
+# multiplicity word (twice/both/two/dual/second) within five words; with
+# "duplicat" it stands alone, because "unnecessarily duplicated" has no
+# ordering reading. Round eight (review 5266453301, finding 1): a standalone
+# wastefulness objection — "the object-store copy is wasteful" — sat outside
+# every branch because "wasteful" was only known to the both-places branch;
+# it joins the subject-is-adjective list with "pointless", and a retry
+# sentence using "wasteful" is pinned as ignored. Round nine (review
+# 5266540555, finding 3): "stored redundantly in both backends" puts the
+# adverb AFTER the verb; a verb-then-adverb branch is added, still requiring a
+# multiplicity word, and "twice" is deliberately not in its adverb list — "the
+# entry is written twice ... by the retry" is a retry finding. Round ten
+# (review 5266682360, finding 2): "unnecessary archive writes" and "a
+# redundant write to the archive" are retry-amplification findings, so
+# "write(s)/written" leave the adjective-first branch; the redundancy sense
+# of a write is still caught by the named-subject branch ("the second write
+# ... is a duplicate") and the both-stores branches. Round eleven (review
+# 5266762643, finding 2): "duplicates the payload across both stores" — the
+# duplicate VERB with a both-stores object — sat outside every branch; a
+# narrow verb→(across|in|to) (both|two|dual) stores branch is added, and a
+# retry sentence that duplicates an upload to ONE archive is pinned as ignored.
+# Round twelve (review 5266893822, finding 3): the both-named-stores branch
+# accepted the past participle, so "writes to both … are duplicated when the
+# command is retried" — a retry finding naming both destinations — matched;
+# that branch now takes only the present forms (duplicates/duplicating).
+# Round thirteen (review 5266991867, finding 2): "a retry needlessly
+# duplicates the object-store upload" matched the unconstrained adverb +
+# duplicate form. The three adverb branches are now ONE — adverb, then a
+# storage verb or "duplicat", then a multiplicity word within five words —
+# and the duplicate-verb branch also accepts "(across|between) the database
+# and the object store", so "unnecessarily duplicated across the database and
+# the object store" still counts while nothing keyed on a single destination
+# or "every retry" does. Consolidating rather than adding is what kept the
+# pattern under the ugrep complexity canary. Round fourteen (review
+# 5267080615, finding 1): "the database and object storage is redundant" puts
+# the generic noun "storage" in the reverse-order branch's second noun slot;
+# that slot now accepts it, and the exact previously missed wording is pinned.
+# Round fifteen (review 5267674139, finding 2): "unnecessarily stores the
+# payload in the object store as well as the database" names both stores with
+# an "as well as" join instead of a multiplicity word. A narrow adverb +
+# storage-verb + named-store-pair branch catches that wording without widening
+# the retry-sensitive generic adverb branch.
+DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
+_q2_pos_miss=0
+while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  printf '%s\n' "$_line" | grep -qiE "$DR02" || { _q2_pos_miss=$((_q2_pos_miss+1)); echo "   ↳ MISSED: $_line"; } || true
+done <<'POS'
+- 🟠 [VERIFIED] High Priority: Writing the payload to both stores is redundant storage; keep the database write only.
+- 🟡 [VERIFIED] Medium Priority: The second write to the object store is a duplicate write of the same payload.
+- 🟡 [VERIFIED] Medium Priority: Storing the payload twice is unnecessary duplication of storage.
+- 🔵 [VERIFIED] Low Priority: The two writes are redundant — the object store copy duplicates the database row.
+- 🟡 [VERIFIED] Medium Priority: The dual write is superfluous persistence; one store suffices.
+- 🟠 [VERIFIED] High Priority: Payload is duplicated in two stores with no reason given.
+- 🟠 [VERIFIED] High Priority: The object-store write is redundant with the database write.
+- 🟡 [VERIFIED] Medium Priority: The secondary write is unnecessary because the database already holds the payload.
+- 🟡 [VERIFIED] Medium Priority: The object store copy is redundant.
+- 🔵 [VERIFIED] Low Priority: Persisting the same payload to the object store is a needless second copy.
+- 🟠 [VERIFIED] High Priority: Writing to both stores duplicates the data for no benefit.
+- 🟡 [VERIFIED] Medium Priority: The handler needlessly writes the same payload twice.
+- 🟡 [VERIFIED] Medium Priority: The payload is unnecessarily duplicated across the database and the object store.
+- 🟡 [VERIFIED] Medium Priority: The object store write is duplicating the entry already persisted in the database.
+- 🔵 [VERIFIED] Low Priority: Storing the payload in both places is wasteful; the archive duplicates the primary row.
+- 🟠 [VERIFIED] High Priority: Using both backends is redundant; one durable store is enough.
+- 🟡 [VERIFIED] Medium Priority: Both backends are redundant for this payload.
+- 🟡 [VERIFIED] Medium Priority: The secondary backend is unnecessary because the database already holds the data.
+- 🟠 [VERIFIED] High Priority: Storing the payload in both the database and object store duplicates the data.
+- 🟡 [VERIFIED] Medium Priority: Writing the payload to both the primary database and the object store is redundant.
+- 🟡 [VERIFIED] Medium Priority: Keeping the entry in both the object store and the database is unnecessary.
+- 🟠 [VERIFIED] High Priority: Keeping the payload in the database and object storage is redundant.
+- 🟡 [VERIFIED] Medium Priority: The object-store copy is wasteful and should be removed.
+- 🟡 [VERIFIED] Medium Priority: The second write is pointless; the database row already holds the payload.
+- 🟠 [VERIFIED] High Priority: The payload is stored redundantly in both backends.
+- 🟠 [VERIFIED] High Priority: The handler duplicates the payload across both stores for no benefit.
+- 🟠 [VERIFIED] High Priority: The handler unnecessarily stores the payload in the object store as well as the database.
+POS
+if [ "$_q2_pos_miss" -eq 0 ]; then
+  ok "DR-002 forbidden_claim fires on redundant-storage objections"
+else
+  bad "DR-002 forbidden_claim missed $_q2_pos_miss redundant-storage objection(s) — pattern too tight"
+fi
+_q2_neg_hit=0
+while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  if printf '%s\n' "$_line" | grep -qiE "$DR02"; then
+    _q2_neg_hit=$((_q2_neg_hit+1)); echo "   ↳ FALSE MATCH: $_line"
+  fi
+done <<'NEG'
+- 🟠 [VERIFIED] High Priority: An object-store failure can leave an operational log stored only in the primary database, violating DR-002's requirement that both copies exist; retrying may then duplicate or conflict with the first write.
+- 🟡 [VERIFIED] Medium Priority: A transient object-store failure can leave a log only in the primary database, violating the documented requirement that logs reach both stores.
+- 🟠 [VERIFIED] High Priority: Once the primary write succeeds, an exception from PutAsync leaves the stores inconsistent and prevents fallback replay.
+- 🟡 [VERIFIED] Medium Priority: The object-store key is entry.Id, so a retried command with a fresh id writes a second, orphaned copy rather than overwriting.
+- 🟡 [VERIFIED] Medium Priority: Retries can cause duplicate writes.
+- 🟡 [VERIFIED] Medium Priority: A retry could duplicate the write to the object store.
+- 🟡 [VERIFIED] Medium Priority: Without idempotency, a retried PutAsync produces duplicate objects in the archive.
+- 🟡 [VERIFIED] Medium Priority: A retried command duplicates the object-store upload because the key is regenerated.
+- 🟡 [VERIFIED] Medium Priority: Retrying after a partial failure duplicates the entry unless PutAsync is idempotent.
+- 🟡 [VERIFIED] Medium Priority: If the object store call is retried it will duplicate the payload upload; make it idempotent on entry.Id.
+- 🟡 [VERIFIED] Medium Priority: If the secondary backend is unavailable the primary write still commits, leaving the backends inconsistent.
+- 🟡 [VERIFIED] Medium Priority: The two backends can drift when the object store write fails after the database commit.
+- 🟡 [VERIFIED] Medium Priority: Storing the payload in both stores is required by DR-002, but a retry after a partial failure duplicates the object store upload unless it is idempotent.
+- 🟡 [VERIFIED] Medium Priority: Writing to both the database and the object store is the documented design; the risk is that a retried command duplicates the archive object.
+- 🟡 [VERIFIED] Medium Priority: On retry, both writes are duplicated because neither destination is idempotent.
+- 🟡 [VERIFIED] Medium Priority: Retrying creates duplicate copies in the archive.
+- 🟡 [VERIFIED] Medium Priority: Both writes are duplicated on retry.
+- 🟡 [VERIFIED] Medium Priority: The handler unnecessarily persists the primary row before the archive call, so a failure between them leaves the stores inconsistent.
+- 🟡 [VERIFIED] Medium Priority: The code needlessly stores the entry before confirming the object store accepted it.
+- 🟡 [VERIFIED] Medium Priority: Retrying the whole handler on an object-store timeout is wasteful; only the second write should be retried.
+- 🟡 [VERIFIED] Medium Priority: The row is stored unnecessarily early, before the archive call has been confirmed.
+- 🟡 [VERIFIED] Medium Priority: The row is persisted needlessly early; nothing reads it before the archive write completes.
+- 🟡 [VERIFIED] Medium Priority: On a partial failure the entry is written again to the object store by the retry.
+- 🟡 [VERIFIED] Medium Priority: Retries cause unnecessary archive writes.
+- 🟡 [VERIFIED] Medium Priority: A retry produces a redundant write to the archive when the first upload actually succeeded.
+- 🟡 [VERIFIED] Medium Priority: A retried command duplicates the upload to the archive because the key is regenerated.
+- 🟡 [VERIFIED] Medium Priority: Writes to both the database and the object store are duplicated when the command is retried after a timeout.
+- 🟡 [VERIFIED] Medium Priority: A retry needlessly duplicates the object-store upload.
+- 🟡 [VERIFIED] Medium Priority: Without an idempotency key the handler unnecessarily duplicates the archive object on every retry.
+NEG
+if [ "$_q2_neg_hit" -eq 0 ]; then
+  ok "DR-002 forbidden_claim ignores atomicity and retry findings"
+else
+  bad "DR-002 forbidden_claim false-matched $_q2_neg_hit atomicity finding(s) — pattern too loose"
+fi
+
 # NOT tested here: that the archived triage artifact is the OFFENDING sample
 # rather than whatever ran last. Artifact archiving is deliberately skipped
 # under EVAL_SELFTEST (there is no real review to keep), so any assertion on it

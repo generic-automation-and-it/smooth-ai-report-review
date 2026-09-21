@@ -3,7 +3,7 @@
 // `.agents/skills/...` path referenced by the SKILL.md docs) finds them.
 //
 // Install (consuming repo's opencode.json):
-//   { "plugin": ["@generic-automation-and-it/smooth-ai-review"] }
+//   { "plugins": ["@generic-automation-and-it/smooth-ai-review"] }
 //
 // Idempotent: runs on every opencode startup. A vendored (real-directory)
 // copy of a skill always wins — this plugin never overwrites one.
@@ -14,10 +14,9 @@ import { fileURLToPath } from "node:url";
 const SKILLS = ["ai-review-report", "ai-review", "ai-analyse", "git-commit-review-push"];
 const EXCLUDE_MARKER = "# smooth-ai-review plugin (auto-managed skill links)";
 
-export const SmoothAiReviewSkills = async ({ worktree, directory }) => {
+export async function materializeSkills(root) {
   try {
     const pkgRoot = path.dirname(fileURLToPath(import.meta.url));
-    const root = worktree || directory;
     if (!root) return {};
 
     const destDir = path.join(root, ".agents", "skills");
@@ -53,6 +52,22 @@ export const SmoothAiReviewSkills = async ({ worktree, directory }) => {
     console.warn(`smooth-ai-review plugin: skill setup skipped: ${err.message}`);
   }
   return {};
+}
+
+// The v2 plugin contract is a default export of `{ id, setup(context) }`.
+// `Plugin.define()` from @opencode/plugin is the TypeScript-facing helper for
+// exactly this object and is `plugin => plugin` at runtime — so this package
+// deliberately does NOT depend on it. This is a skill-distribution package:
+// the consumer installs the opencode CLI themselves, and a dependency whose
+// only job is an identity function would add an install that can fail (it
+// pulls effect/zod/@ai-sdk and four optional peers) to a package that
+// otherwise just creates four symlinks. Verified against opencode 2.0.11:
+// a plain object literal loads identically.
+export default {
+  id: "smooth-ai-review.skills",
+  async setup(ctx) {
+    await materializeSkills(ctx?.location?.directory);
+  },
 };
 
 // Keep `git status` clean without touching the consumer's .gitignore:

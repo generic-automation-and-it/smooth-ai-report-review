@@ -115,7 +115,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --help, -h           Show this help"
       echo ""
       echo "Prerequisites:"
-      echo "  - opencode CLI installed: curl -fsSL https://opencode.ai/install | bash"
+      echo "  - opencode v2 CLI (installed/validated automatically by the shared installer)"
+      echo "    Set OPENCODE_CLI_VERSION to pin a 2.x release; blank reuses any installed v2."
       echo "  - The selected provider's gateway creds exported (the gateway host"
       echo "    must be reachable from where you run this — see AGENTS.md):"
       echo "      GEMINI                → OPENCODE_REVIEW_REPORT_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
@@ -198,11 +199,11 @@ for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
   harvest_var "$v" || true
 done
 
-# Validate prerequisites
-if ! command -v opencode &>/dev/null; then
-  echo "❌ opencode CLI not found. Install with: curl -fsSL https://opencode.ai/install | bash"
-  exit 1
-fi
+# Validate the CLI through the same installer as CI, even when it is cached.
+# PATH must also be set in this parent shell: the installer's export cannot
+# reach later local-review calls, and v1/v2 share the same command name.
+export PATH="$HOME/.opencode/bin:$PATH"
+bash "$SCRIPT_DIR/lib/install-opencode.sh"
 
 # Resolve the selected provider → provider-id + gateway creds, and fail fast on
 # missing creds / a model chain that doesn't match the provider. Export the model
@@ -220,13 +221,13 @@ source "$SCRIPT_DIR/lib/resolve-provider.sh"
 source "$SCRIPT_DIR/lib/gh-retry.sh"
 
 # Install opencode.json so the selected provider resolves, THEN health-check.
-# (Config must be in place before `opencode serve` starts.)
+# (Config must be in place before the v2 API diagnostic runs.)
 # Must be sourced so OPENCODE_CONFIG is exported into this shell.
 . "$SCRIPT_DIR/lib/prepare-opencode-config.sh"
 
-# Health check (provider-agnostic): start `opencode serve`, hit its
-# /global/health, tear it down (lib/opencode-health.sh). This replaced the old
-# per-provider gateway preflight. NOTE: /global/health confirms opencode itself
+# Health check (provider-agnostic): use v2's authenticated
+# `opencode api get /api/info` diagnostic (lib/opencode-health.sh). This replaced the old
+# per-provider gateway preflight. NOTE: /api/info confirms opencode itself
 # is up; it does NOT verify the upstream gateway is reachable, so it no longer
 # pre-empts a private-network/VPN hang — the process-group timeout shim below
 # still bounds any hang during the actual model calls.
@@ -357,7 +358,7 @@ touch "$GITHUB_OUTPUT"
 # Local runs default to files that exist in this skill's source repo; consumers
 # can override via the MANDATORY_CONTEXT_FILES env variable. Missing paths are
 # warned and skipped so exploratory local runs don't fail on cross-repo defaults.
-MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-AGENTS.md .agents/skills/ai-review-report/AGENTS.md}"
+MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-.agents/skills/ai-review-report/SKILL.md}"
 _missing_ctx=()
 for _ctx in $MANDATORY_CONTEXT_FILES; do
   [ -f "$_ctx" ] || _missing_ctx+=("$_ctx")

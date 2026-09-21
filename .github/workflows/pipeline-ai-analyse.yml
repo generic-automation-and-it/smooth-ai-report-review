@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'v1' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'v2' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched review tooling
@@ -331,7 +331,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'v1' }}
+          ref: ${{ vars.SMOOTH_AI_REVIEW_TOOLS_REF || 'v2' }}
           path: .smooth-ai-review-tools
 
       - name: Register fetched analyse tooling
@@ -369,8 +369,25 @@ jobs:
           else
             bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
           fi
+          # opencode v2 binds one shared background service's config when that
+          # service STARTS; an already-running one silently ignores this step's
+          # OPENCODE_CONFIG (LADR-071/087). Stop it first so `stats` starts a
+          # fresh service bound to our config — a reused self-hosted runner
+          # would otherwise analyse with the previous job's provider and
+          # permissions, with nothing in the log to say so.
+          opencode service stop >/dev/null 2>&1 || true
           opencode stats >/dev/null || true
-          bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || true
+          # Exit 3 = the managed config is not confirmed (foreign binding, or
+          # unreadable). Fatal: an autonomous fixer running under someone
+          # else's provider and permission policy is strictly worse than the
+          # gate doing so. Any other non-zero is a liveness blip and stays
+          # advisory, per LADR-028.
+          _health_rc=0
+          bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || _health_rc=$?
+          if [ "$_health_rc" -eq 3 ]; then
+            echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
+            exit 1
+          fi
           bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
           if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
             OPENCODE_PROVIDER_SCOPE=analyse bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
