@@ -27,7 +27,11 @@ chmod +x "$TMP/bin/opencode"
 
 (
   cd "$TMP/repo"
-  HOME="$TMP/home" PATH="$TMP/bin:$PATH" GITHUB_WORKSPACE="$TMP/repo" \
+  # GITHUB_ENV is cleared on purpose: under Actions the lib appends
+  # OPENCODE_CONFIG=<temp path> to it, and this temp tree is deleted on exit,
+  # so a later step in the same job would inherit a config path that no
+  # longer exists (review 5266343056, finding 5).
+  HOME="$TMP/home" PATH="$TMP/bin:$PATH" GITHUB_WORKSPACE="$TMP/repo" GITHUB_ENV= \
     OPENCODE_REVIEW_REPORT_CONFIG=opencode.v2.json \
     OPENCODE_REVIEW_REPORT_OPENAI_URL=https://gateway.example/v1 \
     bash -c '. "'$LIB'"; jq -e '\''(.providers.openai.settings.baseURL == "https://gateway.example/v1") and (has("provider") | not)'\'' "$OPENCODE_CONFIG"' \

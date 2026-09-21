@@ -1052,7 +1052,10 @@ _ladr080_probe() {
     printf '#!/bin/bash\necho "opencode %s"\n' "$version" > "$bin/opencode"
     chmod +x "$bin/opencode"
   fi
-  out="$(cd "$cwd" && HOME="$home" PATH="$bin:$PATH" bash -c \
+  # GITHUB_ENV cleared: sourcing the lib under Actions would otherwise persist
+  # a temp OPENCODE_CONFIG path into later steps (same trap as
+  # test-prepare-opencode-v2-config.sh).
+  out="$(cd "$cwd" && HOME="$home" PATH="$bin:$PATH" GITHUB_ENV= bash -c \
     ". '$SCRIPT_DIR/lib/prepare-opencode-config.sh'" 2>&1 >/dev/null || true)"
   rm -rf "$bin" "$home" "$cwd"
   if printf '%s' "$out" | grep -q 'does NOT resolve'; then echo warned; else echo silent; fi
