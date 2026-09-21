@@ -298,10 +298,19 @@ predicate_case reject "an anchor with no severity marker at all" \
 # complete finding on Dockerfile / Makefile / LICENSE as incomplete and
 # fail-closed the chunk. What makes the token a path is a letter or a slash —
 # a clock reading or a ratio has neither, and must not count.
-predicate_case accept "a finding anchored on an extensionless file" \
+# Extensionless anchors are accepted through the INVENTORY (the gate always
+# supplies one); without it the token needs a dot or a slash, so a bare
+# `label:number` cannot pass (review 5266893822, finding 1).
+predicate_case reject "an extensionless anchor with no inventory to vouch for it" \
   '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: image runs as root — Dockerfile:12\n'
-predicate_case accept "a finding anchored on an extensionless file in a directory" \
+predicate_case accept "an extensionless anchor in a directory (slash) without inventory" \
   '**Issues Found:**\n- \xf0\x9f\x9f\xa1 [VERIFIED] Medium Priority: phony target missing at build/Makefile:4\n'
+predicate_case reject "an HTTP status is not an anchor" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: the gateway returns HTTP:500 on timeout'
+predicate_case reject "a status label is not an anchor" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: status:404 leaks the tenant id'
+predicate_case reject "a confidence label is not an anchor" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged somewhere. confidence:75'
 predicate_case reject "a clock reading is not an anchor" \
   '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: the job at 12:30 failed'
 predicate_case reject "a ratio is not an anchor" \
@@ -503,6 +512,18 @@ inventory_case reject "first section truncated after its marker, second complete
 inventory_case accept "preamble narration before the first complete section is not a section" "$TWO" \
   'Loaded the standards; reviewing both files now.\n\n### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at src/b.cs:3\n'
 echo "✓ shape predicate: every per-file section must be complete"
+# With an inventory, the anchor must END in one of the chunk's files: an
+# extensionless Dockerfile is accepted, a label such as HTTP:500 is not, and
+# an anchor on a file outside the chunk does not count either.
+inventory_case accept "extensionless anchor vouched for by the inventory" 'Dockerfile' \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: image runs as root — Dockerfile:12\n'
+inventory_case reject "HTTP:500 is not an anchor even with an inventory" 'Dockerfile' \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: the build returns HTTP:500 on timeout\n'
+inventory_case reject "an anchor on a file outside the chunk is not evidence" 'src/a.cs' \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at src/other.cs:12\n'
+inventory_case accept "an anchor with the full path of a chunk file" $'src/a.cs\nsrc/b.cs' \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at src/b.cs:12\n'
+echo "✓ shape predicate: with an inventory the anchor must name a chunk file"
 # Review 5266102870, finding 1 claimed glob metacharacters in a path defeat the
 # unique-suffix search. They do not: the suffix is QUOTED inside the case
 # pattern, so `[id]` and `*` are literal, and the mention matcher escapes

@@ -208,6 +208,30 @@ EOF_EXPECTED
   fi
 fi
 
+# The `file:line` anchor regex, built ONCE. With an inventory, the path token
+# must END in one of the chunk's files (basename, preceded by nothing or a
+# path separator) — `HTTP:500`, `status:404` and `confidence:75` are
+# `label:number` prose, not evidence, and the generic path rule accepted them
+# (review 5266893822, finding 1). Without an inventory (ad-hoc callers) the
+# token must contain a dot or a slash, which still excludes those labels;
+# an extensionless `Dockerfile:12` is then accepted only through the
+# inventory, which is how the gate always calls this predicate. Passed to awk
+# through the environment, not -v, because -v processes backslash escapes and
+# would strip the escaping the basenames need.
+_rhs_anchor_re='[A-Za-z0-9_-]*[./][A-Za-z0-9_./-]*:[0-9]+'
+if [ -n "${OPENCODE_EXPECTED_CHUNK_FILES:-}" ]; then
+  _rhs_alt=""
+  while IFS= read -r _rhs_p; do
+    [ -n "$_rhs_p" ] || continue
+    _rhs_b="$(basename "$_rhs_p" | sed 's/[][\.^$*+?{}|()]/\\&/g')"
+    _rhs_alt="${_rhs_alt:+$_rhs_alt|}$_rhs_b"
+  done <<EOF_ANCH
+${OPENCODE_EXPECTED_CHUNK_FILES}
+EOF_ANCH
+  [ -z "$_rhs_alt" ] || _rhs_anchor_re="(^|[^A-Za-z0-9_.-])([A-Za-z0-9_./-]*/)?(${_rhs_alt}):[0-9]+"
+fi
+export RHS_ANCHOR_RE="$_rhs_anchor_re"
+
 # Split into per-file sections and require EVERY section to be complete —
 # not only the last one. The last-section rule caught a review truncated
 # inside file B, but a heading for file A immediately followed by the heading
@@ -269,10 +293,10 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
     fi
   fi
 
-  # Anchor: `some/file.ext:123`, or an extensionless `Dockerfile:12`. The path
-  # token must contain a letter or a slash — that is what makes it a path
-  # rather than a clock reading or a ratio: `12:30` and `3:1` must not count
-  # (review 5264629523, finding 2). Required for every finding-based
+  # Anchor: `some/file.ext:123`, or an extensionless `Dockerfile:12` when the
+  # inventory names it — see RHS_ANCHOR_RE above for what makes a token a
+  # path rather than a clock reading, a ratio or a `label:number` (reviews
+  # 5264629523 and 5266893822). Required for every finding-based
   # acceptance — and required INSIDE the finding, not anywhere in the section:
   # narration carrying a location followed by a finding truncated at its
   # severity label satisfied both signals when they were tested independently
@@ -284,7 +308,7 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
   # emoji are matched by alternation, never a bracket expression.
   _rhs_blocks="$(awk '
     function close_block() { if (kind != "" && blk ~ A) hit[kind] = 1; kind = ""; blk = "" }
-    BEGIN { A = "[A-Za-z0-9_./-]*[A-Za-z/][A-Za-z0-9_./-]*:[0-9]+" }
+    BEGIN { A = ENVIRON["RHS_ANCHOR_RE"] }
     {
       low = tolower($0)
       if ($0 ~ /🔴|🟠|🟡|🔵/) { close_block(); kind = "e"; blk = $0; next }
