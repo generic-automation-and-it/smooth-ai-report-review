@@ -47,7 +47,7 @@ _rhs_cleanup() {
   [ -n "$_rhs_own_src" ] && rm -f "$_rhs_own_src" 2>/dev/null
   [ -n "$_rhs_stripped" ] && rm -f "$_rhs_stripped" 2>/dev/null
   [ -n "$_rhs_struct" ] && rm -f "$_rhs_struct" 2>/dev/null
-  [ -n "$_rhs_tail" ] && rm -f "$_rhs_tail" 2>/dev/null
+  [ -n "$_rhs_tail" ] && rm -f "$_rhs_tail" "$_rhs_tail".* 2>/dev/null
   return 0
 }
 trap _rhs_cleanup EXIT
@@ -208,126 +208,104 @@ EOF_EXPECTED
   fi
 fi
 
-# Narrow to the last per-file section. No heading at all means the whole body
-# is the section, which keeps LADR-077's deliberate acceptance of findings
-# written without the template scaffolding.
+# Split into per-file sections and require EVERY section to be complete —
+# not only the last one. The last-section rule caught a review truncated
+# inside file B, but a heading for file A immediately followed by the heading
+# for file B (no result at all for A) satisfied the inventory through the
+# heading and was then judged only on B (review 5266762643, finding 1). The
+# split is on `File:`/`Files:` headings (case-insensitive); text before the
+# first such heading is a preamble, not a section; a body with no such heading
+# is one section, which keeps LADR-077's acceptance of findings written without
+# the template scaffolding. Section files are written beside the tail scratch
+# file and removed with it.
 _rhs_tail="$(mktemp)"
-# Heading match is case-insensitive: a lowercase `file:` heading would not
-# reset the buffer, so an earlier section's `None found` vouched for a last
-# section the model never finished (review 5266192686, finding 1).
-# `files:` too — a consolidated heading (`### 📄 Files: a.cs, b.cs`) must
-# reset the buffer like a single-file one (review 5266540555, finding 1).
-awk '{ low = tolower($0) } low ~ /^#+[[:space:]].*files?:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
-  "$_rhs_src" > "$_rhs_tail" 2>/dev/null || cp "$_rhs_src" "$_rhs_tail"
-[ -s "$_rhs_tail" ] || cp "$_rhs_src" "$_rhs_tail" 2>/dev/null
-
-# The mandated placeholder for an empty severity section. Exempt from the
-# anchor requirement: a clean result has no finding, so it has no location to
-# cite. Scoped to the last section, so it can only vouch for itself.
-#
-# Not a bare substring, though. "none found" is ordinary prose — "checked the
-# callers, none found so far, reading on" is narration, and a substring match
-# accepted it as a completed clean review (review 5263305644, finding 1): the
-# transport stopped the fallback and the chunk passed unreviewed, the exact
-# hole the priority clause below had already been closed against. Two things
-# must hold instead: the mandated `Issues Found` marker is present, and the
-# placeholder is written AS the template writes it — a list item that ends in
-# "None found" (`- None found.` or the per-severity
-# `- 🔴 [VERIFIED] Critical: None found`), or inline after the marker
-# (`**Issues Found:** None found.`). Narration emits neither shape. Both forms
-# must END the line: the inline form was unanchored, so "**Issues Found:**
-# None found so far, but let me still check…" — a placeholder with narration
-# trailing off it, i.e. an unfinished response — was accepted (review
-# 5264311874, finding 1). The list-item form already required line end.
-#
-# And scoped to the `Issues Found` SUBSECTION, not the whole tail: the
-# template puts `**Pre-existing (informational):**` after it with its own
-# `- None found` placeholder, so an empty Issues Found section followed by
-# that placeholder read as a clean review (review 5264530992, finding 1).
-# The subsection runs from the marker to the next bold `**Label:**` line or
-# heading; the inline form (`**Issues Found:** None found.`) is on the marker
-# line itself and so is always inside it.
-_rhs_issues="$(awk '
+_rhs_nsec="$(awk -v base="$_rhs_tail" '
   { low = tolower($0) }
-  low ~ /issues found/ { on = 1; print; next }
-  on && ($0 ~ /^#/ || $0 ~ /^[[:space:]]*\*\*[^*]+\*\*/) { on = 0 }
-  on { print }
-' "$_rhs_tail" 2>/dev/null)"
-#
-# The list form is the DOCUMENTED shapes only, not "any bullet ending in
-# none found": `- None found` and the per-severity
-# `- 🔴 [VERIFIED] Critical: None found`. A narration bullet such as
-# `- Checked callers; none found.` under the marker was accepted by the
-# earlier `[-*].*none found` (review 5266005570, finding 1) — an unfinished
-# response passing as a clean review. Emoji are matched by alternation, never a
-# bracket expression (multi-byte).
-#
-# The per-severity form is complete only when its LAST tier is present. The
-# template emits Critical, High, Medium, Low in that order, so a response cut
-# off after `- 🔴 Critical: None found` carries a valid-looking placeholder
-# with three tiers unreviewed (review 5266682360, finding 1). Requiring the
-# Low line — rather than all four — detects every truncation point (a cut
-# always removes the tail) without fail-closing an honest review that skipped
-# a middle tier. The compact `- None found` needs no such check: it is the
-# whole statement.
-_rhs_ph_compact='^[[:space:]]*[-*][[:space:]]*none found[.]?[[:space:]]*$'
-_rhs_ph_tier='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
-_rhs_ph_low='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?low( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
-if [ -n "$_rhs_issues" ]; then
-  if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
-     || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
-    exit 0
-  fi
-  if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier" \
-     && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
-    exit 0
-  fi
+  low ~ /^#+[[:space:]].*files?:/ { n++; if (n > 1) close(base "." (n-1)) }
+  n > 0 { print > (base "." n) }
+  END { print n + 0 }
+' "$_rhs_src" 2>/dev/null || echo 0)"
+if [ "${_rhs_nsec:-0}" -eq 0 ]; then
+  cp "$_rhs_src" "$_rhs_tail.1" 2>/dev/null; _rhs_nsec=1
 fi
 
-# Anchor: `some/file.ext:123`, or an extensionless `Dockerfile:12`. The path
-# token must contain a letter or a slash — that is what makes it a path rather
-# than a clock reading or a ratio: `12:30` and `3:1` must not count, or the
-# narration-with-a-number hole reopens. The first cut required a dot and an
-# extension instead, which rejected every complete finding on `Dockerfile`,
-# `Makefile`, `LICENSE` and the like as an incomplete review, burned the
-# fallback and retry on it, and fail-closed the chunk (review 5264629523,
-# finding 2). Required for every finding-based acceptance —
-# and required INSIDE the finding, not anywhere in the section. The two
-# signals used to be tested independently over the whole tail, so narration
-# carrying a location ("Reading auth.cs:12 next.") followed by a finding
-# truncated at its severity label satisfied both and the cut-off review was
-# accepted (review 5264172516, finding 1). A finding is a block: it starts at
-# a line carrying a severity emoji or priority wording and runs to the next
-# such line or a heading. Continuation lines are NOT required to be indented —
-# models put the evidence line at column 0 often enough that demanding
-# indentation would fail-close honest reviews — but nothing BEFORE the block's
-# first line can vouch for it. Any anchored block accepts, not only the last
-# one: a complete review may legitimately END with a location-less advisory
-# ("an observation about naming in the same file") and the chunk-threshold
-# suite's honest-review control pins exactly that shape. The residual gap —
-# a complete finding followed by one truncated at its label — is the
-# prefix-truncation family LADR-087(d) already accepts as unwinnable by
-# inspection; closing it would fail-close honest reviews, which LADR-031
-# makes the more expensive error.
-#
-# Severity emoji are matched by alternation, never a bracket expression: they
-# are multi-byte and a bracket over them decomposes into bytes.
-_rhs_blocks="$(awk '
-  function close_block() { if (kind != "" && blk ~ A) hit[kind] = 1; kind = ""; blk = "" }
-  BEGIN { A = "[A-Za-z0-9_./-]*[A-Za-z/][A-Za-z0-9_./-]*:[0-9]+" }
-  {
-    low = tolower($0)
-    if ($0 ~ /🔴|🟠|🟡|🔵/) { close_block(); kind = "e"; blk = $0; next }
-    if (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { close_block(); kind = "p"; blk = $0; next }
-    if ($0 ~ /^#/) { close_block(); next }
-    if (kind != "") blk = blk "\n" $0
-  }
-  END { close_block(); printf "%s%s", (hit["e"] ? "e" : ""), (hit["p"] ? "p" : "") }
-' "$_rhs_tail" 2>/dev/null)"
-case "$_rhs_blocks" in *e*) exit 0;; esac
-# Priority wording additionally requires the mandated section marker. On its
-# own it matches ordinary prose, and prose can carry a location too — "check
-# the high priority areas in run-review.sh:1196" satisfied both signals while
-# containing no review. Narration does not emit `Issues Found`.
-case "$_rhs_blocks" in *p*) grep -qiF 'issues found' "$_rhs_tail" && exit 0;; esac
-exit 1
+# Completion signals for ONE section. Exit 0 = complete.
+_rhs_section_ok() { # _rhs_section_ok <section-file>
+  _rhs_sec="$1"
+
+  # The mandated placeholder for an empty severity section. Exempt from the
+  # anchor requirement: a clean result has no finding, so it has no location to
+  # cite. Scoped to the `Issues Found` SUBSECTION, not the whole section: the
+  # template puts `**Pre-existing (informational):**` after it with its own
+  # `- None found` placeholder, so an empty Issues Found followed by that
+  # placeholder read as a clean review (review 5264530992, finding 1). The
+  # subsection runs from the marker to the next bold `**Label:**` line or
+  # heading; the inline form is on the marker line itself. Both placeholder
+  # forms must END the line (an unfinished "None found so far, but…" is not a
+  # placeholder — review 5264311874), and the list form is the DOCUMENTED
+  # shapes only, never "any bullet ending in none found" (review 5266005570):
+  # `- None found` or the per-severity `- 🔴 [VERIFIED] Critical: None found`,
+  # the latter complete only when its LAST tier (Low) is present, because the
+  # template emits the tiers in order and a cut after any earlier tier leaves
+  # the rest unreviewed (review 5266682360). Emoji by alternation, never a
+  # bracket expression (multi-byte).
+  _rhs_issues="$(awk '
+    { low = tolower($0) }
+    low ~ /issues found/ { on = 1; print; next }
+    on && ($0 ~ /^#/ || $0 ~ /^[[:space:]]*\*\*[^*]+\*\*/) { on = 0 }
+    on { print }
+  ' "$_rhs_sec" 2>/dev/null)"
+  _rhs_ph_compact='^[[:space:]]*[-*][[:space:]]*none found[.]?[[:space:]]*$'
+  _rhs_ph_tier='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
+  _rhs_ph_low='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?low( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
+  if [ -n "$_rhs_issues" ]; then
+    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
+       || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
+      return 0
+    fi
+    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier" \
+       && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
+      return 0
+    fi
+  fi
+
+  # Anchor: `some/file.ext:123`, or an extensionless `Dockerfile:12`. The path
+  # token must contain a letter or a slash — that is what makes it a path
+  # rather than a clock reading or a ratio: `12:30` and `3:1` must not count
+  # (review 5264629523, finding 2). Required for every finding-based
+  # acceptance — and required INSIDE the finding, not anywhere in the section:
+  # narration carrying a location followed by a finding truncated at its
+  # severity label satisfied both signals when they were tested independently
+  # (review 5264172516, finding 1). A finding is a block from a severity-emoji
+  # or priority-wording line to the next such line or heading; continuation
+  # lines need not be indented. Any anchored block accepts, not only the last:
+  # an honest review may END with a location-less advisory, and the
+  # chunk-threshold suite's honest-review control pins that shape. Severity
+  # emoji are matched by alternation, never a bracket expression.
+  _rhs_blocks="$(awk '
+    function close_block() { if (kind != "" && blk ~ A) hit[kind] = 1; kind = ""; blk = "" }
+    BEGIN { A = "[A-Za-z0-9_./-]*[A-Za-z/][A-Za-z0-9_./-]*:[0-9]+" }
+    {
+      low = tolower($0)
+      if ($0 ~ /🔴|🟠|🟡|🔵/) { close_block(); kind = "e"; blk = $0; next }
+      if (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { close_block(); kind = "p"; blk = $0; next }
+      if ($0 ~ /^#/) { close_block(); next }
+      if (kind != "") blk = blk "\n" $0
+    }
+    END { close_block(); printf "%s%s", (hit["e"] ? "e" : ""), (hit["p"] ? "p" : "") }
+  ' "$_rhs_sec" 2>/dev/null)"
+  case "$_rhs_blocks" in *e*) return 0;; esac
+  # Priority wording additionally requires the mandated section marker. On its
+  # own it matches ordinary prose, and prose can carry a location too — "check
+  # the high priority areas in run-review.sh:1196" satisfied both signals while
+  # containing no review. Narration does not emit `Issues Found`.
+  case "$_rhs_blocks" in *p*) grep -qiF 'issues found' "$_rhs_sec" && return 0;; esac
+  return 1
+}
+
+_rhs_i=1
+while [ "$_rhs_i" -le "$_rhs_nsec" ]; do
+  _rhs_section_ok "$_rhs_tail.$_rhs_i" || exit 1
+  _rhs_i=$((_rhs_i + 1))
+done
+exit 0

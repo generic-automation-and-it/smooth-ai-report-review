@@ -492,6 +492,17 @@ inventory_case reject "parents collide too: x/index.ts names neither" "$DEEP" \
 inventory_case accept "parents collide too: both named with the distinguishing root" "$DEEP" \
   '### \xf0\x9f\x93\x84 File: \x60a/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n'
 echo "✓ shape predicate: colliding basenames need the shortest unique trailing path"
+# Review 5266762643, finding 1: EVERY per-file section must be complete, not
+# only the last. A heading for file A followed directly by file B's heading
+# satisfied the inventory (the heading is a mention) and was then judged only
+# on B. The preamble before the first heading is not a section.
+inventory_case reject "intermediate file heading has no result" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n**Issues Found:**\n- None found.\n'
+inventory_case reject "first section truncated after its marker, second complete" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "preamble narration before the first complete section is not a section" "$TWO" \
+  'Loaded the standards; reviewing both files now.\n\n### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at src/b.cs:3\n'
+echo "✓ shape predicate: every per-file section must be complete"
 # Review 5266102870, finding 1 claimed glob metacharacters in a path defeat the
 # unique-suffix search. They do not: the suffix is QUOTED inside the case
 # pattern, so `[id]` and `*` are literal, and the mention matcher escapes
