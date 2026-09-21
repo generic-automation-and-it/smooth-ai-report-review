@@ -242,12 +242,16 @@ jobs:
           # v2 migration, surrounded by comments that had been updated to v2,
           # so it read as correct.
           #
-          # The SHA below is the released v2 tooling commit. A floating tag is
-          # deliberately NOT allowed here (see the versioning note at the top
-          # of this file), and `test-run-review.sh` asserts this stays a full
-          # 40-char SHA.
+          # The SHA below is a head of the v2 migration PR (#149). Any SHA
+          # pinned from inside that PR is stale by construction — every later
+          # commit on the branch moves the tip — so once the PR merges, bump
+          # this to the merge commit or to a tagged v2 release; do not read the
+          # comment as a claim that this is the final v2 commit. A floating
+          # tag is deliberately NOT allowed here (see the versioning note at
+          # the top of this file), and `test-run-review.sh` asserts this stays
+          # a full 40-char SHA.
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: 255aa6c051a3c2ab4478320097bd959e91a36fe2 # released v2 tooling
+          ref: 255aa6c051a3c2ab4478320097bd959e91a36fe2 # v2 migration PR head — bump after merge
           path: .review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
