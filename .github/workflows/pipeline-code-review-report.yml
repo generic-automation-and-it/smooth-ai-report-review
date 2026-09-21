@@ -85,7 +85,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054, e.g. "0.44.1"). Blank → OPENCODE_TOOL_RTK_VERSION Variable, else latest. Only used when RTK is enabled (OPENCODE_REVIEW_REPORT_ENABLE_RTK Variable, default on).'
+        description: 'Reserved for a future RTK v2 integration; currently ignored because RTK has no supported OpenCode v2 plugin.'
         required: false
         type: string
         default: ''
