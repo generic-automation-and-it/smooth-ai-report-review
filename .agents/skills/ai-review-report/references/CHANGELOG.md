@@ -10,6 +10,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-21 | **Root plugin inputs activate the blocking regression job.** Changes to `index.js`, `opencode-plugin.js`, `package.json`, or `.claude-plugin/plugin.json` run the offline suites; the paid eval scope stays limited to the reviewer and its workflow. | Review 5268318291, finding 2; LADR-087 |
 | 2026-09-21 | **Local review validates the CLI through the shared installer on every run.** Cached v1 binaries and mismatched pins no longer bypass the v2 contract; the parent shell adds the install directory to PATH. Offline entrypoint tests cover v1 replacement, explicit pins, cached-v2 reuse, and invalid-pin failure. | Review 5268318291, finding 1; LADR-048/087 |
 | 2026-09-21 | **Deterministic OpenCode v2 regressions now run on pull requests.** `llm-eval-harness.yml` adds a separate blocking, secret-free job for the installer, health, context, plugin, config, fallback/shape, RTK, and version suites. It runs safely on drafts/forks and uses an in-job relevance check so branch protection always receives a result. | LADR-087 |
 | 2026-09-21 | **DR-002 recognizes named stores joined by “as well as”.** A narrow adverb + storage verb + named-store-pair branch catches “unnecessarily stores the payload in the object store as well as the database” without widening the retry-sensitive generic branch; the exact wording is pinned as a positive discriminator case. | LADR-033/087 |
