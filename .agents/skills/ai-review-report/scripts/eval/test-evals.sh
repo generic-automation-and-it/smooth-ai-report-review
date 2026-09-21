@@ -486,6 +486,11 @@ fi
 # 5267080615, finding 1): "the database and object storage is redundant" puts
 # the generic noun "storage" in the reverse-order branch's second noun slot;
 # that slot now accepts it, and the exact previously missed wording is pinned.
+# Round fifteen (review 5267674139, finding 2): "unnecessarily stores the
+# payload in the object store as well as the database" names both stores with
+# an "as well as" join instead of a multiplicity word. A narrow adverb +
+# storage-verb + named-store-pair branch catches that wording without widening
+# the retry-sensitive generic adverb branch.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -518,6 +523,7 @@ done <<'POS'
 - 🟡 [VERIFIED] Medium Priority: The second write is pointless; the database row already holds the payload.
 - 🟠 [VERIFIED] High Priority: The payload is stored redundantly in both backends.
 - 🟠 [VERIFIED] High Priority: The handler duplicates the payload across both stores for no benefit.
+- 🟠 [VERIFIED] High Priority: The handler unnecessarily stores the payload in the object store as well as the database.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
