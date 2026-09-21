@@ -1448,6 +1448,131 @@ else
   echo "⏭️  annotate-suggested-fixes.sh missing — skipping Test 27"
 fi
 
+# --- Test 28: Suggested Fixes cross-references track the merged numbering ----
+# The regression: the orchestrator numbers `finding N` against the Issues
+# Summary IT wrote, the LADR-055 splice replaces that summary with one
+# merge-findings.py numbered by severity-then-confidence, and every reference
+# silently repoints. Fixture is the real shape from consumer PR 95 run
+# 35640330645, where the merge promoted AGENTS.md from third to first.
+RENUM_SH="$SCRIPT_DIR/lib/renumber-suggested-fixes.sh"
+if [ -f "$RENUM_SH" ] && command -v jq >/dev/null 2>&1; then
+  cat > "$TMP_DIR/s28.json" <<'RJ'
+{"status":"complete","merged_chunks":[0],
+ "findings":[
+   {"#":1,"severity":"medium","file":"AGENTS.md","line":85},
+   {"#":2,"severity":"medium","file":".github/workflows/pipeline-ai-analyse.yml","line":83},
+   {"#":3,"severity":"medium","file":".github/workflows/pipeline-code-review-report.yml","line":7},
+   {"#":4,"severity":"medium","file":"docs/wiki/ci.md","line":52}],
+ "pre_existing_findings":[],
+ "suppressed_findings":[{"severity":"low","file":"docs/wiki/ci.md","line":161}],
+ "malformed_findings":0,"demoted_no_quote":0}
+RJ
+  cat > "$TMP_DIR/s28.md" <<'RM'
+## 🔍 Issues Summary
+rendered from the merged set
+
+## 📝 Suggested Fixes
+
+### `.github/workflows/pipeline-ai-analyse.yml:81-83`
+**Issue**: Stale comment claims the gate pins by SHA (🟡 Medium, finding 1)
+```yaml
+          # see finding 1 for the rationale
+          ref: main
+```
+
+### `.github/workflows/pipeline-code-review-report.yml:7`
+**Issue**: Header still promises a SHA-pinned checkout (🟡 Medium, finding 2)
+
+### `AGENTS.md:85`
+**Issue**: Bullet still says "at a pinned SHA" (🟡 Medium, finding 3)
+
+### `docs/wiki/ci.md:52-53`
+**Issue**: Packaging bullet documents a pinned SHA (🟡 Medium, finding 4)
+
+### `docs/wiki/ci.md:87,161`
+**Issue**: Post-v2 asset claims are unverified (🔵 Low, finding 5)
+
+## 🎯 Recommendation
+Aggregates findings 1-4 above; see finding 3 in the holistic notes.
+RM
+  bash "$RENUM_SH" "$TMP_DIR/s28.json" "$TMP_DIR/s28.md" 2>/dev/null || true
+
+  check "Test 28a: a promoted finding is repointed (AGENTS.md 3 -> 1)" "1" \
+    "$(grep -cF 'at a pinned SHA" (🟡 Medium, finding 1)' "$TMP_DIR/s28.md" || true)"
+  check "Test 28b: the demoted one follows it (analyse 1 -> 2)" "1" \
+    "$(grep -cF 'pins by SHA (🟡 Medium, finding 2)' "$TMP_DIR/s28.md" || true)"
+  check "Test 28c: and the third (gate 2 -> 3)" "1" \
+    "$(grep -cF 'SHA-pinned checkout (🟡 Medium, finding 3)' "$TMP_DIR/s28.md" || true)"
+  check "Test 28d: a correct-by-coincidence reference is left correct" "1" \
+    "$(grep -cF 'documents a pinned SHA (🟡 Medium, finding 4)' "$TMP_DIR/s28.md" || true)"
+  # The load-bearing one. ci.md carries BOTH a numbered finding (line 52) and a
+  # suppressed one (line 161); a file-only match would hand the suppressed block
+  # finding 4 and point the reader at an unrelated fix.
+  check "Test 28e: an anchor the merge suppressed loses its number, not its neighbour" "1" \
+    "$(grep -cF 'are unverified (🔵 Low, no numbered finding)' "$TMP_DIR/s28.md" || true)"
+  check "Test 28f: no stale number survives anywhere in the section" "0" \
+    "$(awk '/^## 📝 Suggested Fixes/{f=1} f&&/^## 🎯/{f=0} f' "$TMP_DIR/s28.md" | grep -cF 'finding 5' || true)"
+  check "Test 28g: fenced code inside a fix block is never rewritten" "1" \
+    "$(grep -cF '# see finding 1 for the rationale' "$TMP_DIR/s28.md" || true)"
+  check "Test 28h: sections outside Suggested Fixes stay verbatim (LADR-005)" "1" \
+    "$(grep -cF 'Aggregates findings 1-4 above; see finding 3 in the holistic notes.' "$TMP_DIR/s28.md" || true)"
+  check "Test 28i: LADR-067 — the rewrite autolinks nothing" "0" \
+    "$(awk '/^## 📝 Suggested Fixes/{f=1} f&&/^## 🎯/{f=0} f' "$TMP_DIR/s28.md" | grep -cE '#[0-9]' || true)"
+  cp "$TMP_DIR/s28.md" "$TMP_DIR/s28-again.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28.json" "$TMP_DIR/s28-again.md" 2>/dev/null || true
+  check "Test 28j: it is idempotent" "" \
+    "$(diff "$TMP_DIR/s28.md" "$TMP_DIR/s28-again.md" || true)"
+
+  # Two findings in one file close enough that the tolerance cannot separate
+  # them. Guessing here would reintroduce the exact defect, so the reference is
+  # left as the model wrote it.
+  cat > "$TMP_DIR/s28-ambig.json" <<'AJ'
+{"status":"complete","merged_chunks":[0],
+ "findings":[{"#":1,"severity":"high","file":"src/a.ts","line":50},
+             {"#":2,"severity":"high","file":"src/a.ts","line":55}],
+ "pre_existing_findings":[],"suppressed_findings":[],
+ "malformed_findings":0,"demoted_no_quote":0}
+AJ
+  printf '## 📝 Suggested Fixes\n\n### `src/a.ts:52`\n**Issue**: something (🟠 High, finding 7)\n' \
+    > "$TMP_DIR/s28-ambig.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28-ambig.json" "$TMP_DIR/s28-ambig.md" 2>/dev/null || true
+  check "Test 28k: an ambiguous anchor is left untouched rather than guessed" "1" \
+    "$(grep -cF '(🟠 High, finding 7)' "$TMP_DIR/s28-ambig.md" || true)"
+
+  # A heading quoting a hunk range that misses the sidecar line by a few lines
+  # must still resolve — that drift is the normal case, not an error.
+  cat > "$TMP_DIR/s28-tol.json" <<'TJ'
+{"status":"complete","merged_chunks":[0],
+ "findings":[{"#":1,"severity":"low","file":"src/b.ts","line":85}],
+ "pre_existing_findings":[],"suppressed_findings":[],
+ "malformed_findings":0,"demoted_no_quote":0}
+TJ
+  printf '## 📝 Suggested Fixes\n\n### `src/b.ts:90`\n**Issue**: drifted anchor (🔵 Low, finding 4)\n' \
+    > "$TMP_DIR/s28-tol.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28-tol.json" "$TMP_DIR/s28-tol.md" 2>/dev/null || true
+  check "Test 28l: a heading line-spec within tolerance still resolves" "1" \
+    "$(grep -cF 'drifted anchor (🔵 Low, finding 1)' "$TMP_DIR/s28-tol.md" || true)"
+
+  printf 'no heading here\n' > "$TMP_DIR/s28-noheading.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28.json" "$TMP_DIR/s28-noheading.md" 2>/dev/null
+  check "Test 28m: a summary with no Suggested Fixes heading is untouched" "no heading here" \
+    "$(cat "$TMP_DIR/s28-noheading.md")"
+  bash "$RENUM_SH" "$TMP_DIR/missing.json" "$TMP_DIR/s28.md" 2>/dev/null
+  check "Test 28n: a missing merged document never fails the caller" "0" "$?"
+else
+  echo "⏭️  renumber-suggested-fixes.sh or jq missing — skipping Test 28"
+fi
+
+# The remap only matters when the splice actually replaced the orchestrator
+# numbering, so assert the call site as well as the unit: a refactor that drops
+# it restores silently-wrong cross-references with no unit test able to see it.
+if [ -f "$AGG_SH" ]; then
+  check "Test 28o: aggregation invokes the remapper" "1" \
+    "$(grep -cF 'lib/renumber-suggested-fixes.sh' "$AGG_SH" || true)"
+  check "Test 28p: it runs before the note that describes the reconciled section" "1" \
+    "$(awk '/lib\/renumber-suggested-fixes\.sh/{r=NR} /lib\/annotate-suggested-fixes\.sh/{if (r && NR > r) {print 1; exit}}' "$AGG_SH")"
+fi
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"

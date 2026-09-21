@@ -546,7 +546,14 @@ review_chunk() {
       ctx_dir=$(dirname "$ctx_file")
       include=false
 
-      # Always include root-level and dot-prefixed paths (mandatory/NFR context)
+      # Root-level and dot-prefixed paths are CANDIDATES, not automatic
+      # inclusions. This branch used to force-include them, which was fine when
+      # "dot-prefixed" meant a handful of root-level mandatory files — and
+      # wrong once whole rule trees (`.github/instructions/**`,
+      # `.agents/rules/**`) began arriving through the same channel. A 5-file
+      # CI-workflow PR was handed eight backend rules it could not need, and
+      # the `applyTo:` those files already declare was never consulted.
+      # The scope filter below decides; see lib/filter-context-scope.sh.
       if [ "$ctx_dir" = "." ] || [[ "$ctx_dir" == .* ]]; then
         include=true
       else
@@ -563,6 +570,27 @@ review_chunk() {
         echo "$ctx_file"
       fi
     done < ci_temp/context_files.txt >> ci_temp/chunk_${chunk_num}_context.txt
+
+    # Drop candidates whose own frontmatter says they do not apply here.
+    # Fail-open by construction: anything without a parseable scope survives,
+    # so a rule can never silently stop reaching the model.
+    if [ -s "ci_temp/chunk_${chunk_num}_context.txt" ]; then
+      printf '%s\n' "${files[@]}" > "ci_temp/chunk_${chunk_num}_files.txt"
+      if bash "$(dirname "${BASH_SOURCE[0]}")/lib/filter-context-scope.sh" \
+           "ci_temp/chunk_${chunk_num}_files.txt" \
+           "ci_temp/chunk_${chunk_num}_context.txt" \
+           "ci_temp/mandatory_context_files.txt" \
+           > "ci_temp/chunk_${chunk_num}_context.scoped.txt" 2>>ci_temp/chunk_${chunk_num}_scope.log; then
+        _before=$(wc -l < "ci_temp/chunk_${chunk_num}_context.txt" | tr -d " ")
+        _after=$(wc -l < "ci_temp/chunk_${chunk_num}_context.scoped.txt" | tr -d " ")
+        mv "ci_temp/chunk_${chunk_num}_context.scoped.txt" "ci_temp/chunk_${chunk_num}_context.txt"
+        if [ "$_before" != "$_after" ]; then
+          echo "  🎯 Scope filter: ${_before} → ${_after} context files for this chunk (applyTo/alwaysApply)"
+        fi
+      else
+        rm -f "ci_temp/chunk_${chunk_num}_context.scoped.txt"
+      fi
+    fi
 
     # Remove duplicates
     if [ -s ci_temp/chunk_${chunk_num}_context.txt ]; then
