@@ -143,6 +143,19 @@ ok "a package-managed v1 shadowing the install fails loudly, not green"
 #
 # Allowed to contain the URL: the shared installer itself, this test's own
 # assertions, and prose in docs/changelogs describing what the installer does.
+# Only complain when the URL is being handed to a shell, not merely named.
+# The pipeline is matched after joining shell continuations — a trailing `\`
+# and a trailing `|` both continue the command onto the next line — because a
+# per-line grep let `curl … \` / `| bash` split across lines read as "no raw
+# installer" and silently defeat the contract (review 5263417133, finding 2).
+# Only those two joins are applied, not a whole-file flatten: flattening would
+# let a `curl` in one step, the URL in a comment, and a `| bash` in another
+# step match as one pipeline.
+_is_raw_install() { # _is_raw_install <file>
+  sed -e ':a' -e '/\\[[:space:]]*$/{N; s/\\[[:space:]]*\n[[:space:]]*/ /; ba}' \
+      -e '/|[[:space:]]*$/{N; s/|[[:space:]]*\n[[:space:]]*/| /; ba}' "$1" \
+    | grep -qE 'curl[^|]*opencode\.ai/v2/install[^|]*\|[[:space:]]*(ba)?sh'
+}
 _curl_offenders() {
   grep -rln 'opencode\.ai/v2/install' \
     --include='*.sh' --include='*.yml' --include='*.yaml' \
@@ -150,10 +163,27 @@ _curl_offenders() {
     | grep -v 'lib/install-opencode\.sh$' \
     | grep -v 'test-install-opencode\.sh$' \
     | while IFS= read -r f; do
-        # Only complain when the URL is being handed to a shell, not merely named.
-        grep -qE 'curl[^|]*opencode\.ai/v2/install[^|]*\|[[:space:]]*(ba)?sh' "$f" && printf '%s ' "$f"
+        _is_raw_install "$f" && printf '%s ' "$f"
       done
 }
+
+# The matcher itself, against fixtures, so a multiline pipeline cannot slip
+# past it again unnoticed. Positive shapes: one line, backslash-continued,
+# pipe at end of line. Negative shapes: the URL merely named in a comment, a
+# curl and a bash on separate statements, and a delegation to the shared lib.
+mkdir -p "$TMP/rawfix"
+printf 'curl -fsSL https://opencode.ai/v2/install | bash\n' > "$TMP/rawfix/one-line.sh"
+printf 'curl -fsSL \\\n  https://opencode.ai/v2/install \\\n  | bash\n' > "$TMP/rawfix/backslash.sh"
+printf 'run: |\n  curl -fsSL https://opencode.ai/v2/install |\n    bash\n' > "$TMP/rawfix/pipe-eol.yml"
+printf '# the shared lib wraps https://opencode.ai/v2/install with a version pin\nbash lib/install-opencode.sh\n' > "$TMP/rawfix/comment.sh"
+printf 'curl -fsSL https://example.com/x -o /tmp/x\n# see https://opencode.ai/v2/install\necho done | bash -c cat\n' > "$TMP/rawfix/separate.sh"
+for _f in one-line.sh backslash.sh pipe-eol.yml; do
+  _is_raw_install "$TMP/rawfix/$_f" || fail "raw-install matcher missed $_f"
+done
+for _f in comment.sh separate.sh; do
+  _is_raw_install "$TMP/rawfix/$_f" && fail "raw-install matcher false-matched $_f"
+done
+ok "raw-install matcher catches multiline pipelines and ignores mere mentions"
 _offenders="$(_curl_offenders || true)"
 [ -z "$_offenders" ] || fail "raw install curl outside the shared lib (LADR-048): ${_offenders}"
 ok "no raw install curl outside lib/install-opencode.sh"
