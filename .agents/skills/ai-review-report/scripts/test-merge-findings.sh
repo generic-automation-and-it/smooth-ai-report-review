@@ -1574,6 +1574,20 @@ PJ
     "$(grep -cE 'findings 7' "$TMP_DIR/s28-plural.md" || true)"
   check "Test 28t: a singular reference under the same anchor still repoints" "1" \
     "$(grep -cF 'singular finding 7 here' "$TMP_DIR/s28-plural.md" || true)"
+
+  # Repeated SINGULAR references slipped past both plural guards: each match
+  # looked solitary on its own, so both were rewritten to this anchor number,
+  # collapsing two distinct references onto one (review 5271520178, finding 3).
+  # One anchor resolves one finding, so a line naming several is left alone.
+  printf '## 📝 Suggested Fixes\n\n### `src/a.ts:10`\n**Issue**: see finding 1 and finding 2 both\n**Issue**: solitary finding 1 here\n' \
+    > "$TMP_DIR/s28-repeat.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28-plural.json" "$TMP_DIR/s28-repeat.md" 2>/dev/null || true
+  check "Test 28u: repeated singular references are left untouched" "1" \
+    "$(grep -cF 'see finding 1 and finding 2 both' "$TMP_DIR/s28-repeat.md" || true)"
+  check "Test 28v: no two references collapse onto one number" "0" \
+    "$(grep -cE 'finding 7 and finding 7' "$TMP_DIR/s28-repeat.md" || true)"
+  check "Test 28w: a solitary reference on its own line still repoints" "1" \
+    "$(grep -cF 'solitary finding 7 here' "$TMP_DIR/s28-repeat.md" || true)"
   bash "$RENUM_SH" "$TMP_DIR/s28-tol.json" "$TMP_DIR/s28-tol.md" 2>/dev/null || true
   check "Test 28l: a heading line-spec within tolerance still resolves" "1" \
     "$(grep -cF 'drifted anchor (🔵 Low, finding 1)' "$TMP_DIR/s28-tol.md" || true)"

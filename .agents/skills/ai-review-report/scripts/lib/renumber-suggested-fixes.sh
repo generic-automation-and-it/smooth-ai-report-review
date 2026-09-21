@@ -144,7 +144,20 @@ awk -v mapdata="$map" -v tol="$TOLERANCE" '
     }
     return "0"
   }
-  function rewrite(s,   out, rest, pre, m, word, after, target) {
+  function rewrite(s,   out, rest, pre, m, word, after, target, probe, refs) {
+    # One anchor resolves ONE finding, so a line naming several cannot be
+    # rewritten at all (review 5271520178, finding 3). The plural and separator
+    # guards below catch "findings 1 and 2", but REPEATED SINGULAR references --
+    # "finding 1 and finding 2" -- slipped past both: each match looked solitary
+    # on its own, and both were rewritten to this anchor number, collapsing two
+    # distinct references onto one. Count first, and leave the whole line alone
+    # when more than one reference is present.
+    refs = 0; probe = s
+    while (match(probe, /[Ff]indings?[ \t]+[0-9]+/)) {
+      refs++
+      probe = substr(probe, RSTART + RLENGTH)
+    }
+    if (refs > 1) return s
     out = ""; rest = s
     while (match(rest, /[Ff]indings?[ \t]+[0-9]+/)) {
       pre = substr(rest, 1, RSTART - 1)
