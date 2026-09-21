@@ -442,6 +442,21 @@ inventory_case accept "single file, heading-free clean body (LADR-077)" 'src/a.c
 inventory_case reject "two files, both named, but the last section is truncated" "$TWO" \
   '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n'
 echo "✓ shape predicate: an omitted file in a multi-file chunk is not a completed review"
+# Review 5266192686, finding 3: a mention counts only in structure — a
+# heading or a finding block — never in narration. "I will inspect src/b.cs
+# next." satisfied the inventory and a response cut off right there passed.
+inventory_case reject "second file mentioned only in narration" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\nI will inspect src/b.cs next.\n'
+inventory_case accept "second file named on an indented evidence line of a finding" "$TWO" \
+  '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: shared token\n  - Evidence: src/b.cs:3 -- same secret\n'
+inventory_case accept "second file named on a bold evidence line of a finding" "$TWO" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: shared token at src/a.cs:1\n**Evidence:** `src/b.cs:3`\n'
+inventory_case accept "consolidated heading naming both files" "$TWO" \
+  '### \xf0\x9f\x93\x84 Files: \x60src/a.cs\x60, \x60src/b.cs\x60\n\n**Issues Found:**\n- None found.\n'
+# Review 5266192686, finding 1: the last-section split is case-insensitive
+# on the heading, so a lowercase `file:` cannot let file A vouch for file B.
+predicate_case reject "lowercase file heading, last section truncated" \
+  '### \xf0\x9f\x93\x84 file: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 file: \x60b.cs\x60\n\n**Issues Found:**\n'
 # Review 5263417133, finding 3. Two chunk files with the SAME basename: a
 # mention of `index.ts` must not vouch for both. The required mention is the
 # shortest unique trailing path — `api/index.ts` / `web/index.ts` here — so a

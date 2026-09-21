@@ -41,10 +41,12 @@ set -uo pipefail
 # survives; a piped call leaves nothing behind).
 _rhs_own_src=""
 _rhs_stripped=""
+_rhs_struct=""
 _rhs_tail=""
 _rhs_cleanup() {
   [ -n "$_rhs_own_src" ] && rm -f "$_rhs_own_src" 2>/dev/null
   [ -n "$_rhs_stripped" ] && rm -f "$_rhs_stripped" 2>/dev/null
+  [ -n "$_rhs_struct" ] && rm -f "$_rhs_struct" 2>/dev/null
   [ -n "$_rhs_tail" ] && rm -f "$_rhs_tail" 2>/dev/null
   return 0
 }
@@ -174,9 +176,24 @@ EOF_ALL
   # a backtick, a colon before the line number, a space, end of line — is a
   # boundary. `/` before the suffix is allowed on purpose: `src/app.js` IS a
   # mention of `app.js`. Regex metacharacters in the suffix are escaped.
+  # A mention counts only in STRUCTURE: a heading line, or a line inside a
+  # finding block (a severity-emoji or priority line and its continuation
+  # lines — indented, list, bold-label, fenced or blank — up to the next
+  # column-0 prose line, heading or block start). Narration is excluded:
+  # "I will inspect src/b.cs next." named the file, satisfied the inventory,
+  # and a response truncated right there passed as complete (review
+  # 5266192686, finding 3).
+  _rhs_struct="$(mktemp)"
+  awk '
+    { low = tolower($0) }
+    /^#/ { print; inblk = 0; next }
+    /🔴|🟠|🟡|🔵/ || (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { print; inblk = 1; next }
+    inblk && ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]+/ || $0 ~ /^[-*`|]/ || $0 ~ /^\*\*/) { print; next }
+    { inblk = 0 }
+  ' "$_rhs_src" > "$_rhs_struct" 2>/dev/null || cp "$_rhs_src" "$_rhs_struct"
   _rhs_mentioned() { # _rhs_mentioned <suffix>
     _rhs_esc="$(printf '%s' "$1" | sed 's/[][\.^$*+?{}|()]/\\&/g')"
-    grep -qE "(^|[^[:alnum:]_.-])${_rhs_esc}([^[:alnum:]_.-]|$)" "$_rhs_src"
+    grep -qE "(^|[^[:alnum:]_.-])${_rhs_esc}([^[:alnum:]_.-]|$)" "$_rhs_struct"
   }
   while IFS= read -r _rhs_path; do
     [ -n "$_rhs_path" ] || continue
@@ -195,7 +212,10 @@ fi
 # is the section, which keeps LADR-077's deliberate acceptance of findings
 # written without the template scaffolding.
 _rhs_tail="$(mktemp)"
-awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
+# Heading match is case-insensitive: a lowercase `file:` heading would not
+# reset the buffer, so an earlier section's `None found` vouched for a last
+# section the model never finished (review 5266192686, finding 1).
+awk '{ low = tolower($0) } low ~ /^#+[[:space:]].*file:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
   "$_rhs_src" > "$_rhs_tail" 2>/dev/null || cp "$_rhs_src" "$_rhs_tail"
 [ -s "$_rhs_tail" ] || cp "$_rhs_src" "$_rhs_tail" 2>/dev/null
 
