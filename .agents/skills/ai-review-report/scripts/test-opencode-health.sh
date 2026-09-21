@@ -167,6 +167,12 @@ ok "a probe ignoring SIGTERM is still killed and bounded (${_elapsed}s)"
 # service bound to `<managed>.bak`, or to a sibling run's config nested under a
 # longer path, passed as bound. Exact membership is required. Both branches of
 # the helper are exercised: with jq on PATH and with jq hidden.
+# The with-jq iteration is only a test of the jq branch when jq is actually
+# present: on a jq-less machine both iterations would exercise the fallback
+# and the suite would still report both branches green (review 5266102870,
+# finding 2). Require it, as test-check-versions.sh does.
+command -v jq >/dev/null 2>&1 \
+  || fail "jq is required to exercise the with-jq binding branch (install jq, or run on ubuntu-latest where it is preinstalled)"
 for _jq_mode in with-jq without-jq; do
   # "Without jq" is a PATH holding everything the system has EXCEPT jq — the
   # script still needs grep, sed, timeout and friends — so the non-jq branch
