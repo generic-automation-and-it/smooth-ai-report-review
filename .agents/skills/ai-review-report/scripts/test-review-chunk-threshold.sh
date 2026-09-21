@@ -716,6 +716,23 @@ _sh "a heading with no findings section is not a review" "1" \
 _sh "heading-only truncation is diagnosed as missing structure" "1" \
   "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
 
+# A severity heading is still a heading, not a finding. The heading contains an
+# emoji, so the order of the heading and emoji checks in review-has-shape.sh is
+# load-bearing: emoji-first opens a false finding block and lets later narration
+# carrying a file:line anchor complete it.
+cat > "${TMP_DIR}/emoji-heading-narration.txt" << 'EOF'
+### 📄 File: `alpha/a.txt`
+
+**Issues Found:**
+### 🔴 Critical Issues
+I am checking alpha/a.txt:1 before deciding whether there is a substantive finding to report.
+EOF
+run_shape_case "emoji-heading-narration" "${TMP_DIR}/emoji-heading-narration.txt"
+_sh "narration below an emoji severity heading is not accepted as a finding" "1" \
+  "$([ -f "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sh "emoji-heading narration is diagnosed as missing review structure" "1" \
+  "$(grep -c 'no review structure' "${TMP_DIR}/repo-shape/ci_temp/reviews/chunk_0.failed" 2>/dev/null || true)"
+
 # Truly empty output keeps its own diagnosis: "nothing came back" and
 # "narration came back" are different failures and the log line is the only
 # place a maintainer sees which one fired.
@@ -727,7 +744,7 @@ _sh "empty output is diagnosed as empty, not as missing structure (both attempts
   "$(grep -c 'empty output (0 bytes)' "${TMP_DIR}/empty-output.log" 2>/dev/null || true)"
 
 if [ "$_sh_fail" -ne 0 ]; then
-  for _l in narration-only real-review emoji-only clean-short heading-only empty-output; do
+  for _l in narration-only real-review emoji-only clean-short heading-only emoji-heading-narration empty-output; do
     echo "--- ${_l}.log (tail) ---"
     tail -25 "${TMP_DIR}/${_l}.log" 2>/dev/null || true
   done

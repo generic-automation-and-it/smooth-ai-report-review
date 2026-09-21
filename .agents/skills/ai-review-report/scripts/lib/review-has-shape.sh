@@ -311,9 +311,9 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
     BEGIN { A = ENVIRON["RHS_ANCHOR_RE"] }
     {
       low = tolower($0)
+      if ($0 ~ /^#/) { close_block(); next }
       if ($0 ~ /🔴|🟠|🟡|🔵/) { close_block(); kind = "e"; blk = $0; next }
       if (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { close_block(); kind = "p"; blk = $0; next }
-      if ($0 ~ /^#/) { close_block(); next }
       if (kind != "") blk = blk "\n" $0
     }
     END { close_block(); printf "%s%s", (hit["e"] ? "e" : ""), (hit["p"] ? "p" : "") }
