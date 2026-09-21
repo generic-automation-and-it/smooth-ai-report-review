@@ -415,7 +415,13 @@ fi
 # run (35566556046) while the SAME atomicity finding worded differently passed
 # the run before it. The pattern now binds the adjective to its noun within two
 # words, in either order, so the forbidden claim is "the dual write is
-# redundant", not any sentence that happens to contain both words.
+# redundant", not any sentence that happens to contain both words. Round two
+# (review 5263727118, finding 1): "duplicate write(s)" is the RETRY sense
+# almost every time a model writes it, so "duplicate" pairs only with the
+# storage nouns, while the named-store forms — "the object-store write is
+# redundant with the database write", "the secondary write is unnecessary" —
+# are matched explicitly. Both lists below carry the concise phrasings that
+# broke the previous pattern in each direction.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -428,6 +434,10 @@ done <<'POS'
 - 🔵 [VERIFIED] Low Priority: The two writes are redundant — the object store copy duplicates the database row.
 - 🟡 [VERIFIED] Medium Priority: The dual write is superfluous persistence; one store suffices.
 - 🟠 [VERIFIED] High Priority: Payload is duplicated in two stores with no reason given.
+- 🟠 [VERIFIED] High Priority: The object-store write is redundant with the database write.
+- 🟡 [VERIFIED] Medium Priority: The secondary write is unnecessary because the database already holds the payload.
+- 🟡 [VERIFIED] Medium Priority: The object store copy is redundant.
+- 🔵 [VERIFIED] Low Priority: Persisting the same payload to the object store is a needless second copy.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -445,6 +455,9 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: A transient object-store failure can leave a log only in the primary database, violating the documented requirement that logs reach both stores.
 - 🟠 [VERIFIED] High Priority: Once the primary write succeeds, an exception from PutAsync leaves the stores inconsistent and prevents fallback replay.
 - 🟡 [VERIFIED] Medium Priority: The object-store key is entry.Id, so a retried command with a fresh id writes a second, orphaned copy rather than overwriting.
+- 🟡 [VERIFIED] Medium Priority: Retries can cause duplicate writes.
+- 🟡 [VERIFIED] Medium Priority: A retry could duplicate the write to the object store.
+- 🟡 [VERIFIED] Medium Priority: Without idempotency, a retried PutAsync produces duplicate objects in the archive.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"

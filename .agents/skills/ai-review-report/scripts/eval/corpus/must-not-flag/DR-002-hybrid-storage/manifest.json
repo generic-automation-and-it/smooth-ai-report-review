@@ -3,5 +3,5 @@
   "kind": "must-not-flag",
   "label": "DR-002",
   "note": "Operational-log payloads are intentionally written to both the primary database and a secondary object store for fast access and archive/fallback; reviewer must NOT flag this dual-write as redundant or duplicate storage.",
-  "forbidden_claim": "(redundant|duplicate|duplicated|duplicative|unnecessary|superfluous)( [[:alnum:]-]+){0,2} (storage|store|stores|stored|write|writes|written|persist|persisted|persistence|copy|copies)|(two|both|dual|second)( [[:alnum:]-]+){0,2} (writes?|stores?|copies)( [[:alnum:]-]+){0,3} (redundant|duplicate|duplicated|unnecessary|superfluous)"
+  "forbidden_claim": "(redundant|duplicated|duplicative|unnecessary|superfluous|needless)( [[:alnum:]-]+){0,2} (storage|store|stores|stored|write|writes|written|persist|persisted|persistence|copy|copies)|duplicate( [[:alnum:]-]+){0,2} (storage|store|stores|persistence|copy|copies)|(two|both|dual|second|extra|additional|object[- ]store|database|db|primary|secondary)( [[:alnum:]-]+){0,2} (writes?|stores?|copy|copies|persistence)( [[:alnum:]-]+){0,4} (is|are|remains?|seems?|looks?)( an?)? (redundant|duplicate|duplicated|unnecessary|superfluous|needless)|(redundant|duplicate|duplicated|unnecessary|superfluous) with the (database|db|object[- ]store|primary|secondary)"
 }
