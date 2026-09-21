@@ -76,19 +76,23 @@ def parse_frontmatter(path):
         return [], False, False
 
     always, scopes = False, {}
+    current_scope_key = None
     for raw in body:
         m = re.match(r"\s*([A-Za-z_]+)\s*:\s*(.*)$", raw)
         if m:
             key, val = m.group(1).lower(), m.group(2).strip()
+            current_scope_key = None
             if key == "alwaysapply":
                 always = val.strip("'\"").lower() == "true"
-            elif key in SCOPE_KEYS and val:
-                scopes.setdefault(key, []).append(val.strip("'\""))
+            elif key in SCOPE_KEYS:
+                current_scope_key = key
+                scopes.setdefault(key, [])
+                if val:
+                    scopes[key].append(val.strip("'\""))
             continue
         m = re.match(r"\s*-\s*(.+)$", raw)  # YAML list item under `paths:`
-        if m and scopes:
-            last = list(scopes)[-1]
-            scopes[last].append(m.group(1).strip().strip("'\""))
+        if m and current_scope_key:
+            scopes[current_scope_key].append(m.group(1).strip().strip("'\""))
 
     for key in SCOPE_KEYS:  # applyTo first, then globs, then paths
         if scopes.get(key):

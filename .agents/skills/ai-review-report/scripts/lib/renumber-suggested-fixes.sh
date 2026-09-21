@@ -183,11 +183,12 @@ awk -v mapdata="$map" -v tol="$TOLERANCE" '
   {
     line = $0
     if (line ~ /^## 📝 Suggested Fixes/) { in_fixes = 1; in_fence = 0; anchor_state = "ambig"; print; next }
-    if (in_fixes && line ~ /^## / ) { in_fixes = 0 }
     if (!in_fixes) { print; next }
 
     if (line ~ /^[ \t]*(```|~~~)/) { in_fence = !in_fence; print; next }
     if (in_fence) { print; next }
+
+    if (line ~ /^## / ) { in_fixes = 0; print; next }
 
     if (line ~ /^###/) {
       # Exactly one backtick-quoted token is an anchor. Two means the heading
