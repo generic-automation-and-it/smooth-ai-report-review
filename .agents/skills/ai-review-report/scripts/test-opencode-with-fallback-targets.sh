@@ -130,6 +130,54 @@ actual="$(shape_case truncated_heading "$SHAPE")"
 }
 echo "✓ heading-only truncation is rejected, not mistaken for a clean review"
 
+# Finding 1 of review 5261655825. The predicate must be AUTHORITATIVE, not an
+# exemption from the byte floor. The first cut consulted it only for short
+# output, so a narration-only answer of >= 200 bytes still passed here: the
+# transport said "done" and spent the LADR-002 fallback on it, and the chunk
+# gate then rejected the very same bytes and fail-closed with the secondary
+# never run. Long narration must fall through the whole chain exactly like
+# short narration does.
+LONG_NARRATION='I will begin by loading the mandatory review standards and the project context files, then read the changed source and its callers, and check the high priority areas before writing the review. Let me start with the standards document and continue from there once I have the full picture of the change.
+'
+[ "${#LONG_NARRATION}" -ge 200 ] || { echo "FAIL: test fixture must exceed the 200-byte floor (got ${#LONG_NARRATION})" >&2; exit 1; }
+stub_emitting "$LONG_NARRATION"
+actual="$(shape_case long_narration_checked "$SHAPE")"
+[ "$actual" = "1:3" ] || {
+  echo "FAIL: narration above the byte floor must still be rejected by the shape predicate and exhaust the chain (got '$actual')" >&2
+  exit 1
+}
+echo "✓ shape check fails: long narration is rejected, not accepted for being long"
+
+# And the same bytes with NO predicate keep the pure byte floor — this is the
+# additivity guarantee for the summary / semantic-grouping / trivial-PR /
+# analyse callers, pinned from the long side as well as the short one.
+actual="$(shape_case long_narration_unchecked "")"
+[ "$actual" = "0:1" ] || {
+  echo "FAIL: without a shape check, output above the floor must be accepted on the first model exactly as before (got '$actual')" >&2
+  exit 1
+}
+echo "✓ no shape check: long output still accepted by the byte floor (unchanged)"
+
+# A predicate path that is set but missing is a packaging fault, not a reason
+# to reject every model in the chain: warn, then degrade to the byte floor.
+actual="$(shape_case missing_predicate "${marker_dir}/does-not-exist.sh")"
+[ "$actual" = "0:1" ] || {
+  echo "FAIL: a set-but-missing predicate must degrade to the byte floor (got '$actual')" >&2
+  exit 1
+}
+echo "✓ missing predicate path degrades to the byte floor instead of failing closed"
+
+# The predicate is invoked through bash, so a copy-install that lost the exec
+# bit cannot silently disable it (the chunk gate calls it the same way).
+cp "$SHAPE" "${marker_dir}/shape-noexec.sh"; chmod -x "${marker_dir}/shape-noexec.sh"
+stub_emitting "$CLEAN"
+actual="$(shape_case noexec_predicate "${marker_dir}/shape-noexec.sh")"
+[ "$actual" = "0:1" ] || {
+  echo "FAIL: a non-executable predicate must still run via bash (got '$actual')" >&2
+  exit 1
+}
+echo "✓ predicate without an exec bit still runs"
+
 # Both gates must ask the SAME question, or the gap this closed reopens.
 grep -q 'lib/review-has-shape.sh' "${SCRIPT_DIR}/review-in-chunks.sh" || {
   echo "FAIL: review-in-chunks.sh no longer delegates to the shared shape predicate" >&2
