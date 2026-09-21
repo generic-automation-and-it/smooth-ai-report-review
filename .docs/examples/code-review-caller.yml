@@ -21,9 +21,10 @@
 #
 # Recommended: pin the opencode CLI version.
 #   Set OPENCODE_CLI_VERSION as a repo/org Variable (e.g. 'major.minor.patch')
-#   so every CI run installs the same opencode binary. Unset = latest, which
-#   pulls whatever is current upstream on every run — no reproducibility and
-#   silent behaviour drift when upstream ships a change. The reusable workflow's
+#   so every CI run installs the same opencode binary. Unset = any v2: a
+#   fresh runner pulls whatever is current upstream, a machine with a v2
+#   binary already on PATH keeps it as is — no reproducibility either way,
+#   and silent behaviour drift when upstream ships a change. The reusable workflow's
 #   env: block references `vars.OPENCODE_CLI_VERSION`, so the
 #   Variable is read from THIS repo/org automatically; nothing needs to be
 #   passed through `with:` or `env:` here. See the README "Recommended: pin
