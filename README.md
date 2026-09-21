@@ -633,7 +633,7 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_OPENROUTER_API_KEY` (**Secret**) | GitHub / shell export | OpenRouter aggregator API key (`openrouter` provider). Base URL `https://openrouter.ai/api/v1` is hardcoded — no URL Variable. |
 | `OPENCODE_CLI_VERSION` | GitHub **Variable** / shell (default unset) | OpenCode v2 CLI version pin (recommended — see callout above). Unset = latest v2; a configured value must be a specific `2.x` release. Existing consumers must update any 1.x value when moving to `@v2`. |
 | `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` | GitHub **Variable** / shell (default unset) | `code-review-graph` package version pin (LADR-049, recommended for supply-chain hygiene). Unset = latest. |
-| `OPENCODE_TOOL_RTK_VERSION` | GitHub **Variable** / shell (default unset) | rtk-ai/rtk binary version pin (LADR-054, recommended for reproducibility). Unset = latest. |
+| `OPENCODE_TOOL_RTK_VERSION` | GitHub **Variable** / shell (default unset) | Reserved for a future v2-compatible RTK integration (LADR-054 history); current v2 runs skip RTK, so the value is read but has no effect. |
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | GitHub **Variable** / `--model` / shell (default `gpt-5.6-sol`) | Primary deep chunk-review model. The `workflow_dispatch` `model` input overrides it. |
 | `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | GitHub **Variable** / shell (default `gpt-5.5`) | Secondary review model (two-tier fallback chain). |
 | `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | GitHub **Variable** / shell (default `gpt-5.6-terra`) | Cheap model for semantic grouping, aggregation, and summary. |
