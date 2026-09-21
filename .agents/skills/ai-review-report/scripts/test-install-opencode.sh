@@ -135,6 +135,47 @@ grep -q 'migrate-v1' "$TMP/shadow.out" \
   || fail "the shadowed-v1 failure did not point at the migration guide"
 ok "a package-managed v1 shadowing the install fails loudly, not green"
 
+# Drive the real local entrypoint through its prerequisite phase. The provider
+# seam ends the run before credentials, config preparation, or model calls;
+# reaching it proves the parent shell can see the validated CLI too.
+mkdir -p "$TMP/local/scripts/lib"
+cp "$SCRIPT_DIR/local-review.sh" "$TMP/local/scripts/"
+cp "$INSTALLER" "$TMP/local/scripts/lib/"
+cat > "$TMP/local/scripts/lib/resolve-provider.sh" <<'LOCAL_PROVIDER'
+[ "$(opencode --version)" = "$EXPECTED_LOCAL_VERSION" ] || exit 91
+echo "local prerequisites passed"
+exit 0
+LOCAL_PROVIDER
+local_case() {
+  local name="$1" cached="$2" pin="$3" expected="$4" home
+  home="$TMP/local-$name/home"
+  mkdir -p "$home/.opencode/bin"
+  printf '#!/bin/bash\necho "%s"\n' "$cached" > "$home/.opencode/bin/opencode"
+  chmod +x "$home/.opencode/bin/opencode"
+  : > "$TMP/local-$name.curl"
+  env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$home" \
+    STUB_CURL_LOG="$TMP/local-$name.curl" OPENCODE_CLI_VERSION="$pin" \
+    EXPECTED_LOCAL_VERSION="$expected" \
+    bash "$TMP/local/scripts/local-review.sh" > "$TMP/local-$name.out" 2>&1
+}
+local_case v1 "1.18.31" "" "2.0.11"
+grep -q 'local prerequisites passed' "$TMP/local-v1.out" \
+  || fail "local review did not replace v1 and expose v2 to the parent shell"
+ok "local review upgrades cached v1 through the shared installer"
+local_case pinned "2.0.11" "v2.0.9" "2.0.9"
+grep -q 'local prerequisites passed' "$TMP/local-pinned.out" \
+  || fail "local review did not enforce the requested pin"
+ok "local review enforces an explicit pin over a cached v2"
+local_case cached "2.0.11" "" "2.0.11"
+[ ! -s "$TMP/local-cached.curl" ] || fail "local review reinstalled an acceptable cached v2"
+ok "local review reuses an unpinned cached v2 without downloading"
+if local_case rejected "2.0.11" "1.18.31" "2.0.11"; then
+  fail "local review ignored an invalid v1 pin"
+fi
+grep -q 'must pin an OpenCode v2 release' "$TMP/local-rejected.out" \
+  || fail "local review did not propagate installer failure"
+ok "local review aborts on an invalid pin before provider resolution"
+
 # --- No raw install curl outside the shared lib (LADR-048) ------------------
 # The install-source-of-truth Non-Negotiable was violated in FIVE places across
 # this migration — README, local-review.sh twice, run-evals.sh — and each was

@@ -115,9 +115,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --help, -h           Show this help"
       echo ""
       echo "Prerequisites:"
-      echo "  - opencode v2 CLI installed via the shared pinned installer:"
-      echo "      bash .agents/skills/ai-review-report/scripts/lib/install-opencode.sh"
-      echo "    (honours OPENCODE_CLI_VERSION; a raw curl here would drift from CI)"
+      echo "  - opencode v2 CLI (installed/validated automatically by the shared installer)"
+      echo "    Set OPENCODE_CLI_VERSION to pin a 2.x release; blank reuses any installed v2."
       echo "  - The selected provider's gateway creds exported (the gateway host"
       echo "    must be reachable from where you run this — see AGENTS.md):"
       echo "      GEMINI                → OPENCODE_REVIEW_REPORT_GEMINI_URL  + OPENCODE_GEMINI_API_KEY"
@@ -200,11 +199,11 @@ for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
   harvest_var "$v" || true
 done
 
-# Validate prerequisites
-if ! command -v opencode &>/dev/null; then
-  echo "❌ opencode CLI not found. Install with: bash \"$SCRIPT_DIR/lib/install-opencode.sh\""
-  exit 1
-fi
+# Validate the CLI through the same installer as CI, even when it is cached.
+# PATH must also be set in this parent shell: the installer's export cannot
+# reach later local-review calls, and v1/v2 share the same command name.
+export PATH="$HOME/.opencode/bin:$PATH"
+bash "$SCRIPT_DIR/lib/install-opencode.sh"
 
 # Resolve the selected provider → provider-id + gateway creds, and fail fast on
 # missing creds / a model chain that doesn't match the provider. Export the model
