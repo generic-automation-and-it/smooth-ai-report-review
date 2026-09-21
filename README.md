@@ -588,7 +588,7 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_REVIEW_REPORT_GEMINI_URL` | _(none — required when `GEMINI` is selected)_ | Gemini gateway base URL (OpenAI-compatible), e.g. `https://generativelanguage.googleapis.com/v1beta/openai`. Point at a LiteLLM proxy to relay instead. |
 | `OPENCODE_CLI_VERSION` | _(unset)_ | OpenCode v2 CLI pin (recommended — see callout above). Unset = latest v2, which is the weak default; configured values must be a specific `2.x` release. |
 | `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` | _(unset)_ | `code-review-graph` package version pin (LADR-049, recommended for supply-chain hygiene). Unset = latest. |
-| `OPENCODE_TOOL_RTK_VERSION` | _(unset)_ | rtk-ai/rtk binary version pin (LADR-054, recommended for reproducibility). Unset = latest. |
+| `OPENCODE_TOOL_RTK_VERSION` | _(unset)_ | Reserved for a future v2-compatible RTK integration; current v2 runs skip RTK. |
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` | `gpt-5.6-sol` | Primary deep chunk-review model |
 | `OPENCODE_REVIEW_REPORT_MODEL_SECONDARY` | `gpt-5.5` | Secondary review model (two-tier chain) |
 | `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` | `gpt-5.6-terra` | Cheap model for grouping, aggregation, and summary |
