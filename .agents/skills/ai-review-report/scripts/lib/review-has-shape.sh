@@ -124,10 +124,20 @@ EOF_ALL
       _rhs_suf="$(basename "$_rhs_rest")/$_rhs_suf"; _rhs_rest="$(dirname "$_rhs_rest")"
     done
   }
+  # A mention is the suffix as a whole token, not as a substring: `app.js`
+  # must not be satisfied by `app.js.map` or `myapp.js` (review 5263727118,
+  # finding 3). Path characters on either side disqualify; anything else —
+  # a backtick, a colon before the line number, a space, end of line — is a
+  # boundary. `/` before the suffix is allowed on purpose: `src/app.js` IS a
+  # mention of `app.js`. Regex metacharacters in the suffix are escaped.
+  _rhs_mentioned() { # _rhs_mentioned <suffix>
+    _rhs_esc="$(printf '%s' "$1" | sed 's/[][\.^$*+?{}|()]/\\&/g')"
+    grep -qE "(^|[^[:alnum:]_.-])${_rhs_esc}([^[:alnum:]_.-]|$)" "$_rhs_src"
+  }
   while IFS= read -r _rhs_path; do
     [ -n "$_rhs_path" ] || continue
     _rhs_expected_n=$((_rhs_expected_n + 1))
-    grep -qF "$(_rhs_unique_suffix "$_rhs_path")" "$_rhs_src" || _rhs_missing="${_rhs_missing}${_rhs_path}
+    _rhs_mentioned "$(_rhs_unique_suffix "$_rhs_path")" || _rhs_missing="${_rhs_missing}${_rhs_path}
 "
   done <<EOF_EXPECTED
 ${OPENCODE_EXPECTED_CHUNK_FILES}

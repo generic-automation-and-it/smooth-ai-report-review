@@ -381,6 +381,23 @@ inventory_case reject "parents collide too: x/index.ts names neither" "$DEEP" \
 inventory_case accept "parents collide too: both named with the distinguishing root" "$DEEP" \
   '### \xf0\x9f\x93\x84 File: \x60a/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n'
 echo "✓ shape predicate: colliding basenames need the shortest unique trailing path"
+# Review 5263727118, finding 3. A mention is a whole token: `app.js.map` and
+# `myapp.js` are not mentions of `app.js`, while `src/app.js:12` and a
+# backticked `app.js` are. Dots in the suffix are literal, not wildcards.
+SUB=$'src/app.js\nsrc/app.js.map'
+inventory_case reject "only the source map named; app.js itself omitted" "$SUB" \
+  '### \xf0\x9f\x93\x84 File: \x60src/app.js.map\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "both named, the source with a line anchor" "$SUB" \
+  '### \xf0\x9f\x93\x84 File: \x60src/app.js.map\x60\n\n**Issues Found:**\n- None found.\n\n**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: unused import at src/app.js:12\n'
+PRE=$'lib/app.js\nlib/myapp.js'
+inventory_case reject "myapp.js does not vouch for app.js" "$PRE" \
+  '### \xf0\x9f\x93\x84 File: \x60lib/myapp.js\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "app.js and myapp.js each named" "$PRE" \
+  '### \xf0\x9f\x93\x84 File: \x60app.js\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60myapp.js\x60\n\n**Issues Found:**\n- None found.\n'
+DOT=$'a/x.y\na/xzy'
+inventory_case reject "a dot in the suffix is literal, not a wildcard" "$DOT" \
+  '### \xf0\x9f\x93\x84 File: \x60a/xzy\x60\n\n**Issues Found:**\n- None found.\n'
+echo "✓ shape predicate: a file mention is a whole token, not a substring"
 
 # The transport honours the inventory too, so an omission falls through to the
 # fallback instead of consuming it — and every call site hands it over.
