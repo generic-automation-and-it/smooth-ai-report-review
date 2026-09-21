@@ -2,7 +2,7 @@ name: Publish npm package
 
 # Publishes the opencode plugin @generic-automation-and-it/smooth-ai-review to
 # the GitHub Packages npm registry (npm.pkg.github.com) on every push to main,
-# when run manually, or on semver release tags (vX.Y.Z). The floating `v1` tag
+# when run manually, or on semver release tags (vX.Y.Z). The floating `v2` tag
 # used to pin the reusable review workflow deliberately does NOT match this
 # pattern, so re-pointing it never re-publishes. Semver tags still assert that
 # the tag and package metadata agree.

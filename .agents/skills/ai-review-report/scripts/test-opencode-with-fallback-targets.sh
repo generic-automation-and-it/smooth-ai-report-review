@@ -311,7 +311,8 @@ predicate_case reject "a ratio is not an anchor" \
 # the chunk gate sees it stripped, so a JSON block carrying priority wording,
 # a file:line in an evidence string and even the words "Issues Found" let
 # narration pass the transport, spend the fallback, and fail downstream. The
-# predicate strips every sentinel range first, so both gates judge the prose.
+# predicate strips the sidecar first, by the extractor's last-pair rules, so
+# both gates judge the same prose.
 SIDECAR='<!-- FINDINGS_JSON_BEGIN -->\n{"findings":[{"severity":"high","title":"Issues Found: High Priority token leak","file":"src/auth.cs","line":12,"evidence":"src/auth.cs:12 -- log.Info(token)"}]}\n<!-- FINDINGS_JSON_END -->\n'
 predicate_case reject "narration followed by a complete sidecar" \
   "Let me read the handler and its callers before writing anything.\n${SIDECAR}"
