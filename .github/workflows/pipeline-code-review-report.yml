@@ -85,7 +85,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Reserved for a future RTK v2 integration; currently ignored because RTK has no supported OpenCode v2 plugin.'
+        description: 'Reserved: rtk-ai/rtk version pin (LADR-054, e.g. "0.44.1"). Currently IGNORED on OpenCode v2 — RTK has no supported v2 plugin, so install-rtk.sh skips it (LADR-087). Blank → OPENCODE_TOOL_RTK_VERSION Variable. Becomes effective only when a v2-compatible RTK integration ships.'
         required: false
         type: string
         default: ''
@@ -188,7 +188,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'Version pin for the rtk-ai/rtk token-optimizer (LADR-054). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable, else latest.'
+        description: 'Reserved: rtk-ai/rtk version pin (LADR-054). Currently IGNORED on OpenCode v2 (no supported v2 plugin; LADR-087). Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable.'
         required: false
         type: string
         default: ''
