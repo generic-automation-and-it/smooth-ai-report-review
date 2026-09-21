@@ -474,6 +474,15 @@ fi
 # accepted the past participle, so "writes to both … are duplicated when the
 # command is retried" — a retry finding naming both destinations — matched;
 # that branch now takes only the present forms (duplicates/duplicating).
+# Round thirteen (review 5266991867, finding 2): "a retry needlessly
+# duplicates the object-store upload" matched the unconstrained adverb +
+# duplicate form. The three adverb branches are now ONE — adverb, then a
+# storage verb or "duplicat", then a multiplicity word within five words —
+# and the duplicate-verb branch also accepts "(across|between) the database
+# and the object store", so "unnecessarily duplicated across the database and
+# the object store" still counts while nothing keyed on a single destination
+# or "every retry" does. Consolidating rather than adding is what kept the
+# pattern under the ugrep complexity canary.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -545,6 +554,8 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: A retry produces a redundant write to the archive when the first upload actually succeeded.
 - 🟡 [VERIFIED] Medium Priority: A retried command duplicates the upload to the archive because the key is regenerated.
 - 🟡 [VERIFIED] Medium Priority: Writes to both the database and the object store are duplicated when the command is retried after a timeout.
+- 🟡 [VERIFIED] Medium Priority: A retry needlessly duplicates the object-store upload.
+- 🟡 [VERIFIED] Medium Priority: Without an idempotency key the handler unnecessarily duplicates the archive object on every retry.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
