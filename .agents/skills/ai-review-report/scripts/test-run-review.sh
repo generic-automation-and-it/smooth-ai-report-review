@@ -1096,11 +1096,25 @@ unset -f _loglevel_offenders
 # the mismatch too, leaving the binding check as detection with no consequence
 # — CI reviewing under a foreign provider with no LADR-029 lockdown while
 # local-review.sh aborts on the identical condition.
+# "Wired" means the status is captured AND the exit-3 branch actually aborts.
+# Two independent greps proved only that a call and a comparison exist
+# somewhere in the file; a regression that logged status 3 and carried on
+# would still have passed (review 5265948835, finding 2). The abort is read
+# out of the `if [ "$_health_rc" -eq 3 ]` block itself.
 _health_wiring() {
-  local f="$1"
-  grep -q 'opencode-health.sh" || _health_rc=\$?' "$f" && \
-    grep -q '_health_rc" -eq 3' "$f" && echo wired || echo bare
+  local f="$1" block
+  grep -q 'opencode-health.sh" || _health_rc=\$?' "$f" || { echo bare; return; }
+  block="$(awk '/if \[ "\$_health_rc" -eq 3 \]/ { on = 1 } on { print } on && /^[[:space:]]*fi[[:space:]]*$/ { exit }' "$f")"
+  [ -n "$block" ] || { echo bare; return; }
+  printf '%s\n' "$block" | grep -qE '^[[:space:]]*exit 1[[:space:]]*$' && echo wired || echo bare
 }
+# Mutation of the matcher itself: the same block with the abort replaced by a
+# log line must read as bare, or the check above is decoration.
+_hw_mut="$(mktemp)"
+sed 's/^\([[:space:]]*\)exit 1$/\1echo "would abort"/' "$SCRIPT_DIR/run-review.sh" > "$_hw_mut"
+check "the wiring check turns red when the exit-3 branch stops aborting" \
+  "bare" "$(_health_wiring "$_hw_mut")"
+rm -f "$_hw_mut"
 check "run-review.sh acts on the fatal binding status" \
   "wired" "$(_health_wiring "$SCRIPT_DIR/run-review.sh")"
 check "the analyse workflow acts on it too" \
