@@ -421,7 +421,14 @@ fi
 # storage nouns, while the named-store forms — "the object-store write is
 # redundant with the database write", "the secondary write is unnecessary" —
 # are matched explicitly. Both lists below carry the concise phrasings that
-# broke the previous pattern in each direction.
+# broke the previous pattern in each direction. Round three (review
+# 5264311874, finding 2) adds the active-verb and adverb forms — "writing to
+# both stores DUPLICATES the data", "NEEDLESSLY writes twice" — keyed on an
+# architectural subject (both/dual/object-store/archive …), because a bare
+# "duplicates the entry" is what a retry finding says too. The pattern is kept
+# under the complexity ceiling of non-GNU greps on purpose: a longer draft
+# compiled on GNU grep and was rejected by another implementation outright,
+# which would read as "nothing forbidden" and pass every sample.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -438,6 +445,11 @@ done <<'POS'
 - 🟡 [VERIFIED] Medium Priority: The secondary write is unnecessary because the database already holds the payload.
 - 🟡 [VERIFIED] Medium Priority: The object store copy is redundant.
 - 🔵 [VERIFIED] Low Priority: Persisting the same payload to the object store is a needless second copy.
+- 🟠 [VERIFIED] High Priority: Writing to both stores duplicates the data for no benefit.
+- 🟡 [VERIFIED] Medium Priority: The handler needlessly writes the same payload twice.
+- 🟡 [VERIFIED] Medium Priority: The payload is unnecessarily duplicated across the database and the object store.
+- 🟡 [VERIFIED] Medium Priority: The object store write is duplicating the entry already persisted in the database.
+- 🔵 [VERIFIED] Low Priority: Storing the payload in both places is wasteful; the archive duplicates the primary row.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -458,6 +470,9 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: Retries can cause duplicate writes.
 - 🟡 [VERIFIED] Medium Priority: A retry could duplicate the write to the object store.
 - 🟡 [VERIFIED] Medium Priority: Without idempotency, a retried PutAsync produces duplicate objects in the archive.
+- 🟡 [VERIFIED] Medium Priority: A retried command duplicates the object-store upload because the key is regenerated.
+- 🟡 [VERIFIED] Medium Priority: Retrying after a partial failure duplicates the entry unless PutAsync is idempotent.
+- 🟡 [VERIFIED] Medium Priority: If the object store call is retried it will duplicate the payload upload; make it idempotent on entry.Id.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
