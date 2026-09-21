@@ -462,6 +462,21 @@ inventory_case reject "parents collide too: x/index.ts names neither" "$DEEP" \
 inventory_case accept "parents collide too: both named with the distinguishing root" "$DEEP" \
   '### \xf0\x9f\x93\x84 File: \x60a/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n'
 echo "✓ shape predicate: colliding basenames need the shortest unique trailing path"
+# Review 5266102870, finding 1 claimed glob metacharacters in a path defeat the
+# unique-suffix search. They do not: the suffix is QUOTED inside the case
+# pattern, so `[id]` and `*` are literal, and the mention matcher escapes
+# regex metacharacters. Pinned so the claim cannot be re-raised unverified.
+GLOB=$'src/api/[id]/page.tsx\nsrc/web/[id]/page.tsx'
+inventory_case reject "dynamic-route paths: only api/[id] named" "$GLOB" \
+  '### \xf0\x9f\x93\x84 File: \x60api/[id]/page.tsx\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case reject "dynamic-route paths: the ambiguous [id]/page.tsx names neither" "$GLOB" \
+  '### \xf0\x9f\x93\x84 File: \x60[id]/page.tsx\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "dynamic-route paths: both named" "$GLOB" \
+  '### \xf0\x9f\x93\x84 File: \x60src/api/[id]/page.tsx\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/web/[id]/page.tsx\x60\n\n**Issues Found:**\n- None found.\n'
+STAR=$'src/x/*.ts\nsrc/y/*.ts'
+inventory_case reject "star in a path is literal: only x/*.ts named" "$STAR" \
+  '### \xf0\x9f\x93\x84 File: \x60x/*.ts\x60\n\n**Issues Found:**\n- None found.\n'
+echo "✓ shape predicate: glob metacharacters in paths are literal in the suffix search"
 # Review 5263727118, finding 3. A mention is a whole token: `app.js.map` and
 # `myapp.js` are not mentions of `app.js`, while `src/app.js:12` and a
 # backticked `app.js` are. Dots in the suffix are literal, not wildcards.
