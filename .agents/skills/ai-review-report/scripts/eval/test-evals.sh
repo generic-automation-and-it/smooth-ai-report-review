@@ -465,7 +465,11 @@ fi
 # redundant write to the archive" are retry-amplification findings, so
 # "write(s)/written" leave the adjective-first branch; the redundancy sense
 # of a write is still caught by the named-subject branch ("the second write
-# ... is a duplicate") and the both-stores branches.
+# ... is a duplicate") and the both-stores branches. Round eleven (review
+# 5266762643, finding 2): "duplicates the payload across both stores" — the
+# duplicate VERB with a both-stores object — sat outside every branch; a
+# narrow verb→(across|in|to) (both|two|dual) stores branch is added, and a
+# retry sentence that duplicates an upload to ONE archive is pinned as ignored.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -496,6 +500,7 @@ done <<'POS'
 - 🟡 [VERIFIED] Medium Priority: The object-store copy is wasteful and should be removed.
 - 🟡 [VERIFIED] Medium Priority: The second write is pointless; the database row already holds the payload.
 - 🟠 [VERIFIED] High Priority: The payload is stored redundantly in both backends.
+- 🟠 [VERIFIED] High Priority: The handler duplicates the payload across both stores for no benefit.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -534,6 +539,7 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: On a partial failure the entry is written again to the object store by the retry.
 - 🟡 [VERIFIED] Medium Priority: Retries cause unnecessary archive writes.
 - 🟡 [VERIFIED] Medium Priority: A retry produces a redundant write to the archive when the first upload actually succeeded.
+- 🟡 [VERIFIED] Medium Priority: A retried command duplicates the upload to the archive because the key is regenerated.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
