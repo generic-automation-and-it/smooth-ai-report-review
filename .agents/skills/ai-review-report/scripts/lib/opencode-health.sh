@@ -78,7 +78,18 @@ export OPENCODE_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_COD
 # bounded without relying on GNU `timeout` (local runs may be on macOS).
 opencode api get /api/info >"$OUT" 2>"$LOG" &
 _api_pid=$!
-trap '[ -n "${_api_pid:-}" ] && kill "$_api_pid" 2>/dev/null; wait "$_api_pid" 2>/dev/null || true; rm -f "$LOG" "$OUT" "$CFG" 2>/dev/null || true' EXIT
+# Cleanup on ANY exit is bounded and covers BOTH probes. The first trap did a
+# plain kill + wait on the liveness probe only: a child ignoring SIGTERM left
+# `wait` blocked forever (the exact hang _oh_terminate exists to prevent), and
+# an interruption during config inspection left that child running because its
+# pid was not in the trap at all (review 5266005570, finding 3).
+_cfg_pid=""
+_oh_cleanup() {
+  [ -z "${_api_pid:-}" ] || _oh_terminate "$_api_pid"
+  [ -z "${_cfg_pid:-}" ] || _oh_terminate "$_cfg_pid"
+  rm -f "$LOG" "$OUT" "$CFG" 2>/dev/null || true
+}
+trap _oh_cleanup EXIT
 
 DEADLINE=$((SECONDS + TIMEOUT))
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
@@ -190,6 +201,7 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
     # "not confirmed" classification as an empty one.
     _cfg_rc=0
     wait "$_cfg_pid" || _cfg_rc=$?
+    _cfg_pid=""
     if [ "$_cfg_rc" -ne 0 ]; then
       : > "$CFG"
     fi
