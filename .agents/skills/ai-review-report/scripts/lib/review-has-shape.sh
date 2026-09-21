@@ -215,7 +215,9 @@ _rhs_tail="$(mktemp)"
 # Heading match is case-insensitive: a lowercase `file:` heading would not
 # reset the buffer, so an earlier section's `None found` vouched for a last
 # section the model never finished (review 5266192686, finding 1).
-awk '{ low = tolower($0) } low ~ /^#+[[:space:]].*file:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
+# `files:` too — a consolidated heading (`### 📄 Files: a.cs, b.cs`) must
+# reset the buffer like a single-file one (review 5266540555, finding 1).
+awk '{ low = tolower($0) } low ~ /^#+[[:space:]].*files?:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
   "$_rhs_src" > "$_rhs_tail" 2>/dev/null || cp "$_rhs_src" "$_rhs_tail"
 [ -s "$_rhs_tail" ] || cp "$_rhs_src" "$_rhs_tail" 2>/dev/null
 

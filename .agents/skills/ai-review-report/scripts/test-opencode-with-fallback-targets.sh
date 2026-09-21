@@ -457,6 +457,10 @@ inventory_case accept "consolidated heading naming both files" "$TWO" \
 # on the heading, so a lowercase `file:` cannot let file A vouch for file B.
 predicate_case reject "lowercase file heading, last section truncated" \
   '### \xf0\x9f\x93\x84 file: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 file: \x60b.cs\x60\n\n**Issues Found:**\n'
+# Review 5266540555, finding 1: a plural `Files:` heading resets the buffer
+# too, so a consolidated earlier section cannot vouch for a truncated last one.
+predicate_case reject "plural Files heading, last section truncated" \
+  '### \xf0\x9f\x93\x84 Files: \x60a.cs\x60, \x60b.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 Files: \x60c.cs\x60\n\n**Issues Found:**\n'
 # Review 5263417133, finding 3. Two chunk files with the SAME basename: a
 # mention of `index.ts` must not vouch for both. The required mention is the
 # shortest unique trailing path — `api/index.ts` / `web/index.ts` here — so a
