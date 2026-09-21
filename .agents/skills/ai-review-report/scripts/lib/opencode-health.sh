@@ -46,16 +46,23 @@ set -u
 # enforce becomes a no-op and the caller hangs instead of failing. That is the
 # opposite of the intent — the probe is bounded precisely because "opencode is
 # wedged" is the condition it has to detect.
+# The probes are started with job control on (`set -m` around the `&`), which
+# puts each in its OWN process group whose id is its pid — so the terminator
+# can signal the group (`kill -- -pid`) and take the probe's children with it.
+# Signalling only the wrapper pid left a wedged probe's child running after
+# the caller had moved on (review 5266762643, finding 3); local-review.sh's
+# timeout shim kills the group for the same reason. `set -m` is a bash
+# builtin, so this stays portable to macOS where `setsid` is absent.
 _oh_terminate() {
   _oh_pid="$1"
   _oh_grace=5
-  kill "$_oh_pid" 2>/dev/null || true
+  kill -- "-$_oh_pid" 2>/dev/null || kill "$_oh_pid" 2>/dev/null || true
   while [ "$_oh_grace" -gt 0 ] && kill -0 "$_oh_pid" 2>/dev/null; do
     sleep 1
     _oh_grace=$((_oh_grace - 1))
   done
   if kill -0 "$_oh_pid" 2>/dev/null; then
-    kill -9 "$_oh_pid" 2>/dev/null || true
+    kill -9 -- "-$_oh_pid" 2>/dev/null || kill -9 "$_oh_pid" 2>/dev/null || true
   fi
   wait "$_oh_pid" 2>/dev/null || true
 }
@@ -76,8 +83,10 @@ export OPENCODE_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_COD
 
 # Run the supported v2 diagnostic in the background so a wedged service remains
 # bounded without relying on GNU `timeout` (local runs may be on macOS).
+set -m
 opencode api get /api/info >"$OUT" 2>"$LOG" &
 _api_pid=$!
+set +m
 # Cleanup on ANY exit is bounded and covers BOTH probes. The first trap did a
 # plain kill + wait on the liveness probe only: a child ignoring SIGTERM left
 # `wait` blocked forever (the exact hang _oh_terminate exists to prevent), and
@@ -182,8 +191,10 @@ _cfg_bound_to() { # _cfg_bound_to <managed-path> <sources-file>
 # (no GNU `timeout` on macOS).
 if [ -n "${OPENCODE_CONFIG:-}" ]; then
   : > "$CFG"
+  set -m
   opencode debug config >"$CFG" 2>/dev/null &
   _cfg_pid=$!
+  set +m
   _cfg_deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$_cfg_deadline" ]; do
     kill -0 "$_cfg_pid" 2>/dev/null || break

@@ -30,7 +30,14 @@ if [ "${1:-}" = debug ] && [ "${2:-}" = config ]; then
 fi
 [ "${1:-}" = api ] && [ "${2:-}" = get ] && [ "${3:-}" = /api/info ] || exit 64
 if [ -n "${STUB_IGNORE_TERM:-}" ]; then trap '' TERM INT; fi
-[ -z "${STUB_SLEEP:-}" ] || sleep "$STUB_SLEEP"
+if [ -n "${STUB_SLEEP:-}" ]; then
+  # A real child, recorded, so the test can assert the terminator took the
+  # probe's process GROUP and not just the wrapper.
+  sleep "$STUB_SLEEP" &
+  _stub_child=$!
+  [ -z "${STUB_CHILD_PID_FILE:-}" ] || printf '%s\n' "$_stub_child" > "$STUB_CHILD_PID_FILE"
+  wait "$_stub_child"
+fi
 printf '%s\n' "${STUB_PAYLOAD:-{\"version\":\"2.0.11\",\"pid\":42}}"
 exit "${STUB_RC:-0}"
 STUB
@@ -155,12 +162,24 @@ _health_rc=0
 _t0=$(date +%s)
 env -i PATH="$TMP/bin:/usr/bin:/bin" STUB_CALL_LOG="$TMP/calls" \
   STUB_IGNORE_TERM=1 STUB_SLEEP=120 OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=2 \
+  STUB_CHILD_PID_FILE="$TMP/wedged.child" \
   bash "$HEALTH" > "$TMP/wedged.out" 2>&1 || _health_rc=$?
 _elapsed=$(( $(date +%s) - _t0 ))
 [ "$_health_rc" -ne 0 ] || fail "a wedged probe was reported healthy"
 [ "$_elapsed" -lt 30 ] \
   || fail "the probe was not bounded — took ${_elapsed}s against a 2s timeout (SIGTERM ignored, no SIGKILL escalation?)"
 ok "a probe ignoring SIGTERM is still killed and bounded (${_elapsed}s)"
+# ...and its CHILD went with it. Killing only the wrapper pid left the
+# probe's sleep running as an orphan after the caller had moved on (review
+# 5266762643, finding 3); the terminator now signals the process group.
+_child="$(cat "$TMP/wedged.child" 2>/dev/null || true)"
+[ -n "$_child" ] || fail "the wedged stub did not record its child pid"
+sleep 1
+if kill -0 "$_child" 2>/dev/null; then
+  kill -9 "$_child" 2>/dev/null || true
+  fail "the timed-out probe left its child process $_child running — the terminator must signal the process group"
+fi
+ok "the timed-out probe's child process is gone too (process-group termination)"
 
 # --- A path that merely CONTAINS the managed path is a foreign binding -------
 # The check was `grep -F` on the managed path, which is a substring test: a
