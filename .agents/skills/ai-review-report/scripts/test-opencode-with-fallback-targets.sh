@@ -398,6 +398,56 @@ predicate_case reject "list placeholder with narration trailing after it" \
   '**Issues Found:**\n- None found yet, continuing to read the handler'
 predicate_case accept "inline placeholder followed by the pre-existing section" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
+
+# --- The compact multi-tier placeholder line (consumer PR 95, run 35640330645)
+# A clean file reported with all four tiers on ONE line used to be REJECTED: the
+# tier pattern anchored `$` straight after the first "none found", and a clean
+# file has no `file:line` for the anchor fallback to catch. The complete review
+# was then dumped to stderr by opencode-with-fallback.sh and surfaced as a chunk
+# failure indistinguishable from an API error. That is why `deepseek-v4-pro`
+# could not hold the primary slot -- the compact line is its house style, so any
+# chunk containing a clean file died on formatting, not on content.
+#
+# The accept cases below are that shape. The reject cases are the anti-truncation
+# property the `$` anchor was there to protect (review 5264311874, finding 1),
+# which must survive the relaxation: a separator may only be followed by another
+# COMPLETE tier placeholder, never by narration.
+predicate_case accept "compact four-tier placeholder on one line" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found \xc2\xb7 \xf0\x9f\x9f\xa0 High: None found \xc2\xb7 \xf0\x9f\x9f\xa1 Medium: None found \xc2\xb7 \xf0\x9f\x94\xb5 Low: None found\n'
+predicate_case accept "compact four-tier placeholder, pipe separated" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found | \xf0\x9f\x9f\xa0 High: None found | \xf0\x9f\x9f\xa1 Medium: None found | \xf0\x9f\x94\xb5 Low: None found\n'
+predicate_case accept "compact placeholder with no list marker" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n\xf0\x9f\x94\xb4 Critical: None found \xc2\xb7 \xf0\x9f\x9f\xa0 High: None found \xc2\xb7 \xf0\x9f\x9f\xa1 Medium: None found \xc2\xb7 \xf0\x9f\x94\xb5 Low: None found\n'
+predicate_case accept "compact placeholder carrying [VERIFIED] tags" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found \xc2\xb7 \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: None found\n'
+predicate_case reject "compact placeholder that trails off into narration" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found \xc2\xb7 \xf0\x9f\x94\xb5 Low: None found so far but let me check the callers'
+predicate_case reject "a tier placeholder followed by narration, not a tier" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found yet, continuing to read the handler'
+predicate_case reject "compact chain that never reaches the low tier" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found \xc2\xb7 \xf0\x9f\x9f\xa0 High: None found\n'
+
+# --- A real Low finding satisfies the low tier (consumer PR 93, run 35645178034)
+# The commonest section shape there is -- clean Critical/High/Medium plus one
+# genuine Low finding -- used to be REJECTED. No low placeholder existed (the
+# model found something), and the anchor route needs a literal in-chunk
+# `file:line` that a finding written as "(line 106)", or one about a
+# neighbouring file, does not carry. The complete review was discarded.
+#
+# It cost that run chunks 0, 3 and 4, and chunk 0 twice more on retry,
+# fail-closing the PR to REQUEST_CHANGES over a review written correctly three
+# times. Model-independent: glm-5.2 lost its AGENTS.md section the same way.
+predicate_case accept "clean tiers plus a real Low finding, prose location" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: None found\n- \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: the changelog row (line 106) announces an area the layout table never rows\n'
+predicate_case accept "clean tiers plus a Low finding about another file" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x94\xb5 [SPECULATIVE] Low Priority: the launchers under npm/cli/ hardcode spawn("python3") at npm/cli/_run.js:18\n'
+# The relaxation must not swallow a response cut off before the finding text.
+predicate_case reject "a low tier cut off before any content" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x94\xb5 Low Priority:'
+# ...and with no complete placeholder chain anywhere, a lone low line is not
+# evidence the model reached the end of the tier list.
+predicate_case reject "a lone low line with no tier placeholder present" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb5 Low Priority: something looks off in the handler and I am still'
 # Review 5264530992, finding 1: the placeholder must sit INSIDE the Issues
 # Found subsection. The template's Pre-existing section carries its own
 # "None found", and an empty Issues Found followed by it is not a clean review.
