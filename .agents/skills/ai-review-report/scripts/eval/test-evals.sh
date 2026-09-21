@@ -482,7 +482,10 @@ fi
 # and the object store", so "unnecessarily duplicated across the database and
 # the object store" still counts while nothing keyed on a single destination
 # or "every retry" does. Consolidating rather than adding is what kept the
-# pattern under the ugrep complexity canary.
+# pattern under the ugrep complexity canary. Round fourteen (review
+# 5267080615, finding 1): "the database and object storage is redundant" puts
+# the generic noun "storage" in the reverse-order branch's second noun slot;
+# that slot now accepts it, and the exact previously missed wording is pinned.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -510,6 +513,7 @@ done <<'POS'
 - 🟠 [VERIFIED] High Priority: Storing the payload in both the database and object store duplicates the data.
 - 🟡 [VERIFIED] Medium Priority: Writing the payload to both the primary database and the object store is redundant.
 - 🟡 [VERIFIED] Medium Priority: Keeping the entry in both the object store and the database is unnecessary.
+- 🟠 [VERIFIED] High Priority: Keeping the payload in the database and object storage is redundant.
 - 🟡 [VERIFIED] Medium Priority: The object-store copy is wasteful and should be removed.
 - 🟡 [VERIFIED] Medium Priority: The second write is pointless; the database row already holds the payload.
 - 🟠 [VERIFIED] High Priority: The payload is stored redundantly in both backends.
