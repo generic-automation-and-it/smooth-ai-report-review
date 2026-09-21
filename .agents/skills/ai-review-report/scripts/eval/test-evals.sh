@@ -460,7 +460,12 @@ fi
 # 5266540555, finding 3): "stored redundantly in both backends" puts the
 # adverb AFTER the verb; a verb-then-adverb branch is added, still requiring a
 # multiplicity word, and "twice" is deliberately not in its adverb list — "the
-# entry is written twice ... by the retry" is a retry finding.
+# entry is written twice ... by the retry" is a retry finding. Round ten
+# (review 5266682360, finding 2): "unnecessary archive writes" and "a
+# redundant write to the archive" are retry-amplification findings, so
+# "write(s)/written" leave the adjective-first branch; the redundancy sense
+# of a write is still caught by the named-subject branch ("the second write
+# ... is a duplicate") and the both-stores branches.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -527,6 +532,8 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: The row is stored unnecessarily early, before the archive call has been confirmed.
 - 🟡 [VERIFIED] Medium Priority: The row is persisted needlessly early; nothing reads it before the archive write completes.
 - 🟡 [VERIFIED] Medium Priority: On a partial failure the entry is written again to the object store by the retry.
+- 🟡 [VERIFIED] Medium Priority: Retries cause unnecessary archive writes.
+- 🟡 [VERIFIED] Medium Priority: A retry produces a redundant write to the archive when the first upload actually succeeded.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
