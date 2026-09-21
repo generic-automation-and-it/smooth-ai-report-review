@@ -151,9 +151,18 @@ awk -v mapdata="$map" -v tol="$TOLERANCE" '
       m   = substr(rest, RSTART, RLENGTH)
       after = substr(rest, RSTART + RLENGTH, 1)
       rest = substr(rest, RSTART + RLENGTH)
-      # A range or a list continues past this number, so one anchor cannot
-      # resolve it. Leave the whole reference exactly as the model wrote it.
+      # A reference to SEVERAL findings cannot be resolved by one anchor, so it
+      # is left exactly as the model wrote it. Detecting only a trailing `-` or
+      # `,` was not enough (review 5271360715, finding 2): prose separators are
+      # at least as common, and rewriting just the first number produced a mixed
+      # reference -- "findings 1 and 2" became "findings 7 and 2", pointing the
+      # reader at one correct and one wrong finding, which is worse than the
+      # untouched original. Two signals, either sufficient:
+      #   1. the PLURAL word itself -- "findings" can never denote one item;
+      #   2. a separator (punctuation or prose) followed by another number.
+      if (tolower(m) ~ /findings/) { out = out pre m; continue }
       if (after == "-" || after == ",") { out = out pre m; continue }
+      if (rest ~ /^[ \t]*(and|or|to|through|thru|&|\+|-|,|;|\/)[ \t]*[0-9]/) { out = out pre m; continue }
       if (anchor_state == "ambig") { out = out pre m; continue }
       if (anchor_state == "none") {
         word = (m ~ /^F/) ? "No numbered finding" : "no numbered finding"

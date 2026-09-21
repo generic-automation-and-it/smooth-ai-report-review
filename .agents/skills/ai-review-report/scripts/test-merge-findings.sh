@@ -1549,6 +1549,31 @@ AJ
 TJ
   printf '## 📝 Suggested Fixes\n\n### `src/b.ts:90`\n**Issue**: drifted anchor (🔵 Low, finding 4)\n' \
     > "$TMP_DIR/s28-tol.md"
+  # Plural references stay untouched: one anchor cannot resolve a set. Detecting
+  # only a trailing `-` or `,` was not enough (review 5271360715, finding 2) --
+  # prose separators rewrote the FIRST number and left the rest, so
+  # "findings 1 and 2" became "findings 7 and 2", which points the reader at one
+  # correct and one wrong finding. Worse than leaving it alone.
+  cat > "$TMP_DIR/s28-plural.json" <<'PJ'
+{"status":"complete","merged_chunks":[0],
+ "findings":[{"#":7,"severity":"medium","file":"src/a.ts","line":10},
+             {"#":8,"severity":"medium","file":"src/b.ts","line":20}],
+ "pre_existing_findings":[],"suppressed_findings":[],
+ "malformed_findings":0,"demoted_no_quote":0}
+PJ
+  printf '## 📝 Suggested Fixes\n\n### `src/a.ts:10`\n**Issue**: aggregates findings 1 and 2\n**Issue**: see findings 1 through 2\n**Issue**: either findings 1 or 2\n**Issue**: covers findings 1-2\n**Issue**: covers findings 1, 2\n**Issue**: singular finding 1 here\n' \
+    > "$TMP_DIR/s28-plural.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28-plural.json" "$TMP_DIR/s28-plural.md" 2>/dev/null || true
+  for _sep in "and" "through" "or"; do
+    check "Test 28q: a plural reference joined by \"$_sep\" is left untouched" "1" \
+      "$(grep -cF "findings 1 $_sep 2" "$TMP_DIR/s28-plural.md" || true)"
+  done
+  check "Test 28r: punctuation-joined plurals still untouched" "2" \
+    "$(grep -cE 'findings 1[-,] ?2' "$TMP_DIR/s28-plural.md" || true)"
+  check "Test 28s: no plural reference was partially rewritten" "0" \
+    "$(grep -cE 'findings 7' "$TMP_DIR/s28-plural.md" || true)"
+  check "Test 28t: a singular reference under the same anchor still repoints" "1" \
+    "$(grep -cF 'singular finding 7 here' "$TMP_DIR/s28-plural.md" || true)"
   bash "$RENUM_SH" "$TMP_DIR/s28-tol.json" "$TMP_DIR/s28-tol.md" 2>/dev/null || true
   check "Test 28l: a heading line-spec within tolerance still resolves" "1" \
     "$(grep -cF 'drifted anchor (🔵 Low, finding 1)' "$TMP_DIR/s28-tol.md" || true)"
