@@ -201,7 +201,11 @@ rtk_bin="${tmp_dir}/rtk_bin"
 mkdir -p "$rtk_bin"
 cat > "${rtk_bin}/rtk" <<'STUB'
 #!/bin/bash
-[ "${1:-}" = "--version" ] && echo "rtk ${STUB_RTK_VERSION:-0.40.0}"
+if [ "${1:-}" = "--version" ]; then
+  echo "rtk ${STUB_RTK_VERSION:-0.40.0}"
+elif [ "${1:-}" = "init" ] && [ "${2:-}" = "--help" ]; then
+  echo "Usage: rtk init [${STUB_RTK_INIT_HELP:---opencode}]"
+fi
 STUB
 chmod +x "${rtk_bin}/rtk"
 write_github_release "rtk-ai/rtk" "0.44.1"
@@ -220,7 +224,9 @@ grep -q 'v0.44.0' "${tmp_dir}/rtk_update_available.info" || fail "current rtk ve
 grep -q 'v0.44.1' "${tmp_dir}/rtk_update_available.info" || fail "latest rtk version missing from header"
 grep -q 'OPENCODE_TOOL_RTK_VERSION' "${tmp_dir}/rtk_update_available.info" \
   || fail "rtk update notice does not name the Variable to bump"
-ok "header announces an available rtk update and names the Variable"
+grep -q 'OpenCode integration bypassed.*--opencode-v2' "${tmp_dir}/rtk_update_available.info" \
+  || fail "rtk update line hid that OpenCode v2 integration is bypassed"
+ok "header announces the rtk update and the temporary OpenCode v2 bypass"
 
 # opencode CLI is current in this run (STUB_OPENCODE_VERSION=2.0.11 == the
 # update fixture) and code-review-graph is absent, so nothing has claimed the
@@ -237,7 +243,22 @@ grep -q '\*\*rtk:\*\*' "${tmp_dir}/rtk_up_to_date.info" \
   || fail "rtk line missing when rtk is installed"
 grep -q 'rtk.*⬆️\|⬆️.*rtk' "${tmp_dir}/rtk_up_to_date.info" \
   && fail "false update notice for rtk when current == latest"
-ok "rtk current == latest renders ✅ and no update notice"
+grep -q 'OpenCode integration bypassed.*--opencode-v2' "${tmp_dir}/rtk_up_to_date.info" \
+  || fail "current rtk binary falsely appeared active on OpenCode v2"
+grep -q '\*\*rtk:\*\*.*✅' "${tmp_dir}/rtk_up_to_date.info" \
+  && fail "bypassed rtk integration rendered a false success marker"
+ok "current RTK binary renders the OpenCode v2 bypass instead of a false ✅"
+
+run_check rtk_v2_compatible \
+  STUB_OPENCODE_VERSION=2.0.11 \
+  STUB_RTK_VERSION=0.44.1 \
+  STUB_RTK_INIT_HELP="--opencode --opencode-v2" \
+  PATH="${rtk_bin}:${stub_bin}:/usr/bin:/bin"
+grep -q '\*\*rtk:\*\*.*✅' "${tmp_dir}/rtk_v2_compatible.info" \
+  || fail "v2-compatible RTK did not restore the normal success marker"
+grep -q 'OpenCode integration bypassed' "${tmp_dir}/rtk_v2_compatible.info" \
+  && fail "v2-compatible RTK still rendered the bypass warning"
+ok "advertised --opencode-v2 support automatically restores active RTK status"
 
 echo ""
 echo "=========================================="

@@ -23,6 +23,8 @@
 #                                    isn't installed / RTK is disabled)
 #   RTK_LATEST_VERSION             — latest GitHub release tag (empty if
 #                                    unknown; rtk has no npm/PyPI package)
+#   RTK_OPENCODE_INTEGRATION_BYPASSED — true when OpenCode v2 is active but
+#                                    installed rtk lacks `--opencode-v2`
 #
 # All lookups are best-effort: every network call is bounded by --max-time and
 # a failure leaves the corresponding variable empty, which renders the report
@@ -123,6 +125,22 @@ if [ -n "$RTK_CURRENT_VERSION" ]; then
   RTK_LATEST_VERSION="$(_cv_github_latest_tag "$RTK_GITHUB_REPO")"
 fi
 
+# The RTK binary remains installed on OpenCode v2 even before its compatible
+# plugin exists. Probe the released CLI surface so the report distinguishes
+# "binary current" from "optimization active". A future RTK release exposing
+# --opencode-v2 automatically restores the normal current/update rendering.
+RTK_OPENCODE_INTEGRATION_BYPASSED="false"
+_cv_opencode_major="${OPENCODE_CLI_CURRENT_VERSION%%.*}"
+case "$_cv_opencode_major" in
+  ''|*[!0-9]*) ;;
+  *)
+    if [ "$_cv_opencode_major" -ge 2 ] && [ -n "$RTK_CURRENT_VERSION" ] \
+      && ! rtk init --help 2>&1 | grep -Eq -- '--opencode-v2([^[:alnum:]_-]|$)'; then
+      RTK_OPENCODE_INTEGRATION_BYPASSED="true"
+    fi
+    ;;
+esac
+
 # --- render -------------------------------------------------------------------
 # GitHub-flavoured Markdown; the report is a PR review body, so status is
 # carried by emoji (✅ current / ⬆️ update available) rather than ANSI colour.
@@ -182,6 +200,9 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
     if _cv_is_newer "$RTK_LATEST_VERSION" "$RTK_CURRENT_VERSION"; then
       OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **rtk:** \`v${RTK_CURRENT_VERSION}\` → **\`v${RTK_LATEST_VERSION}\`** available ⬆️ — bump \`OPENCODE_TOOL_RTK_VERSION\` ([releases](https://github.com/${RTK_GITHUB_REPO}/releases))"
+      if [ "$RTK_OPENCODE_INTEGRATION_BYPASSED" = "true" ]; then
+        OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}; ⚠️ OpenCode integration bypassed; awaiting \`--opencode-v2\`"
+      fi
       # The literal `*opencode CLI: v${OPENCODE_CLI_CURRENT_VERSION}*` below is
       # the priority-chain "current" sentinel: only the CLI's current branch
       # writes a non-arrow footer. rtk takes the footer over only when the
@@ -192,8 +213,13 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
         OPENCODE_VERSION_FOOTER="*rtk: v${RTK_CURRENT_VERSION} → v${RTK_LATEST_VERSION} available ⬆️*"
       fi
     else
-      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+      if [ "$RTK_OPENCODE_INTEGRATION_BYPASSED" = "true" ]; then
+        OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+- **rtk:** \`v${RTK_CURRENT_VERSION}\` ⚠️ OpenCode integration bypassed; awaiting \`--opencode-v2\`"
+      else
+        OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
 - **rtk:** \`v${RTK_CURRENT_VERSION}\` ✅"
+      fi
     fi
   fi
 fi
@@ -207,5 +233,5 @@ fi
 
 # Sourced into the caller's shell — clean up temporaries and helpers so they
 # don't leak into run-review.sh (same discipline as lib/resolve-provider.sh).
-unset _cv_have_jq
+unset _cv_have_jq _cv_opencode_major
 unset -f _cv_opencode_latest _cv_pypi_latest _cv_github_latest_tag _cv_is_newer

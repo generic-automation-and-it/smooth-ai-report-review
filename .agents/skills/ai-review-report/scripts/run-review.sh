@@ -559,11 +559,12 @@ if [ -x "$HOME/.opencode/bin/opencode" ]; then
   echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
 fi
 
-# 5c-bis. Install rtk-ai/rtk and wire its OpenCode plugin (LADR-054, opt-in).
-# Runs after opencode itself is installed and on PATH, since RTK's plugin
-# init targets opencode's config surface. Graceful degradation: a failure
-# here must not fail the review — RTK is a token-optimization enhancement,
-# not a hard dependency like opencode itself.
+# 5c-bis. Install rtk-ai/rtk and wire a compatible OpenCode plugin (LADR-054,
+# opt-in). On v2 the installer retains the binary but bypasses initialization
+# until `rtk init --help` advertises `--opencode-v2`. Runs after opencode is on
+# PATH because integration selection depends on its major version. Graceful
+# degradation: a failure here must not fail the review — RTK is a token-
+# optimization enhancement, not a hard dependency like opencode itself.
 _rtk_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
 if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -x "$LIB_DIR/install-rtk.sh" ]; then

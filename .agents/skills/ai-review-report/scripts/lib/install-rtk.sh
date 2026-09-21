@@ -11,9 +11,11 @@
 # hook had no equivalent interception point on opencode. RTK now ships a
 # first-class OpenCode plugin (`rtk init --opencode`), closing that gap, so
 # this lib re-adopted RTK wired to the opencode v1 plugin surface. OpenCode v2
-# has a new plugin API and RTK has not released its proposed `--opencode-v2`
-# integration yet, so this path is now skipped loudly on v2 (LADR-087). See
-# LADR-054 for the original decision record.
+# has a new plugin API; until RTK releases its proposed `--opencode-v2`
+# integration, this lib keeps the binary installed but bypasses only plugin
+# initialization. The feature probe makes a future compatible release activate
+# automatically without another gate change (LADR-087). See LADR-054 for the
+# original decision record.
 #
 # Inputs (env vars, all optional):
 #   OPENCODE_TOOL_RTK_VERSION  — version pin (leading `v` stripped);
@@ -33,36 +35,19 @@
 #   5. Post-install verify: warn (not hard-fail) on a version mismatch or a
 #      missing binary — RTK is a token-optimization enhancement, not a hard
 #      review dependency, so a bad install must degrade, not abort the gate.
-#   6. Init the OpenCode plugin hook non-interactively:
-#      `rtk init -g --opencode --auto-patch --hook-only`.
-#   7. Final echo: `✓ rtk ready (version: X)` on success.
+#   6. Select the OpenCode integration from `rtk init --help`: v1 uses
+#      `--opencode`; v2 uses `--opencode-v2` once RTK exposes it. Until then,
+#      bypass plugin initialization non-fatally while retaining the binary.
+#   7. Init the selected OpenCode plugin hook non-interactively.
+#   8. Final echo: `✓ rtk ready (version: X)` on active integration, or an
+#      explicit installed-but-bypassed line on OpenCode v2.
 #
 # Exit codes:
-#   0 — success (rtk installed and OpenCode plugin initialized)
+#   0 — success (rtk installed; OpenCode plugin initialized when compatible)
 #   1 — install or init failure (caller should degrade gracefully, i.e. treat
 #       non-zero as "RTK unavailable" and continue the review without it)
 
 set -uo pipefail
-
-# RTK's released `rtk init --opencode` writes a V1 plugin importing
-# @opencode-ai/plugin. OpenCode v2 does not execute V1 plugins. Installing it
-# would report success while providing zero token optimization, so skip before
-# downloading or mutating config. This is deliberately non-fatal: RTK is an
-# optional enhancement, never a review dependency.
-if command -v opencode >/dev/null 2>&1; then
-  _opencode_version="$(opencode --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){1,3}' | head -1 || true)"
-  _opencode_major="${_opencode_version%%.*}"
-  case "$_opencode_major" in
-    ''|*[!0-9]*) ;;
-    *)
-      if [ "$_opencode_major" -ge 2 ]; then
-        echo "⚠️  RTK disabled: released 'rtk init --opencode' installs a V1 plugin that OpenCode v2 cannot execute; continuing without RTK optimization." >&2
-        exit 0
-      fi
-      ;;
-  esac
-  unset _opencode_version _opencode_major
-fi
 
 REQUESTED_VERSION=""
 if [ -n "${OPENCODE_TOOL_RTK_VERSION:-}" ]; then
@@ -126,13 +111,37 @@ if [ "$REQUESTED_VERSION" != "latest" ] && [ "$installed_version" != "$REQUESTED
   echo "⚠️  rtk version mismatch: expected ${REQUESTED_VERSION}, got ${installed_version} — continuing anyway" >&2
 fi
 
+# Select the compatible OpenCode plugin surface. RTK's released `--opencode`
+# integration writes a V1 plugin importing @opencode-ai/plugin, which OpenCode
+# v2 cannot execute. Keep the binary installed so its version remains visible,
+# but do not write that incompatible plugin. Once a future RTK release exposes
+# `--opencode-v2`, the same feature probe activates it automatically.
+rtk_opencode_flag="--opencode"
+if command -v opencode >/dev/null 2>&1; then
+  opencode_version="$(opencode --version 2>/dev/null | grep -Eo '[0-9]+(\.[0-9]+){1,3}' | head -1 || true)"
+  opencode_major="${opencode_version%%.*}"
+  case "$opencode_major" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$opencode_major" -ge 2 ]; then
+        if rtk init --help 2>&1 | grep -Eq -- '--opencode-v2([^[:alnum:]_-]|$)'; then
+          rtk_opencode_flag="--opencode-v2"
+        else
+          echo "⚠️  rtk installed (version: ${installed_version}), but OpenCode integration was bypassed: this RTK release does not expose 'rtk init --opencode-v2'; continuing without RTK optimization." >&2
+          exit 0
+        fi
+      fi
+      ;;
+  esac
+fi
+
 # Wire the OpenCode plugin: -g (global, matches the ephemeral-runner scope of
-# every other install in this pipeline), --opencode (plugin, not the Claude
-# Code hook — LADR-054), --auto-patch (non-interactive, required for CI),
-# --hook-only (skip writing the human-facing RTK.md instructions file; no one
-# reads it on a runner that's destroyed at job end).
-if ! rtk init -g --opencode --auto-patch --hook-only; then
-  echo "⚠️  rtk init --opencode failed — continuing without RTK enrichment" >&2
+# every other install in this pipeline), the selected OpenCode integration
+# flag, --auto-patch (non-interactive, required for CI), and --hook-only (skip
+# writing the human-facing RTK.md instructions file; no one reads it on a
+# runner that's destroyed at job end).
+if ! rtk init -g "$rtk_opencode_flag" --auto-patch --hook-only; then
+  echo "⚠️  rtk init ${rtk_opencode_flag} failed — continuing without RTK enrichment" >&2
   exit 1
 fi
 
