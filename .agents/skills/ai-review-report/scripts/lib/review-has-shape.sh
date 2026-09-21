@@ -27,12 +27,31 @@
 # Bash 3.2 safe: local-review.sh reaches both callers without a Bash >= 4 guard.
 set -uo pipefail
 
+# Clean up ONLY what this script created. `_rhs_src` is the CALLER's file when
+# a path is passed — for `review-in-chunks.sh` that is `chunk_<n>.md` itself —
+# so it must never be on the cleanup list. A one-line "fix" for the leaked
+# stdin temp file (review 5261655825, finding 3) put `$_rhs_src` into the EXIT
+# trap unconditionally, and every chunk review was deleted the moment the
+# chunk gate finished validating it: the run log still said "✅ completed",
+# aggregation then found no chunk files, and eval run 35535795942 reported
+# INFRA on all 20 fixtures. Ownership is tracked in a separate variable, and
+# `test-opencode-with-fallback-targets.sh` pins both directions (a passed file
+# survives; a piped call leaves nothing behind).
+_rhs_own_src=""
+_rhs_tail=""
+_rhs_cleanup() {
+  [ -n "$_rhs_own_src" ] && rm -f "$_rhs_own_src" 2>/dev/null
+  [ -n "$_rhs_tail" ] && rm -f "$_rhs_tail" 2>/dev/null
+  return 0
+}
+trap _rhs_cleanup EXIT
+
 _rhs_src="${1:-}"
 if [ -n "$_rhs_src" ]; then
   [ -f "$_rhs_src" ] || exit 1
 else
   _rhs_src="$(mktemp)"
-  trap 'rm -f "$_rhs_src"' EXIT
+  _rhs_own_src="$_rhs_src"
   cat > "$_rhs_src"
 fi
 
@@ -65,7 +84,6 @@ fi
 # is the section, which keeps LADR-077's deliberate acceptance of findings
 # written without the template scaffolding.
 _rhs_tail="$(mktemp)"
-trap 'rm -f "$_rhs_src" "$_rhs_tail" 2>/dev/null' EXIT
 awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }' \
   "$_rhs_src" > "$_rhs_tail" 2>/dev/null || cp "$_rhs_src" "$_rhs_tail"
 [ -s "$_rhs_tail" ] || cp "$_rhs_src" "$_rhs_tail" 2>/dev/null

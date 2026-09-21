@@ -178,6 +178,46 @@ actual="$(shape_case noexec_predicate "${marker_dir}/shape-noexec.sh")"
 }
 echo "✓ predicate without an exec bit still runs"
 
+# Finding 3 of review 5261655825, and the regression its first fix caused. The
+# helper must clean up ONLY the temp file it created for piped input. When a
+# path is passed, that path is the CALLER's file — for the chunk gate it is
+# chunk_<n>.md itself — and an EXIT trap that removed it deleted every chunk
+# review right after validating it: the log still said "completed", the
+# aggregation found no chunk files, and eval run 35535795942 reported INFRA on
+# all 20 fixtures. Both directions are pinned: a passed file survives, and a
+# piped call leaves nothing behind in TMPDIR.
+owned_tmp="${marker_dir}/tmpdir"; mkdir -p "$owned_tmp"
+printf '%s' "$CLEAN" > "${marker_dir}/callers-chunk.md"
+TMPDIR="$owned_tmp" bash "$SHAPE" "${marker_dir}/callers-chunk.md" || {
+  echo "FAIL: the clean fixture must satisfy the predicate when passed as a path" >&2
+  exit 1
+}
+[ -f "${marker_dir}/callers-chunk.md" ] || {
+  echo "FAIL: the predicate deleted the caller's file when given a path" >&2
+  exit 1
+}
+[ -z "$(ls -A "$owned_tmp")" ] || {
+  echo "FAIL: path mode leaked a temp file: $(ls -A "$owned_tmp")" >&2
+  exit 1
+}
+printf '%s' "$CLEAN" | TMPDIR="$owned_tmp" bash "$SHAPE" || {
+  echo "FAIL: the clean fixture must satisfy the predicate when piped" >&2
+  exit 1
+}
+[ -z "$(ls -A "$owned_tmp")" ] || {
+  echo "FAIL: stdin mode leaked a temp file: $(ls -A "$owned_tmp")" >&2
+  exit 1
+}
+printf 'narration only\n' | TMPDIR="$owned_tmp" bash "$SHAPE" && {
+  echo "FAIL: narration must be rejected" >&2
+  exit 1
+}
+[ -z "$(ls -A "$owned_tmp")" ] || {
+  echo "FAIL: a rejecting stdin call leaked a temp file: $(ls -A "$owned_tmp")" >&2
+  exit 1
+}
+echo "✓ predicate cleans up only its own temp files; a passed chunk file survives"
+
 # Both gates must ask the SAME question, or the gap this closed reopens.
 grep -q 'lib/review-has-shape.sh' "${SCRIPT_DIR}/review-in-chunks.sh" || {
   echo "FAIL: review-in-chunks.sh no longer delegates to the shared shape predicate" >&2
