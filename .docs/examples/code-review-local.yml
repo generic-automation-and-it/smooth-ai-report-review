@@ -244,16 +244,17 @@ jobs:
           # v2 migration, surrounded by comments that had been updated to v2,
           # so it read as correct.
           #
-          # The SHA below is a head of the v2 migration PR (#149). Any SHA
-          # pinned from inside that PR is stale by construction — every later
-          # commit on the branch moves the tip — so once the PR merges, bump
-          # this to the merge commit or to a tagged v2 release; do not read the
-          # comment as a claim that this is the final v2 commit. A floating
-          # tag is deliberately NOT allowed here (see the versioning note at
-          # the top of this file), and `test-run-review.sh` asserts this stays
-          # a full 40-char SHA.
+          # The SHA below is the latest CODE commit of the v2 migration PR
+          # (#149) at the time this file was last touched. No commit inside a
+          # PR can name that PR's merge commit, so by construction this pin is
+          # "intermediate" until merge; it is re-bumped on every review round
+          # and then bumped once more to the merge commit or a tagged v2
+          # release. Reviewers: this is the documented state, not a stale
+          # pin. A floating tag is deliberately NOT allowed here (see the
+          # versioning note at the top of this file), and `test-run-review.sh`
+          # asserts this stays a full 40-char SHA.
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: 5e65e9612fb47211cb91b4bcdcb8870557156e84 # v2 migration PR head — bump after merge
+          ref: 89f7498dd2660830bf9d9eacb60ed6e8cf57da42 # v2 migration PR head — bump after merge
           path: .review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
