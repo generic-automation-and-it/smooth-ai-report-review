@@ -173,9 +173,23 @@ awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s
 # None found so far, but let me still check…" — a placeholder with narration
 # trailing off it, i.e. an unfinished response — was accepted (review
 # 5264311874, finding 1). The list-item form already required line end.
-if grep -qiF 'issues found' "$_rhs_tail"; then
-  if grep -qiE '^[[:space:]]*[-*].*none found[.]?[[:space:]]*$' "$_rhs_tail" \
-     || grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$' "$_rhs_tail"; then
+#
+# And scoped to the `Issues Found` SUBSECTION, not the whole tail: the
+# template puts `**Pre-existing (informational):**` after it with its own
+# `- None found` placeholder, so an empty Issues Found section followed by
+# that placeholder read as a clean review (review 5264530992, finding 1).
+# The subsection runs from the marker to the next bold `**Label:**` line or
+# heading; the inline form (`**Issues Found:** None found.`) is on the marker
+# line itself and so is always inside it.
+_rhs_issues="$(awk '
+  { low = tolower($0) }
+  low ~ /issues found/ { on = 1; print; next }
+  on && ($0 ~ /^#/ || $0 ~ /^[[:space:]]*\*\*[^*]+\*\*/) { on = 0 }
+  on { print }
+' "$_rhs_tail" 2>/dev/null)"
+if [ -n "$_rhs_issues" ]; then
+  if printf '%s\n' "$_rhs_issues" | grep -qiE '^[[:space:]]*[-*].*none found[.]?[[:space:]]*$' \
+     || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
     exit 0
   fi
 fi

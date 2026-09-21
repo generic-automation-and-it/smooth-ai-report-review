@@ -359,6 +359,17 @@ predicate_case reject "list placeholder with narration trailing after it" \
   '**Issues Found:**\n- None found yet, continuing to read the handler'
 predicate_case accept "inline placeholder followed by the pre-existing section" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
+# Review 5264530992, finding 1: the placeholder must sit INSIDE the Issues
+# Found subsection. The template's Pre-existing section carries its own
+# "None found", and an empty Issues Found followed by it is not a clean review.
+predicate_case reject "empty Issues Found vouched for by the Pre-existing placeholder" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n\n**Pre-existing (informational):**\n- None found\n'
+predicate_case reject "Issues Found truncated, Pre-existing placeholder from an earlier draft" \
+  '**Issues Found:**\n**Pre-existing (informational):** None found.\n'
+predicate_case accept "list placeholder under Issues Found, then Pre-existing placeholder" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n**Pre-existing (informational):**\n- None found\n'
+predicate_case accept "per-severity placeholders under Issues Found, then Pre-existing" \
+  '**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n- \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: None found\n\n**Pre-existing (informational):**\n- None found\n'
 
 # Review 5263305644, finding 2. Scoping to the last section cannot see a file
 # the model never mentioned: file A's complete section is then the last one
