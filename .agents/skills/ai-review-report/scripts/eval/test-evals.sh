@@ -440,7 +440,13 @@ fi
 # was added — so it is shorter than before while catching more. "duplicate(s)
 # the object store" no longer counts on its own: that is the retry sense
 # ("duplicates the object store upload"), and "duplicated in two stores" is
-# matched explicitly instead.
+# matched explicitly instead. Round six (review 5265948835, finding 1): "both
+# writes are duplicated on retry" and "retrying creates duplicate copies" are
+# retry findings too, so the past participle "duplicated" left the
+# subject-is-adjective branch (with a word boundary, so "duplicate" cannot
+# match its own prefix) and "copies" left the generic duplicate branch. The
+# redundancy sense of those words is still caught through the named-subject
+# and adverb branches.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -495,6 +501,9 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: The two backends can drift when the object store write fails after the database commit.
 - 🟡 [VERIFIED] Medium Priority: Storing the payload in both stores is required by DR-002, but a retry after a partial failure duplicates the object store upload unless it is idempotent.
 - 🟡 [VERIFIED] Medium Priority: Writing to both the database and the object store is the documented design; the risk is that a retried command duplicates the archive object.
+- 🟡 [VERIFIED] Medium Priority: On retry, both writes are duplicated because neither destination is idempotent.
+- 🟡 [VERIFIED] Medium Priority: Retrying creates duplicate copies in the archive.
+- 🟡 [VERIFIED] Medium Priority: Both writes are duplicated on retry.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
