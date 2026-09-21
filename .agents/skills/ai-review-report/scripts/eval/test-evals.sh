@@ -446,7 +446,13 @@ fi
 # subject-is-adjective branch (with a word boundary, so "duplicate" cannot
 # match its own prefix) and "copies" left the generic duplicate branch. The
 # redundancy sense of those words is still caught through the named-subject
-# and adverb branches.
+# and adverb branches. Round seven (review 5266343056, finding 3): the adverb
+# branch paired "unnecessarily/needlessly" with any storage verb, so an
+# ordering finding — "unnecessarily persists the primary row before the
+# archive call" — matched. With a storage VERB the adverb now also needs a
+# multiplicity word (twice/both/two/dual/second) within five words; with
+# "duplicat" it stands alone, because "unnecessarily duplicated" has no
+# ordering reading.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -504,6 +510,8 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: On retry, both writes are duplicated because neither destination is idempotent.
 - 🟡 [VERIFIED] Medium Priority: Retrying creates duplicate copies in the archive.
 - 🟡 [VERIFIED] Medium Priority: Both writes are duplicated on retry.
+- 🟡 [VERIFIED] Medium Priority: The handler unnecessarily persists the primary row before the archive call, so a failure between them leaves the stores inconsistent.
+- 🟡 [VERIFIED] Medium Priority: The code needlessly stores the entry before confirming the object store accepted it.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
