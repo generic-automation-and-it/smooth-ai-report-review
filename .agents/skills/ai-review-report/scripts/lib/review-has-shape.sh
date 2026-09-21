@@ -95,13 +95,39 @@ fi
 # requiring the full path would fail-close honest reviews. Applied only to
 # chunks of two or more files: a single-file chunk keeps LADR-077's
 # heading-free acceptance, where a `None found.` body need not name the file.
+#
+# Basename alone is not enough when two chunk files SHARE one — `src/api/index.ts`
+# and `src/web/index.ts` — because a mention of either satisfies both, and the
+# omitted one is counted reviewed (review 5263417133, finding 3). So the
+# required mention is the SHORTEST trailing path that is unique among the
+# expected files: `index.ts` when unique, `api/index.ts` when two collide,
+# longer only if the parents collide too. That stays lenient for the common
+# case and exact only where exactness is what disambiguates.
 if [ -n "${OPENCODE_EXPECTED_CHUNK_FILES:-}" ]; then
   _rhs_expected_n=0
   _rhs_missing=""
+  # Shortest unique suffix of <path> among all expected paths. Emits the
+  # suffix on stdout.
+  _rhs_unique_suffix() {
+    _rhs_p="$1"; _rhs_suf="$(basename "$_rhs_p")"; _rhs_rest="$(dirname "$_rhs_p")"
+    while :; do
+      _rhs_clash=0
+      while IFS= read -r _rhs_q; do
+        [ -n "$_rhs_q" ] && [ "$_rhs_q" != "$_rhs_p" ] || continue
+        case "$_rhs_q" in *"/$_rhs_suf"|"$_rhs_suf") _rhs_clash=1;; esac
+      done <<EOF_ALL
+${OPENCODE_EXPECTED_CHUNK_FILES}
+EOF_ALL
+      if [ "$_rhs_clash" -eq 0 ] || [ "$_rhs_rest" = "." ] || [ "$_rhs_rest" = "/" ] || [ -z "$_rhs_rest" ]; then
+        printf '%s' "$_rhs_suf"; return 0
+      fi
+      _rhs_suf="$(basename "$_rhs_rest")/$_rhs_suf"; _rhs_rest="$(dirname "$_rhs_rest")"
+    done
+  }
   while IFS= read -r _rhs_path; do
     [ -n "$_rhs_path" ] || continue
     _rhs_expected_n=$((_rhs_expected_n + 1))
-    grep -qF "$(basename "$_rhs_path")" "$_rhs_src" || _rhs_missing="${_rhs_missing}${_rhs_path}
+    grep -qF "$(_rhs_unique_suffix "$_rhs_path")" "$_rhs_src" || _rhs_missing="${_rhs_missing}${_rhs_path}
 "
   done <<EOF_EXPECTED
 ${OPENCODE_EXPECTED_CHUNK_FILES}

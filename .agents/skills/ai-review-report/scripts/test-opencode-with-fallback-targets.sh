@@ -361,6 +361,26 @@ inventory_case accept "single file, heading-free clean body (LADR-077)" 'src/a.c
 inventory_case reject "two files, both named, but the last section is truncated" "$TWO" \
   '### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/b.cs\x60\n\n**Issues Found:**\n'
 echo "✓ shape predicate: an omitted file in a multi-file chunk is not a completed review"
+# Review 5263417133, finding 3. Two chunk files with the SAME basename: a
+# mention of `index.ts` must not vouch for both. The required mention is the
+# shortest unique trailing path — `api/index.ts` / `web/index.ts` here — so a
+# review naming only one of them is rejected, one naming both by parent dir is
+# accepted, and a non-colliding sibling still needs only its basename.
+DUP=$'src/api/index.ts\nsrc/web/index.ts\nsrc/util/helpers.ts'
+inventory_case reject "duplicate basenames, only one index.ts reviewed" "$DUP" \
+  '### \xf0\x9f\x93\x84 File: \x60index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60helpers.ts\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case reject "duplicate basenames, full path for one, bare name for the other" "$DUP" \
+  '### \xf0\x9f\x93\x84 File: \x60src/api/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60helpers.ts\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "duplicate basenames, both named by parent directory" "$DUP" \
+  '### \xf0\x9f\x93\x84 File: \x60api/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60web/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60helpers.ts\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "duplicate basenames, both named by full path" "$DUP" \
+  '### \xf0\x9f\x93\x84 File: \x60src/api/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/web/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60src/util/helpers.ts\x60\n\n**Issues Found:**\n- None found.\n'
+DEEP=$'a/x/index.ts\nb/x/index.ts'
+inventory_case reject "parents collide too: x/index.ts names neither" "$DEEP" \
+  '### \xf0\x9f\x93\x84 File: \x60x/index.ts\x60\n\n**Issues Found:**\n- None found.\n'
+inventory_case accept "parents collide too: both named with the distinguishing root" "$DEEP" \
+  '### \xf0\x9f\x93\x84 File: \x60a/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n\n### \xf0\x9f\x93\x84 File: \x60b/x/index.ts\x60\n\n**Issues Found:**\n- None found.\n'
+echo "✓ shape predicate: colliding basenames need the shortest unique trailing path"
 
 # The transport honours the inventory too, so an omission falls through to the
 # fallback instead of consuming it — and every call site hands it over.
