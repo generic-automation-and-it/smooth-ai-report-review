@@ -176,19 +176,43 @@ if grep -qiF 'issues found' "$_rhs_tail"; then
   fi
 fi
 
-# Anchor: `some/file.ext:123`. Required for every finding-based acceptance.
-if grep -qE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' "$_rhs_tail"; then
-  # Severity emoji, each as its own -e pattern: these are multi-byte and a
-  # BRACKET expression over them decomposes into bytes and is locale-dependent.
-  # (Alternation is safe; the bracket form is the trap.)
-  grep -qE -e '🔴' -e '🟠' -e '🟡' -e '🔵' "$_rhs_tail" && exit 0
-  # Priority wording additionally requires the mandated section marker. On its
-  # own it matches ordinary prose, and prose can carry a location too — "check
-  # the high priority areas in run-review.sh:1196" satisfied both signals while
-  # containing no review. Narration does not emit `Issues Found`.
-  if grep -qiE '(critical|high|medium|low)[^[:alnum:]]{0,12}priority' "$_rhs_tail" \
-     && grep -qiF 'issues found' "$_rhs_tail"; then
-    exit 0
-  fi
-fi
+# Anchor: `some/file.ext:123`. Required for every finding-based acceptance —
+# and required INSIDE the finding, not anywhere in the section. The two
+# signals used to be tested independently over the whole tail, so narration
+# carrying a location ("Reading auth.cs:12 next.") followed by a finding
+# truncated at its severity label satisfied both and the cut-off review was
+# accepted (review 5264172516, finding 1). A finding is a block: it starts at
+# a line carrying a severity emoji or priority wording and runs to the next
+# such line or a heading. Continuation lines are NOT required to be indented —
+# models put the evidence line at column 0 often enough that demanding
+# indentation would fail-close honest reviews — but nothing BEFORE the block's
+# first line can vouch for it. Any anchored block accepts, not only the last
+# one: a complete review may legitimately END with a location-less advisory
+# ("an observation about naming in the same file") and the chunk-threshold
+# suite's honest-review control pins exactly that shape. The residual gap —
+# a complete finding followed by one truncated at its label — is the
+# prefix-truncation family LADR-087(d) already accepts as unwinnable by
+# inspection; closing it would fail-close honest reviews, which LADR-031
+# makes the more expensive error.
+#
+# Severity emoji are matched by alternation, never a bracket expression: they
+# are multi-byte and a bracket over them decomposes into bytes.
+_rhs_blocks="$(awk '
+  function close_block() { if (kind != "" && blk ~ A) hit[kind] = 1; kind = ""; blk = "" }
+  BEGIN { A = "[A-Za-z0-9_./-]+[.][A-Za-z0-9]+:[0-9]+" }
+  {
+    low = tolower($0)
+    if ($0 ~ /🔴|🟠|🟡|🔵/) { close_block(); kind = "e"; blk = $0; next }
+    if (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { close_block(); kind = "p"; blk = $0; next }
+    if ($0 ~ /^#/) { close_block(); next }
+    if (kind != "") blk = blk "\n" $0
+  }
+  END { close_block(); printf "%s%s", (hit["e"] ? "e" : ""), (hit["p"] ? "p" : "") }
+' "$_rhs_tail" 2>/dev/null)"
+case "$_rhs_blocks" in *e*) exit 0;; esac
+# Priority wording additionally requires the mandated section marker. On its
+# own it matches ordinary prose, and prose can carry a location too — "check
+# the high priority areas in run-review.sh:1196" satisfied both signals while
+# containing no review. Narration does not emit `Issues Found`.
+case "$_rhs_blocks" in *p*) grep -qiF 'issues found' "$_rhs_tail" && exit 0;; esac
 exit 1

@@ -308,6 +308,24 @@ predicate_case accept "multi-file, every section complete" \
 # halves were tested separately and passed; the combination never was.
 predicate_case reject "narration carrying a priority AND a location" \
   'Let me check the high priority areas in run-review.sh:1196 before reviewing.\n'
+# Review 5264172516, finding 1: the two signals must come from the SAME
+# finding. Narration with a location, then a finding cut off at its severity
+# label, satisfied both when they were tested independently over the section.
+predicate_case reject "narration anchor plus a truncated emoji finding" \
+  '**Issues Found:**\nReading auth.cs:12 next.\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority:'
+predicate_case reject "narration anchor plus a truncated priority-wording finding" \
+  '**Issues Found:**\nReading auth.cs:12 next.\n- High Priority:'
+# Any anchored finding accepts, not only the last: an honest review may end
+# with a location-less advisory, and the chunk-threshold suite's honest-review
+# control is exactly that shape. Fail-closing it blocks a clean PR (LADR-031).
+predicate_case accept "an anchored finding followed by a location-less advisory" \
+  '### Review\n\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: real finding with a location — `alpha/a.txt:1`.\n- \xf0\x9f\x94\xb5 [SPECULATIVE] Low Priority: an observation about naming in the same file.\n'
+predicate_case accept "narration before a complete finding is harmless" \
+  '**Issues Found:**\nReading auth.cs:12 next.\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at auth.cs:12\n'
+predicate_case accept "anchor on an indented evidence line of the finding" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged in plaintext.\n  - Evidence: `src/auth.cs:12 -- log.Info(token)`\n'
+predicate_case accept "anchor on an unindented continuation line of the finding" \
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged in plaintext.\n**Evidence:** `src/auth.cs:12`\n'
 # The "None found." clause keeps a bare literal ON PURPOSE: there the marker IS
 # the content — it is the complete statement the template asks for when there
 # is nothing to report — and a response cut off inside it does not match.
