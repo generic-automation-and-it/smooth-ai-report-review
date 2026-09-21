@@ -280,16 +280,98 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
     on { print }
   ' "$_rhs_sec" 2>/dev/null)"
   _rhs_ph_compact='^[[:space:]]*[-*][[:space:]]*none found[.]?[[:space:]]*$'
-  _rhs_ph_tier='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
-  _rhs_ph_low='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?low( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
+  # One tier placeholder: an optional emoji, an optional [VERIFIED]/[SPECULATIVE]
+  # tag, the severity keyword, then "none found".
+  _rhs_ph_tok='((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*none found[.]?'
+  _rhs_ph_low_tok='((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?low( priority)?[[:space:]]*:[[:space:]]*none found[.]?'
+  # A tier line is a CHAIN of those tokens, anchored at both ends, joined by
+  # anything non-alphanumeric. One token per line is the template form; several
+  # on one line is the compact form models actually emit:
+  #
+  #   - 🔴 Critical: None found · 🟠 High: None found · 🟡 Medium: None found · 🔵 Low: None found
+  #
+  # The old pattern anchored `$` straight after the FIRST "none found", so that
+  # line matched nothing, and a clean file has no `file:line` for the anchor
+  # fallback to find — so a complete, correct review of a clean file was
+  # rejected, dumped to stderr by opencode-with-fallback.sh, and reported as a
+  # chunk failure indistinguishable from an API error. Seen on consumer PR 95,
+  # run 35640330645. It is NOT the only way that happens — see the low-tier note
+  # below, which is the shape that actually cost run 35645178034 three chunks.
+  #
+  # The `$` anchor is NOT relaxed, because it is what rejects a truncated
+  # response (review 5264311874, finding 1): "- 🔴 Critical: None found yet,
+  # continuing to read the handler" still fails, since "yet" is alphanumeric and
+  # cannot be a separator, and no further token follows to reach the anchor.
+  # Only a run of complete tier placeholders can satisfy the whole line.
+  _rhs_ph_tier="^[[:space:]]*([-*][[:space:]]*)?${_rhs_ph_tok}([^[:alnum:]]*${_rhs_ph_tok})*[[:space:]]*$"
+  # Same chain, but it must CONTAIN a low-tier token. Keeping the chain shape on
+  # both sides is what stops "…Critical: None found - low confidence, still
+  # reading" from passing the pair test on a truncated line.
+  _rhs_ph_low="^[[:space:]]*([-*][[:space:]]*)?(${_rhs_ph_tok}[^[:alnum:]]*)*${_rhs_ph_low_tok}([^[:alnum:]]*${_rhs_ph_tok})*[[:space:]]*$"
+  # ...OR a low tier carrying a REAL finding rather than the placeholder.
+  #
+  # The paired test exists to prove the model emitted all four tiers, i.e. that
+  # it reached the end of the section instead of stopping partway. Requiring the
+  # low tier to say "none found" made that proof unobtainable for the single
+  # commonest section shape there is: clean Critical/High/Medium plus one
+  # genuine Low finding. Such a section satisfied neither route — no low
+  # placeholder, and the anchor route needs a literal `<in-chunk-file>:<line>`
+  # that a finding written as "(line 106)" or one about a neighbouring file does
+  # not carry. The complete review was then discarded.
+  #
+  # That is what cost run 35645178034 chunks 0, 3 and 4, and chunk 0 twice more
+  # on retry, fail-closing a PR to REQUEST_CHANGES on a review that had actually
+  # been written correctly three times. It is model-independent: `glm-5.2` lost
+  # its `AGENTS.md` section to it in the same run, on "(line 106)". A Low
+  # FINDING is evidence the model reached the low tier exactly as a Low
+  # PLACEHOLDER is, so accept either.
+  #
+  # Trade-off, accepted deliberately: this cannot distinguish a real low finding
+  # from one truncated mid-sentence, because a real finding is prose with no
+  # terminator to anchor on. The conjunction is what keeps it honest — a
+  # complete `_rhs_ph_tier` placeholder chain must ALSO be present, so a
+  # response that stopped before reaching the tier list still fails, and the
+  # `$`-anchored cases in test-opencode-with-fallback-targets.sh still reject.
+  # Discarding correct reviews and fail-closing clean PRs is the worse error.
+  #
+  # `[^[:space:]]` after the colon is load-bearing: it rejects a bare
+  # `- 🔵 Low Priority:` that was cut off before any content.
+  _rhs_low_line='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(low)( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  # ...and the three tiers above it must have been EMITTED, or the route proves
+  # nothing about completion (review 5271360715, finding 1). `_rhs_ph_tier` only
+  # proves that SOME one complete placeholder token exists, so on its own it let
+  # a section carrying Critical, High and a Low finding -- but no Medium at all
+  # -- pass as finished. That hole predates the low-finding route (the old
+  # placeholder pair accepted a bare Critical plus Low just as readily), but
+  # this route widened it, so it is fixed here.
+  #
+  # Presence, deliberately, NOT a placeholder: a tier that carries a real
+  # finding was emitted just as surely as one that says "none found", and
+  # demanding "none found" for Critical/High/Medium would re-create the exact
+  # defect this pair of fixes exists to close -- a section whose Medium finding
+  # writes its location as prose would fail both routes and be discarded.
+  _rhs_t_crit='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?critical( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  _rhs_t_high='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?high( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  _rhs_t_med='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?medium( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
   if [ -n "$_rhs_issues" ]; then
     if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
        || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
       return 0
     fi
-    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier" \
-       && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
-      return 0
+    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier"; then
+      # Route A -- every tier resolved to the placeholder (one per line, or the
+      # compact chain). Unchanged from before the low-finding route existed.
+      if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
+        return 0
+      fi
+      # Route B -- the low tier carries a real finding. Only completion evidence
+      # counts here, so all three tiers above it must be present too.
+      if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_low_line" \
+         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_crit" \
+         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_high" \
+         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_med"; then
+        return 0
+      fi
     fi
   fi
 

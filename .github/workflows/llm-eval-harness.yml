@@ -146,6 +146,16 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-run-review.sh
             .agents/skills/ai-review-report/scripts/test-install-rtk.sh
             .agents/skills/ai-review-report/scripts/test-check-versions.sh
+            # The LADR-055 structured-findings contract: the merge algorithm,
+            # sidecar extraction, Issues Summary rendering, the issue-125
+            # Recommendation sync, and the Suggested Fixes reconciliation. It
+            # asserts its own call sites in aggregate-reviews.sh, so a refactor
+            # that drops one is caught here rather than in a posted review.
+            .agents/skills/ai-review-report/scripts/test-merge-findings.sh
+            # Per-chunk context scope filtering. Both directions of error are
+            # real and asymmetric, so this pins the fail-open contract as hard
+            # as it pins the glob matching.
+            .agents/skills/ai-review-report/scripts/test-context-scope.sh
             .agents/skills/ai-review-report/scripts/eval/test-evals.sh
           )
           for test_script in "${tests[@]}"; do

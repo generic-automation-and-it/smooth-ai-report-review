@@ -818,12 +818,23 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
           fi
         fi
         # issue #125 also asks that `## 📝 Suggested Fixes` derive from the same
-        # post-validation set. It cannot: it is orchestrator prose with no
-        # deterministic mapping back to a merged finding. Rather than leave the
-        # reader to discover a suggested fix that has no numbered finding and
-        # conclude the report contradicts itself, say why — with counts — when
-        # the merge dropped, suppressed or demoted anything. Best-effort; a
-        # missing note is cosmetic.
+        # post-validation set. Its PROSE cannot — but its `finding N`
+        # cross-references must, and until now they did not: the orchestrator
+        # numbers against the Issues Summary it wrote, the splice above then
+        # replaces that summary with one merge-findings.py numbered in a
+        # different order, and every reference silently repoints at whatever
+        # took slot N (consumer PR #95, run 35640330645: three of four fix
+        # blocks cited a finding in a different file). Each block carries a
+        # `### \`file:line\`` anchor, which IS a deterministic key onto the
+        # merged set, so repoint from that. Runs before the note below so the
+        # note describes the reconciled section. Best-effort; a stale number is
+        # cosmetic.
+        bash "$(dirname "${BASH_SOURCE[0]}")/lib/renumber-suggested-fixes.sh" \
+          "$MERGED_FINDINGS_FILE" ci_temp/pr_summary_main.md || true
+        # Anchors that resolve to nothing are fixes the merge dropped,
+        # suppressed or demoted. The remapper words those as carrying no number;
+        # this says why, with counts, so the reader gets an explanation instead
+        # of concluding the report contradicts itself.
         bash "$(dirname "${BASH_SOURCE[0]}")/lib/annotate-suggested-fixes.sh" \
           "$MERGED_FINDINGS_FILE" ci_temp/pr_summary_main.md || true
       else

@@ -83,6 +83,10 @@ fi
 # These are configured in the workflow via MANDATORY_CONTEXT_FILES env variable.
 # The variable must be set; running without it drops all mandatory context and
 # violates the fail-closed invariant from LADR-025/029.
+# Mandatory paths are also recorded separately: the per-chunk scope filter
+# (lib/filter-context-scope.sh) keeps them regardless of any `applyTo` they
+# declare, because the consuming repo named them explicitly.
+> ci_temp/mandatory_context_files.txt
 echo "Adding mandatory context files..."
 if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
   echo "  ❌ MANDATORY_CONTEXT_FILES env variable not set" >&2
@@ -96,6 +100,7 @@ for ctx_file in $MANDATORY_CONTEXT_FILES; do
       continue
     fi
     echo "$ctx_file" >> ci_temp/relevant_agents_files.txt
+    echo "$ctx_file" >> ci_temp/mandatory_context_files.txt
     echo "  - $ctx_file (mandatory)"
   else
     # Missing paths are warned, not fatal: the default list is intentionally

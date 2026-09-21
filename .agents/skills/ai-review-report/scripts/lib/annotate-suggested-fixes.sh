@@ -6,18 +6,24 @@
 #   annotate-suggested-fixes.sh <merged_json> <summary_md>
 #
 # Issue #125 asks that severity sections, coverage counts, suggested fixes and
-# the verdict all derive from ONE post-validation finding set. Four of those five
-# now do. `## 📝 Suggested Fixes` cannot: it is the orchestrator's own prose,
-# written from the chunk markdown, and there is no deterministic mapping from a
-# prose fix paragraph back to a merged finding — rewriting it would mean asking a
-# model to redo the section, which is a second model call and a second thing that
-# can truncate.
+# the verdict all derive from ONE post-validation finding set. `## 📝 Suggested
+# Fixes` is the one that cannot be regenerated: it is the orchestrator's own
+# prose, written from the chunk markdown, and rewriting it would mean asking a
+# model to redo the section — a second model call and a second thing that can
+# truncate.
 #
-# So instead of pretending the section is synced, this makes the gap legible: when
-# the merge dropped, suppressed or demoted anything, a note under the heading says
-# so, with counts, and points at the Coverage block and the verbatim per-chunk
-# reviews. A reader who sees a fix with no numbered finding gets an explanation
-# instead of concluding the report contradicts itself.
+# Its `finding N` cross-references ARE reconciled, by the companion
+# `renumber-suggested-fixes.sh`, which resolves each block through the
+# `### `file:line`` anchor the prompt mandates rather than through the prose.
+# What that cannot do is invent a number for a block whose anchor resolves to
+# nothing, because the merge dropped, suppressed or demoted the finding behind
+# it — the remapper words those as carrying no number.
+#
+# This says WHY they carry none: a note under the heading, with counts, pointing
+# at the Coverage block and the verbatim per-chunk reviews. A reader who sees a
+# fix with no numbered finding gets an explanation instead of concluding the
+# report contradicts itself. Run AFTER the remapper, so the note describes the
+# reconciled section.
 #
 # No-ops (exit 0, file untouched) when: inputs are missing, jq is absent, the
 # merged document is not `complete`, there is no Suggested Fixes heading, nothing
