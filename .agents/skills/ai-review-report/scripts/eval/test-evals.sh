@@ -428,7 +428,10 @@ fi
 # "duplicates the entry" is what a retry finding says too. The pattern is kept
 # under the complexity ceiling of non-GNU greps on purpose: a longer draft
 # compiled on GNU grep and was rejected by another implementation outright,
-# which would read as "nothing forbidden" and pass every sample.
+# which would read as "nothing forbidden" and pass every sample. Round four
+# (review 5264530992, finding 2): "backend(s)" joins the store nouns, so
+# "using both backends is redundant" is caught while "the backends can drift"
+# (a consistency finding) is not.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -450,6 +453,9 @@ done <<'POS'
 - 🟡 [VERIFIED] Medium Priority: The payload is unnecessarily duplicated across the database and the object store.
 - 🟡 [VERIFIED] Medium Priority: The object store write is duplicating the entry already persisted in the database.
 - 🔵 [VERIFIED] Low Priority: Storing the payload in both places is wasteful; the archive duplicates the primary row.
+- 🟠 [VERIFIED] High Priority: Using both backends is redundant; one durable store is enough.
+- 🟡 [VERIFIED] Medium Priority: Both backends are redundant for this payload.
+- 🟡 [VERIFIED] Medium Priority: The secondary backend is unnecessary because the database already holds the data.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -473,6 +479,8 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: A retried command duplicates the object-store upload because the key is regenerated.
 - 🟡 [VERIFIED] Medium Priority: Retrying after a partial failure duplicates the entry unless PutAsync is idempotent.
 - 🟡 [VERIFIED] Medium Priority: If the object store call is retried it will duplicate the payload upload; make it idempotent on entry.Id.
+- 🟡 [VERIFIED] Medium Priority: If the secondary backend is unavailable the primary write still commits, leaving the backends inconsistent.
+- 🟡 [VERIFIED] Medium Priority: The two backends can drift when the object store write fails after the database commit.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
