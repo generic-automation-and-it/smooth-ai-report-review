@@ -159,6 +159,13 @@ _is_raw_install() { # _is_raw_install <file>
   printf '%s\n' "$joined" \
     | grep -qE 'curl[^|]*opencode\.ai/v2/install([^|]*\|)+[[:space:]]*(sudo[[:space:]]+(-E[[:space:]]+)?)?(([^[:space:]|]*/)?env[[:space:]]+)?([^[:space:]|]*/)?(ba|z|da)?sh([[:space:]]|$)' \
     && return 0
+  # Process-substitution form (review 5266893822, finding 2): the installer
+  # body fed to an interpreter as `bash <(curl … install)`, with the same
+  # path/env/sudo prefixes as the piped form. An interpreter is required, so
+  # `diff <(curl …) expected` (a comparison, not an install) does not count.
+  printf '%s\n' "$joined" \
+    | grep -qE '(^[[:space:]]*|[;&|(][[:space:]]*)(sudo[[:space:]]+(-E[[:space:]]+)?)?(([^[:space:]|]*/)?env[[:space:]]+)?([^[:space:]|]*/)?(ba|z|da)?sh[[:space:]]+(-[^[:space:]]+[[:space:]]+)*<\([[:space:]]*curl[^)]*opencode\.ai/v2/install[^)]*\)' \
+    && return 0
   # Download-then-execute form (review 5266540555, finding 2): the installer
   # saved to a path with -o/--output/>, and that path later run by an
   # interpreter, sourced, or executed directly. Both halves are required —
@@ -232,14 +239,18 @@ printf 'curl -fsSL https://opencode.ai/v2/install --output ./oc.sh\nchmod +x ./o
 printf 'run: |\n  curl -fsSL https://opencode.ai/v2/install > install.sh\n  sh -e install.sh\n' > "$TMP/rawfix/download-redirect.yml"
 printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/oc && bash /tmp/oc\n' > "$TMP/rawfix/download-execute-same-line.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/oc; /tmp/oc --version 2.0.11\n' > "$TMP/rawfix/download-run-semicolon.sh"
-for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh download-execute.sh download-chmod-run.sh download-redirect.yml download-execute-same-line.sh download-run-semicolon.sh; do
+printf 'bash <(curl -fsSL https://opencode.ai/v2/install)\n' > "$TMP/rawfix/procsub.sh"
+printf '/bin/bash <(curl -fsSL https://opencode.ai/v2/install) --version 2.0.11\n' > "$TMP/rawfix/procsub-abs.sh"
+printf 'env bash <( curl -fsSL https://opencode.ai/v2/install )\n' > "$TMP/rawfix/procsub-env.sh"
+for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh download-execute.sh download-chmod-run.sh download-redirect.yml download-execute-same-line.sh download-run-semicolon.sh procsub.sh procsub-abs.sh procsub-env.sh; do
   _is_raw_install "$TMP/rawfix/$_f" || fail "raw-install matcher missed $_f"
 done
 # Not a shell: the URL piped into something that merely records it.
 printf 'curl -fsSL https://opencode.ai/v2/install | sha256sum > install.sha\n' > "$TMP/rawfix/checksum.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install | shasum -a 256\n' > "$TMP/rawfix/shasum.sh"
 printf 'curl -fsSL https://opencode.ai/v2/install -o /tmp/oc\nsha256sum /tmp/oc > /tmp/oc.sha\n' > "$TMP/rawfix/download-checksum.sh"
-for _f in checksum.sh shasum.sh download-checksum.sh; do
+printf 'diff <(curl -fsSL https://opencode.ai/v2/install) expected-installer.sh\n' > "$TMP/rawfix/procsub-diff.sh"
+for _f in checksum.sh shasum.sh download-checksum.sh procsub-diff.sh; do
   _is_raw_install "$TMP/rawfix/$_f" && fail "raw-install matcher false-matched $_f"
 done
 for _f in comment.sh separate.sh; do
