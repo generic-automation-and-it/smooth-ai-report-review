@@ -96,4 +96,44 @@ if (pkg.main !== "./index.js") throw new Error("main does not point at ./index.j
 JS
 ok "index.js is published and is the declared main"
 
+# The packed artifact, not a hand-built stand-in (review 5263727118, finding
+# 4). The cases above copy two source files into a fixture with EMPTY skill
+# directories, which proves the entrypoint contract and nothing about what
+# `npm publish` ships: a `files` entry gone stale would publish a package whose
+# links point at nothing, and this suite would stay green. So: pack the real
+# package into a tarball (offline — no registry, no install), unpack it, assert
+# every skill's SKILL.md is inside and the eval corpus is not, then run the
+# SHIPPED index.js's setup() against a consumer and check the links resolve to
+# real skill files.
+PACKED="$TMP/packed"; mkdir -p "$PACKED"
+( cd "$REPO_ROOT" && npm pack --silent --pack-destination "$PACKED" >/dev/null 2>&1 ) \
+  || fail "npm pack failed — the package cannot be published as is"
+_tgz="$(ls "$PACKED"/*.tgz 2>/dev/null | head -1)"
+[ -n "$_tgz" ] || fail "npm pack produced no tarball"
+mkdir -p "$PACKED/unpacked" && tar -xzf "$_tgz" -C "$PACKED/unpacked"
+SHIPPED="$PACKED/unpacked/package"
+for skill in ai-review-report ai-review ai-analyse git-commit-review-push; do
+  [ -s "$SHIPPED/.agents/skills/$skill/SKILL.md" ] \
+    || fail "packed tarball is missing .agents/skills/$skill/SKILL.md — check package.json files[]"
+done
+[ ! -e "$SHIPPED/.agents/skills/ai-review-report/scripts/eval" ] \
+  || fail "packed tarball ships the eval corpus; the files[] exclusion has regressed"
+[ -f "$SHIPPED/index.js" ] && [ -f "$SHIPPED/opencode-plugin.js" ] \
+  || fail "packed tarball is missing the plugin entrypoint files"
+ok "npm pack ships all four skills with SKILL.md, no eval corpus, and the entrypoint"
+
+CONSUMER2="$TMP/consumer-from-tarball"; mkdir -p "$CONSUMER2/.git/info"
+node --input-type=module - "$SHIPPED/index.js" "$CONSUMER2" <<'JS'
+import { pathToFileURL } from "node:url";
+const [pluginPath, consumer] = process.argv.slice(2);
+const loaded = await import(pathToFileURL(pluginPath));
+await loaded.default.setup({ location: { directory: consumer } });
+JS
+for skill in ai-review-report ai-review ai-analyse git-commit-review-push; do
+  [ -L "$CONSUMER2/.agents/skills/$skill" ] || fail "shipped setup() did not link $skill"
+  [ -s "$CONSUMER2/.agents/skills/$skill/SKILL.md" ] \
+    || fail "the link for $skill does not resolve to a SKILL.md inside the shipped package"
+done
+ok "the shipped index.js links four skills whose SKILL.md resolve through the link"
+
 echo "All $pass OpenCode v2 plugin tests passed"
