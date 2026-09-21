@@ -452,7 +452,11 @@ fi
 # archive call" — matched. With a storage VERB the adverb now also needs a
 # multiplicity word (twice/both/two/dual/second) within five words; with
 # "duplicat" it stands alone, because "unnecessarily duplicated" has no
-# ordering reading.
+# ordering reading. Round eight (review 5266453301, finding 1): a standalone
+# wastefulness objection — "the object-store copy is wasteful" — sat outside
+# every branch because "wasteful" was only known to the both-places branch;
+# it joins the subject-is-adjective list with "pointless", and a retry
+# sentence using "wasteful" is pinned as ignored.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -480,6 +484,8 @@ done <<'POS'
 - 🟠 [VERIFIED] High Priority: Storing the payload in both the database and object store duplicates the data.
 - 🟡 [VERIFIED] Medium Priority: Writing the payload to both the primary database and the object store is redundant.
 - 🟡 [VERIFIED] Medium Priority: Keeping the entry in both the object store and the database is unnecessary.
+- 🟡 [VERIFIED] Medium Priority: The object-store copy is wasteful and should be removed.
+- 🟡 [VERIFIED] Medium Priority: The second write is pointless; the database row already holds the payload.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -512,6 +518,7 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: Both writes are duplicated on retry.
 - 🟡 [VERIFIED] Medium Priority: The handler unnecessarily persists the primary row before the archive call, so a failure between them leaves the stores inconsistent.
 - 🟡 [VERIFIED] Medium Priority: The code needlessly stores the entry before confirming the object store accepted it.
+- 🟡 [VERIFIED] Medium Priority: Retrying the whole handler on an object-store timeout is wasteful; only the second write should be retried.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
