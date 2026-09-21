@@ -154,8 +154,12 @@ ok "a package-managed v1 shadowing the install fails loudly, not green"
 _is_raw_install() { # _is_raw_install <file>
   sed -e ':a' -e '/\\[[:space:]]*$/{N; s/\\[[:space:]]*\n[[:space:]]*/ /; ba}' \
       -e '/|[[:space:]]*$/{N; s/|[[:space:]]*\n[[:space:]]*/| /; ba}' "$1" \
-    | grep -qE 'curl[^|]*opencode\.ai/v2/install[^|]*\|[[:space:]]*(ba)?sh'
+    | grep -qE 'curl[^|]*opencode\.ai/v2/install([^|]*\|)+[[:space:]]*(sudo[[:space:]]+(-E[[:space:]]+)?)?(([^[:space:]|]*/)?env[[:space:]]+)?([^[:space:]|]*/)?(ba|z|da)?sh([[:space:]]|$)'
 }
+# The interpreter may be reached through a path, `env`, `sudo`, or an
+# intermediate pipe stage (`| tee log | bash`); the first matcher required the
+# bare word right after the one pipe and read every one of those as "not a
+# raw installer" (review 5266005570, finding 2).
 # Scope: every file a consumer might copy from — scripts, workflows, the
 # examples under .docs (including their Markdown), and the root README, which
 # is where the raw pipeline last shipped (review 5263727118, finding 2). Not
@@ -194,8 +198,19 @@ printf '## Install\n\n```bash\ncurl -fsSL https://opencode.ai/v2/install | bash\
 printf 'The shared lib downloads https://opencode.ai/v2/install with a version pin:\n\n```bash\nbash .agents/skills/ai-review-report/scripts/lib/install-opencode.sh\n```\n' > "$TMP/rawfix/readme-ok.md"
 _is_raw_install "$TMP/rawfix/readme-raw.md" || fail "raw-install matcher missed a fenced pipeline in Markdown"
 _is_raw_install "$TMP/rawfix/readme-ok.md" && fail "raw-install matcher false-matched a README that delegates to the lib"
-for _f in one-line.sh backslash.sh pipe-eol.yml; do
+printf 'curl -fsSL https://opencode.ai/v2/install | /bin/bash\n' > "$TMP/rawfix/abs-bash.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install | env bash -s -- --version 2.0.11\n' > "$TMP/rawfix/env-bash.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install | sudo -E bash\n' > "$TMP/rawfix/sudo-bash.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install | tee /tmp/install.log | sh\n' > "$TMP/rawfix/tee-pipe.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install | /usr/bin/env zsh\n' > "$TMP/rawfix/env-zsh.sh"
+for _f in one-line.sh backslash.sh pipe-eol.yml abs-bash.sh env-bash.sh sudo-bash.sh tee-pipe.sh env-zsh.sh; do
   _is_raw_install "$TMP/rawfix/$_f" || fail "raw-install matcher missed $_f"
+done
+# Not a shell: the URL piped into something that merely records it.
+printf 'curl -fsSL https://opencode.ai/v2/install | sha256sum > install.sha\n' > "$TMP/rawfix/checksum.sh"
+printf 'curl -fsSL https://opencode.ai/v2/install | shasum -a 256\n' > "$TMP/rawfix/shasum.sh"
+for _f in checksum.sh shasum.sh; do
+  _is_raw_install "$TMP/rawfix/$_f" && fail "raw-install matcher false-matched $_f"
 done
 for _f in comment.sh separate.sh; do
   _is_raw_install "$TMP/rawfix/$_f" && fail "raw-install matcher false-matched $_f"
