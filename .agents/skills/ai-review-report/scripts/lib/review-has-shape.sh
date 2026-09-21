@@ -261,10 +261,25 @@ _rhs_issues="$(awk '
 # earlier `[-*].*none found` (review 5266005570, finding 1) — an unfinished
 # response passing as a clean review. Emoji are matched by alternation, never a
 # bracket expression (multi-byte).
-_rhs_ph='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?((critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*)?none found[.]?[[:space:]]*$'
+#
+# The per-severity form is complete only when its LAST tier is present. The
+# template emits Critical, High, Medium, Low in that order, so a response cut
+# off after `- 🔴 Critical: None found` carries a valid-looking placeholder
+# with three tiers unreviewed (review 5266682360, finding 1). Requiring the
+# Low line — rather than all four — detects every truncation point (a cut
+# always removes the tail) without fail-closing an honest review that skipped
+# a middle tier. The compact `- None found` needs no such check: it is the
+# whole statement.
+_rhs_ph_compact='^[[:space:]]*[-*][[:space:]]*none found[.]?[[:space:]]*$'
+_rhs_ph_tier='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
+_rhs_ph_low='^[[:space:]]*[-*][[:space:]]*((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?low( priority)?[[:space:]]*:[[:space:]]*none found[.]?[[:space:]]*$'
 if [ -n "$_rhs_issues" ]; then
-  if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph" \
+  if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
      || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
+    exit 0
+  fi
+  if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier" \
+     && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
     exit 0
   fi
 fi

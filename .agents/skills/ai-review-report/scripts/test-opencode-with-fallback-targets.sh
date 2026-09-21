@@ -375,7 +375,7 @@ predicate_case reject "prose carrying both phrases" \
 predicate_case reject "none found list item with no Issues Found marker" \
   '- None found.\n'
 predicate_case accept "per-severity placeholders under the marker" \
-  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: None found\n'
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: None found\n- \xf0\x9f\x9f\xa1 [VERIFIED] Medium Priority: None found\n- \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: None found\n'
 predicate_case accept "inline placeholder after the marker" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
 predicate_case accept "placeholder with a trailing period" \
@@ -408,11 +408,22 @@ predicate_case reject "a narration bullet ending in none found" \
 predicate_case reject "a narration bullet with a severity word and none found" \
   '**Issues Found:**\n- Looked for high priority leaks in the handler, none found'
 predicate_case accept "per-severity placeholder without the tag" \
-  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 High Priority: None found\n'
+  '**Issues Found:**\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x94\xb5 Low Priority: None found\n'
 predicate_case accept "per-severity placeholder without the emoji" \
-  '**Issues Found:**\n- [VERIFIED] Medium Priority: None found.\n'
-predicate_case accept "bare Critical label placeholder" \
+  '**Issues Found:**\n- [VERIFIED] Medium Priority: None found.\n- [VERIFIED] Low Priority: None found.\n'
+predicate_case reject "bare Critical label placeholder alone (Low tier missing)" \
   '**Issues Found:**\n- Critical: None found\n'
+# Review 5266682360, finding 1: the per-severity form is complete only when
+# its last tier (Low) is present — the template emits the tiers in order, so
+# a cut after any earlier tier leaves later tiers unreviewed.
+predicate_case reject "per-severity form truncated after Critical" \
+  '**Issues Found:**\n- \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n'
+predicate_case reject "per-severity form truncated after Medium" \
+  '**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: None found\n'
+predicate_case accept "per-severity form with all four tiers" \
+  '**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: None found\n- \xf0\x9f\x94\xb5 Low Priority: None found\n'
+predicate_case accept "per-severity form with a middle tier omitted but Low present" \
+  '**Issues Found:**\n- Critical: None found\n- Low Priority: None found\n'
 
 # Review 5263305644, finding 2. Scoping to the last section cannot see a file
 # the model never mentioned: file A's complete section is then the last one
