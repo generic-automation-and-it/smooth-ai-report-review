@@ -456,7 +456,11 @@ fi
 # wastefulness objection — "the object-store copy is wasteful" — sat outside
 # every branch because "wasteful" was only known to the both-places branch;
 # it joins the subject-is-adjective list with "pointless", and a retry
-# sentence using "wasteful" is pinned as ignored.
+# sentence using "wasteful" is pinned as ignored. Round nine (review
+# 5266540555, finding 3): "stored redundantly in both backends" puts the
+# adverb AFTER the verb; a verb-then-adverb branch is added, still requiring a
+# multiplicity word, and "twice" is deliberately not in its adverb list — "the
+# entry is written twice ... by the retry" is a retry finding.
 DR02="$(jq -r '.forbidden_claim' "$CORPUS_DIR/must-not-flag/DR-002-hybrid-storage/manifest.json")"
 _q2_pos_miss=0
 while IFS= read -r _line; do
@@ -486,6 +490,7 @@ done <<'POS'
 - 🟡 [VERIFIED] Medium Priority: Keeping the entry in both the object store and the database is unnecessary.
 - 🟡 [VERIFIED] Medium Priority: The object-store copy is wasteful and should be removed.
 - 🟡 [VERIFIED] Medium Priority: The second write is pointless; the database row already holds the payload.
+- 🟠 [VERIFIED] High Priority: The payload is stored redundantly in both backends.
 POS
 if [ "$_q2_pos_miss" -eq 0 ]; then
   ok "DR-002 forbidden_claim fires on redundant-storage objections"
@@ -519,6 +524,9 @@ done <<'NEG'
 - 🟡 [VERIFIED] Medium Priority: The handler unnecessarily persists the primary row before the archive call, so a failure between them leaves the stores inconsistent.
 - 🟡 [VERIFIED] Medium Priority: The code needlessly stores the entry before confirming the object store accepted it.
 - 🟡 [VERIFIED] Medium Priority: Retrying the whole handler on an object-store timeout is wasteful; only the second write should be retried.
+- 🟡 [VERIFIED] Medium Priority: The row is stored unnecessarily early, before the archive call has been confirmed.
+- 🟡 [VERIFIED] Medium Priority: The row is persisted needlessly early; nothing reads it before the archive write completes.
+- 🟡 [VERIFIED] Medium Priority: On a partial failure the entry is written again to the object store by the retry.
 NEG
 if [ "$_q2_neg_hit" -eq 0 ]; then
   ok "DR-002 forbidden_claim ignores atomicity and retry findings"
