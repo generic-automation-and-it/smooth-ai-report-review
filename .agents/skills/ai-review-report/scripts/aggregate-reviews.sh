@@ -175,6 +175,17 @@ echo "Generating PR summary..."
 # Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
 # scope is supplied natively by opencode v2 (LADR-087).
 
+# Build the orchestrator's runtime AGENTS.md from the merged context set, so the
+# aggregation model receives the project rules as loaded instructions rather than
+# a path list to read (same mechanism as the chunk pass). The builder is
+# fail-open: an empty/missing context set still yields a minimal runtime file, so
+# ci_temp/orch/AGENTS.md always exists and OPENCODE_RUN_CWD below never points
+# at a missing directory.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/build-runtime-agents.sh" \
+  "ci_temp/all_context_files.txt" \
+  "ci_temp/orch" \
+  "the aggregation pass" > /dev/null 2>>ci_temp/orch_scope.log || true
+
 # Load PR description and extract AI Review Notes section
 PR_DESCRIPTION=""
 AI_REVIEW_NOTES=""
@@ -541,7 +552,7 @@ cat ci_temp/combined_reviews.md >> ci_temp/summary_prompt.txt
 # (LADR-022: aggregation runs on the ORCHESTRATOR model, falling back to the
 #  resolved review model; LADR-023: opencode transport).
 agg_ok=true
-bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || agg_ok=false
+OPENCODE_RUN_CWD="ci_temp/orch" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || agg_ok=false
 # opencode can exit 0 while producing empty/tiny output (silent provider failure).
 # Without this, an empty pr_summary.md slips past the success branch and the posted
 # review loses its Overall Summary / Issues Summary / Recommendation entirely

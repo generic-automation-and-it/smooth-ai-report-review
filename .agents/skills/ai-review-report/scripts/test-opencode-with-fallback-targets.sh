@@ -51,6 +51,38 @@ run_case openrouter_bare openrouter 'openrouter/deepseek/deepseek-v4-pro' 'deeps
 # Analyse path: job pre-prefixes the target; must not be re-prefixed with the review provider.
 run_case analyse_path openai 'go-anthropic/minimax-m3' 'go-anthropic/minimax-m3'
 
+# --- OPENCODE_RUN_CWD runs opencode from that dir and absolutizes the prompt ---
+# The chunk/orchestrator call sites set OPENCODE_RUN_CWD so opencode's
+# directory-scope AGENTS.md discovery picks up the runtime AGENTS.md generated
+# there. This asserts two things: opencode actually runs from the run dir, and a
+# relative prompt path is absolutized against the CALLER's cwd (not the new cwd),
+# so stdin still reads the right file.
+cwd_stub="${tmp_dir}/cwd"
+mkdir -p "${cwd_stub}/bin" "${cwd_stub}/run"
+cat > "${cwd_stub}/bin/opencode" <<'STUB'
+#!/bin/bash
+cat >/dev/null
+pwd >> "${OPENCODE_STUB_PWD_LOG}"
+printf 'ok\n'
+STUB
+chmod +x "${cwd_stub}/bin/opencode"
+: > "${cwd_stub}/pwd.log"
+printf 'prompt\n' > "${cwd_stub}/prompt.md"
+
+(
+  cd "${cwd_stub}"
+  PATH="${cwd_stub}/bin:$PATH" \
+    OPENCODE_STUB_PWD_LOG="${cwd_stub}/pwd.log" \
+    OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai \
+    OPENCODE_MIN_OUTPUT_BYTES=1 \
+    OPENCODE_RUN_CWD="run" \
+      bash "$HELPER" "gpt-5.5" "" "" -- "prompt.md" >/dev/null
+)
+got="$(cat "${cwd_stub}/pwd.log")"
+want="$( (cd "${cwd_stub}/run" && pwd) )"
+[ "$got" = "$want" ] || { echo "FAIL: OPENCODE_RUN_CWD not honored (ran in '$got', want '$want')" >&2; exit 1; }
+echo "ok OPENCODE_RUN_CWD runs opencode from the run dir"
+
 # --- The shape predicate beats the byte floor (LADR-087) --------------------
 # A correct review of a clean file is short. The 200-byte floor was calibrated
 # against v1, which leaked chain-of-thought onto stdout; v2 routes it to

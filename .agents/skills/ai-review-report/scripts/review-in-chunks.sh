@@ -630,46 +630,35 @@ ${AI_REVIEW_NOTES}
 EOF
   fi
 
-  # Add context file paths for on-demand reading (Implementation #89)
-  if [ -s ci_temp/chunk_${chunk_num}_context.txt ]; then
-    local context_count=$(wc -l < ci_temp/chunk_${chunk_num}_context.txt | tr -d ' ')
-    echo "  📋 Context files for this chunk (${context_count}):"
-    while IFS= read -r ctx_file; do
-      echo "     - ${ctx_file}"
-    done < ci_temp/chunk_${chunk_num}_context.txt
-
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "## 🚨 MANDATORY: READ PROJECT CONTEXT FILES FIRST" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "**⚠️ CRITICAL REQUIREMENT: You MUST read these context files BEFORE reviewing any code.**" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "These files contain project-specific coding standards, language version information, and guidelines." >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "**Failure to read these files will result in false positives** (e.g., flagging valid C# 14 syntax as errors)." >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "**Context files to read (${context_count}):**" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-
-    local ctx_num=1
-    while IFS= read -r context_file; do
-      echo "${ctx_num}. \`${context_file}\` - **READ THIS FILE NOW** using \`read_file\`" >> ci_temp/chunk_${chunk_num}_prompt.txt
-      ctx_num=$((ctx_num + 1))
-    done < ci_temp/chunk_${chunk_num}_context.txt
-
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "**MANDATORY STEPS:**" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "1. Use \`read_file\` to load EACH context file listed above" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "2. Pay special attention to language version sections (e.g., C# 14, .NET 9)" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "3. Note any \"AI Code Review Note\" sections - these warn about valid syntax that AI may misidentify" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "4. Only AFTER reading context files, proceed to review the diff below" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "**⚠️ CRITICAL: CONTEXT FILES OVERRIDE YOUR TRAINING DATA**" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "This project uses **C# 14** with .NET 10 SDK. Your training data may not recognize C# 14 syntax." >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "If you see syntax like \`extension(Type target) { ... }\` or the \`field\` keyword - these are VALID C# 14 features." >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "**DO NOT flag these as syntax errors.** Trust the context files over your training data." >> ci_temp/chunk_${chunk_num}_prompt.txt
-    echo "" >> ci_temp/chunk_${chunk_num}_prompt.txt
-  else
-    echo "  📋 No context files found for this chunk"
+  # Build the runtime AGENTS.md for this chunk. The scoped context set is
+  # concatenated into it; opencode v2 loads it as active instructions by
+  # directory scope (this chunk runs opencode from ci_temp/chunk_N). This
+  # replaces the old "MANDATORY: READ PROJECT CONTEXT FILES FIRST" block, which
+  # listed paths and spent read_file calls against the exploration budget.
+  local _rt_agents
+  _rt_agents="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/build-runtime-agents.sh" \
+    "ci_temp/chunk_${chunk_num}_context.txt" \
+    "ci_temp/chunk_${chunk_num}" \
+    "chunk ${chunk_num}" 2>>ci_temp/chunk_${chunk_num}_scope.log)" || {
+      echo "  ⚠️ Failed to build runtime AGENTS.md for chunk ${chunk_num}" >&2
+      _rt_agents=""
+    }
+  if [ -n "$_rt_agents" ]; then
+    echo "  📋 Runtime instructions: ${_rt_agents}"
   fi
+
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+
+## 📖 PROJECT RULES (loaded as instructions by the CLI)
+
+The project rules, standards and mandatory context that apply to this chunk
+were loaded by the CLI from the runtime instructions. They override your
+training data — e.g. this project uses **C# 14** with .NET 10 SDK, so syntax
+like \`extension(Type target) { ... }\` or the \`field\` keyword is VALID. **DO
+NOT flag these as syntax errors.** Trust the loaded rules over your training
+data.
+
+EOF
 
   # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
   # are loaded natively by opencode v2 and are not repeated in this prompt.
@@ -1010,9 +999,12 @@ You have file system access via the read_file tool. Use it ONLY to verify contex
 
 **FILE PATHS FOR read_file:**
 - **Repository root (absolute):** \`${repo_root}\`
-- **Use relative paths** from the diff (e.g., \`Bunkering.NetCore/Controllers/FooController.cs\`)
-- **Or absolute paths** by prepending the repo root (e.g., \`${repo_root}/Bunkering.NetCore/Controllers/FooController.cs\`)
-- The paths shown in the diff header \`diff --git a/path/to/file b/path/to/file\` are relative to the repo root
+- **IMPORTANT: use ABSOLUTE paths only.** This review session runs from a
+  separate working directory (the gate's runtime dir), so a repo-relative path
+  from the diff will not resolve. Always prefix with the repo root:
+  \`${repo_root}/Bunkering.NetCore/Controllers/FooController.cs\`
+- The paths shown in the diff header \`diff --git a/path/to/file b/path/to/file\` are
+  relative to the repo root — prepend \`${repo_root}\` before reading them.
 EOF
 
   cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
@@ -1286,7 +1278,7 @@ EOF
     _stage1_fb="$_secondary_model"
   fi
   _stage_started=$(date +%s)
-  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="ci_temp/chunk_${chunk_num}" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
   else
     _stage1_rc=$?
@@ -1308,7 +1300,7 @@ EOF
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="ci_temp/chunk_${chunk_num}" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
