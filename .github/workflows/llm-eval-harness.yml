@@ -117,7 +117,7 @@ jobs:
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if printf '%s\n' "$changed" | grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)'; then
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
@@ -272,7 +272,7 @@ jobs:
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if printf '%s\n' "$changed" | grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$)'; then
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ Review-pipeline files changed — running the eval."
             printf '%s\n' "$changed" | grep -E '^(\.agents/skills/ai-review-report/|\.github/workflows/llm-eval-harness\.yml$)' | sed 's/^/    /'
