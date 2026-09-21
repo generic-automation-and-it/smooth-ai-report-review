@@ -6,7 +6,7 @@
 >
 > Full LADR narratives (Context/Decision/Consequences) live in the skill `AGENTS.md`.
 
-> **OpenCode v2 binding policy:** managed-config binding verification fails closed (exit 3, fatal in CI and locally) when the binding is foreign, and likewise when its source list is unreadable — except where the `/api/info` liveness probe also failed, which is one fault, already reported, and stays advisory (exit 1). Liveness never short-circuits the binding question.
+> **OpenCode v2 binding policy:** a confirmed foreign managed-config binding always fails closed (exit 3, fatal everywhere). An unreadable source list also exits 3 when the service is live; only when `/api/info` and config inspection both fail does it return exit 1 — advisory in CI, but fatal in local and eval preflights. Liveness never short-circuits the binding question.
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
