@@ -406,8 +406,19 @@ _ct "the split is two bare integers on stdout" "1" \
 # the two stages separately.
 _ct "the call site resolves the split via lib/split-chunk-budget.sh" "1" \
   "$(grep -c 'split-chunk-budget\.sh" "\$_chunk_timeout"' "$_ric")"
-_ct "the call site guards a non-integer primary back to the validated budget" "1" \
-  "$(grep -c '_primary_budget="\$_chunk_timeout"' "$_ric")"
+# Evaluate the actual invalid-budget guard, not a global assignment count:
+# LADR-084 intentionally uses the same assignment in the retry-collapse block.
+_primary_guard="$(awk '/^  if ! \[\[ "\$_primary_budget"/{f=1} f{print} f&&/^  fi$/{exit}' "$_ric")"
+_ct "the invalid-primary guard can be extracted from the call site" "1" \
+  "$(if [ -n "$_primary_guard" ]; then echo 1; else echo 0; fi)"
+for _bad in abc 0 -5 ''; do
+  _ct "invalid primary '$_bad' restores the validated budget and clears the reserve" "868 0" \
+    "$( _primary_budget="$_bad" _secondary_budget=268 _chunk_timeout=868 \
+        bash -c "$_primary_guard"$'\n''printf "%s %s\n" "$_primary_budget" "$_secondary_budget"' )"
+done
+_ct "a valid primary preserves the normal split" "600 268" \
+  "$( _primary_budget=600 _secondary_budget=268 _chunk_timeout=868 \
+      bash -c "$_primary_guard"$'\n''printf "%s %s\n" "$_primary_budget" "$_secondary_budget"' )"
 _ct "stage 1 is bounded by the primary share, not the total" "1" \
   "$(grep -c 'timeout "\${_primary_budget}s"' "$_ric")"
 # The remainder formula is the load-bearing line: elapsed + (total - elapsed)
