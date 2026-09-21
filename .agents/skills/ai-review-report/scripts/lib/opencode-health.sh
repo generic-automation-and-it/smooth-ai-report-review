@@ -131,6 +131,22 @@ if [ "$_live_rc" -eq 0 ] && [ ! -s "$OUT" ]; then
   _live_rc=1
 fi
 
+# Exact-path membership in the sources document, never a substring. The
+# document is JSON — `[{"type":"document","path":"…"}]` — and a bare `grep -F`
+# on the managed path also matched any path that merely CONTAINS it
+# (`…/opencode.resolved.json.bak`, or a sibling run's directory nested under
+# ours), so a service bound to a foreign config could pass the gate on a
+# coincidence of naming (review 5263417133, finding 1). With jq, compare every
+# `path` field for equality; without jq, require the path as a complete JSON
+# string — opening quote to closing quote — which a longer path cannot satisfy.
+_cfg_bound_to() { # _cfg_bound_to <managed-path> <sources-file>
+  if command -v jq >/dev/null 2>&1; then
+    jq -e --arg p "$1" '[.. | objects | select(has("path")) | .path] | index($p) != null' "$2" >/dev/null 2>&1
+  else
+    grep -qF "\"$1\"" "$2"
+  fi
+}
+
 # A v2 background service resolves its config ONCE, from the environment of
 # whichever client started it. A later client's OPENCODE_CONFIG is ignored in
 # silence — verified on 2.0.11: with a service already up from config A,
@@ -192,7 +208,7 @@ if [ -n "${OPENCODE_CONFIG:-}" ]; then
     echo "    Usual cause is a wedged service — 'opencode service stop', then start this review again." >&2
     echo "    If the command itself is gone from this opencode build, that is a toolchain break, not a stale service." >&2
     exit 3
-  elif ! grep -qF "$OPENCODE_CONFIG" "$CFG"; then
+  elif ! _cfg_bound_to "$OPENCODE_CONFIG" "$CFG"; then
     echo "❌ opencode is NOT using the managed config for this run." >&2
     echo "    OPENCODE_CONFIG=${OPENCODE_CONFIG}" >&2
     echo "    A v2 background service binds its config when it starts, so an already-running service ignores this value." >&2

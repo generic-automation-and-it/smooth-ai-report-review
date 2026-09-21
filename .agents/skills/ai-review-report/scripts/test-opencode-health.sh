@@ -162,6 +162,44 @@ _elapsed=$(( $(date +%s) - _t0 ))
   || fail "the probe was not bounded — took ${_elapsed}s against a 2s timeout (SIGTERM ignored, no SIGKILL escalation?)"
 ok "a probe ignoring SIGTERM is still killed and bounded (${_elapsed}s)"
 
+# --- A path that merely CONTAINS the managed path is a foreign binding -------
+# The check was `grep -F` on the managed path, which is a substring test: a
+# service bound to `<managed>.bak`, or to a sibling run's config nested under a
+# longer path, passed as bound. Exact membership is required. Both branches of
+# the helper are exercised: with jq on PATH and with jq hidden.
+for _jq_mode in with-jq without-jq; do
+  # "Without jq" is a PATH holding everything the system has EXCEPT jq — the
+  # script still needs grep, sed, timeout and friends — so the non-jq branch
+  # really runs rather than the whole script dying with 127.
+  _path="$TMP/bin:/usr/bin:/bin"
+  if [ "$_jq_mode" = without-jq ]; then
+    if [ ! -d "$TMP/nojq" ]; then
+      mkdir -p "$TMP/nojq"
+      for _t in /usr/bin/* /bin/*; do
+        _n="$(basename "$_t")"
+        [ "$_n" = jq ] && continue
+        [ -e "$TMP/nojq/$_n" ] || ln -s "$_t" "$TMP/nojq/$_n" 2>/dev/null || true
+      done
+    fi
+    _path="$TMP/bin:$TMP/nojq"
+  fi
+  _health_rc=0
+  env -i PATH="$_path" STUB_CALL_LOG="$TMP/calls" \
+    OPENCODE_CONFIG="$MANAGED" \
+    STUB_CONFIG_SOURCES="[{\"type\":\"document\",\"path\":\"${MANAGED}.bak\"}]" \
+    OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/substr-$_jq_mode.out" 2>&1 || _health_rc=$?
+  [ "$_health_rc" -eq 3 ] \
+    || fail "($_jq_mode) a bound path that merely contains the managed path must be a foreign binding (got $_health_rc)"
+  _health_rc=0
+  env -i PATH="$_path" STUB_CALL_LOG="$TMP/calls" \
+    OPENCODE_CONFIG="$MANAGED" \
+    STUB_CONFIG_SOURCES="[{\"type\":\"env\"},{\"type\":\"document\",\"path\":\"$MANAGED\"}]" \
+    OPENCODE_REVIEW_REPORT_HEALTH_TIMEOUT=3 bash "$HEALTH" > "$TMP/exact-$_jq_mode.out" 2>&1 || _health_rc=$?
+  [ "$_health_rc" -eq 0 ] \
+    || fail "($_jq_mode) the exact managed path among other sources must still pass (got $_health_rc)"
+done
+ok "binding requires the exact managed path, not a substring (with and without jq)"
+
 # --- A FAILED config inspection is not a passed binding check ---------------
 # `opencode debug config` can write part of its output — including the managed
 # path — and then exit non-zero. Matching that partial document would pass the
