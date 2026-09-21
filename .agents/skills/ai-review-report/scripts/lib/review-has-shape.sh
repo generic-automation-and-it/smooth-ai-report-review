@@ -168,10 +168,14 @@ awk '/^#+[[:space:]].*File:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s
 # placeholder is written AS the template writes it — a list item that ends in
 # "None found" (`- None found.` or the per-severity
 # `- 🔴 [VERIFIED] Critical: None found`), or inline after the marker
-# (`**Issues Found:** None found.`). Narration emits neither shape.
+# (`**Issues Found:** None found.`). Narration emits neither shape. Both forms
+# must END the line: the inline form was unanchored, so "**Issues Found:**
+# None found so far, but let me still check…" — a placeholder with narration
+# trailing off it, i.e. an unfinished response — was accepted (review
+# 5264311874, finding 1). The list-item form already required line end.
 if grep -qiF 'issues found' "$_rhs_tail"; then
   if grep -qiE '^[[:space:]]*[-*].*none found[.]?[[:space:]]*$' "$_rhs_tail" \
-     || grep -qiE 'issues found[^[:alnum:]]{0,8}none found' "$_rhs_tail"; then
+     || grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$' "$_rhs_tail"; then
     exit 0
   fi
 fi

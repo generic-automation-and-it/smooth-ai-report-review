@@ -350,6 +350,15 @@ predicate_case accept "inline placeholder after the marker" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
 predicate_case accept "placeholder with a trailing period" \
   '**Issues Found:**\n- None found.\n'
+# Review 5264311874, finding 1: the inline placeholder must end the line, like
+# the list-item form already did. Narration trailing off it is an unfinished
+# response, not a clean review.
+predicate_case reject "inline placeholder with narration trailing after it" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found so far, but let me still check the callers in b.cs before'
+predicate_case reject "list placeholder with narration trailing after it" \
+  '**Issues Found:**\n- None found yet, continuing to read the handler'
+predicate_case accept "inline placeholder followed by the pre-existing section" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
 
 # Review 5263305644, finding 2. Scoping to the last section cannot see a file
 # the model never mentioned: file A's complete section is then the last one
