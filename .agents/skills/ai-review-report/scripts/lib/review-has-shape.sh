@@ -59,6 +59,15 @@ else
   cat > "$_rhs_src"
 fi
 
+# Judge the PROSE, never the LADR-055 sidecar. The transport asks this
+# predicate about the raw model output, sidecar included, while the chunk gate
+# asks it after extract-findings-json.sh has stripped the sidecar — and a
+# JSON block can carry priority wording, a `file:line` in an evidence string,
+# even the words "Issues Found" in a title. So narration plus a sidecar passed
+# here, spent the fallback, and was then rejected downstream with the secondary
+# never run (review 5265814254, finding 2): the two gates disagreeing is the
+# exact fault this shared predicate exists to prevent. The strip below follows
+# the extractor's own rules (LADR-055/079) so both gates see identical text.
 # The transport calls this predicate before extract-findings-json.sh has removed
 # the structured sidecar. Validate the markdown view that the chunk gate will
 # eventually see, not raw JSON whose values can contain priority wording and a

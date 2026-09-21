@@ -306,6 +306,22 @@ predicate_case reject "a clock reading is not an anchor" \
   '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: the job at 12:30 failed'
 predicate_case reject "a ratio is not an anchor" \
   '**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: a 3:1 fan-out'
+# Review 5265814254, finding 2: the LADR-055 sidecar is not evidence of a
+# completed review. The transport sees the raw output (sidecar included) while
+# the chunk gate sees it stripped, so a JSON block carrying priority wording,
+# a file:line in an evidence string and even the words "Issues Found" let
+# narration pass the transport, spend the fallback, and fail downstream. The
+# predicate strips every sentinel range first, so both gates judge the prose.
+SIDECAR='<!-- FINDINGS_JSON_BEGIN -->\n{"findings":[{"severity":"high","title":"Issues Found: High Priority token leak","file":"src/auth.cs","line":12,"evidence":"src/auth.cs:12 -- log.Info(token)"}]}\n<!-- FINDINGS_JSON_END -->\n'
+predicate_case reject "narration followed by a complete sidecar" \
+  "Let me read the handler and its callers before writing anything.\n${SIDECAR}"
+predicate_case reject "narration, an unterminated sidecar" \
+  'Reading the handler next.\n<!-- FINDINGS_JSON_BEGIN -->\n{"findings":[{"title":"Issues Found: High Priority x","evidence":"src/auth.cs:12"}]}'
+predicate_case accept "a real review followed by its sidecar" \
+  "**Issues Found:**\n- \xf0\x9f\x9f\xa0 [VERIFIED] High Priority: token logged at src/auth.cs:12\n\n${SIDECAR}"
+predicate_case accept "a clean review followed by its sidecar" \
+  "### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- None found.\n\n<!-- FINDINGS_JSON_BEGIN -->\n{\"findings\":[]}\n<!-- FINDINGS_JSON_END -->\n"
+echo "✓ shape predicate: the findings sidecar is stripped before judging"
 
 # Completeness is scoped to the LAST per-file section. A chunk is almost always
 # multi-file, and an earlier complete section says nothing about whether the
@@ -449,6 +465,10 @@ DOT=$'a/x.y\na/xzy'
 inventory_case reject "a dot in the suffix is literal, not a wildcard" "$DOT" \
   '### \xf0\x9f\x93\x84 File: \x60a/xzy\x60\n\n**Issues Found:**\n- None found.\n'
 echo "✓ shape predicate: a file mention is a whole token, not a substring"
+# The sidecar is stripped before the inventory check too: a file that appears
+# only in the JSON was not reviewed in the prose that gets posted.
+inventory_case reject "a file named only inside the sidecar is not reviewed" $'src/a.cs\nsrc/b.cs' \
+  "### \xf0\x9f\x93\x84 File: \x60src/a.cs\x60\n\n**Issues Found:**\n- None found.\n\n<!-- FINDINGS_JSON_BEGIN -->\n{\"findings\":[{\"file\":\"src/b.cs\",\"line\":3}]}\n<!-- FINDINGS_JSON_END -->\n"
 
 # The transport honours the inventory too, so an omission falls through to the
 # fallback instead of consuming it — and every call site hands it over.
