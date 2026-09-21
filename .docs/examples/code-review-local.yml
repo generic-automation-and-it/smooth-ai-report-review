@@ -254,7 +254,7 @@ jobs:
           # versioning note at the top of this file), and `test-run-review.sh`
           # asserts this stays a full 40-char SHA.
           repository: generic-automation-and-it/smooth-ai-report-review
-          ref: 1a16b37d9a8a41378e1d046e6b3474943ad7a826 # v2 migration PR head — bump after merge
+          ref: 35ac07ec26f0c0f10f69db30839e495c3224ee21 # v2 migration PR head — bump after merge
           path: .review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
