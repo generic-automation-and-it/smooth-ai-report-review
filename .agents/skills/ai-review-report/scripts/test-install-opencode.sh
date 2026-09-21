@@ -156,12 +156,23 @@ _is_raw_install() { # _is_raw_install <file>
       -e '/|[[:space:]]*$/{N; s/|[[:space:]]*\n[[:space:]]*/| /; ba}' "$1" \
     | grep -qE 'curl[^|]*opencode\.ai/v2/install[^|]*\|[[:space:]]*(ba)?sh'
 }
+# Scope: every file a consumer might copy from — scripts, workflows, the
+# examples under .docs (including their Markdown), and the root README, which
+# is where the raw pipeline last shipped (review 5263727118, finding 2). Not
+# the whole Markdown tree: CLAUDE.md, AGENTS.md and the changelog QUOTE the
+# forbidden pipeline when they explain the rule, and the matcher cannot tell a
+# quotation from an instruction.
 _curl_offenders() {
-  grep -rln 'opencode\.ai/v2/install' \
-    --include='*.sh' --include='*.yml' --include='*.yaml' \
-    "$SCRIPT_DIR" "$REPO_ROOT/.github" "$REPO_ROOT/.docs" 2>/dev/null \
+  {
+    grep -rln 'opencode\.ai/v2/install' \
+      --include='*.sh' --include='*.yml' --include='*.yaml' --include='*.md' \
+      "$SCRIPT_DIR" "$REPO_ROOT/.github" "$REPO_ROOT/.docs" 2>/dev/null
+    grep -ln 'opencode\.ai/v2/install' "$REPO_ROOT/README.md" 2>/dev/null
+  } | sort -u \
     | grep -v 'lib/install-opencode\.sh$' \
     | grep -v 'test-install-opencode\.sh$' \
+    | grep -v '/CHANGELOG\.md$' \
+    | grep -v '/AGENTS\.md$' \
     | while IFS= read -r f; do
         _is_raw_install "$f" && printf '%s ' "$f"
       done
@@ -177,6 +188,12 @@ printf 'curl -fsSL \\\n  https://opencode.ai/v2/install \\\n  | bash\n' > "$TMP/
 printf 'run: |\n  curl -fsSL https://opencode.ai/v2/install |\n    bash\n' > "$TMP/rawfix/pipe-eol.yml"
 printf '# the shared lib wraps https://opencode.ai/v2/install with a version pin\nbash lib/install-opencode.sh\n' > "$TMP/rawfix/comment.sh"
 printf 'curl -fsSL https://example.com/x -o /tmp/x\n# see https://opencode.ai/v2/install\necho done | bash -c cat\n' > "$TMP/rawfix/separate.sh"
+# Markdown: a fenced, copy-pasteable pipeline is a violation; prose naming the
+# URL and pointing at the shared lib is not.
+printf '## Install\n\n```bash\ncurl -fsSL https://opencode.ai/v2/install | bash\n```\n' > "$TMP/rawfix/readme-raw.md"
+printf 'The shared lib downloads https://opencode.ai/v2/install with a version pin:\n\n```bash\nbash .agents/skills/ai-review-report/scripts/lib/install-opencode.sh\n```\n' > "$TMP/rawfix/readme-ok.md"
+_is_raw_install "$TMP/rawfix/readme-raw.md" || fail "raw-install matcher missed a fenced pipeline in Markdown"
+_is_raw_install "$TMP/rawfix/readme-ok.md" && fail "raw-install matcher false-matched a README that delegates to the lib"
 for _f in one-line.sh backslash.sh pipe-eol.yml; do
   _is_raw_install "$TMP/rawfix/$_f" || fail "raw-install matcher missed $_f"
 done
@@ -187,5 +204,8 @@ ok "raw-install matcher catches multiline pipelines and ignores mere mentions"
 _offenders="$(_curl_offenders || true)"
 [ -z "$_offenders" ] || fail "raw install curl outside the shared lib (LADR-048): ${_offenders}"
 ok "no raw install curl outside lib/install-opencode.sh"
+grep -q 'REPO_ROOT/README\.md' "${BASH_SOURCE[0]}" && grep -q "include='\*\.md'" "${BASH_SOURCE[0]}" \
+  || fail "the offender scan must cover README.md and .docs Markdown, not only shell and YAML"
+ok "offender scan covers README.md and .docs Markdown"
 
 echo "All $pass install-opencode tests passed"
