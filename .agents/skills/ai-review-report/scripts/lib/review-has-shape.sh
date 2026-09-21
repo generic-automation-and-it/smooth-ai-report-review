@@ -40,9 +40,11 @@ set -uo pipefail
 # `test-opencode-with-fallback-targets.sh` pins both directions (a passed file
 # survives; a piped call leaves nothing behind).
 _rhs_own_src=""
+_rhs_stripped=""
 _rhs_tail=""
 _rhs_cleanup() {
   [ -n "$_rhs_own_src" ] && rm -f "$_rhs_own_src" 2>/dev/null
+  [ -n "$_rhs_stripped" ] && rm -f "$_rhs_stripped" 2>/dev/null
   [ -n "$_rhs_tail" ] && rm -f "$_rhs_tail" 2>/dev/null
   return 0
 }
@@ -55,6 +57,39 @@ else
   _rhs_src="$(mktemp)"
   _rhs_own_src="$_rhs_src"
   cat > "$_rhs_src"
+fi
+
+# The transport calls this predicate before extract-findings-json.sh has removed
+# the structured sidecar. Validate the markdown view that the chunk gate will
+# eventually see, not raw JSON whose values can contain priority wording and a
+# file:line anchor. Use the extractor's delimiter rules: exact BEGIN, prefix END,
+# the last complete pair, or a later unterminated JSON-looking block. Work on a
+# temporary copy so a path supplied by the caller is never modified here.
+_rhs_pair="$(awk \
+  -v b='<!-- FINDINGS_JSON_BEGIN -->' \
+  -v ep='<!-- FINDINGS_JSON_END' '
+  { line = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line) }
+  line == b { cand = NR; candnext = ""; next }
+  cand && index(line, ep) == 1 { bl = cand; el = NR; cand = 0; next }
+  cand && candnext == "" && line != "" { candnext = line }
+  END {
+    if (cand && cand > bl && (candnext ~ /^```/ || candnext ~ /^[{[]/))
+      print cand " 0"
+    else if (bl)
+      print bl " " el
+  }
+' "$_rhs_src" 2>/dev/null)"
+if [ -n "$_rhs_pair" ]; then
+  _rhs_begin="${_rhs_pair%% *}"
+  _rhs_end="${_rhs_pair#* }"
+  if [ "$_rhs_end" = "0" ]; then
+    _rhs_end=$(( $(wc -l < "$_rhs_src") + 1 ))
+  fi
+  _rhs_stripped="$(mktemp)"
+  if awk -v bl="$_rhs_begin" -v el="$_rhs_end" \
+    'NR < bl || NR > el { print }' "$_rhs_src" > "$_rhs_stripped" 2>/dev/null; then
+    _rhs_src="$_rhs_stripped"
+  fi
 fi
 
 # Completeness is decided by the LAST per-file section, then by two
