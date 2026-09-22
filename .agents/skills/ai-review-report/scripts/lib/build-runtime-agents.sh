@@ -41,10 +41,20 @@ _out="$_target_dir/AGENTS.md"
 # opencode's own AGENTS.md parsing. Emits the tail after a leading frontmatter
 # block (or the whole content when there is none / it is malformed).
 _strip_frontmatter() {
-  awk 'NR==1 && $0=="---" {infm=1; next}
-       infm && $0=="---" {infm=0; next}
-       infm {next}
-       {print}' "$1"
+  awk 'NR==1 && $0=="---" {infm=1; buffered[NR]=$0; next}
+       infm {
+         buffered[NR]=$0
+         if ($0=="---") infm=0
+         next
+       }
+       {print}
+       END {
+         if (infm) {
+           for (i=1; i<=NR; i++) {
+             if (i in buffered) print buffered[i]
+           }
+         }
+       }' "$1"
 }
 
 cat > "$_out" <<EOF
