@@ -31,6 +31,13 @@
 #                             Unset = byte floor alone, exactly as before, so
 #                             non-chunk callers are unaffected. A set-but-missing
 #                             path warns and degrades to the byte floor.
+#   OPENCODE_RUN_CWD          Working directory for the opencode invocation.
+#                             When set, opencode runs from that cwd so its
+#                             directory-scope AGENTS.md discovery picks up the
+#                             runtime AGENTS.md the caller generated there.
+#                             The prompt file MUST be an absolute path when this
+#                             is set (it is read before the cd). Unset = run in
+#                             the caller's cwd, exactly as before.
 #
 # Stdout: opencode output. Stderr: passthrough.
 
@@ -43,6 +50,17 @@ export OPENCODE_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_COD
 primary="$1"; fb1="$2"; fb2="$3"; shift 3
 [ "$1" = "--" ] && shift
 prompt_file="$1"; shift
+
+# OPENCODE_RUN_CWD moves the opencode invocation into a different working
+# directory (for runtime AGENTS.md discovery). The prompt file is read by this
+# script in the CALLER's cwd, so when we are about to cd we must absolutize the
+# prompt path first — a relative path would otherwise point into the new cwd.
+if [ -n "${OPENCODE_RUN_CWD:-}" ]; then
+  case "$prompt_file" in
+    /*) : ;;
+    *) prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")" ;;
+  esac
+fi
 
 if [ -z "$prompt_file" ] || [ ! -f "$prompt_file" ]; then
   echo "opencode-with-fallback.sh: prompt file missing or not readable: ${prompt_file:-<empty>}" >&2
@@ -101,12 +119,25 @@ run_opencode() {
   #   for diagnostics. Reviews are a few KB, so buffering in a var is safe.
   local _out _target
   _target="$(model_target "$1")"
-  _out=$(opencode run \
-    --agent "${OPENCODE_AGENT}" \
-    --model "${_target}" \
-    --format default \
-    --log-level warn \
-    < "$prompt_file") || return 1
+  # cd into OPENCODE_RUN_CWD (when set) so opencode's directory-scope AGENTS.md
+  # discovery loads the runtime AGENTS.md the caller generated at that cwd. The
+  # subshell keeps the caller's cwd untouched — the prompt file was absolutized
+  # at the top of this script, so stdin still resolves.
+  if [ -n "${OPENCODE_RUN_CWD:-}" ]; then
+    _out=$(cd "$OPENCODE_RUN_CWD" && opencode run \
+      --agent "${OPENCODE_AGENT}" \
+      --model "${_target}" \
+      --format default \
+      --log-level warn \
+      < "$prompt_file") || return 1
+  else
+    _out=$(opencode run \
+      --agent "${OPENCODE_AGENT}" \
+      --model "${_target}" \
+      --format default \
+      --log-level warn \
+      < "$prompt_file") || return 1
+  fi
   # The byte floor is a proxy for "the model produced nothing"; when the caller
   # can name a predicate that answers the real question, the predicate decides
   # and length is not consulted at all (LADR-087). A correct review of a clean

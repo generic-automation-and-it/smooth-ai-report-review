@@ -156,6 +156,11 @@ jobs:
             # real and asymmetric, so this pins the fail-open contract as hard
             # as it pins the glob matching.
             .agents/skills/ai-review-report/scripts/test-context-scope.sh
+            # The runtime-AGENTS.md builder: concatenates a chunk/orchestrator
+            # scoped context set into a runtime AGENTS.md that opencode v2 loads
+            # as active instructions. Pins the exact-AGENTS.md exclusion and the
+            # fail-open minimal output on an empty set.
+            .agents/skills/ai-review-report/scripts/test-build-runtime-agents.sh
             .agents/skills/ai-review-report/scripts/eval/test-evals.sh
           )
           for test_script in "${tests[@]}"; do

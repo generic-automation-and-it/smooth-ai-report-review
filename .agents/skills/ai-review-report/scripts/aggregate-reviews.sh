@@ -175,6 +175,28 @@ echo "Generating PR summary..."
 # Custom context is discovered dynamically via *_AGENTS.md; standard AGENTS.md
 # scope is supplied natively by opencode v2 (LADR-087).
 
+# Build the orchestrator's runtime AGENTS.md from the merged context set, so the
+# aggregation model receives the project rules as loaded instructions rather than
+# a path list to read (same mechanism as the chunk pass). The builder is
+# fail-open: an empty/missing context set still yields a minimal runtime file, so
+# ci_temp/orch/AGENTS.md always exists and OPENCODE_RUN_CWD below never points
+# at a missing directory.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/build-runtime-agents.sh" \
+  "ci_temp/all_context_files.txt" \
+  "ci_temp/orch" \
+  "the aggregation pass" > /dev/null 2>>ci_temp/orch_scope.log || true
+# Fail-open: if the runtime file could not be written (unwritable ci_temp, disk
+# full), pointing OPENCODE_RUN_CWD at the missing directory makes `cd` fail in
+# the transport, so every model in the chain returns 1 and agg_ok=false — an
+# enrichment failure turned into a fallback REQUEST_CHANGES template. Run from
+# the caller's cwd instead, exactly as before LADR-090.
+ORCH_RUN_CWD=""
+if [ -f ci_temp/orch/AGENTS.md ]; then
+  ORCH_RUN_CWD="ci_temp/orch"
+else
+  echo "⚠️ No runtime AGENTS.md for the aggregation pass — summarising without loaded project rules" >&2
+fi
+
 # Load PR description and extract AI Review Notes section
 PR_DESCRIPTION=""
 AI_REVIEW_NOTES=""
@@ -541,7 +563,7 @@ cat ci_temp/combined_reviews.md >> ci_temp/summary_prompt.txt
 # (LADR-022: aggregation runs on the ORCHESTRATOR model, falling back to the
 #  resolved review model; LADR-023: opencode transport).
 agg_ok=true
-bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || agg_ok=false
+OPENCODE_RUN_CWD="$ORCH_RUN_CWD" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || agg_ok=false
 # opencode can exit 0 while producing empty/tiny output (silent provider failure).
 # Without this, an empty pr_summary.md slips past the success branch and the posted
 # review loses its Overall Summary / Issues Summary / Recommendation entirely
