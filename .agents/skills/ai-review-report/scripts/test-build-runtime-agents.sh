@@ -78,6 +78,23 @@ if grep -q 'applyTo\|alwaysApply' "$TMP/out6/AGENTS.md"; then
 fi
 ok "scope-filter frontmatter (applyTo/alwaysApply) is stripped from rule content"
 
+# --- case 6b: UNCLOSED frontmatter keeps the whole file (fail-open) ----------
+# The original awk left `infm` set forever when the opening `---` was never
+# closed, so every line was swallowed and the rule silently contributed nothing
+# — contradicting this script's own docstring ("or the whole content when there
+# is none / it is malformed") and inverting LADR-089's asymmetry, where a
+# dropped rule is the expensive direction. A stray `---` in the output is the
+# cheap one, so malformed frontmatter must fail open.
+mkdir -p "$TMP/fmbad"
+printf -- '---\napplyTo: backend\nUNCLOSED_RULE_BODY\ntrailing detail\n' > "$TMP/fmbad/rule.md"
+printf '%s\n' "$TMP/fmbad/rule.md" > "$TMP/ctx6b.txt"
+bash "$BUILDER" "$TMP/ctx6b.txt" "$TMP/out6b" "chunk 6b" > /dev/null 2>&1
+grep -q 'UNCLOSED_RULE_BODY' "$TMP/out6b/AGENTS.md" \
+  || fail "unclosed frontmatter swallowed the rule body — a silent rule drop"
+grep -q 'trailing detail' "$TMP/out6b/AGENTS.md" \
+  || fail "unclosed frontmatter swallowed the tail of the rule"
+ok "unclosed frontmatter fails open and keeps the whole rule body"
+
 # --- case 7: callers fail OPEN when the runtime AGENTS.md is absent ----------
 # The builder degrades gracefully, but a caller that pins OPENCODE_RUN_CWD at a
 # directory that does not exist makes `cd` fail inside the transport, so every
