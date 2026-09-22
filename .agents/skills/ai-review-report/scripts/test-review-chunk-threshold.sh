@@ -23,6 +23,9 @@ SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split
 # every chunk is judged structureless, which reads as a fail-closed bug in the
 # gate rather than a missing file in this harness.
 SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+# LADR-090: the runtime AGENTS.md builder. Without it in the sandbox every chunk
+# logs "Failed to build runtime AGENTS.md" and the feature under test never runs.
+SOURCE_RUNTIME_AGENTS_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
 
 TMP_DIR="$(mktemp -d /tmp/review-chunk-threshold.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -38,6 +41,7 @@ setup_repo() {
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+  cp "${SOURCE_RUNTIME_AGENTS_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -93,7 +97,10 @@ run_case() {
 
   cd "${test_repo}"
   rm -rf ci_temp/reviews
-  rm -f ci_temp/chunk_* ci_temp/file_groups* ci_temp/all_context_files.txt ci_temp/semantic_grouping_*
+  # -r: chunk_<n> is now a DIRECTORY (the runtime AGENTS.md dir, LADR-090), and
+  # plain `rm -f` exits 1 on a directory, which aborts this set -e test on the
+  # second run_case.
+  rm -rf ci_temp/chunk_* ci_temp/file_groups* ci_temp/all_context_files.txt ci_temp/semantic_grouping_*
   mkdir -p ci_temp
   printf 'alpha/a.txt\0beta/b.txt\0gamma/c.txt\0' > ci_temp/changed_files.txt
 
@@ -120,6 +127,21 @@ run_case() {
     echo "❌ ${label}: expected total_chunks=${expected}, got ${chunks}"
     exit 1
   fi
+
+  # The runtime AGENTS.md (LADR-090) must actually have been built. This harness
+  # copies a whitelist of libs into the sandbox, and when build-runtime-agents.sh
+  # was missing from that list every chunk logged "Failed to build runtime
+  # AGENTS.md", the feature under test never ran, and all three cases still
+  # reported PASS — the silent-no-op class this repo keeps paying for. Assert the
+  # artifact so a future whitelist omission fails loudly here instead.
+  local _rt_count
+  _rt_count="$(find ci_temp -maxdepth 2 -name AGENTS.md -path 'ci_temp/chunk_*' 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${_rt_count}" != "${expected}" ]; then
+    echo "❌ ${label}: expected ${expected} runtime AGENTS.md file(s), found ${_rt_count}"
+    echo "   (is lib/build-runtime-agents.sh copied into the sandbox by setup?)"
+    exit 1
+  fi
+  echo "✅ ${label}: ${_rt_count} runtime AGENTS.md built (one per chunk)"
 }
 
 setup_repo
@@ -144,6 +166,7 @@ setup_large_file_repo() {
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+  cp "${SOURCE_RUNTIME_AGENTS_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -215,7 +238,10 @@ run_size_override_case() {
   local output_file="${TMP_DIR}/${label}.out"
   cd "${test_repo}"
   rm -rf ci_temp/reviews
-  rm -f ci_temp/chunk_* ci_temp/file_groups* ci_temp/all_context_files.txt ci_temp/semantic_grouping_*
+  # -r: chunk_<n> is now a DIRECTORY (the runtime AGENTS.md dir, LADR-090), and
+  # plain `rm -f` exits 1 on a directory, which aborts this set -e test on the
+  # second run_case.
+  rm -rf ci_temp/chunk_* ci_temp/file_groups* ci_temp/all_context_files.txt ci_temp/semantic_grouping_*
   mkdir -p ci_temp
   printf 'a.txt\0b.txt\0huge.txt\0' > ci_temp/changed_files.txt
   local from_sha to_sha
@@ -457,6 +483,7 @@ cp "$SOURCE_EXTRACT_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/ext
 cp "$SOURCE_TIMEOUT_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
 cp "$SOURCE_SPLIT_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
 cp "$SOURCE_SHAPE_LIB"   "${_rt}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+cp "$SOURCE_RUNTIME_AGENTS_LIB" "${_rt}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
 cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'RTSTUB'
 #!/usr/bin/env bash
 prompt_file="${@: -1}"
@@ -577,6 +604,7 @@ setup_shape_repo() {
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+  cp "${SOURCE_RUNTIME_AGENTS_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
 
   # The mock replays whatever body the case under test wrote, so one sandbox
   # covers both the narration shape and the honest-review control.
@@ -789,6 +817,7 @@ setup_retry_repo() {
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+  cp "${SOURCE_RUNTIME_AGENTS_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
   cp "${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
     "${test_repo}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
 

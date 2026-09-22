@@ -647,18 +647,27 @@ EOF
     echo "  📋 Runtime instructions: ${_rt_agents}"
   fi
 
-  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+  # Only claim rules were loaded when some actually were. An empty scoped set
+  # yields a runtime AGENTS.md that says so, and telling the model "the rules
+  # that apply were loaded" in that case is a false premise — the class DR-015
+  # exists to keep out of prompts. No language/framework fact is asserted here
+  # either: the gate is language-agnostic, and version facts ("this project uses
+  # C# 14") belong in the consuming repo's own rules, which are exactly what the
+  # runtime AGENTS.md now carries.
+  if [ -s ci_temp/chunk_${chunk_num}_context.txt ]; then
+    cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
 
 ## 📖 PROJECT RULES (loaded as instructions by the CLI)
 
 The project rules, standards and mandatory context that apply to this chunk
-were loaded by the CLI from the runtime instructions. They override your
-training data — e.g. this project uses **C# 14** with .NET 10 SDK, so syntax
-like \`extension(Type target) { ... }\` or the \`field\` keyword is VALID. **DO
-NOT flag these as syntax errors.** Trust the loaded rules over your training
-data.
+have already been loaded into your instructions by the CLI — you do not need to
+read them. **They override your training data.** Where a loaded rule states a
+language version, framework behaviour or project convention that your training
+data contradicts, the rule wins: treat the syntax or pattern it sanctions as
+valid and do not flag it as an error.
 
 EOF
+  fi
 
   # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
   # are loaded natively by opencode v2 and are not repeated in this prompt.
@@ -1278,7 +1287,19 @@ EOF
     _stage1_fb="$_secondary_model"
   fi
   _stage_started=$(date +%s)
-  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="ci_temp/chunk_${chunk_num}" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  # Fail-open on the runtime AGENTS.md (LADR-090): build-runtime-agents.sh is
+  # documented as degrading gracefully, but pointing OPENCODE_RUN_CWD at a
+  # directory that does not exist makes `cd` fail inside the transport, so every
+  # model in the chain returns 1 and the chunk fail-closes. An enrichment
+  # failure must never become a review failure — when the runtime file is
+  # absent, run from the caller's cwd exactly as before LADR-090.
+  local _run_cwd=""
+  if [ -f "ci_temp/chunk_${chunk_num}/AGENTS.md" ]; then
+    _run_cwd="ci_temp/chunk_${chunk_num}"
+  else
+    echo "  ⚠️ Chunk ${chunk_num}: no runtime AGENTS.md — reviewing without loaded project rules" >&2
+  fi
+  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
   else
     _stage1_rc=$?
@@ -1300,7 +1321,7 @@ EOF
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="ci_temp/chunk_${chunk_num}" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
