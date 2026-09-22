@@ -448,20 +448,29 @@ predicate_case reject "a low tier cut off before any content" \
 # evidence the model reached the end of the tier list.
 predicate_case reject "a lone low line with no tier placeholder present" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb5 Low Priority: something looks off in the handler and I am still'
-# Route B is completion evidence or it is nothing (review 5271360715, finding
-# 1). A complete placeholder token proves only that SOME tier resolved, so
-# without this the tiers above low may simply never have been emitted.
-# Both reject fixtures write their location as PROSE on purpose. A `file:line`
-# anywhere in the section satisfies the anchor route, which is a legitimate
-# accept and would mask whatever route B does -- so an anchor here would make
-# these two assertions vacuous.
-predicate_case reject "a Low finding with the Medium tier never emitted" \
+# The tiers ABOVE low are deliberately NOT required. Reviews 5271360715 and
+# 5271520178 both asked for them (the second at Critical), and the first was
+# briefly implemented in 7dcacf8 before being reverted; both are declined.
+#
+# This predicate catches TRUNCATION, and truncation removes a SUFFIX. Low is
+# the last tier the template emits, so Low present means the model reached the
+# end of the list whatever it printed above. A missing MIDDLE tier is a
+# formatting deviation -- the failure class that has repeatedly cost this gate
+# whole reviews, including the two fixes these very cases sit beside.
+#
+# The "per-severity form with a middle tier omitted but Low present" case below
+# has asserted exactly this since review 5266682360. Keep them consistent.
+#
+# These fixtures write their location as PROSE on purpose: a `file:line`
+# anywhere in the section satisfies the anchor route, which would accept them
+# for an unrelated reason and make the assertions vacuous.
+predicate_case accept "a Low finding with the Medium tier never emitted" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x94\xb5 [SPECULATIVE] Low Priority: the launchers hardcode a Unix-only interpreter name (line 18)\n'
-predicate_case reject "a Low finding with only the Critical tier emitted" \
+predicate_case accept "a Low finding with only the Critical tier emitted" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x94\xb5 Low Priority: the changelog row (line 106) is unlisted\n'
-# Presence, not a placeholder: a tier carrying a real finding was emitted just
-# as surely, and demanding "none found" here would discard a section whose
-# Medium finding happens to write its location as prose.
+# Whether the low tier carries the placeholder or a real finding must not
+# change the verdict either -- the form says nothing about whether the model
+# finished.
 predicate_case accept "a Medium FINDING still counts as the tier being emitted" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: the layout table omits a row (line 17)\n- \xf0\x9f\x94\xb5 Low Priority: the changelog row (line 106) is unlisted\n'
 predicate_case accept "compact chain above a separate Low finding" \
