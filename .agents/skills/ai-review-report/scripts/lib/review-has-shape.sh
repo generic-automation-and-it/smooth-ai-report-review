@@ -337,41 +337,48 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
   # `[^[:space:]]` after the colon is load-bearing: it rejects a bare
   # `- 🔵 Low Priority:` that was cut off before any content.
   _rhs_low_line='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(low)( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
-  # ...and the three tiers above it must have been EMITTED, or the route proves
-  # nothing about completion (review 5271360715, finding 1). `_rhs_ph_tier` only
-  # proves that SOME one complete placeholder token exists, so on its own it let
-  # a section carrying Critical, High and a Low finding -- but no Medium at all
-  # -- pass as finished. That hole predates the low-finding route (the old
-  # placeholder pair accepted a bare Critical plus Low just as readily), but
-  # this route widened it, so it is fixed here.
+  # The tiers ABOVE low are deliberately not required, on either route.
   #
-  # Presence, deliberately, NOT a placeholder: a tier that carries a real
-  # finding was emitted just as surely as one that says "none found", and
-  # demanding "none found" for Critical/High/Medium would re-create the exact
-  # defect this pair of fixes exists to close -- a section whose Medium finding
-  # writes its location as prose would fail both routes and be discarded.
-  _rhs_t_crit='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?critical( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
-  _rhs_t_high='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?high( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
-  _rhs_t_med='(^|[^[:alnum:]])((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?medium( priority)?[[:space:]]*:[[:space:]]*[^[:space:]]'
+  # Two AI reviews in a row asked for them (5271360715 finding 1, then
+  # 5271520178 finding 1 at Critical), and the first was briefly implemented
+  # for the finding route in 7cc2d09..7dcacf8 before being reverted here. Both
+  # are declined, because they contradict a decision this repo already made and
+  # recorded, in test-opencode-with-fallback-targets.sh:
+  #
+  #   predicate_case accept "per-severity form with a middle tier omitted but
+  #                          Low present"
+  #
+  # under the comment: "Review 5266682360, finding 1: the per-severity form is
+  # complete only when its last tier (Low) is present -- the template emits the
+  # tiers in order, so a cut after any earlier tier leaves later tiers
+  # unreviewed."
+  #
+  # That is the whole argument, and it holds. This predicate exists to catch
+  # TRUNCATION, and truncation removes a SUFFIX. Low is the last tier the
+  # template emits (review-in-chunks.sh, the per-file Issues Found block), so
+  # Low present means the model reached the end of the list -- whatever it did
+  # or did not print above. A missing MIDDLE tier is a formatting deviation, and
+  # formatting deviations are the failure class that has repeatedly cost this
+  # gate whole reviews: the two fixes directly above this comment both exist
+  # because a correct review was discarded for how it was punctuated.
+  #
+  # Requiring the upper tiers also broke four pre-existing assertions, one of
+  # which names the behaviour outright. If this is ever revisited, the decision
+  # to change is the LADR and those four fixtures, not this conditional alone --
+  # and the asymmetry to avoid is the one 7dcacf8 shipped, where the finding
+  # route demanded upper tiers while the placeholder route did not.
   if [ -n "$_rhs_issues" ]; then
     if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
        || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
       return 0
     fi
-    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier"; then
-      # Route A -- every tier resolved to the placeholder (one per line, or the
-      # compact chain). Unchanged from before the low-finding route existed.
-      if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low"; then
-        return 0
-      fi
-      # Route B -- the low tier carries a real finding. Only completion evidence
-      # counts here, so all three tiers above it must be present too.
-      if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_low_line" \
-         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_crit" \
-         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_high" \
-         && printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_t_med"; then
-        return 0
-      fi
+    # One rule, both shapes the low tier can take: the placeholder, or a real
+    # finding. Which form it takes says nothing about completion, so it must not
+    # change the verdict.
+    if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_tier" \
+       && { printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_low" \
+            || printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_low_line"; }; then
+      return 0
     fi
   fi
 
