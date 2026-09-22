@@ -21,8 +21,9 @@
 #
 # The consumer repo's own exact AGENTS.md chain (root + nested) is NOT included
 # here and must NOT be: opencode v2 discovers it natively by walking up from the
-# invocation cwd to the git root, so duplicating it would inject the guidance
-# twice (LADR-087). Only the custom/rule/mandatory paths — which opencode does
+# invocation cwd toward the home directory (stopping at the project root when the
+# workspace sits outside it), so duplicating it would inject the guidance twice
+# (LADR-087). Only the custom/rule/mandatory paths — which opencode does
 # not auto-load — belong in the generated file.
 set -uo pipefail
 
