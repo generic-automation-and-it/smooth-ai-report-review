@@ -33,6 +33,19 @@ mkdir -p "$_target_dir" || { echo "build-runtime-agents.sh: cannot create $_targ
 
 _out="$_target_dir/AGENTS.md"
 
+# Strip a leading YAML frontmatter block (--- ... ---) from a rule file. That
+# frontmatter (applyTo:/alwaysApply:) is consumed by the scope filter to decide
+# which chunk a rule applies to; it is filter metadata, not instruction content,
+# and an embedded `---` block inside the runtime AGENTS.md could confuse
+# opencode's own AGENTS.md parsing. Emits the tail after a leading frontmatter
+# block (or the whole content when there is none / it is malformed).
+_strip_frontmatter() {
+  awk 'NR==1 && $0=="---" {infm=1; next}
+       infm && $0=="---" {infm=0; next}
+       infm {next}
+       {print}' "$1"
+}
+
 cat > "$_out" <<EOF
 # Runtime review instructions (${_label})
 
@@ -58,7 +71,7 @@ if [ -n "$_list" ] && [ -f "$_list" ]; then
     echo "---" >> "$_out"
     echo "Source: \`$_ctx\`" >> "$_out"
     echo "" >> "$_out"
-    cat "$_ctx" >> "$_out"
+    _strip_frontmatter "$_ctx" >> "$_out"
     _count=$((_count + 1))
   done < "$_list"
 fi

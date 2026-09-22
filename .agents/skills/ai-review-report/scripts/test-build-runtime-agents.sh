@@ -59,5 +59,24 @@ helper_out="$(bash "$BUILDER" "$LIST" "$TMP/created/sub" "chunk 5")"
 [ -f "$TMP/created/sub/AGENTS.md" ] || fail "target dir not created"
 ok "target directory is created when absent"
 
+# --- case 6: leading YAML frontmatter is stripped from rule content -----------
+mkdir -p "$TMP/fm"
+printf '%s\n' "$TMP/fm/rule.md" > "$TMP/ctx6.txt"
+cat > "$TMP/fm/rule.md" <<'EOF'
+---
+applyTo: backend
+alwaysApply: false
+---
+ACTUAL_RULE_CONTENT
+More rule detail.
+EOF
+bash "$BUILDER" "$TMP/ctx6.txt" "$TMP/out6" "chunk 6" > /dev/null 2>&1
+grep -q 'ACTUAL_RULE_CONTENT' "$TMP/out6/AGENTS.md" || fail "rule body lost after frontmatter strip"
+grep -q 'More rule detail.' "$TMP/out6/AGENTS.md" || fail "rule body detail lost"
+if grep -q 'applyTo\|alwaysApply' "$TMP/out6/AGENTS.md"; then
+  fail "scope-filter frontmatter leaked into the runtime AGENTS.md"
+fi
+ok "scope-filter frontmatter (applyTo/alwaysApply) is stripped from rule content"
+
 echo ""
 echo "All ${pass} build-runtime-agents tests passed."
