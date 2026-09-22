@@ -95,6 +95,30 @@ grep -q 'trailing detail' "$TMP/out6b/AGENTS.md" \
   || fail "unclosed frontmatter swallowed the tail of the rule"
 ok "unclosed frontmatter fails open and keeps the whole rule body"
 
+# --- case 6c: a failed write exits non-zero and leaves NO file ---------------
+# This script runs without `set -e`, so a failed redirection does not abort it
+# and the closing `printf` would still exit 0 — reporting success while nothing
+# was written. The callers gate their "rules were loaded" claim on the file
+# existing, so a success-with-no-file is precisely what makes that claim false.
+mkdir -p "$TMP/ro"
+chmod 500 "$TMP/ro"
+if bash "$BUILDER" "$LIST" "$TMP/ro/target" "chunk 6c" > /dev/null 2>&1; then
+  chmod 700 "$TMP/ro"
+  fail "builder reported success despite being unable to write its output"
+fi
+chmod 700 "$TMP/ro"
+ok "an unwritable target exits non-zero instead of reporting a phantom build"
+
+# --- case 6d: no partial file is ever observable -----------------------------
+# The build goes to a temp file and is renamed into place, so a consumer sees
+# either nothing or a complete document — never a truncated one.
+grep -q 'mv -f "\$_tmp" "\$_out"' "$BUILDER" \
+  || fail "builder no longer writes atomically; a partial AGENTS.md becomes observable"
+if grep -qE '^cat > "\$_out"' "$BUILDER"; then
+  fail "builder writes the final path directly again — partial output becomes observable"
+fi
+ok "the runtime AGENTS.md is written atomically (temp + rename)"
+
 # --- case 7: callers fail OPEN when the runtime AGENTS.md is absent ----------
 # The builder degrades gracefully, but a caller that pins OPENCODE_RUN_CWD at a
 # directory that does not exist makes `cd` fail inside the transport, so every
@@ -123,13 +147,18 @@ grep -q 'OPENCODE_RUN_CWD="\$ORCH_RUN_CWD"' "$AGG" \
   || fail "aggregate-reviews.sh must pass the guarded cwd to the transport"
 ok "aggregate-reviews.sh fails open when the runtime AGENTS.md is missing"
 
-# --- case 8: the prompt asserts loaded rules only when rules exist -----------
-# An empty scoped set yields a runtime AGENTS.md that says so. Telling the model
-# "the rules that apply were loaded" in that case is a false premise, which is
-# the DR-015 class. The block must sit behind a non-empty context-set test.
-grep -q 'if \[ -s ci_temp/chunk_${chunk_num}_context.txt \]' "$CHUNKS" \
-  || fail "the PROJECT RULES prompt block is no longer gated on a non-empty context set"
-ok "the loaded-rules claim is gated on the chunk actually having context files"
+# --- case 8: the prompt asserts loaded rules only when they WERE loaded ------
+# The success signal is the generated file existing, not a non-empty input list
+# (which is what the caller supplied, not what the builder achieved). Gating on
+# the list alone let a failed build review the chunk with no project rules while
+# the prompt claimed they were loaded — a silent rule drop wearing a denial.
+grep -q 'if \[ -s ci_temp/chunk_${chunk_num}_context.txt \] && \[ -f "ci_temp/chunk_${chunk_num}/AGENTS.md" \]' "$CHUNKS" \
+  || fail "the loaded-rules claim is not gated on the generated AGENTS.md existing"
+# And when the build failed but rules exist, they must still reach the model via
+# the pre-LADR-090 path-list channel rather than being dropped in silence.
+grep -q 'MANDATORY: READ PROJECT CONTEXT FILES FIRST' "$CHUNKS" \
+  || fail "no path-list fallback when the runtime build fails — rules would be lost silently"
+ok "the loaded-rules claim is gated on the build succeeding, with a path-list fallback"
 
 # --- case 9: no hardcoded language/framework facts in the prompt -------------
 # The gate is language-agnostic and reviews Python/TS/Go/Rust consumers. A

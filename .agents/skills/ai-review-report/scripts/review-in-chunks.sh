@@ -630,6 +630,12 @@ ${AI_REVIEW_NOTES}
 EOF
   fi
 
+  # Get absolute path for file access instructions. Declared BEFORE the runtime
+  # instruction block below, which uses it to render absolute paths on the
+  # builder-failure fallback path; with `set -e` but no `set -u`, an unbound
+  # repo_root there would silently emit "/path" instead of failing.
+  local repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
+
   # Build the runtime AGENTS.md for this chunk. The scoped context set is
   # concatenated into it; opencode v2 loads it as active instructions by
   # directory scope (this chunk runs opencode from ci_temp/chunk_N). This
@@ -647,14 +653,16 @@ EOF
     echo "  📋 Runtime instructions: ${_rt_agents}"
   fi
 
-  # Only claim rules were loaded when some actually were. An empty scoped set
-  # yields a runtime AGENTS.md that says so, and telling the model "the rules
-  # that apply were loaded" in that case is a false premise — the class DR-015
-  # exists to keep out of prompts. No language/framework fact is asserted here
-  # either: the gate is language-agnostic, and version facts ("this project uses
-  # C# 14") belong in the consuming repo's own rules, which are exactly what the
-  # runtime AGENTS.md now carries.
-  if [ -s ci_temp/chunk_${chunk_num}_context.txt ]; then
+  # Only claim rules were loaded when they demonstrably were. The success signal
+  # is the generated file EXISTING — not merely a non-empty input list, which is
+  # what the caller controls rather than what the builder achieved. Gating on the
+  # list alone let a failed build run the review with no project rules while the
+  # prompt asserted they were loaded: a silent rule drop wearing a claim that it
+  # had not happened, which is the inversion of LADR-089's asymmetry.
+  # No language/framework fact is asserted here either: the gate is
+  # language-agnostic, and version facts ("this project uses C# 14") belong in
+  # the consuming repo's own rules, which the runtime AGENTS.md now carries.
+  if [ -s ci_temp/chunk_${chunk_num}_context.txt ] && [ -f "ci_temp/chunk_${chunk_num}/AGENTS.md" ]; then
     cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
 
 ## 📖 PROJECT RULES (loaded as instructions by the CLI)
@@ -667,13 +675,33 @@ data contradicts, the rule wins: treat the syntax or pattern it sanctions as
 valid and do not flag it as an error.
 
 EOF
+  elif [ -s ci_temp/chunk_${chunk_num}_context.txt ]; then
+    # The builder failed but rules exist. Falling silent here would review this
+    # chunk with no project rules at all, so fall back to the pre-LADR-090
+    # path-list channel: it costs exploration budget (LADR-076), which is the
+    # cheap direction against losing the rules entirely. Reached only on a
+    # builder failure, never on the healthy path.
+    echo "  ⚠️ Chunk ${chunk_num}: runtime instructions unavailable — falling back to the path-list channel" >&2
+    {
+      echo ""
+      echo "## 🚨 MANDATORY: READ PROJECT CONTEXT FILES FIRST"
+      echo ""
+      echo "The project rules below could not be pre-loaded for this review."
+      echo "**Read each one with \`read_file\` before reviewing the diff.** They"
+      echo "override your training data: where a rule states a language version,"
+      echo "framework behaviour or project convention your training data"
+      echo "contradicts, the rule wins."
+      echo ""
+      while IFS= read -r _ctx_file; do
+        [ -z "$_ctx_file" ] && continue
+        echo "- \`${repo_root}/${_ctx_file#./}\`"
+      done < ci_temp/chunk_${chunk_num}_context.txt
+      echo ""
+    } >> ci_temp/chunk_${chunk_num}_prompt.txt
   fi
 
   # Custom *_AGENTS.md files remain explicit context. Standard AGENTS.md files
   # are loaded natively by opencode v2 and are not repeated in this prompt.
-
-  # Get absolute path for file access instructions
-  local repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
 
   # Detect migration/schema chunks (SQL files or EF Core migration files)
   local is_migration=false
