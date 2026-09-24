@@ -489,6 +489,21 @@ jobs:
       # mutation did not already land. Set to a falsy value to restore the
       # pre-LADR-078 single-attempt behaviour.
       OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
+      # Decision-model scoring (LADR-093) — OFF by default. When truthy, the
+      # merged findings are scored by a structured decision model (TypeSafe Jev)
+      # over raw HTTP — not an opencode target, so no opencode.json entry and no
+      # new Secret: the provider reuses its vendor's existing key
+      # (OPENCODE-GO-DECISIONS → OPENCODE_GO_OPENAI_API_KEY,
+      # OPENROUTER-DECISIONS → OPENCODE_OPENROUTER_API_KEY). `annotate` adds
+      # probabilities and an [UNSUPPORTED] tag; `filter` may also suppress
+      # non-critical findings below the threshold, but only on full sidecar
+      # coverage. Best-effort: a failure leaves the review exactly as it was.
+      OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS || '0' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || 'OPENCODE-GO-DECISIONS' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_MODE: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODE || 'annotate' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '20' }}
       # Per-chunk review budget, seconds (default 450). Wraps the WHOLE model
       # chain, so on timeout the LADR-002 secondary is never reached. Raised
       # from a hardcoded 300 after LADR-055 tripled per-chunk output.

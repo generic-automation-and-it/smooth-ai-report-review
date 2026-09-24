@@ -91,4 +91,59 @@ run_failure analyse_missing_cred env \
   OPENCODE_REVIEW_REPORT_GEMINI_URL=https://example.com
 grep -q 'OPENCODE_GEMINI_API_KEY.*empty/unset' "${tmp_dir}/analyse_missing_cred.err" || fail "missing-credential error was not clear"
 
+# --- decisions scope (LADR-093) --------------------------------------------------
+# Resolved by sourcing, like the scorer does: the values are shell variables and
+# the key must never reach $GITHUB_ENV.
+decisions_resolve() { # decisions_resolve <name> <env...> — prints provider|url|model|key-var
+  local name="$1"
+  shift
+  env GITHUB_ENV="${tmp_dir}/${name}.env" "$@" OPENCODE_PROVIDER_SCOPE=decisions bash -c '
+    . "$0" >/dev/null || exit 1
+    printf "%s|%s|%s|%s|%s" "$OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER" "$OPENCODE_REVIEW_REPORT_DECISIONS_URL" \
+      "$OPENCODE_REVIEW_REPORT_DECISIONS_MODEL" "$OPENCODE_DECISIONS_KEY_VAR" "$OPENCODE_DECISIONS_API_KEY"
+  ' "$RESOLVER" 2>"${tmp_dir}/${name}.err"
+}
+
+out="$(decisions_resolve decisions_default OPENCODE_GO_OPENAI_API_KEY=go-key)" || fail "decisions default should resolve"
+[ "$out" = "OPENCODE-GO-DECISIONS|https://opencode.ai/zen/v1/systemone|jev-1.13|OPENCODE_GO_OPENAI_API_KEY|go-key" ] \
+  || fail "decisions default resolved to '$out'"
+[ ! -s "${tmp_dir}/decisions_default.env" ] || fail "decisions scope wrote to GITHUB_ENV"
+
+out="$(decisions_resolve decisions_or OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=openrouter-decisions OPENCODE_OPENROUTER_API_KEY=or-key)" \
+  || fail "OPENROUTER-DECISIONS should resolve"
+[ "$out" = "OPENROUTER-DECISIONS|https://openrouter.ai/api/alpha/decisions|typesafe/jev-1.13|OPENCODE_OPENROUTER_API_KEY|or-key" ] \
+  || fail "OPENROUTER-DECISIONS resolved to '$out'"
+
+out="$(decisions_resolve decisions_model OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.13-free OPENCODE_GO_OPENAI_API_KEY=go-key)" \
+  || fail "decisions model override should resolve"
+[ "${out%%|OPENCODE_GO*}" = "OPENCODE-GO-DECISIONS|https://opencode.ai/zen/v1/systemone|jev-1.13-free" ] || fail "decisions model override ignored: '$out'"
+
+# The review provider's key is never reused, and never clobbered.
+env OPENCODE_GO_OPENAI_API_KEY=go-key OPENCODE_GATEWAY_API_KEY=review-key OPENCODE_PROVIDER_SCOPE=decisions \
+  bash -c '. "$0" >/dev/null; printf "%s" "$OPENCODE_GATEWAY_API_KEY"' "$RESOLVER" > "${tmp_dir}/gw.out" 2>/dev/null
+[ "$(cat "${tmp_dir}/gw.out")" = "review-key" ] || fail "decisions scope touched OPENCODE_GATEWAY_API_KEY"
+
+if decisions_resolve decisions_missing_key >/dev/null; then fail "decisions scope without a key should fail"; fi
+grep -q 'OPENCODE_GO_OPENAI_API_KEY is empty/unset' "${tmp_dir}/decisions_missing_key.err" || fail "decisions missing-key error was not clear"
+
+if decisions_resolve decisions_chat OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=OPENAI OPENCODE_OPENAI_API_KEY=k >/dev/null; then
+  fail "a chat provider must be refused by the decisions scope"
+fi
+grep -q 'is a chat provider' "${tmp_dir}/decisions_chat.err" || fail "decisions chat-provider error was not clear"
+
+if decisions_resolve decisions_crossed OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=OPENROUTER-DECISIONS \
+     OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.13 OPENCODE_OPENROUTER_API_KEY=k >/dev/null; then
+  fail "an OpenCode model id must be refused on OPENROUTER-DECISIONS"
+fi
+grep -q 'has no vendor prefix' "${tmp_dir}/decisions_crossed.err" || fail "decisions crossed-model error was not clear"
+
+# And the reverse: a decision provider can never become the review provider.
+run_failure review_decisions_provider env \
+  OPENCODE_REVIEW_REPORT_PROVIDER=OPENCODE-GO-DECISIONS \
+  OPENCODE_GO_OPENAI_API_KEY=test-key \
+  OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=jev-1.13 \
+  OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=jev-1.13 \
+  OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=jev-1.13
+grep -q 'is a decision-model provider' "${tmp_dir}/review_decisions_provider.err" || fail "review-scope decision-provider error was not clear"
+
 echo "✓ resolve-provider scope tests passed"

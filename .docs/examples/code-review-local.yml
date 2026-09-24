@@ -468,6 +468,14 @@ jobs:
           OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS || '1' }}
           # Bounded GitHub retry (LADR-078) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
+          # Decision-model scoring (LADR-093) — mirrors the reusable workflow. Off
+          # by default; reuses the selected vendor's existing key Secret above.
+          OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS || '0' }}
+          OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || 'OPENCODE-GO-DECISIONS' }}
+          OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
+          OPENCODE_REVIEW_REPORT_DECISIONS_MODE: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODE || 'annotate' }}
+          OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}
+          OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '20' }}
           # Per-chunk review budget, seconds — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
           # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).

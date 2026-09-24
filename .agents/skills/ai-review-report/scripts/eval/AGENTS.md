@@ -130,6 +130,22 @@ scripts/eval/
 
 ## Key Behaviors
 
+- **Decision-model scoring (LADR-093) is invisible to this harness — setting
+  `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` here changes nothing.** The
+  harness scores each fixture's chunk markdown straight out of
+  `review-in-chunks.sh`; the decision model runs after `merge-findings.sh`, on
+  the merged document, and only the rendered Issues Summary carries its output.
+  Measuring it (issue #156, "PR C" — the precondition for `filter` ever
+  defaulting on) needs a post-merge leg per fixture: merge the sandbox's
+  `ci_temp/reviews/chunk_*.findings.json`, run
+  `lib/score-findings-decisions.sh` in `annotate`, render with
+  `lib/render-findings-summary.sh`, and record for every must-NOT-flag hit the
+  `supported` probability of the offending finding (would `filter` have
+  suppressed it?) and for every must-catch hit whether `filter` would have
+  suppressed the catch. Score the rendered summary with the unchanged
+  `lib/score-review.sh` — the decision suffix sits after the label, so the flag
+  count is comparable. Report the delta; do not gate on it until it has been
+  run on the whole corpus more than once.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -202,6 +218,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-24 | Recorded that LADR-093 decision-model scoring is invisible to this harness (it scores pre-merge chunk markdown) and what the post-merge measurement leg for issue #156 PR C must do. | LADR-093 |
 | 2026-06-08 | Initial eval-dir AGENTS.md: fixture hygiene, `EVAL_ARTIFACT_DIR` triage archive, post-merge canary trigger, strict precision bar, and safe `test-evals.sh` path. | — |
 | 2026-07-30 | Move the retired `.github/instructions` DR standards into the eval corpus and assemble them into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox. | — |
 | 2026-08-03 | Retired the post-merge push-to-main canary trigger — the scope-checked `pull_request` required check scores the same paths before merge; merged fork PRs need a manual dispatch. | — |

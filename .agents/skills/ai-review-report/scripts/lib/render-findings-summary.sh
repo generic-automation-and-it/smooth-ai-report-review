@@ -70,6 +70,40 @@ jq -r '
     elif . == "medium" then "Medium Priority"
     else "Low Priority" end;
 
+  # A probability as fixed two decimals (0.9 renders 0.90), so a column of
+  # them reads evenly and a test can pin the exact text.
+  def p2:
+    (. * 100 | round) as $n
+    | "\(($n / 100) | floor).\(($n % 100) | if . < 10 then "0\(.)" else "\(.)" end)";
+
+  # LADR-093 annotate rendering. Absent decisions render nothing, so a document
+  # the decision model never saw renders byte-identically to before. The
+  # original severity is never replaced: a disagreement is shown beside it.
+  def decision_suffix($ds):
+    if (.decisions.supported // null) == null then ""
+    else
+      " · decision: supported \(.decisions.supported | p2)"
+      + (if .decisions.supported < ($ds.min_probability // 0.5) then " [UNSUPPORTED]" else "" end)
+      + (if (.decisions.severity.choice // .severity) != .severity
+         then " (decision model: \(.decisions.severity.choice))" else "" end)
+    end;
+
+  # The Coverage line saying the decision model ran, plus what filter mode
+  # removed. Suppression nobody can see is suppression nobody should trust, so
+  # every suppressed finding is listed (capped, like the defect causes) with
+  # its location and probability but WITHOUT its old number: that number now
+  # belongs to a different finding.
+  def decision_lines($ds):
+    if $ds == null then empty
+    else
+      "- **Decision model:** `\($ds.provider)/\($ds.model)` (\($ds.mode)) — scored \($ds.scored), skipped \($ds.skipped)"
+        + (if $ds.mode == "filter" then ", suppressed \($ds.suppressed | length)" else "" end),
+      ( if ($ds.mode_note // "") != "" then "  - \($ds.mode_note | clean)" else empty end ),
+      ( ($ds.suppressed // []) | .[0:10][]
+        | "  - suppressed: \(.severity | sev_emoji) \(.severity | sev_label): \(.title | clean) — `\(.file):\(.line)` (supported \(.supported | p2))" ),
+      ( (($ds.suppressed // []) | length) - 10 | if . > 0 then "  - …and \(.) further suppressed finding\(if . == 1 then "" else "s" end)" else empty end )
+    end;
+
   def chunk_ref:
     if (. | length) == 0 then ""
     elif (. | length) == 1 then " (chunk \(.[0]))"
@@ -104,7 +138,14 @@ jq -r '
   # died on a shell syntax error.
   #
   # Continuation is indented 3 spaces to the content column of `N. `, not 2.
-  def bullet:
+  #
+  # LADR-093: the decision-model suffix goes at the END of the first line, after
+  # the chunk reference, never inside the label. score-review.sh takes the label
+  # as the text before the FIRST colon, and the suffix carries a colon of its
+  # own, so placing it anywhere before the severity colon would move that
+  # boundary. At the end of the line the label is byte-identical to a render
+  # without decisions, and so is the eval flag count.
+  def bullet($ds):
     "\(.["#"]). \(.severity | sev_emoji) "
     + (if .verified == true then "[VERIFIED]" else "[SPECULATIVE]" end)
     + " \(.severity | sev_label): \(.title | clean)"
@@ -112,6 +153,7 @@ jq -r '
     + ":\(.line)"
     + "`"
     + (.chunks // [] | chunk_ref)
+    + decision_suffix($ds)
     + (if (.why_it_matters // "") != "" then "\n   - \(.why_it_matters | clean)" else "" end);
 
   # Residual risks and testing gaps render into the Medium tier as ordinary
@@ -173,23 +215,24 @@ jq -r '
             else empty end )
     end;
 
-  def section($sev; $heading):
+  def section($sev; $heading; $ds):
     "### \($heading)",
     "",
-    ( ( [ .findings[] | select(.severity == $sev) ] | map(bullet) )
+    ( ( [ .findings[] | select(.severity == $sev) ] | map(bullet($ds)) )
       + (if $sev == "medium" then soft_items else [] end)
       | if length == 0 then ["None found"] else . end
       | .[] ),
     "";
 
-  "## 🔍 Issues Summary",
+  (.decisions_summary // null) as $ds
+  | "## 🔍 Issues Summary",
   "",
   "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
   "",
-  section("critical"; "🔴 Critical Issues"),
-  section("high"; "🟠 High Priority Issues"),
-  section("medium"; "🟡 Medium Priority Issues"),
-  section("low"; "🔵 Low Priority / Nitpicks"),
+  section("critical"; "🔴 Critical Issues"; $ds),
+  section("high"; "🟠 High Priority Issues"; $ds),
+  section("medium"; "🟡 Medium Priority Issues"; $ds),
+  section("low"; "🔵 Low Priority / Nitpicks"; $ds),
 
   # Pre-existing findings are reported, never counted. They are not defects this
   # PR introduced, so surfacing them among the actionable set would make every
@@ -242,6 +285,7 @@ jq -r '
   "- **Pre-existing findings (partitioned out of verdict):** \(.pre_existing_findings | length)",
   "- **Soft buckets — residual risks:** \(.residual_risks | length)",
   "- **Soft buckets — testing gaps:** \(.testing_gaps | length)",
+  decision_lines($ds),
   "",
   "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
   ""

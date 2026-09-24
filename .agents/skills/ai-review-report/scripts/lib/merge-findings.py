@@ -80,6 +80,13 @@ FINDING_DEFAULTS = {
     "requires_verification": False,
 }
 
+# Keys only a post-merge step may write (LADR-093). A chunk model that emits one
+# is not reporting evidence, it is forging the verdict of the independent judge
+# that runs after this merge: `decisions` is rendered as that judge's
+# probability and, in filter mode, decides suppression. Dropped silently rather
+# than rejecting the finding — the finding itself may be perfectly good.
+PRODUCER_FORBIDDEN_KEYS = ("decisions",)
+
 
 def nonempty_string(value):
     return isinstance(value, str) and bool(value.strip())
@@ -175,6 +182,8 @@ def apply_finding_defaults(value):
     if not isinstance(value, dict):
         return value
     out = dict(value)
+    for key in PRODUCER_FORBIDDEN_KEYS:
+        out.pop(key, None)
     for key, default in FINDING_DEFAULTS.items():
         if key not in out:
             out[key] = default
