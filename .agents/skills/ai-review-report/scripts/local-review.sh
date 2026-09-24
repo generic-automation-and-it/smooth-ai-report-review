@@ -360,9 +360,16 @@ touch "$GITHUB_OUTPUT"
 # warned and skipped so exploratory local runs don't fail on cross-repo defaults.
 MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-.agents/skills/ai-review-report/SKILL.md}"
 _missing_ctx=()
-for _ctx in $MANDATORY_CONTEXT_FILES; do
-  [ -f "$_ctx" ] || _missing_ctx+=("$_ctx")
-done
+# `none` as the whole value (any case) is the explicit opt-out that
+# find-context-files.sh honours — same test there — not a missing file.
+_ctx_count=0
+for _ctx in $MANDATORY_CONTEXT_FILES; do _ctx_count=$((_ctx_count + 1)); done
+if [ "$_ctx_count" -ne 1 ] \
+   || [ "$(printf '%s' "$MANDATORY_CONTEXT_FILES" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" != "none" ]; then
+  for _ctx in $MANDATORY_CONTEXT_FILES; do
+    [ -f "$_ctx" ] || _missing_ctx+=("$_ctx")
+  done
+fi
 if [ ${#_missing_ctx[@]} -gt 0 ]; then
   echo "⚠️  The following mandatory context files are missing and will be skipped:" >&2
   printf '  - %s\n' "${_missing_ctx[@]}" >&2

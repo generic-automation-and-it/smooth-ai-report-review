@@ -161,4 +161,57 @@ if grep -Fq 'rules-scoped' "$CONFIG"; then
 fi
 ok ".agents/rules-scoped stays out of both the config and the explicit context"
 
+# `none` as the whole value is an explicit "no mandatory context files"
+# declaration: no per-path warnings, nothing recorded as mandatory, and the
+# discovered rule trees are untouched. Blank cannot express this — every layer
+# above the finder turns blank into the built-in product-repo list.
+run_finder() { # run_finder <value> — fresh ci_temp, log in $REPO/run.log, rc in $finder_rc
+  find "$REPO/ci_temp" -mindepth 1 ! -name changed_files.txt -delete
+  finder_rc=0
+  ( cd "$REPO" && GITHUB_OUTPUT="$REPO/output" MANDATORY_CONTEXT_FILES="$1" \
+      bash "$FINDER" > "$REPO/run.log" 2>&1 ) || finder_rc=$?
+}
+for _none in 'none' $'  NONE\n'; do
+  run_finder "$_none"
+  [ "$finder_rc" -eq 0 ] || fail "MANDATORY_CONTEXT_FILES='$_none' made the finder exit $finder_rc"
+  if grep -q 'Mandatory context file not found' "$REPO/run.log"; then
+    fail "MANDATORY_CONTEXT_FILES='$_none' was treated as a path and warned"
+  fi
+  grep -q 'declares no mandatory context files' "$REPO/run.log" \
+    || fail "MANDATORY_CONTEXT_FILES='$_none' did not log the opt-out"
+  [ ! -s "$REPO/ci_temp/mandatory_context_files.txt" ] \
+    || fail "MANDATORY_CONTEXT_FILES='$_none' recorded mandatory paths"
+  grep -Fxq '.agents/rules/top.md' "$REPO/ci_temp/context_files.txt" \
+    || fail "MANDATORY_CONTEXT_FILES='$_none' also dropped discovered rule files"
+done
+ok "'none' (any case, surrounding whitespace) opts out of mandatory context without warnings"
+
+# Only the WHOLE value opts out: mixed with real paths, `none` is just a
+# missing path, so a typo cannot silently discard the rest of the list.
+run_finder 'none docs/rules.txt'
+[ "$finder_rc" -eq 0 ] || fail "a list containing 'none' made the finder exit $finder_rc"
+grep -q 'Mandatory context file not found: none' "$REPO/run.log" \
+  || fail "'none' inside a list was not treated as an ordinary (missing) path"
+grep -Fxq 'docs/rules.txt' "$REPO/ci_temp/mandatory_context_files.txt" \
+  || fail "'none' inside a list discarded the real paths next to it"
+ok "'none' only opts out as the whole value"
+
+# Unset still fails closed (LADR-025/029): the opt-out is explicit, never implied.
+finder_rc=0
+( cd "$REPO" && env -u MANDATORY_CONTEXT_FILES GITHUB_OUTPUT="$REPO/output" \
+    bash "$FINDER" > "$REPO/run.log" 2>&1 ) || finder_rc=$?
+[ "$finder_rc" -eq 2 ] || fail "unset MANDATORY_CONTEXT_FILES exited $finder_rc, expected 2"
+ok "unset MANDATORY_CONTEXT_FILES still fails closed"
+
+# The reusable workflow must consult the Variable between the input and the
+# built-in list — otherwise the Variable (and so `none`) is unreachable there,
+# while the local-job packaging already reads it.
+WORKFLOW="$SCRIPT_DIR/../../../../.github/workflows/pipeline-code-review-report.yml"
+_mcf_expr="$(awk '/^ *MANDATORY_CONTEXT_FILES: >-/{f=1;next} f&&/}}/{print;exit} f{print}' "$WORKFLOW" | tr -s ' \n' ' ')"
+case "$_mcf_expr" in
+  *'inputs.mandatory_context_files || vars.MANDATORY_CONTEXT_FILES ||'*) ;;
+  *) fail "pipeline-code-review-report.yml does not fall back input → vars.MANDATORY_CONTEXT_FILES → default: $_mcf_expr" ;;
+esac
+ok "the reusable workflow falls back input → Variable → built-in list"
+
 echo "All $pass find-context-files tests passed"

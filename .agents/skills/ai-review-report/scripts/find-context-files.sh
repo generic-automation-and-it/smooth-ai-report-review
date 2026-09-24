@@ -93,6 +93,23 @@ if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
   exit 2
 fi
 
+# `none`, as the whole value (any case), declares that the repo under review
+# has no mandatory context files. It is an explicit opt-out, so the unset check
+# above still fails closed: a blank value cannot mean "none", because every
+# layer (the workflow's `||` chain, run-review.sh) turns blank into the
+# built-in product-repo list — which is how a repo without those files ended up
+# with five "not found" warnings on every run.
+_mcf_count=0
+_mcf_first=""
+for _mcf_tok in $MANDATORY_CONTEXT_FILES; do
+  _mcf_count=$((_mcf_count + 1))
+  [ -n "$_mcf_first" ] || _mcf_first="$_mcf_tok"
+done
+if [ "$_mcf_count" -eq 1 ] && [ "$(printf '%s' "$_mcf_first" | tr '[:upper:]' '[:lower:]')" = "none" ]; then
+  echo "  ℹ️ MANDATORY_CONTEXT_FILES=none — the repo declares no mandatory context files"
+  MANDATORY_CONTEXT_FILES=""
+fi
+
 for ctx_file in $MANDATORY_CONTEXT_FILES; do
   if [ -f "$ctx_file" ]; then
     if [ "$(basename "$ctx_file")" = "AGENTS.md" ]; then
