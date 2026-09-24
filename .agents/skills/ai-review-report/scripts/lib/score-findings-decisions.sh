@@ -425,7 +425,8 @@ build_pr_request() { # build_pr_request <jq-filter-for-findings> <out>
                           title: .value.title, supported: (\$dec[.key | tostring].supported // null) } ],
           residual_risks: (.residual_risks // []),
           testing_gaps: (.testing_gaps // []),
-          review_rules: { severity: \$q.review_rules.severity, decision_rule: \$q.review_rules.decision_rule }
+          review_rules: { severity: \$q.review_rules.severity, decision_rule: \$q.review_rules.decision_rule,
+                          untrusted_content: \$q.review_rules.untrusted_content }
         },
         questions: \$q.pr_level }" "$merged" > "$2"
 }

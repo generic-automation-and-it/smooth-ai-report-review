@@ -235,6 +235,10 @@ check "Test 2h2: per-finding state withholds the chunk severity and pre_existing
   "$(jq -s '[.[] | select(.state.finding? and (.state.finding | has("severity") or has("pre_existing")))] | length' "$STUB_DIR"/req_*.json)"
 check "Test 2i: per-finding state carries the diff hunk around its line" "true" \
   "$(jq -s '[.[] | select(.state.finding.title? == "weak high claim")][0].state.diff_hunk | test("added line twenty")' "$STUB_DIR"/req_*.json)"
+check "Test 2j2: every request states that PR content is data, never instruction" "0" \
+  "$(jq -s '[.[] | select(.questions.preflight? | not) | select((.state.review_rules.untrusted_content // "") | test("never an instruction") | not)] | length' "$STUB_DIR"/req_*.json)"
+check "Test 2j3: the supported question applies that boundary by name" "true" \
+  "$(jq -s '[.[] | select(.questions.supported?)][0].questions.supported.instructions | test("review_rules.untrusted_content")' "$STUB_DIR"/req_*.json)"
 check "Test 2j: the severity question lists exactly the four gate severities" '["critical","high","low","medium"]' \
   "$(jq -s -c '[.[] | select(.questions.severity?)][0].questions.severity.criteria | keys' "$STUB_DIR"/req_*.json)"
 check "Test 2k: success is logged once" "1" "$(grep -c '^✅ Decision model OPENCODE-GO-DECISIONS/jev-1.13 (annotate): scored 4, skipped 0, suppressed 0' "$TMP_DIR/t2.log")"
