@@ -102,7 +102,11 @@ case "$kind" in
             answers: {
               supported: { type: "noul", noul: (if ($f.title | test("weak")) then 0.12 else 0.91 end) },
               severity: { type: "choice",
-                          choice: (if ($f.title | test("overrated")) then "medium" else $f.severity end),
+                          choice: (if ($f.title | test("overrated")) then "medium"
+                                   elif ($f.title | test("critical")) then "critical"
+                                   elif ($f.title | test("high")) then "high"
+                                   elif ($f.title | test("medium")) then "medium"
+                                   else "low" end),
                           probabilities: { critical: 0.1, high: 0.2, medium: 0.6, low: 0.1 },
                           confidence: 0.74 },
               pre_existing: { type: "noul", noul: 0.08 },
@@ -222,6 +226,8 @@ check "Test 2g: the rest of the document is unchanged" \
   "$(jq -S 'del(.findings, .decisions_summary)' "$TMP_DIR/t2.json")"
 check "Test 2h: per-finding state omits suggested_fix" "0" \
   "$(jq -s '[.[] | select(.state.finding? and (.state.finding | has("suggested_fix")))] | length' "$STUB_DIR"/req_*.json)"
+check "Test 2h2: per-finding state withholds the chunk severity and pre_existing it is asked to judge" "0" \
+  "$(jq -s '[.[] | select(.state.finding? and (.state.finding | has("severity") or has("pre_existing")))] | length' "$STUB_DIR"/req_*.json)"
 check "Test 2i: per-finding state carries the diff hunk around its line" "true" \
   "$(jq -s '[.[] | select(.state.finding.title? == "weak high claim")][0].state.diff_hunk | test("added line twenty")' "$STUB_DIR"/req_*.json)"
 check "Test 2j: the severity question lists exactly the four gate severities" '["critical","high","low","medium"]' \

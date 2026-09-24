@@ -286,7 +286,12 @@ build_finding_request() {
     .findings[$i] as $f | $q[0] as $q
     | { model: $model,
         state: {
-          finding: ($f | { title, severity, file, line, why_it_matters, evidence, first_evidence, pre_existing }
+          # Deliberately WITHOUT the chunk model own `severity` and
+          # `pre_existing`: two of the four questions ask the judge to decide
+          # exactly those, and showing the answer under test anchors it. The
+          # disagreement suffix only means something if the judge never saw
+          # the value it is compared against.
+          finding: ($f | { title, file, line, why_it_matters, evidence, first_evidence }
                        | with_entries(select(.value != null))),
           diff_hunk: $hunk,
           review_rules: $q.review_rules
