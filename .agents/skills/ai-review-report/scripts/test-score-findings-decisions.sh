@@ -119,6 +119,10 @@ case "$kind" in
     if [ "$STUB_MODE" = "pr_fail" ]; then
       printf '{"error":{"message":"overloaded"}}' > "$out"; printf '529'; exit 0
     fi
+    # pr_503_once: a gateway 503 on the first PR-level call, then an answer.
+    if [ "$STUB_MODE" = "pr_503_once" ] && mkdir "$STUB_DIR/pr_503_seen" 2>/dev/null; then
+      printf '{"error":{"message":"Service Unavailable"}}' > "$out"; printf '503'; exit 0
+    fi
     printf '{"model":"jev-1.13","answers":{"block_merge":{"type":"noul","noul":0.83},"dominant_risk":{"type":"choice","choice":"correctness","probabilities":{"correctness":0.7,"security":0.1,"performance":0.1,"maintainability":0.05,"tests":0.05},"confidence":0.66},"overall_risk":{"type":"score","score":2.4,"legend":{"0":"Negligible","1":"Low","2":"Moderate","3":"High","4":"Severe"},"probabilities":{"0":0,"1":0.1,"2":0.4,"3":0.4,"4":0.1},"confidence":0.5}},"usage":{"input_tokens":700,"output_tokens":40}}' > "$out" ;;
 esac
 printf '200'
@@ -335,6 +339,11 @@ check "Test 6h: PR-level failure keeps the per-finding scores" "4/null/failed" \
   "$(jq -r '"\(.decisions_summary.scored)/\(.decisions_summary.block_merge)/\(.decisions_summary.pr_level_scope)"' "$TMP_DIR/t6p.json")"
 check "Test 6i: a 529 is retried once before giving up" "7" "$(calls)"
 
+write_merged "$TMP_DIR/t6r.json"
+STUB_MODE=pr_503_once run_scorer t6r "$TMP_DIR/t6r.json" 2
+check "Test 6j: a gateway 503 is retried once and then answered" "7/0.83" \
+  "$(calls)/$(jq -r '.decisions_summary.block_merge' "$TMP_DIR/t6r.json")"
+
 # --- Test 7: provider selectors ------------------------------------------------------
 write_merged "$TMP_DIR/t7.json"
 run_scorer t7 "$TMP_DIR/t7.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=openrouter-decisions
@@ -372,7 +381,7 @@ DIFF_SAVE="$DIFF"; DIFF="$BIG_DIFF"
 run_scorer t8 "$TMP_DIR/t8.json" 2
 DIFF="$DIFF_SAVE"
 max_req="$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1)"
-check "Test 8a: no request exceeds the 72000-byte budget" "true" "$([ "$max_req" -le 72000 ] && echo true || echo "false ($max_req)")"
+check "Test 8a: no request exceeds the 24000-byte budget" "true" "$([ "$max_req" -le 24000 ] && echo true || echo "false ($max_req)")"
 check "Test 8b: an oversized hunk is truncated, and says so" "true" \
   "$(jq -s '[.[] | select(.state.finding.file? == "src/a.sh")][0].state.diff_hunk | test("truncated to fit")' "$STUB_DIR"/req_*.json)"
 

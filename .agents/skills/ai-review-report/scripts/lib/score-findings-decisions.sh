@@ -67,7 +67,8 @@ PARALLEL=4
 # Upper bound on scored findings, so the worst case (every request timing out)
 # stays bounded at ceil(MAX_FINDINGS / PARALLEL) x the timeout Variable.
 MAX_FINDINGS=60
-# One retry for the two statuses the vendor documents as transient.
+# One retry for transient statuses (429/529 per the vendor, 502/503/504 at the
+# gateway), always inside the request's own timeout deadline.
 RETRY_DELAY="${_DECISIONS_RETRY_DELAY:-2}"
 case "$RETRY_DELAY" in ''|*[!0-9]*) RETRY_DELAY=2 ;; esac
 
@@ -205,8 +206,11 @@ post() {
       -H @"$work/auth.hdr" -H 'Content-Type: application/json' \
       --data-binary @"$req" "$url" 2>"${resp}.err")" || code="000"
     code="${code:-000}"
+    # 429/529 are the transients the vendor documents; 502/503/504 are the
+    # gateway transients seen on OpenRouter, whose decisions path is still
+    # `alpha`. One retry, inside the same deadline, never a second.
     case "$code" in
-      429|529)
+      429|502|503|504|529)
         if [ "$attempt" -lt 2 ]; then
           remaining=$(( deadline - $(date +%s) ))
           [ "$remaining" -gt "$RETRY_DELAY" ] || break
