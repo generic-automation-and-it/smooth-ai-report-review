@@ -86,6 +86,7 @@ kind="$(jq -r '.questions | if has("preflight") then "preflight" elif has("block
 case "$STUB_MODE" in
   http500)  printf '{"error":{"message":"upstream exploded"}}' > "$out"; printf '500'; exit 0 ;;
   timeout)  printf '000'; exit 28 ;;
+  dns)      echo "curl: (6) Could not resolve host: openrouter.ai" >&2; printf '000'; exit 6 ;;
   cut)      printf '{"model":"jev-1.13","answ' > "$out"; printf '200'; exit 28 ;;
   badjson)  printf '<html>gateway</html>' > "$out"; printf '200'; exit 0 ;;
 esac
@@ -324,6 +325,12 @@ check "Test 6d: the HTTP status and vendor message are reported" "1" \
   "$(grep -c 'HTTP 500: upstream exploded' "$TMP_DIR/t6_http500.log")"
 check "Test 6e: a timeout is reported as one" "1" \
   "$(grep -c 'timeout or network error after 20s' "$TMP_DIR/t6_timeout.log")"
+write_merged "$TMP_DIR/t6dns.json"; cp "$TMP_DIR/t6dns.json" "$TMP_DIR/t6dns.orig"
+STUB_MODE=dns run_scorer t6dns "$TMP_DIR/t6dns.json" 2
+check "Test 6e3: a transport failure carries curl own reason" "1" \
+  "$(grep -c 'timeout or network error after 20s — curl: (6) Could not resolve host: openrouter.ai' "$TMP_DIR/t6dns.log")"
+check "Test 6e4: ...and still leaves the document untouched" "same" \
+  "$(cmp -s "$TMP_DIR/t6dns.json" "$TMP_DIR/t6dns.orig" && echo same || echo changed)"
 check "Test 6e2: a timeout mid-body is a timeout, not an HTTP 200" "1" \
   "$(grep -c 'timeout or network error after 20s' "$TMP_DIR/t6_cut.log")"
 

@@ -228,10 +228,14 @@ post() {
 
 # describe <code> <response> — one-line reason for a failed request.
 describe() {
-  local code="$1" resp="$2" msg
+  local code="$1" resp="$2" msg curl_err
   msg="$(jq -r '(.error.message // .error // .message // empty) | tostring' "$resp" 2>/dev/null | head -c 160)"
+  # curl -sS writes its own reason to stderr (captured per request); its first
+  # line is what tells a DNS failure, a TLS error and a real timeout apart.
+  # It never contains request headers, so the key cannot leak through it.
+  curl_err="$(head -n 1 "${resp}.err" 2>/dev/null | head -c 160)"
   case "$code" in
-    000) printf 'timeout or network error after %ss' "$timeout" ;;
+    000) printf 'timeout or network error after %ss%s' "$timeout" "${curl_err:+ — $curl_err}" ;;
     200) printf 'HTTP 200 without a usable answers object' ;;
     *)   printf 'HTTP %s%s' "$code" "${msg:+: $msg}" ;;
   esac
