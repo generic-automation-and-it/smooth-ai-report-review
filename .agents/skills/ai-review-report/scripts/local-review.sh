@@ -608,6 +608,26 @@ if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|tr
       "ci_temp/reviews" \
       "ci_temp/findings.merged.json" || true
   fi
+
+  # --- Step 5c: Decision-model scoring (LADR-091) ---
+  # Mirrors run-review.sh Step 17.6. Opt-in via the same
+  # OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS / _DECISIONS_* env vars; the key is
+  # the selected decision provider's existing Secret, already harvested above.
+  # This path writes no pr_diff.txt of its own, so build one for the per-finding
+  # diff hunks from the same file list the chunks reviewed. `tr` rather than
+  # `${v,,}`: this script has no Bash >= 4 guard.
+  if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+    if [ -s "ci_temp/findings.merged.json" ] && [ -f "$SCRIPT_DIR/lib/score-findings-decisions.sh" ]; then
+      xargs -0 git diff "${FROM_SHA}..${TO_SHA}" -- < ci_temp/changed_files.txt > ci_temp/pr_diff.txt 2>/dev/null || true
+      bash "$SCRIPT_DIR/lib/score-findings-decisions.sh" \
+        "ci_temp/findings.merged.json" \
+        "ci_temp/reviews" \
+        "$TOTAL_CHUNKS" \
+        "ci_temp/pr_diff.txt" || true
+    else
+      echo "ℹ️  Decision model (LADR-091): no merged findings document — step skipped"
+    fi
+  fi
 fi
 unset _lr_structured
 

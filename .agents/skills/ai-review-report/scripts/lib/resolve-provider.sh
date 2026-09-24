@@ -15,6 +15,17 @@
 #   OPENCODE_ANALYSE_PROVIDER → OPENCODE_ANALYSE_PROVIDER_ID
 #   OPENCODE_ANALYSE_PROVIDER → OPENCODE_ANALYSE_GATEWAY_URL
 #
+# `OPENCODE_PROVIDER_SCOPE=decisions` resolves the structured-decision scorer
+# (LADR-091). Decision providers are NOT opencode providers: they are called over
+# raw HTTP by score-findings-decisions.sh, never through `opencode run`, so they
+# have no provider id and no entry in assets/opencode.json. The scope yields:
+#   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER → normalised selector
+#   OPENCODE_REVIEW_REPORT_DECISIONS_URL      → the fixed endpoint
+#   OPENCODE_REVIEW_REPORT_DECISIONS_MODEL    → the model, defaulted per provider
+#   OPENCODE_DECISIONS_API_KEY                → shell variable only, never
+#                                               exported and never in $GITHUB_ENV
+# It never touches OPENCODE_GATEWAY_API_KEY: that is the review provider's key.
+#
 # If OPENCODE_ANALYSE_MODEL is set, OPENCODE_ANALYSE_PROVIDER is required so the
 # analyse primary model cannot silently inherit OPENCODE_REVIEW_REPORT_PROVIDER.
 # If no analyse-specific model is set, callers can keep using the review provider
@@ -34,6 +45,12 @@ _rp_upper() {
 _rp_provider_fields() {
   _rp_selector="$1"
   _rp_url_fixed=""
+  # `chat` providers are opencode run targets; `decisions` providers (LADR-091)
+  # answer typed questions over raw HTTP and have no opencode provider id. Each
+  # scope rejects the other kind, so a decision model can never be selected as
+  # the review model and a chat model can never be sent a decisions body.
+  _rp_kind="chat"
+  _rp_default_model=""
   case "$_rp_selector" in
     GEMINI)                _rp_id="gemini";         _rp_url_var="OPENCODE_REVIEW_REPORT_GEMINI_URL";  _rp_key_var="OPENCODE_GEMINI_API_KEY" ;;
     COPILOT)               _rp_id="github-copilot"; _rp_url_var="OPENCODE_REVIEW_REPORT_COPILOT_URL"; _rp_key_var="OPENCODE_COPILOT_API_KEY" ;;
@@ -43,7 +60,14 @@ _rp_provider_fields() {
     OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;
     OPENCODE-GO-RESPONSES) _rp_id="go-responses";   _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
     OPEN_ROUTER)           _rp_id="openrouter";     _rp_url_var=""; _rp_url_fixed="https://openrouter.ai/api/v1";    _rp_key_var="OPENCODE_OPENROUTER_API_KEY" ;;
-    *) _rp_die "Unknown provider='$_rp_selector' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, OPENCODE-GO-RESPONSES, or OPEN_ROUTER)." ;;
+    # Decision providers (LADR-091). Fixed public endpoints; keys are the
+    # existing Secrets of the same vendor, so no new credential is introduced.
+    # The OpenCode endpoint is the Console (zen/v1) catalog, not the Go
+    # (zen/go/v1) one — Jev is listed only there — and a Console key
+    # authenticates on both paths.
+    OPENCODE-GO-DECISIONS) _rp_kind="decisions"; _rp_id=""; _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/v1/systemone";        _rp_key_var="OPENCODE_GO_OPENAI_API_KEY";  _rp_default_model="jev-1.13" ;;
+    OPENROUTER-DECISIONS)  _rp_kind="decisions"; _rp_id=""; _rp_url_var=""; _rp_url_fixed="https://openrouter.ai/api/alpha/decisions";   _rp_key_var="OPENCODE_OPENROUTER_API_KEY"; _rp_default_model="typesafe/jev-1.13" ;;
+    *) _rp_die "Unknown provider='$_rp_selector' (expected GEMINI, COPILOT, OPENAI, ANTHROPIC, OPENCODE-GO-OPENAI, OPENCODE-GO-ANTHROPIC, OPENCODE-GO-RESPONSES, OPEN_ROUTER, or — for the decisions scope only — OPENCODE-GO-DECISIONS / OPENROUTER-DECISIONS)." ;;
   esac
 }
 
@@ -114,6 +138,7 @@ _rp_resolve() {
   fi
   _rp_provider="$(_rp_upper "$_rp_raw")"
   _rp_provider_fields "$_rp_provider"
+  [ "$_rp_kind" = "chat" ] || _rp_die "$_rp_selector_var=$_rp_provider is a decision-model provider (LADR-091). It answers typed questions and cannot serve the $_rp_scope scope — select it with OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER instead."
 
   if [ -n "$_rp_url_var" ]; then
     _rp_gateway_url="${!_rp_url_var:-}"
@@ -135,6 +160,50 @@ _rp_resolve() {
     OPENCODE_GATEWAY_API_KEY="$_rp_api_key"
     export OPENCODE_GATEWAY_API_KEY
   fi
+}
+
+# Decisions scope (LADR-091). Separate from _rp_resolve because it has a model
+# default, no provider id, and must not touch OPENCODE_GATEWAY_API_KEY or
+# $GITHUB_ENV: the scorer runs inside the single gate step and nothing after it
+# needs these values.
+_rp_resolve_decisions() {
+  _rp_raw="${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER:-}"
+  [ -n "$_rp_raw" ] || _rp_raw="OPENCODE-GO-DECISIONS"
+  _rp_provider="$(_rp_upper "$_rp_raw")"
+  _rp_provider_fields "$_rp_provider"
+  [ "$_rp_kind" = "decisions" ] || _rp_die "OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=$_rp_provider is a chat provider. The decisions scope needs a decision-model provider: OPENCODE-GO-DECISIONS or OPENROUTER-DECISIONS."
+
+  _rp_model="${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL:-}"
+  [ -n "$_rp_model" ] || _rp_model="$_rp_default_model"
+  # The two surfaces name the same model differently: OpenRouter ids carry a
+  # vendor prefix (`typesafe/jev-1.13`, alias `~typesafe/jev-latest`), the
+  # OpenCode Console ids do not (`jev-1.13`). A crossed id is rejected by the
+  # endpoint at request time, which the best-effort scorer would only log.
+  case "$_rp_provider" in
+    OPENCODE-GO-DECISIONS)
+      case "$_rp_model" in
+        */*) _rp_die "OPENCODE-GO-DECISIONS selected but OPENCODE_REVIEW_REPORT_DECISIONS_MODEL='$_rp_model' is an OpenRouter-style vendor/model id. Use the OpenCode Console id (e.g. jev-1.13)." ;;
+      esac
+      ;;
+    OPENROUTER-DECISIONS)
+      case "$_rp_model" in
+        */*) ;;
+        *) _rp_die "OPENROUTER-DECISIONS selected but OPENCODE_REVIEW_REPORT_DECISIONS_MODEL='$_rp_model' has no vendor prefix. Use the OpenRouter id (e.g. typesafe/jev-1.13)." ;;
+      esac
+      ;;
+  esac
+
+  _rp_api_key="${!_rp_key_var:-}"
+  [ -n "$_rp_api_key" ] || _rp_die "OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=$_rp_provider selected but $_rp_key_var is empty/unset. Set it (GitHub Secret / shell export)."
+
+  OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER="$_rp_provider"
+  OPENCODE_REVIEW_REPORT_DECISIONS_URL="$_rp_url_fixed"
+  OPENCODE_REVIEW_REPORT_DECISIONS_MODEL="$_rp_model"
+  export OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER OPENCODE_REVIEW_REPORT_DECISIONS_URL OPENCODE_REVIEW_REPORT_DECISIONS_MODEL
+  # Deliberately NOT exported: only the scorer's own curl call needs it.
+  # shellcheck disable=SC2034
+  OPENCODE_DECISIONS_API_KEY="$_rp_api_key"
+  OPENCODE_DECISIONS_KEY_VAR="$_rp_key_var"
 }
 
 _rp_scope="${OPENCODE_PROVIDER_SCOPE:-review}"
@@ -183,9 +252,15 @@ case "$_rp_scope" in
     echo "🔀 OpenCode analyse provider: $OPENCODE_ANALYSE_PROVIDER (provider-id: $OPENCODE_ANALYSE_PROVIDER_ID)"
     ;;
 
-  *) _rp_die "Unknown OPENCODE_PROVIDER_SCOPE='$_rp_scope' (expected review or analyse)." ;;
+  decisions)
+    _rp_resolve_decisions
+    echo "🎯 Decision provider: $OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER (model: $OPENCODE_REVIEW_REPORT_DECISIONS_MODEL, key: $OPENCODE_DECISIONS_KEY_VAR)"
+    ;;
+
+  *) _rp_die "Unknown OPENCODE_PROVIDER_SCOPE='$_rp_scope' (expected review, analyse or decisions)." ;;
 esac
 
 unset _rp_scope _rp_selector_var _rp_default _rp_provider_id_var _rp_gateway_url_var
 unset _rp_raw _rp_provider _rp_selector _rp_id _rp_url_var _rp_url_fixed _rp_key_var
 unset _rp_gateway_url _rp_api_key _rp_mv _rp_val _rp_lc _rp_analyse_default
+unset _rp_kind _rp_default_model _rp_model

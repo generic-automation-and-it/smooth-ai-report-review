@@ -1,0 +1,96 @@
+{
+  "$comment": "LADR-091 — question definitions for the structured decision model (TypeSafe System One shape: noul / choice / score). Runtime config read by scripts/lib/score-findings-decisions.sh; the prompt text is data here so it is reviewed as text and never string-built in bash. Question ids are the contract: the scorer and render-findings-summary.sh read the answers under these exact keys, so renaming one is a code change, not a wording change. Answer shapes: noul → {noul: 0..1}; choice → {choice, probabilities, confidence}; score → {score: probability-weighted level index, legend, probabilities, confidence}. Criteria shapes: noul → {true, false}; choice → map option → description; score → ordered array of level descriptions (index 0 first).",
+  "version": 1,
+  "review_rules": {
+    "severity": {
+      "critical": "🔴 Critical. Blocks the merge on its own. Reserved for defects a user, caller or operator will hit with serious consequence: data loss or corruption, a security hole (injection, authentication or authorization gap, secret exposure), a crash or outage on a normal path, or a migration that corrupts data or causes downtime on deploy.",
+      "high": "🟠 High Priority. Blocks the merge on its own. A verified defect with a concrete observable consequence in normal usage: incorrect logic, an unhandled failure mode on a reachable path, a breaking API contract change, a concurrency hazard, or a test that can pass while the behaviour it guards is broken.",
+      "medium": "🟡 Medium Priority. Does not block the merge. A real issue with limited or conditional impact: a narrow edge case, a missing test for new logic, configuration or documentation drift, or a maintainability problem a maintainer should still fix.",
+      "low": "🔵 Low Priority / Nitpick. Does not block the merge. Informational: naming, readability, a minor simplification, or a concern the reviewer could not establish."
+    },
+    "decision_rule": "The gate requests changes when at least one Critical or High finding is present, and approves otherwise. Medium and Low never block.",
+    "not_findings": "Praise, confirmations that code is correct, and pre-existing issues in unchanged code the diff does not interact with are not findings at any severity. If the diff makes a dormant issue newly reachable it is introduced by the PR, not pre-existing."
+  },
+  "preflight": {
+    "state": { "statement": "The function returns null when the list is empty, and the caller dereferences the result without a check." },
+    "questions": {
+      "preflight": {
+        "type": "noul",
+        "instructions": "Does `statement` describe a possible null dereference?",
+        "criteria": {
+          "true": "It describes a value that can be null being used without a check.",
+          "false": "It does not describe a null dereference."
+        }
+      }
+    }
+  },
+  "per_finding": {
+    "supported": {
+      "type": "noul",
+      "instructions": "A code reviewer raised `finding`. Does the quoted evidence (`finding.first_evidence`, `finding.evidence`) together with `diff_hunk` actually demonstrate the defect described by `finding.title` and `finding.why_it_matters`?",
+      "criteria": {
+        "true": "The quoted lines, read as written, show the defect: the claimed failure follows from the code without assumptions the evidence does not support.",
+        "false": "The evidence is missing, does not show the claimed defect, contradicts it, or the claim rests on behaviour of code that is not quoted. A plausible-sounding concern with no demonstrating line is false."
+      }
+    },
+    "severity": {
+      "type": "choice",
+      "instructions": "Using the severity definitions in `review_rules.severity`, which severity does `finding` deserve, judged only on its described consequence and the quoted evidence?",
+      "criteria": {
+        "critical": "Serious consequence on a normal path: data loss or corruption, a security hole, a crash or outage, or a migration that corrupts data or causes downtime on deploy. Blocks the merge.",
+        "high": "A verified defect with a concrete observable consequence in normal usage. Blocks the merge.",
+        "medium": "A real issue with limited or conditional impact, a missing test for new logic, or configuration or documentation drift. Does not block.",
+        "low": "Informational, a nitpick, or a concern that could not be established. Does not block."
+      }
+    },
+    "pre_existing": {
+      "type": "noul",
+      "instructions": "Is the defect described by `finding` present in code this pull request did not change and does not interact with, as shown by `diff_hunk`?",
+      "criteria": {
+        "true": "The defective lines are unchanged context and nothing the diff adds or modifies reaches them; the defect existed before this pull request.",
+        "false": "The defect is on added or modified lines, or the diff makes a previously dormant defect newly reachable."
+      }
+    },
+    "actionability": {
+      "type": "score",
+      "instructions": "How actionable is `finding` for the author of this pull request?",
+      "criteria": [
+        "Advisory: report only, nothing concrete to change.",
+        "Needs human judgement: actionable, but a design decision or trade-off must be made first.",
+        "Mechanically fixable: a concrete, local change resolves it without a design decision."
+      ]
+    }
+  },
+  "pr_level": {
+    "block_merge": {
+      "type": "noul",
+      "instructions": "Given `findings` (each with the probability `supported` that its evidence demonstrates it), `residual_risks` and `testing_gaps`, should this pull request be blocked from merging until the author responds?",
+      "criteria": {
+        "true": "At least one well-supported finding is severe enough that merging as-is would ship a real defect.",
+        "false": "No well-supported finding is severe enough to block; the remaining items can be handled after the merge."
+      }
+    },
+    "dominant_risk": {
+      "type": "choice",
+      "instructions": "Which category best describes the most important risk across `findings`, `residual_risks` and `testing_gaps`?",
+      "criteria": {
+        "correctness": "Logic errors, unhandled cases, broken contracts or data integrity.",
+        "security": "Injection, authentication or authorization gaps, secret exposure, unsafe input handling.",
+        "performance": "Inefficient queries, blocking calls, excessive allocation or latency.",
+        "maintainability": "Readability, duplication, documentation drift or structural problems.",
+        "tests": "Missing, weak or misleading test coverage."
+      }
+    },
+    "overall_risk": {
+      "type": "score",
+      "instructions": "Across `findings`, `residual_risks` and `testing_gaps`, how risky is merging this pull request as it stands?",
+      "criteria": [
+        "Negligible: nothing a user or operator would notice.",
+        "Low: minor issues with no realistic user-facing consequence.",
+        "Moderate: real issues with limited or conditional impact.",
+        "High: a likely user-facing defect or a significant gap.",
+        "Severe: data loss, a security hole, an outage, or a broken release."
+      ]
+    }
+  }
+}

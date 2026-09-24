@@ -85,7 +85,11 @@ SHAPE_REJECT_MARKER="opencode-with-fallback.sh: output-shape check rejected the 
 model_target() {
   case "$1" in
     # Keep in lockstep with resolve-provider.sh:_rp_provider_fields and
-    # .github/workflows/AGENTS.md (is_ours set).
+    # .github/workflows/AGENTS.md (is_ours set). The two decision-model
+    # selectors there (OPENCODE-GO-DECISIONS, OPENROUTER-DECISIONS — LADR-091)
+    # are deliberately ABSENT: they have no opencode provider id and are never
+    # `opencode run` targets; lib/score-findings-decisions.sh calls them over
+    # raw HTTP.
     gemini/*|github-copilot/*|openai/*|anthropic/*|go-openai/*|go-anthropic/*|go-responses/*|openrouter/*)
       printf '%s' "$1"
       ;;

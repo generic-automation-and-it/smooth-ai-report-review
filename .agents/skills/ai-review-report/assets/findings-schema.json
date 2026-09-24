@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/generic-automation-and-it/smooth-ai-report-review/assets/findings-schema.json",
   "title": "Chunk Review Findings (LADR-055)",
-  "description": "Structured sidecar emitted by a single chunk review, alongside — never instead of — the human-readable markdown. One document per chunk. Merged across chunks by scripts/lib/merge-findings.py. Design adapted from EveryInc/compound-engineering-plugin skills/ce-code-review references/findings-schema.json (commit a5cd949, MIT); severity vocabulary, chunk identity, the `verified` mirror and `graph_evidence` are this repo's.",
+  "description": "Structured sidecar emitted by a single chunk review, alongside — never instead of — the human-readable markdown. One document per chunk. Merged across chunks by scripts/lib/merge-findings.py. Design adapted from EveryInc/compound-engineering-plugin skills/ce-code-review references/findings-schema.json (commit a5cd949, MIT); severity vocabulary, chunk identity, the `verified` mirror and `graph_evidence` are this repo's. Two optional keys — `decisions` on a finding and `decisions_summary` at top level — exist only on the merged document, written by the post-merge decision-model step (LADR-091); a chunk never emits them.",
   "type": "object",
   "required": ["chunk", "findings", "residual_risks", "testing_gaps"],
   "properties": {
@@ -112,6 +112,36 @@
                 "description": "One line stating what the query returned and why it supports the finding."
               }
             }
+          },
+          "decisions": {
+            "type": "object",
+            "description": "POST-MERGE ONLY — never emitted by a chunk. Written onto a merged finding by scripts/lib/score-findings-decisions.sh when OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS is on (LADR-091): the typed answers of an independent structured decision model. scripts/lib/merge-findings.py strips any `decisions` object a chunk supplies, because a producer that writes one is forging the verdict of the judge that runs after it. Absent means the finding was not scored (the step was off, failed, or skipped this finding) and never means 'unsupported'. The chunk model's own `severity`, `confidence` and `verified` are never rewritten.",
+            "required": ["provider", "model", "supported", "severity", "pre_existing", "actionability"],
+            "properties": {
+              "provider": { "type": "string", "description": "Decision-provider selector: OPENCODE-GO-DECISIONS or OPENROUTER-DECISIONS." },
+              "model": { "type": "string", "description": "Model id as the endpoint reported it." },
+              "supported": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the quoted evidence demonstrates the described defect. Rendered as `decision: supported 0.91`; below min_probability it renders [UNSUPPORTED] and, in filter mode, suppresses a non-critical finding." },
+              "severity": {
+                "type": "object",
+                "required": ["choice"],
+                "description": "The decision model's own severity. Informational: shown beside the finding when it disagrees, never substituted for `severity`.",
+                "properties": {
+                  "choice": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+                  "probabilities": { "type": "object", "additionalProperties": { "type": "number" } },
+                  "confidence": { "type": ["number", "null"] }
+                }
+              },
+              "pre_existing": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the defect predates this diff. Informational only." },
+              "actionability": {
+                "type": "object",
+                "required": ["score"],
+                "description": "Reserved as a future ai-analyse selection input; nothing consumes it yet.",
+                "properties": {
+                  "score": { "type": "number", "description": "Probability-weighted level: 0 advisory, 1 needs human judgement, 2 mechanically fixable." },
+                  "confidence": { "type": ["number", "null"] }
+                }
+              }
+            }
           }
         }
       }
@@ -125,6 +155,10 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Missing test coverage identified for the code in this chunk. Concatenated across chunks by the merge helper; never promoted to findings."
+    },
+    "decisions_summary": {
+      "type": "object",
+      "description": "POST-MERGE ONLY — present on findings.merged.json, never on a chunk document (LADR-091). The run-level record of the decision model: provider, model, mode (annotate | filter, plus mode_requested and mode_note when filter degraded outside the full-coverage fence), min_probability, scored / skipped counts, pr_level_scope (all | critical_high | skipped | failed), `suppressed` (findings filter mode removed, each with number_before_filter, title, severity, file, line, supported), and the PR-level answers block_merge (0-1), dominant_risk ({choice, probabilities, confidence}) and overall_risk ({score, legend, probabilities, confidence}), each null when unanswered. Copied into the run artifact metadata.json and stated to the orchestrator as facts; it never changes the deterministic verdict path."
     }
   }
 }

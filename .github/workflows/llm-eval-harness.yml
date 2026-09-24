@@ -156,6 +156,13 @@ jobs:
             # asserts its own call sites in aggregate-reviews.sh, so a refactor
             # that drops one is caught here rather than in a posted review.
             .agents/skills/ai-review-report/scripts/test-merge-findings.sh
+            # LADR-091 decision-model scorer: annotate/filter, the filter
+            # fence, every best-effort failure path (the merged document must
+            # stay byte-identical) and the rendered suffix — offline, curl is
+            # a PATH shim. The resolver's provider scopes, including the
+            # decisions scope, are pinned alongside it.
+            .agents/skills/ai-review-report/scripts/test-score-findings-decisions.sh
+            .agents/skills/ai-review-report/scripts/test-resolve-provider-scope.sh
             # Per-chunk context scope filtering. Both directions of error are
             # real and asymmetric, so this pins the fail-open contract as hard
             # as it pins the glob matching.

@@ -289,6 +289,47 @@ ${AI_REVIEW_NOTES}
 EOF
 fi
 
+# LADR-091: when the decision model scored the merged findings (Step 17.6 of
+# run-review.sh), hand its PR-level answers to the orchestrator as FACTS its
+# narrative must be consistent with. Informational only: the verdict is still
+# the decision rule below, applied to the Issues Summary, and the deterministic
+# sync/escalation after this call never reads these numbers — so they can make
+# the prose more honest, never the posted state greener.
+DECISION_FACTS=""
+if [ -s ci_temp/findings.merged.json ]; then
+  DECISION_FACTS=$(jq -r '
+    def p2: (. * 100 | round) as $n | "\(($n / 100) | floor).\(($n % 100) | if . < 10 then "0\(.)" else "\(.)" end)";
+    .decisions_summary // empty
+    | . as $ds
+    | [ ( if .block_merge != null then "- Probability that this PR should be blocked from merging: \(.block_merge | p2)" else empty end ),
+        ( if .dominant_risk != null then "- Dominant risk category: \(.dominant_risk.choice)" + (if .dominant_risk.confidence != null then " (confidence \(.dominant_risk.confidence | p2))" else "" end) else empty end ),
+        ( if .overall_risk != null then
+            "- Overall merge risk: \(.overall_risk.score | p2) on a 0-\(((.overall_risk.legend // {}) | length) - 1) scale"
+            + ((.overall_risk.legend // {})[(.overall_risk.score | round | tostring)] as $l | if $l then " (nearest level: \($l))" else "" end)
+          else empty end ),
+        ( if .scored > 0 then
+            "- Findings scored: \(.scored)"
+            + (if .mode == "filter"
+               then "; \((.suppressed // []) | length) non-critical finding(s) whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) were removed from the Issues Summary"
+               else "; findings whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) are tagged [UNSUPPORTED] in the Issues Summary" end)
+          else empty end ) ]
+    | select(length > 0)
+    | "An independent structured decision model (`\($ds.provider)/\($ds.model)`) scored the merged findings after the chunk reviews:", "", .[]
+  ' ci_temp/findings.merged.json 2>/dev/null || true)
+fi
+if [ -n "$DECISION_FACTS" ]; then
+  cat >> ci_temp/summary_prompt.txt << EOF
+
+## 🎯 Decision-model verdicts
+
+${DECISION_FACTS}
+
+Treat these as facts your narrative must be consistent with — do not describe the PR as low-risk when the block probability is high, or as dangerous when it is low, without saying why the chunk findings disagree. They do NOT change the decision rule in the Recommendation section: count the Issues Summary and apply that rule exactly as written.
+
+EOF
+  echo "🎯 Decision-model verdicts added to the orchestrator prompt (LADR-091)"
+fi
+
 cat >> ci_temp/summary_prompt.txt << 'EOF'
 
 **Your task:** Provide TWO sections:

@@ -18,6 +18,12 @@
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
 #               These resolve against the CALLER repo/org automatically.
+#               That includes the optional decision-model Variables (LADR-091),
+#               OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS / _DECISIONS_{PROVIDER,MODEL,
+#               MODE,MIN_PROBABILITY,TIMEOUT}: nothing to forward here. The decision
+#               provider reuses a key already mapped below (OPENCODE-GO-DECISIONS →
+#               OPENCODE_GO_OPENAI_API_KEY, OPENROUTER-DECISIONS → OPENCODE_OPENROUTER_API_KEY),
+#               so keep that key mapped even if your review provider is another one.
 #
 # Recommended: pin the opencode CLI version.
 #   Set OPENCODE_CLI_VERSION as a repo/org Variable (e.g. 'major.minor.patch')
