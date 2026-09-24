@@ -91,7 +91,7 @@ run_failure analyse_missing_cred env \
   OPENCODE_REVIEW_REPORT_GEMINI_URL=https://example.com
 grep -q 'OPENCODE_GEMINI_API_KEY.*empty/unset' "${tmp_dir}/analyse_missing_cred.err" || fail "missing-credential error was not clear"
 
-# --- decisions scope (LADR-091) --------------------------------------------------
+# --- decisions scope (LADR-093) --------------------------------------------------
 # Resolved by sourcing, like the scorer does: the values are shell variables and
 # the key must never reach $GITHUB_ENV.
 decisions_resolve() { # decisions_resolve <name> <env...> — prints provider|url|model|key-var

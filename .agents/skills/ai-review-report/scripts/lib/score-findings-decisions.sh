@@ -1,6 +1,6 @@
 #!/bin/bash
 # score-findings-decisions.sh — score the merged findings with a structured
-# decision model and write its typed verdicts back into the document (LADR-091).
+# decision model and write its typed verdicts back into the document (LADR-093).
 #
 # Usage: score-findings-decisions.sh <merged_json> [reviews_dir] [total_chunks] [pr_diff]
 #   merged_json  : ci_temp/findings.merged.json, rewritten in place (tmp + mv)
@@ -67,8 +67,8 @@ MAX_FINDINGS=60
 # One retry for the two statuses the vendor documents as transient.
 RETRY_DELAY="${_DECISIONS_RETRY_DELAY:-2}"
 
-info() { echo "ℹ️  Decision model (LADR-091): $*"; }
-warn() { echo "⚠️  Decision model (LADR-091): $*"; }
+info() { echo "ℹ️  Decision model (LADR-093): $*"; }
+warn() { echo "⚠️  Decision model (LADR-093): $*"; }
 
 # Same truthy idiom as ENABLE_STRUCTURED_FINDINGS, without `${v,,}` (Bash 3.2).
 is_truthy() {

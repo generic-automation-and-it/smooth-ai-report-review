@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Test script for the LADR-091 decision-model scorer:
+# Test script for the LADR-093 decision-model scorer:
 #   lib/score-findings-decisions.sh — preflight, per-finding + PR-level requests,
 #                                     annotate / filter, the filter fence, and
 #                                     the best-effort failure paths
@@ -29,7 +29,7 @@ SUITE_COMPLETED=0
 trap 'rc=$?; rm -rf "$TMP_DIR"; if [ "$SUITE_COMPLETED" != "1" ]; then echo ""; echo "❌ SUITE ABORTED EARLY (exit $rc) — assertions after this point never ran"; fi' EXIT
 
 echo "=========================================="
-echo "Testing score-findings-decisions (LADR-091)"
+echo "Testing score-findings-decisions (LADR-093)"
 echo "=========================================="
 echo ""
 
@@ -292,7 +292,7 @@ for mode in http500 timeout badjson cut; do
   check "Test 6 ($mode): merged document byte-identical" "same" \
     "$(cmp -s "$TMP_DIR/t6_$mode.json" "$TMP_DIR/t6_$mode.orig" && echo same || echo changed)"
   check "Test 6 ($mode): one ⚠️ provider-unavailable line" "1" \
-    "$(grep -c '^⚠️  Decision model (LADR-091): decisions provider unavailable' "$TMP_DIR/t6_$mode.log")"
+    "$(grep -c '^⚠️  Decision model (LADR-093): decisions provider unavailable' "$TMP_DIR/t6_$mode.log")"
   check "Test 6 ($mode): the preflight stops the run — one request only" "1" "$(calls)"
 done
 check "Test 6d: the HTTP status and vendor message are reported" "1" \

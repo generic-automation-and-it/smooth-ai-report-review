@@ -47,7 +47,7 @@ grep -q 'Some suggested fixes may have no numbered finding' "$summary" && exit 0
 malformed=$(jq -r '(.malformed_findings // 0) | tostring' "$merged" 2>/dev/null || echo 0)
 suppressed=$(jq -r '((.suppressed_findings // []) | length) | tostring' "$merged" 2>/dev/null || echo 0)
 demoted=$(jq -r '(.demoted_no_quote // 0) | tostring' "$merged" 2>/dev/null || echo 0)
-# LADR-091 filter mode moves unsupported findings out of the merged set into
+# LADR-093 filter mode moves unsupported findings out of the merged set into
 # decisions_summary.suppressed — a fourth way a fix can lose its number. Without
 # this count a filter-only run skipped the note entirely.
 decision_suppressed=$(jq -r '((.decisions_summary.suppressed // []) | length) | tostring' "$merged" 2>/dev/null || echo 0)

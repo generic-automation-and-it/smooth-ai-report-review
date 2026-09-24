@@ -59,7 +59,7 @@
 #   OPENCODE_GEMINI_API_KEY / _COPILOT_API_KEY / _OPENAI_API_KEY — provider keys
 #   OPENCODE_ANTHROPIC_API_KEY / _GO_OPENAI_API_KEY / _GO_ANTHROPIC_API_KEY / _OPENROUTER_API_KEY
 #   OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS  [0]  — decision-model scoring of the
-#                         merged findings (LADR-091). Off → Step 17.6 is a no-op.
+#                         merged findings (LADR-093). Off → Step 17.6 is a no-op.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER  [OPENCODE-GO-DECISIONS] — or
 #                         OPENROUTER-DECISIONS. Reuses that vendor's existing key.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_MODEL  [per provider] — jev-1.13 / typesafe/jev-1.13
@@ -166,7 +166,7 @@ OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS="${OPENCODE_REVIEW_REPORT_ENABLE_RUN
 OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY="${OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY:-1}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
 
-# Decision-model scoring (LADR-091) — opt-in, OFF by default. When truthy, Step
+# Decision-model scoring (LADR-093) — opt-in, OFF by default. When truthy, Step
 # 17.6 sends each merged finding (and then the whole merged set) to a
 # structured decision model over raw HTTP and writes its typed verdicts into
 # findings.merged.json. Best-effort: any failure leaves the document untouched.
@@ -491,7 +491,7 @@ assemble_run_artifacts() {
     failed_chunks="$(find "$WORK_DIR/reviews" -maxdepth 1 -name 'chunk_*.failed' 2>/dev/null | wc -l | tr -d ' ')"
   fi
 
-  # LADR-091: the decision model's PR-level verdicts, or null when it did not
+  # LADR-093: the decision model's PR-level verdicts, or null when it did not
   # run. Re-validated as JSON so a malformed value can never break the file.
   local decisions_json='null'
   if [ -s "$WORK_DIR/findings.merged.json" ]; then
@@ -680,7 +680,7 @@ echo "Primary review:   ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
 echo "Secondary review: ${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}"
 echo "Orchestrator:     ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} (probing in background — a failed probe reroutes orchestrator calls to the resolved review model)"
 if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
-  echo "Decision model:   ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER}/${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL:-<provider default>} (${OPENCODE_REVIEW_REPORT_DECISIONS_MODE}, threshold ${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY}, ${OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT}s/request — LADR-091, raw HTTP, not an opencode target)"
+  echo "Decision model:   ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER}/${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL:-<provider default>} (${OPENCODE_REVIEW_REPORT_DECISIONS_MODE}, threshold ${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY}, ${OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT}s/request — LADR-093, raw HTTP, not an opencode target)"
 else
   echo "Decision model:   off (OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS)"
 fi
@@ -1360,7 +1360,7 @@ if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE
       "$WORK_DIR/findings.merged.json" || true
   fi
 
-  # --- Step 17.6: Decision-model scoring of the merged findings (LADR-091) ----
+  # --- Step 17.6: Decision-model scoring of the merged findings (LADR-093) ----
   # Opt-in (OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS, default 0). Here and
   # nowhere else: before the merge, duplicates would be judged twice; after
   # aggregation, the verdict is already computed. findings.merged.json is the
@@ -1381,7 +1381,7 @@ if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE
         "${TOTAL_CHUNKS}" \
         "$WORK_DIR/pr_diff.txt" || true
     else
-      echo "ℹ️  Decision model (LADR-091): no merged findings document — step skipped"
+      echo "ℹ️  Decision model (LADR-093): no merged findings document — step skipped"
     fi
   fi
 fi

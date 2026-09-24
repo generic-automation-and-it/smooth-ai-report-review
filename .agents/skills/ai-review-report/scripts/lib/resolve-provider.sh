@@ -16,7 +16,7 @@
 #   OPENCODE_ANALYSE_PROVIDER → OPENCODE_ANALYSE_GATEWAY_URL
 #
 # `OPENCODE_PROVIDER_SCOPE=decisions` resolves the structured-decision scorer
-# (LADR-091). Decision providers are NOT opencode providers: they are called over
+# (LADR-093). Decision providers are NOT opencode providers: they are called over
 # raw HTTP by score-findings-decisions.sh, never through `opencode run`, so they
 # have no provider id and no entry in assets/opencode.json. The scope yields:
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER → normalised selector
@@ -45,7 +45,7 @@ _rp_upper() {
 _rp_provider_fields() {
   _rp_selector="$1"
   _rp_url_fixed=""
-  # `chat` providers are opencode run targets; `decisions` providers (LADR-091)
+  # `chat` providers are opencode run targets; `decisions` providers (LADR-093)
   # answer typed questions over raw HTTP and have no opencode provider id. Each
   # scope rejects the other kind, so a decision model can never be selected as
   # the review model and a chat model can never be sent a decisions body.
@@ -60,7 +60,7 @@ _rp_provider_fields() {
     OPENCODE-GO-ANTHROPIC) _rp_id="go-anthropic";   _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_ANTHROPIC_API_KEY" ;;
     OPENCODE-GO-RESPONSES) _rp_id="go-responses";   _rp_url_var=""; _rp_url_fixed="https://opencode.ai/zen/go/v1";   _rp_key_var="OPENCODE_GO_OPENAI_API_KEY" ;;
     OPEN_ROUTER)           _rp_id="openrouter";     _rp_url_var=""; _rp_url_fixed="https://openrouter.ai/api/v1";    _rp_key_var="OPENCODE_OPENROUTER_API_KEY" ;;
-    # Decision providers (LADR-091). Fixed public endpoints; keys are the
+    # Decision providers (LADR-093). Fixed public endpoints; keys are the
     # existing Secrets of the same vendor, so no new credential is introduced.
     # The OpenCode endpoint is the Console (zen/v1) catalog, not the Go
     # (zen/go/v1) one — Jev is listed only there — and a Console key
@@ -138,7 +138,7 @@ _rp_resolve() {
   fi
   _rp_provider="$(_rp_upper "$_rp_raw")"
   _rp_provider_fields "$_rp_provider"
-  [ "$_rp_kind" = "chat" ] || _rp_die "$_rp_selector_var=$_rp_provider is a decision-model provider (LADR-091). It answers typed questions and cannot serve the $_rp_scope scope — select it with OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER instead."
+  [ "$_rp_kind" = "chat" ] || _rp_die "$_rp_selector_var=$_rp_provider is a decision-model provider (LADR-093). It answers typed questions and cannot serve the $_rp_scope scope — select it with OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER instead."
 
   if [ -n "$_rp_url_var" ]; then
     _rp_gateway_url="${!_rp_url_var:-}"
@@ -162,7 +162,7 @@ _rp_resolve() {
   fi
 }
 
-# Decisions scope (LADR-091). Separate from _rp_resolve because it has a model
+# Decisions scope (LADR-093). Separate from _rp_resolve because it has a model
 # default, no provider id, and must not touch OPENCODE_GATEWAY_API_KEY or
 # $GITHUB_ENV: the scorer runs inside the single gate step and nothing after it
 # needs these values.

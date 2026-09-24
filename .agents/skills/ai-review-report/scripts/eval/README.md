@@ -86,7 +86,7 @@ Evals for the **orchestrator-tier** calls (semantic grouping, aggregation
 summary — LADR-022) are not covered: they are classification/cosmetic, not
 blocking. Possible follow-up.
 
-**Decision-model scoring (LADR-091) is not measured yet.** This harness scores
+**Decision-model scoring (LADR-093) is not measured yet.** This harness scores
 chunk markdown before the merge, and the decision model runs after it, so
 `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` has no effect on an eval run. The
 measurement that must precede `filter` mode ever defaulting on — per fixture,

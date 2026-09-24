@@ -289,7 +289,7 @@ ${AI_REVIEW_NOTES}
 EOF
 fi
 
-# LADR-091: when the decision model scored the merged findings (Step 17.6 of
+# LADR-093: when the decision model scored the merged findings (Step 17.6 of
 # run-review.sh), hand its PR-level answers to the orchestrator as FACTS its
 # narrative must be consistent with. Informational only: the verdict is still
 # the decision rule below, applied to the Issues Summary, and the deterministic
@@ -327,7 +327,7 @@ ${DECISION_FACTS}
 Treat these as facts your narrative must be consistent with — do not describe the PR as low-risk when the block probability is high, or as dangerous when it is low, without saying why the chunk findings disagree. They do NOT change the decision rule in the Recommendation section: count the Issues Summary and apply that rule exactly as written.
 
 EOF
-  echo "🎯 Decision-model verdicts added to the orchestrator prompt (LADR-091)"
+  echo "🎯 Decision-model verdicts added to the orchestrator prompt (LADR-093)"
 fi
 
 cat >> ci_temp/summary_prompt.txt << 'EOF'

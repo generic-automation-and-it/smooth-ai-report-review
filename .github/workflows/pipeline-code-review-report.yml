@@ -489,7 +489,7 @@ jobs:
       # mutation did not already land. Set to a falsy value to restore the
       # pre-LADR-078 single-attempt behaviour.
       OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY || '1' }}
-      # Decision-model scoring (LADR-091) — OFF by default. When truthy, the
+      # Decision-model scoring (LADR-093) — OFF by default. When truthy, the
       # merged findings are scored by a structured decision model (TypeSafe Jev)
       # over raw HTTP — not an opencode target, so no opencode.json entry and no
       # new Secret: the provider reuses its vendor's existing key

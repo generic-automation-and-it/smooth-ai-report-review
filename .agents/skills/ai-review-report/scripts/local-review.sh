@@ -609,7 +609,7 @@ if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|tr
       "ci_temp/findings.merged.json" || true
   fi
 
-  # --- Step 5c: Decision-model scoring (LADR-091) ---
+  # --- Step 5c: Decision-model scoring (LADR-093) ---
   # Mirrors run-review.sh Step 17.6. Opt-in via the same
   # OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS / _DECISIONS_* env vars; the key is
   # the selected decision provider's existing Secret, already harvested above.
@@ -625,7 +625,7 @@ if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|tr
         "$TOTAL_CHUNKS" \
         "ci_temp/pr_diff.txt" || true
     else
-      echo "ℹ️  Decision model (LADR-091): no merged findings document — step skipped"
+      echo "ℹ️  Decision model (LADR-093): no merged findings document — step skipped"
     fi
   fi
 fi

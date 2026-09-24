@@ -86,7 +86,7 @@ model_target() {
   case "$1" in
     # Keep in lockstep with resolve-provider.sh:_rp_provider_fields and
     # .github/workflows/AGENTS.md (is_ours set). The two decision-model
-    # selectors there (OPENCODE-GO-DECISIONS, OPENROUTER-DECISIONS — LADR-091)
+    # selectors there (OPENCODE-GO-DECISIONS, OPENROUTER-DECISIONS — LADR-093)
     # are deliberately ABSENT: they have no opencode provider id and are never
     # `opencode run` targets; lib/score-findings-decisions.sh calls them over
     # raw HTTP.

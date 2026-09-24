@@ -76,7 +76,7 @@ jq -r '
     (. * 100 | round) as $n
     | "\(($n / 100) | floor).\(($n % 100) | if . < 10 then "0\(.)" else "\(.)" end)";
 
-  # LADR-091 annotate rendering. Absent decisions render nothing, so a document
+  # LADR-093 annotate rendering. Absent decisions render nothing, so a document
   # the decision model never saw renders byte-identically to before. The
   # original severity is never replaced: a disagreement is shown beside it.
   def decision_suffix($ds):
@@ -139,7 +139,7 @@ jq -r '
   #
   # Continuation is indented 3 spaces to the content column of `N. `, not 2.
   #
-  # LADR-091: the decision-model suffix goes at the END of the first line, after
+  # LADR-093: the decision-model suffix goes at the END of the first line, after
   # the chunk reference, never inside the label. score-review.sh takes the label
   # as the text before the FIRST colon, and the suffix carries a colon of its
   # own, so placing it anywhere before the severity colon would move that

@@ -18,7 +18,7 @@
 #   Variables — OPENCODE_REVIEW_REPORT_PROVIDER, OPENCODE_REVIEW_REPORT_<P>_URL,
 #               OPENCODE_REVIEW_REPORT_MODEL_{PRIMARY,SECONDARY,ORCHESTRATOR}, etc.
 #               These resolve against the CALLER repo/org automatically.
-#               That includes the optional decision-model Variables (LADR-091),
+#               That includes the optional decision-model Variables (LADR-093),
 #               OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS / _DECISIONS_{PROVIDER,MODEL,
 #               MODE,MIN_PROBABILITY,TIMEOUT}: nothing to forward here. The decision
 #               provider reuses a key already mapped below (OPENCODE-GO-DECISIONS →

@@ -80,7 +80,7 @@ FINDING_DEFAULTS = {
     "requires_verification": False,
 }
 
-# Keys only a post-merge step may write (LADR-091). A chunk model that emits one
+# Keys only a post-merge step may write (LADR-093). A chunk model that emits one
 # is not reporting evidence, it is forging the verdict of the independent judge
 # that runs after this merge: `decisions` is rendered as that judge's
 # probability and, in filter mode, decides suppression. Dropped silently rather

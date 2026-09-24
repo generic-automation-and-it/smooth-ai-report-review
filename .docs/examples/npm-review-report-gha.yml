@@ -123,7 +123,7 @@ jobs:
           OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY }}
           OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY }}
           OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR }}
-          # ── Optional: decision-model scoring (LADR-091) ───────────────────
+          # ── Optional: decision-model scoring (LADR-093) ───────────────────
           # Off unless OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS is truthy. Not an
           # opencode provider: it reuses an existing vendor key, below.
           OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS }}
