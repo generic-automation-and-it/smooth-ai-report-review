@@ -207,7 +207,7 @@ jobs:
       #                              # floating ref (main / latest / v2), never a branch.
       #                              # Default: the exact commit of the workflow called above.
       # mandatory_context_files: >-  # override the context files resolved in YOUR repo
-      #                              # (or set the MANDATORY_CONTEXT_FILES Variable; `none` = no mandatory files)
+      #                              # (`none` = the repo has no mandatory context files)
       #   .docs/nfr/PROJECT_SETUP_AGENTS.md
       # agents_md_exempt_paths: '.docs/release-notes'
       # opencode_config: .github/opencode.json   # ship your OWN opencode.json (path in YOUR repo);

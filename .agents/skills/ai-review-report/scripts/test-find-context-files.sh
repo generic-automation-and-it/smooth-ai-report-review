@@ -203,15 +203,28 @@ finder_rc=0
 [ "$finder_rc" -eq 2 ] || fail "unset MANDATORY_CONTEXT_FILES exited $finder_rc, expected 2"
 ok "unset MANDATORY_CONTEXT_FILES still fails closed"
 
-# The reusable workflow must consult the Variable between the input and the
-# built-in list — otherwise the Variable (and so `none`) is unreachable there,
-# while the local-job packaging already reads it.
+# `none` reaches the gate through the `mandatory_context_files` input, so the
+# input must exist on BOTH entry points that accept inputs (workflow_call and
+# workflow_dispatch) and feed the env var directly — input, else built-in list,
+# with no Variable in between (the per-run input is the contract).
 WORKFLOW="$SCRIPT_DIR/../../../../.github/workflows/pipeline-code-review-report.yml"
 _mcf_expr="$(awk '/^ *MANDATORY_CONTEXT_FILES: >-/{f=1;next} f&&/}}/{print;exit} f{print}' "$WORKFLOW" | tr -s ' \n' ' ')"
 case "$_mcf_expr" in
-  *'inputs.mandatory_context_files || vars.MANDATORY_CONTEXT_FILES ||'*) ;;
-  *) fail "pipeline-code-review-report.yml does not fall back input → vars.MANDATORY_CONTEXT_FILES → default: $_mcf_expr" ;;
+  *'inputs.mandatory_context_files || '\''.docs/'*) ;;
+  *) fail "pipeline-code-review-report.yml does not map input → built-in list: $_mcf_expr" ;;
 esac
-ok "the reusable workflow falls back input → Variable → built-in list"
+case "$_mcf_expr" in
+  *vars.*) fail "pipeline-code-review-report.yml reads a Variable for MANDATORY_CONTEXT_FILES: $_mcf_expr" ;;
+esac
+for _trigger in workflow_dispatch workflow_call; do
+  # Captured, not piped into `grep -q`: an early grep exit SIGPIPEs awk and
+  # pipefail would report a present input as missing.
+  _block="$(awk -v t="  ${_trigger}:" '$0==t{f=1;next} f&&/^  [a-z_]+:$/{exit} f' "$WORKFLOW")"
+  case "$_block" in
+    *$'\n      mandatory_context_files:\n'*) ;;
+    *) fail "pipeline-code-review-report.yml: ${_trigger} does not declare the mandatory_context_files input" ;;
+  esac
+done
+ok "mandatory_context_files is an input on workflow_dispatch and workflow_call, mapped straight to the env var"
 
 echo "All $pass find-context-files tests passed"

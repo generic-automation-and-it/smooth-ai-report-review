@@ -105,6 +105,11 @@ on:
         required: false
         type: string
         default: ''
+      mandatory_context_files:
+        description: 'Override for MANDATORY_CONTEXT_FILES (space-separated paths resolved in the repo under review, or `none` for no mandatory files). Blank → the built-in default list.'
+        required: false
+        type: string
+        default: ''
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v2
   # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
@@ -158,7 +163,7 @@ on:
         type: string
         default: ''
       mandatory_context_files:
-        description: 'Override for MANDATORY_CONTEXT_FILES (space-separated paths resolved in the repo under review, or `none` for no mandatory files). Blank → the MANDATORY_CONTEXT_FILES Variable, then the built-in default list.'
+        description: 'Override for MANDATORY_CONTEXT_FILES (space-separated paths resolved in the repo under review, or `none` for no mandatory files). Blank → the built-in default list.'
         required: false
         type: string
         default: ''
@@ -520,15 +525,14 @@ jobs:
       # past their budget under provider degradation). Lower it further (e.g.
       # 4) when the model endpoint is slow or rate-limited.
       OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
-      # Input, then the repo/org Variable (the caller's, in a reusable call —
-      # the same name the local-job packaging already reads), then the built-in
-      # list. That list names product-repo paths on purpose (cross-repo reuse;
-      # missing ones warn and skip) — a repo whose real set differs sets the
-      # Variable rather than editing this default, and `none` declares that the
-      # repo has no mandatory context files at all.
+      # The `mandatory_context_files` input (workflow_call and workflow_dispatch),
+      # else the built-in list. That list names product-repo paths on purpose
+      # (cross-repo reuse; missing ones warn and skip) — a repo whose real set
+      # differs passes the input rather than editing this default, and `none`
+      # declares that the repo has no mandatory context files at all. There is
+      # no Variable fallback here by design: the per-run input is the contract.
       MANDATORY_CONTEXT_FILES: >-
         ${{ inputs.mandatory_context_files ||
-        vars.MANDATORY_CONTEXT_FILES ||
         '.docs/nfr/PROJECT_SETUP_AGENTS.md
         .agents/skills/code-review-standards/SKILL.md
         .docs/nfr/TOOL_SETUP_AGENTS.md
