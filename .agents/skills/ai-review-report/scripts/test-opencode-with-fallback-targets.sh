@@ -430,6 +430,32 @@ predicate_case reject "list placeholder with narration trailing after it" \
   '**Issues Found:**\n- None found yet, continuing to read the handler'
 predicate_case accept "inline placeholder followed by the pre-existing section" \
   '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found.\n\n**Pre-existing (informational):** None.\n'
+# Consumer PR 99, run 36024963902: glm-5.2 closed a complete 15-file review with
+# "**Issues Found:** None found. (<why the clean verdict holds>.)" and the
+# end-of-line rule above discarded it, taking a High finding from an earlier
+# section down with the chunk. A placeholder closed by a period and annotated by
+# ONE parenthetical closed at end of line is a finished statement; the two
+# truncation shapes it could be confused with still reject.
+predicate_case accept "inline placeholder with a closed parenthetical note" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found. (The pin change is deliberate, commented with the why, and changelog\x27d.)\n\n**Pre-existing (informational):**\n- None material.\n'
+predicate_case accept "list placeholder with a closed parenthetical note" \
+  '**Issues Found:**\n- None found. (The new endpoints are read-capability-gated.)\n'
+predicate_case reject "parenthetical note cut off before it closes" \
+  '### \xf0\x9f\x93\x84 File: \x60a.cs\x60\n\n**Issues Found:** None found. (The pin change is deliberate, but let me still check'
+predicate_case reject "parenthetical note with no period closing the placeholder" \
+  '**Issues Found:** None found so far (reading b.cs next)\n'
+# ONE parenthetical, not "anything ending in )": a greedy match accepted a note
+# followed by narration whose own later `)` happened to end the line — the
+# shape a response cut right after any `)` would take. One level of nesting
+# stays accepted, because clean-verdict notes cite code like `Get()`.
+predicate_case reject "closed note followed by narration" \
+  '**Issues Found:** None found. (a.cs is clean.) Now reading b.cs\n'
+predicate_case reject "closed note followed by narration that itself ends in )" \
+  '**Issues Found:** None found. (a.cs is clean.) Now reading b.cs (the docs)\n'
+predicate_case accept "note citing a call with its own parentheses" \
+  '**Issues Found:** None found. (The new \x60Get()\x60 path is read-gated.)\n'
+predicate_case reject "note cut off after a nested call" \
+  '**Issues Found:** None found. (The new \x60Get()\x60 path'
 
 # --- The compact multi-tier placeholder line (consumer PR 95, run 35640330645)
 # A clean file reported with all four tiers on ONE line used to be REJECTED: the
@@ -688,6 +714,53 @@ calls="$(wc -l < "${marker_dir}/inventory.calls" | tr -d ' ')"
   exit 1
 }
 echo "✓ transport rejects an omitted file; all three call sites pass the inventory"
+# A shape rejection must be NAMED on stderr, per model, or the chunk gate
+# cannot tell it from a provider error: on consumer PR 99 run 36024963902 every
+# model wrote a complete review that failed the predicate on format, and the
+# failure marker blamed the API.
+: > "${marker_dir}/inventory.calls"
+# UTF-8 locale on purpose: it is what makes ${#var} count characters, so the
+# bytes assertion below can tell `wc -c` from `${#_out}`. Where C.UTF-8 is not
+# installed bash falls back to C and the assertion is merely less sensitive.
+shape_err="$(LC_ALL=C.UTF-8 PATH="${marker_dir}/bin:$PATH" OPENCODE_STUB_CALLS="${marker_dir}/inventory.calls" \
+  OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OUTPUT_SHAPE_CHECK="$SHAPE" \
+  OPENCODE_EXPECTED_CHUNK_FILES=$'src/Ftp/FtpHelper.cs\nsrc/Ftp/FtpClient.cs' \
+  bash "$HELPER" m1 m2 "" -- "$prompt" 2>&1 >/dev/null)" || true
+for _m in openai/m1 openai/m2; do
+  printf '%s\n' "$shape_err" | grep -qF "output-shape check rejected the response from ${_m} (" || {
+    echo "FAIL: the transport must name ${_m} as shape-rejected on stderr" >&2
+    exit 1
+  }
+done
+# The marker is a literal in TWO files — the transport writes it, the chunk
+# gate parses it back out — so pin them equal. A substring check is not enough:
+# the old one passed while only the tail of the string was compared, so a
+# reworded prefix on either side would have silently turned the format-failure
+# reason back into "model API error".
+_marker_val="$(sed -n "s/^SHAPE_REJECT_MARKER=\"\(.*\)\"$/\1/p" "$HELPER")"
+[ -n "$_marker_val" ] || {
+  echo "FAIL: could not read SHAPE_REJECT_MARKER from $HELPER" >&2
+  exit 1
+}
+printf '%s\n' "$shape_err" | grep -qF "${_marker_val} openai/m1 (" || {
+  echo "FAIL: the transport's stderr line must start with SHAPE_REJECT_MARKER verbatim" >&2
+  exit 1
+}
+[ "$(grep -cF "local _shape_reject_marker='${_marker_val}'" "${SCRIPT_DIR}/review-in-chunks.sh")" = "1" ] || {
+  echo "FAIL: review-in-chunks.sh's _shape_reject_marker must equal SHAPE_REJECT_MARKER ('${_marker_val}')" >&2
+  exit 1
+}
+# Bytes, not characters: ${#var} counts characters under a UTF-8 locale and
+# review bodies are full of four-byte emoji.
+_rej_bytes="$(printf '%s\n' "$shape_err" | sed -n "s/^.*rejected the response from openai\/m1 (\([0-9]*\) bytes)$/\1/p" | head -1)"
+# Measured from what the stub actually emits (command substitution strips the
+# trailing newline exactly as the transport's own capture does).
+_want_bytes="$(printf '%s' "$(OPENCODE_STUB_CALLS=/dev/null "${marker_dir}/bin/opencode" < /dev/null 2>/dev/null)" | wc -c | tr -d ' ')"
+[ "$_rej_bytes" = "$_want_bytes" ] || {
+  echo "FAIL: the shape-rejection line must report the answer's size in bytes (got '${_rej_bytes}', want '${_want_bytes}')" >&2
+  exit 1
+}
+echo "✓ transport names each shape-rejected model; the chunk gate parses the same marker literal"
 echo "✓ shape predicate: narration rejected, real findings accepted"
 
 echo "✓ opencode-with-fallback target tests passed"

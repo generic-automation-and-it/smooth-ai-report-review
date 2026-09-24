@@ -143,6 +143,10 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-prepare-opencode-v2-config.sh
             .agents/skills/ai-review-report/scripts/test-opencode-with-fallback-targets.sh
             .agents/skills/ai-review-report/scripts/test-review-chunk-threshold.sh
+            # LADR-092: the aggregation summary call is bounded and split so a
+            # hung orchestrator still leaves the fallback a turn (~30 s: it
+            # drives real `timeout` kills, scaled 1/100 for the e2e part).
+            .agents/skills/ai-review-report/scripts/test-summary-timeout.sh
             .agents/skills/ai-review-report/scripts/test-run-review.sh
             .agents/skills/ai-review-report/scripts/test-install-rtk.sh
             .agents/skills/ai-review-report/scripts/test-check-versions.sh

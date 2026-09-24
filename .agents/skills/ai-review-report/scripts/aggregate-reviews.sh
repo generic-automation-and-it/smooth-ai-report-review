@@ -562,8 +562,48 @@ cat ci_temp/combined_reviews.md >> ci_temp/summary_prompt.txt
 # Call the agent model via opencode for the aggregation summary
 # (LADR-022: aggregation runs on the ORCHESTRATOR model, falling back to the
 #  resolved review model; LADR-023: opencode transport).
+#
+# LADR-092: the call is BOUNDED, and the bound is SPLIT across the chain. It had
+# no clock at all — lib/opencode-with-fallback.sh has none of its own — so a
+# hung orchestrator held the job until the 6 h default: consumer runs
+# 35969611034 and 35995746041 spent 13+ minutes here on a call that normally
+# takes one or two. A single `timeout` around the chain would bound it but let a
+# hung orchestrator spend the whole budget with the review-model fallback never
+# run (the LADR-066/081 flaw), so lib/run-split-chain.sh reuses the LADR-081
+# split: the orchestrator gets its share, the review model gets what is left.
+# At the 600 s default that is 390 s + at least 210 s; the floors are this
+# call's own (a summary is minutes shorter than a chunk review, so the chunk
+# floors would refuse every split).
+#
+# A timeout is an ordinary failure here: the chain exits non-zero, agg_ok=false,
+# and everything below — the fallback REQUEST_CHANGES template, LADR-085's
+# complete-coverage sync, the LADR-031 override — runs exactly as it does for an
+# API error. Nothing on this path can make a review greener.
+SUMMARY_TIMEOUT_DEFAULT=600
+SUMMARY_PRIMARY_MIN_SECONDS=180
+SUMMARY_SECONDARY_MIN_SECONDS=120
+SUMMARY_TIMEOUT="${OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT:-$SUMMARY_TIMEOUT_DEFAULT}"
+if ! [[ "$SUMMARY_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "⚠️ OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT='${SUMMARY_TIMEOUT}' is not a positive integer — using ${SUMMARY_TIMEOUT_DEFAULT}s"
+  SUMMARY_TIMEOUT="$SUMMARY_TIMEOUT_DEFAULT"
+fi
+echo "⏱️  Summary budget: ${SUMMARY_TIMEOUT}s across ${ORCHESTRATOR_MODEL_ID} → ${OPENCODE_MODEL_ID} (LADR-092)"
 agg_ok=true
-OPENCODE_RUN_CWD="$ORCH_RUN_CWD" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" "" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || agg_ok=false
+SUMMARY_RC=0
+OPENCODE_RUN_CWD="$ORCH_RUN_CWD" bash "$(dirname "${BASH_SOURCE[0]}")/lib/run-split-chain.sh" summary "$SUMMARY_TIMEOUT" "$SUMMARY_PRIMARY_MIN_SECONDS" "$SUMMARY_SECONDARY_MIN_SECONDS" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || { SUMMARY_RC=$?; agg_ok=false; }
+# The chain's status lines (split, which model timed out or failed and after how
+# long, who answered) go to stderr with a fixed prefix so summary_stderr.log
+# keeps the whole story; lift them onto the console too, because on success the
+# log is never printed and a slow-but-rescued summary would otherwise be silent.
+grep '^run-split-chain.sh\[summary\]: ' ci_temp/summary_stderr.log 2>/dev/null \
+  | sed 's/^run-split-chain.sh\[summary\]: /  ⏱️  summary: /' || true
+# 124 is `timeout`'s own exit code, and the chain returns its LAST stage's code,
+# so this is true only when the budget ran out — not when the orchestrator timed
+# out and the fallback then failed fast at the provider.
+SUMMARY_TIMED_OUT=false
+if [ "$SUMMARY_RC" -eq 124 ]; then
+  SUMMARY_TIMED_OUT=true
+fi
 # opencode can exit 0 while producing empty/tiny output (silent provider failure).
 # Without this, an empty pr_summary.md slips past the success branch and the posted
 # review loses its Overall Summary / Issues Summary / Recommendation entirely
@@ -578,12 +618,18 @@ fi
 if [ "$agg_ok" = "true" ]; then
   echo "✅ PR summary generated successfully (model: $ORCHESTRATOR_MODEL_ID)"
 else
-  echo "❌ Summary generation failed/empty - using fallback"
+  _summary_failure="Summary generation encountered an error."
+  if [ "$SUMMARY_TIMED_OUT" = "true" ]; then
+    echo "❌ Summary generation timed out (${SUMMARY_TIMEOUT}s budget, LADR-092) - using fallback"
+    _summary_failure="Summary generation timed out (${SUMMARY_TIMEOUT}s budget; the run log names each model and how long it ran)."
+  else
+    echo "❌ Summary generation failed/empty - using fallback"
+  fi
   bash "$(dirname "${BASH_SOURCE[0]}")/lib/report-error-log.sh" \
     "summary_generation" "ci_temp/summary_stderr.log" || true
   cat > ci_temp/pr_summary.md << EOF
 ## 📋 Overall Summary
-This PR was reviewed in $TOTAL_CHUNKS chunks. Summary generation encountered an error.
+This PR was reviewed in $TOTAL_CHUNKS chunks. ${_summary_failure}
 Please review the detailed chunk reviews below.
 
 ## 🎯 Recommendation

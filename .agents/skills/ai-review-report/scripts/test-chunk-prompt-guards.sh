@@ -238,6 +238,24 @@ else
   ok "no unescaped backticks inside an unquoted heredoc"
 fi
 
+# The chunk prompt must state the format lib/review-has-shape.sh enforces, or a
+# complete review is discarded for its layout. Consumer PR 99 run 36024963902
+# lost two chunks this way: a `NFR-01 … NFR-07` range heading left five files
+# unnamed, a finding cited only "(lines 147-154)" with no tier lines around it,
+# and a clean verdict carried a justification after "None found" on the same
+# line. One check per rule, so a reworded prompt that drops one names which.
+for _rule in \
+  'Never collapse files into a range' \
+  'Write all four severity lines for every file' \
+  'Cite every finding as `filename:line` from the file under its heading' \
+  'End a clean line at "None found".'; do
+  if grep -qF "$_rule" "$TARGET"; then
+    ok "chunk prompt states the shape rule: $_rule"
+  else
+    bad "chunk prompt lost the shape rule: $_rule"
+  fi
+done
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then

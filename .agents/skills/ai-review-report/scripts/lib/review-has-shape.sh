@@ -280,6 +280,21 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
     on { print }
   ' "$_rhs_sec" 2>/dev/null)"
   _rhs_ph_compact='^[[:space:]]*[-*][[:space:]]*none found[.]?[[:space:]]*$'
+  # The placeholder CLOSED by a period and then annotated by one parenthetical
+  # that is itself closed at end of line — "None found. (The pin change is
+  # deliberate and changelog'd.)". Models justify a clean verdict this way, and
+  # rejecting it discarded glm-5.2's complete 15-file review of the `src/` chunk
+  # on consumer PR 99, run 36024963902, together with the High finding in an
+  # earlier section: the chunk fail-closed and the finding never reached the
+  # posted review. Truncation is still rejected on three counts — the period is
+  # what separates a finished statement from "None found so far, but…", a
+  # response cut inside the note has no closing `)` at end of line, and the
+  # note is exactly ONE parenthetical (one level of nesting, so `Get()` inside
+  # it is fine) with nothing after it but an optional period. That last clause
+  # is what rejects "None found. (a.cs is clean.) Now reading b.cs (the docs)":
+  # a greedy `\(.*\)` accepted it, and a response cut right after any later
+  # `)` on the line would have read as finished. LADR-091.
+  _rhs_ph_note='none found[.][[:space:]]*\(([^()]|\([^()]*\))*\)[.]?[[:space:]]*$'
   # One tier placeholder: an optional emoji, an optional [VERIFIED]/[SPECULATIVE]
   # tag, the severity keyword, then "none found".
   _rhs_ph_tok='((🔴|🟠|🟡|🔵)[[:space:]]*)?(\[(VERIFIED|SPECULATIVE)\][[:space:]]*)?(critical|high|medium|low)( priority)?[[:space:]]*:[[:space:]]*none found[.]?'
@@ -369,7 +384,9 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
   # route demanded upper tiers while the placeholder route did not.
   if [ -n "$_rhs_issues" ]; then
     if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
-       || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$'; then
+       || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$' \
+       || printf '%s\n' "$_rhs_issues" | grep -qiE "^[[:space:]]*[-*][[:space:]]*${_rhs_ph_note}" \
+       || printf '%s\n' "$_rhs_issues" | grep -qiE "issues found[^[:alnum:]]{0,8}${_rhs_ph_note}"; then
       return 0
     fi
     # One rule, both shapes the low tier can take: the placeholder, or a real
