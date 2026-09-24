@@ -33,6 +33,12 @@ SOURCE_EXTRACT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/ext
 # every chunk is judged structureless and fail-closed, which looks like a gate
 # bug rather than a missing file in this harness.
 SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+# aggregate-reviews.sh runs its summary call through the LADR-092 bounded chain,
+# which reads its split from split-chunk-budget.sh. Without both in the sandbox
+# the summary call dies on "No such file", agg_ok goes false and this harness
+# silently tests the fallback-template path instead of the stubbed summary.
+SOURCE_SPLIT_CHAIN_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
+SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -53,6 +59,8 @@ setup_repo() {
   cp "${SOURCE_TIMEOUT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
   cp "${SOURCE_EXTRACT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+  cp "${SOURCE_SPLIT_CHAIN_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
+  cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
@@ -246,6 +254,15 @@ run_aggregation_case() {
 
   GITHUB_OUTPUT="${output_file}" \
   bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh "2" "test-model" "full" "aaaaaaa1234" "2" "bbbbbbb5678" "test expertise" "none" > "${run_log}" 2>&1
+
+  # The stubbed summary must actually be what aggregated. If the sandbox lacks a
+  # lib the summary call needs, the run still completes — on the failure
+  # template — and every assertion below would be testing the wrong path.
+  if grep -q 'PR summary generated successfully' "${run_log}"; then
+    pass "${label}: the stubbed summary call succeeded (sandbox carries the summary chain)"
+  else
+    fail "${label}: summary call failed in the sandbox — a lib is missing from setup_repo (see ${run_log})"
+  fi
 
   local action
   action="$(grep '^review_action=' "${output_file}" | tail -1 | cut -d'=' -f2)"

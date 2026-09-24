@@ -429,6 +429,17 @@ for _bad in "abc" "0" "-5" "" "007" "45s"; do
   _ct "junk total '$_bad' yields no split rather than a guessed budget" "0 0" \
     "$(bash "$_sb_lib" "$_bad" 2>/dev/null)"
 done
+# LADR-092: optional caller floors, for the aggregation summary's bounded chain.
+# Omitted floors must stay byte-identical to the chunk behaviour above; supplied
+# floors change only the floors, never the share or the refuse-to-starve rule.
+_ct "summary floors: 600s splits 390 + 210" "390 210" \
+  "$(bash "$_sb_lib" 600 180 120 2>/dev/null)"
+_ct "summary floors: too small to fund both floors refuses to split" "300 0" \
+  "$(bash "$_sb_lib" 300 180 120 2>/dev/null)"
+_ct "summary floors: junk floors fall back to the chunk floors" "600 0" \
+  "$(bash "$_sb_lib" 600 abc 120 2>/dev/null)"
+_ct "summary floors: junk floors are reported on stderr" "1" \
+  "$(bash "$_sb_lib" 600 abc 120 2>&1 >/dev/null | grep -c 'using the chunk floors')"
 _ct "a rejected total is reported on stderr, not swallowed" "1" \
   "$(bash "$_sb_lib" abc 2>&1 >/dev/null | grep -c 'no split')"
 _ct "the split is two bare integers on stdout" "1" \

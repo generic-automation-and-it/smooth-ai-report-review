@@ -1,7 +1,14 @@
 #!/bin/bash
 # split-chunk-budget.sh — split a chunk's review budget across the two-tier chain.
 #
-# Usage:  read -r primary secondary < <(bash lib/split-chunk-budget.sh <total_seconds>)
+# Usage:  read -r primary secondary < <(bash lib/split-chunk-budget.sh <total_seconds> [<primary_min> <secondary_min>])
+#
+# The two optional floors exist for the ONE other caller, `lib/run-split-chain.sh`
+# on behalf of the aggregation summary (LADR-092), whose calls are minutes
+# shorter than a chunk review so the chunk floors below would refuse every split.
+# Omitted = the chunk floors, byte-identical to before. The share, the
+# floor-first order and the "no room for both floors -> no split" rule are the
+# same for every caller; only the two measured floors differ.
 #
 # Prints "<primary_seconds> <secondary_seconds>" on stdout and nothing else; any
 # complaint about a bad value goes to stderr so the caller's read stays two bare
@@ -55,6 +62,18 @@ PRIMARY_MIN_SECONDS=600
 SECONDARY_MIN_SECONDS=150
 
 _total="${1:-}"
+
+# Caller-supplied floors (LADR-092). These are code constants at the call site,
+# not user input, so a bad value is a bug there: say so and keep the chunk
+# floors rather than guessing a third pair.
+if [ "$#" -ge 3 ]; then
+  if [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] && [[ "${3:-}" =~ ^[1-9][0-9]*$ ]]; then
+    PRIMARY_MIN_SECONDS="$2"
+    SECONDARY_MIN_SECONDS="$3"
+  else
+    echo "⚠️ split-chunk-budget.sh: floors '${2:-}' '${3:-}' are not positive integers — using the chunk floors ${PRIMARY_MIN_SECONDS}/${SECONDARY_MIN_SECONDS}" >&2
+  fi
+fi
 
 # Invalid input is not guessed at: printing "0 0" makes the caller's own guard
 # fire (it falls back to the unsplit budget it already holds) rather than this
