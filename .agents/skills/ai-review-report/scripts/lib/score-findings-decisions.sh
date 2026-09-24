@@ -311,6 +311,15 @@ while [ "$i" -lt "$to_score" ]; do
   file="$(jq -r --argjson i "$i" '.findings[$i].file // ""' "$merged")"
   line="$(jq -r --argjson i "$i" '.findings[$i].line // 0 | tostring | (capture("^(?<n>[0-9]+)").n // "0")' "$merged")"
   hunk "$file" "$line" > "$work/f_${i}.hunk"
+  # No hunk is not evidence against the finding: most often the chunk model
+  # wrote the path differently from the diff header (basename, "./" prefix).
+  # An empty field read as "the quoted evidence is not in the change" and
+  # biased `supported` toward false, so say what happened instead, and mark
+  # the finding so filter mode never suppresses it (review of PR 159, item 3).
+  if [ ! -s "$work/f_${i}.hunk" ]; then
+    printf '%s\n' "[no diff hunk was found for this file in the PR diff; the path may be written differently there. Judge the quoted evidence on its own; the missing hunk is not evidence against the finding.]" > "$work/f_${i}.hunk"
+    : > "$work/f_${i}.nohunk"
+  fi
   # Every cut says so, in the text the model reads: an unmarked truncation
   # reads as "the change ends here", which is evidence of absence it is not.
   if [ "$(wc -c < "$work/f_${i}.hunk" | tr -d ' ')" -gt "$HUNK_MAX_BYTES" ]; then
@@ -358,7 +367,10 @@ i=0
 while [ "$i" -lt "$to_score" ]; do
   if [ -f "$work/f_${i}.code" ]; then
     code="$(cat "$work/f_${i}.code")"
-    if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" '
+    hunk_found=true
+    [ -f "$work/f_${i}.nohunk" ] && hunk_found=false
+    if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" \
+        --argjson hunk_found "$hunk_found" '
         .answers as $a
         | def prob: type == "number" and . >= 0 and . <= 1;
           if ($a.supported.noul | prob)
@@ -368,6 +380,7 @@ while [ "$i" -lt "$to_score" ]; do
           then { key: ($i | tostring),
                  value: { provider: $provider,
                           model: (.model // $model),
+                          diff_hunk_found: $hunk_found,
                           supported: $a.supported.noul,
                           severity: { choice: $a.severity.choice,
                                       probabilities: ($a.severity.probabilities // {}),
@@ -459,7 +472,8 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
    --argjson scored "$scored" --argjson skipped "$skipped" '
   $d[0] as $dec
   | def unsupported: (.decisions.supported // null) as $s
-                     | $s != null and $s < $min and .severity != "critical";
+                     | $s != null and $s < $min and .severity != "critical"
+                       and (.decisions.diff_hunk_found != false);
   .findings |= [ to_entries[] | .value + (if $dec[.key | tostring] then { decisions: $dec[.key | tostring] } else {} end) ]
   | (if $mode == "filter" then [ .findings[] | select(unsupported) ] else [] end) as $drop
   | (if $mode == "filter" then

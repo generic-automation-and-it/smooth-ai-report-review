@@ -120,6 +120,7 @@
             "properties": {
               "provider": { "type": "string", "description": "Decision-provider selector: OPENCODE-GO-DECISIONS or OPENROUTER-DECISIONS." },
               "model": { "type": "string", "description": "Model id as the endpoint reported it." },
+              "diff_hunk_found": { "type": "boolean", "description": "False when no diff hunk matched the finding file (usually a path written differently from the diff header). The judge is told so explicitly, and filter mode never suppresses such a finding." },
               "supported": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the quoted evidence demonstrates the described defect. Rendered as `decision: supported 0.91`; below min_probability it renders [UNSUPPORTED] and, in filter mode, suppresses a non-critical finding." },
               "severity": {
                 "type": "object",

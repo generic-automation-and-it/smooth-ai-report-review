@@ -268,6 +268,21 @@ run_scorer t4b "$TMP_DIR/t4b.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=filte
 check "Test 4e: critical is never suppressed, whatever the threshold" "critical" \
   "$(jq -r '[.findings[].severity] | join(",")' "$TMP_DIR/t4b.json")"
 
+# --- Test 4f: no diff hunk is not evidence against a finding ------------------------
+# The chunk model wrote the path as a basename, so the hunk lookup finds nothing.
+# The judge must be told so explicitly, and filter must never suppress on it.
+write_merged "$TMP_DIR/t4f.json"
+jq '.findings[1].file = "a.sh"' "$TMP_DIR/t4f.json" > "$TMP_DIR/t4f.tmp" && mv "$TMP_DIR/t4f.tmp" "$TMP_DIR/t4f.json"
+run_scorer t4f "$TMP_DIR/t4f.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=filter
+check "Test 4f: a missing hunk is stated, not sent as an empty string" "true" \
+  "$(jq -s '[.[] | select(.state.finding.file? == "a.sh")][0].state.diff_hunk | test("no diff hunk was found for this file")' "$STUB_DIR"/req_*.json)"
+check "Test 4g: the finding records that its hunk was not found" "false" \
+  "$(jq -r '[.findings[] | select(.file == "a.sh")][0].decisions.diff_hunk_found' "$TMP_DIR/t4f.json")"
+check "Test 4h: filter never suppresses a finding whose hunk was not found" "0" \
+  "$(jq '.decisions_summary.suppressed | length' "$TMP_DIR/t4f.json")"
+check "Test 4i: a finding with a hunk records that too" "true" \
+  "$(jq -r '[.findings[] | select(.file == "src/b.sh")][0].decisions.diff_hunk_found' "$TMP_DIR/t4f.json")"
+
 # --- Test 5: filter degrades to annotate on partial coverage ------------------------
 write_merged "$TMP_DIR/t5.json" "[0]"
 run_scorer t5 "$TMP_DIR/t5.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=filter
