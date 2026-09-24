@@ -52,7 +52,8 @@
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS (newline-separated exact
 #                 paths or directory prefixes, default empty),
 #               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
-#                 workflow's context list — override with your repo's real context files),
+#                 workflow's context list — override with your repo's real context files,
+#                 or `none` when the repo has no mandatory context files),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),

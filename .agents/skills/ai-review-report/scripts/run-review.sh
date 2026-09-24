@@ -73,7 +73,8 @@
 #                         reusable-workflow side-checkout path
 #                         `.smooth-ai-review-tools/.agents/skills/ai-review-report`.
 #   MANDATORY_CONTEXT_FILES  [built-in list] — space-separated paths loaded
-#                         into every review (see find-context-files.sh).
+#                         into every review (see find-context-files.sh), or
+#                         `none` for a repo that has no mandatory context files.
 #   AGENTS_MD_EXEMPT_PATHS  ['.docs/release-notes'] — pipe-separated prefixes
 #                         that bypass the AGENTS.md validation gate.
 #   REVIEWER_INPUT  [unset] — Optional, non-secret operator input (e.g. pr_number
