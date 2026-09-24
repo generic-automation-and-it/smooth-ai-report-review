@@ -86,6 +86,7 @@ kind="$(jq -r '.questions | if has("preflight") then "preflight" elif has("block
 case "$STUB_MODE" in
   http500)  printf '{"error":{"message":"upstream exploded"}}' > "$out"; printf '500'; exit 0 ;;
   timeout)  printf '000'; exit 28 ;;
+  cut)      printf '{"model":"jev-1.13","answ' > "$out"; printf '200'; exit 28 ;;
   badjson)  printf '<html>gateway</html>' > "$out"; printf '200'; exit 0 ;;
 esac
 case "$kind" in
@@ -229,6 +230,16 @@ check "Test 2k: success is logged once" "1" "$(grep -c '^✅ Decision model OPEN
 run_scorer t2b "$TMP_DIR/t2.json" 2
 check "Test 2l: an already-scored document is not scored twice" "0" "$(calls)"
 
+# --- Test 2m: the rewrite does not tighten the document to 0600 ----------------------
+# The key file needs umask 077; the rewritten document must get the ordinary
+# umask mode, exactly as merge-findings.sh would have written it.
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+write_merged "$TMP_DIR/t2m.json"
+: > "$TMP_DIR/t2m.ref"
+run_scorer t2m "$TMP_DIR/t2m.json" 2
+check "Test 2m: rewritten findings.merged.json has the ordinary umask mode" \
+  "$(mode_of "$TMP_DIR/t2m.ref")" "$(mode_of "$TMP_DIR/t2m.json")"
+
 # --- Test 3: the key never reaches argv ----------------------------------------------
 check "Test 3a: API key absent from every curl argv" "0" \
   "$(cat "$TMP_DIR"/stub_t2/argv_* | grep -c 'go-secret-key' || true)"
@@ -271,7 +282,7 @@ check "Test 5g: the scorer never writes a chunk failure flag" "0" \
   "$(find "$TMP_DIR"/reviews_t* -name 'chunk_*.failed' ! -path '*reviews_t5b*' | wc -l | tr -d ' ')"
 
 # --- Test 6: provider failures leave the document untouched --------------------------
-for mode in http500 timeout badjson; do
+for mode in http500 timeout badjson cut; do
   write_merged "$TMP_DIR/t6_$mode.json"; cp "$TMP_DIR/t6_$mode.json" "$TMP_DIR/t6_$mode.orig"
   set +e
   STUB_MODE="$mode" run_scorer "t6_$mode" "$TMP_DIR/t6_$mode.json" 2
@@ -288,6 +299,8 @@ check "Test 6d: the HTTP status and vendor message are reported" "1" \
   "$(grep -c 'HTTP 500: upstream exploded' "$TMP_DIR/t6_http500.log")"
 check "Test 6e: a timeout is reported as one" "1" \
   "$(grep -c 'timeout or network error after 20s' "$TMP_DIR/t6_timeout.log")"
+check "Test 6e2: a timeout mid-body is a timeout, not an HTTP 200" "1" \
+  "$(grep -c 'timeout or network error after 20s' "$TMP_DIR/t6_cut.log")"
 
 write_merged "$TMP_DIR/t6m.json"
 STUB_MODE=malformed_findings run_scorer t6m "$TMP_DIR/t6m.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=filter
@@ -395,6 +408,15 @@ if [ -x "$RENDER_SH" ]; then
     "$(grep -coE '#[0-9]' "$TMP_DIR/t9f.md" || true)"
   check "Test 9j: filter Coverage line counts the suppression" "1" \
     "$(grep -c '(filter) — scored 4, skipped 0, suppressed 1$' "$TMP_DIR/t9f.md")"
+fi
+
+# --- Test 9k: a fix whose finding filter suppressed is explained ---------------------
+ANNOTATE_SH="$SCRIPT_DIR/lib/annotate-suggested-fixes.sh"
+if [ -f "$ANNOTATE_SH" ]; then
+  printf '## 📝 Suggested Fixes\n\n### `src/a.sh:20`\nFix it.\n' > "$TMP_DIR/t9k.md"
+  bash "$ANNOTATE_SH" "$TMP_DIR/t9f.json" "$TMP_DIR/t9k.md" 2>/dev/null
+  check "Test 9k: the Suggested Fixes note names decision-model suppression" "1" \
+    "$(grep -c '1 were suppressed by the decision model as unsupported by their quoted evidence' "$TMP_DIR/t9k.md")"
 fi
 
 # --- Test 10: a chunk cannot supply decisions ----------------------------------------

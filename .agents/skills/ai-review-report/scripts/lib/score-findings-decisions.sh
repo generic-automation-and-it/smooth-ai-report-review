@@ -41,7 +41,6 @@
 # chunk present in the merge's own `merged_chunks`. Outside that fence it
 # degrades to annotate and says so. It never suppresses `critical`.
 set -uo pipefail
-umask 077
 
 merged="${1:-ci_temp/findings.merged.json}"
 reviews_dir="${2:-ci_temp/reviews}"
@@ -178,7 +177,9 @@ trap 'rm -rf "$work" "${merged}.decisions.tmp"' EXIT
 
 # The key goes to curl through a 0600 header file, never argv, so it cannot
 # surface in a process listing on the runner.
-printf 'Authorization: Bearer %s\n' "$OPENCODE_DECISIONS_API_KEY" > "$work/auth.hdr"
+# umask in a subshell: set script-wide it would also make the rewritten
+# findings.merged.json 0600, silently changing the artifact's permissions.
+( umask 077; printf 'Authorization: Bearer %s\n' "$OPENCODE_DECISIONS_API_KEY" > "$work/auth.hdr" )
 unset OPENCODE_DECISIONS_API_KEY
 
 # post <request> <response> — prints the HTTP status (000 on timeout/network).
@@ -186,9 +187,12 @@ unset OPENCODE_DECISIONS_API_KEY
 post() {
   local req="$1" resp="$2" code attempt=1
   while :; do
+    # Without -f, curl exits non-zero only for transport failures. A timeout
+    # mid-body still prints the status it had received (often 200) with a
+    # truncated body, so a non-zero exit is reported as 000 whatever -w said.
     code="$(curl -sS -o "$resp" -w '%{http_code}' --max-time "$timeout" \
       -H @"$work/auth.hdr" -H 'Content-Type: application/json' \
-      --data-binary @"$req" "$url" 2>"${resp}.err")"
+      --data-binary @"$req" "$url" 2>"${resp}.err")" || code="000"
     code="${code:-000}"
     case "$code" in
       429|529)

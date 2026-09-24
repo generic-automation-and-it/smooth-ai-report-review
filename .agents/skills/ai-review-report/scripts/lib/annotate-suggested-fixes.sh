@@ -47,11 +47,16 @@ grep -q 'Some suggested fixes may have no numbered finding' "$summary" && exit 0
 malformed=$(jq -r '(.malformed_findings // 0) | tostring' "$merged" 2>/dev/null || echo 0)
 suppressed=$(jq -r '((.suppressed_findings // []) | length) | tostring' "$merged" 2>/dev/null || echo 0)
 demoted=$(jq -r '(.demoted_no_quote // 0) | tostring' "$merged" 2>/dev/null || echo 0)
+# LADR-091 filter mode moves unsupported findings out of the merged set into
+# decisions_summary.suppressed — a fourth way a fix can lose its number. Without
+# this count a filter-only run skipped the note entirely.
+decision_suppressed=$(jq -r '((.decisions_summary.suppressed // []) | length) | tostring' "$merged" 2>/dev/null || echo 0)
 case "$malformed" in ''|*[!0-9]*) malformed=0 ;; esac
 case "$suppressed" in ''|*[!0-9]*) suppressed=0 ;; esac
 case "$demoted" in ''|*[!0-9]*) demoted=0 ;; esac
+case "$decision_suppressed" in ''|*[!0-9]*) decision_suppressed=0 ;; esac
 
-if [ "$malformed" -eq 0 ] && [ "$suppressed" -eq 0 ] && [ "$demoted" -eq 0 ]; then
+if [ "$malformed" -eq 0 ] && [ "$suppressed" -eq 0 ] && [ "$demoted" -eq 0 ] && [ "$decision_suppressed" -eq 0 ]; then
   exit 0
 fi
 
@@ -62,6 +67,7 @@ add_reason() { # add_reason <text>
 [ "$malformed" -gt 0 ]  && add_reason "${malformed} finding(s) were dropped as malformed"
 [ "$suppressed" -gt 0 ] && add_reason "${suppressed} were suppressed below the actionable confidence anchor"
 [ "$demoted" -gt 0 ]    && add_reason "${demoted} were demoted for not quoting the motivating line"
+[ "$decision_suppressed" -gt 0 ] && add_reason "${decision_suppressed} were suppressed by the decision model as unsupported by their quoted evidence"
 
 note="> ℹ️ **Some suggested fixes may have no numbered finding.** The Issues Summary above is the post-validation set: ${reasons}. A fix suggested below can therefore describe an item that carries no number. The Coverage block above gives the reason for each, and the per-chunk reviews in the detailed section carry every one of them verbatim."
 
@@ -90,5 +96,5 @@ case "$before$after" in *[!0-9]*) exit 0 ;; esac
 
 mv "$tmp" "$summary" || exit 0
 trap - EXIT
-echo "Annotated Suggested Fixes: malformed=${malformed} suppressed=${suppressed} demoted=${demoted}" >&2
+echo "Annotated Suggested Fixes: malformed=${malformed} suppressed=${suppressed} demoted=${demoted} decision_suppressed=${decision_suppressed}" >&2
 exit 0
