@@ -77,6 +77,10 @@ PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
 OPENCODE_OUTPUT_SHAPE_CHECK="${OPENCODE_OUTPUT_SHAPE_CHECK:-}"
+# Keep in lockstep with `_shape_reject_marker` in review-in-chunks.sh's
+# failure-reason block, which parses this line back out of the chunk's stderr
+# log. test-opencode-with-fallback-targets.sh asserts the two literals are equal.
+SHAPE_REJECT_MARKER="opencode-with-fallback.sh: output-shape check rejected the response from"
 
 model_target() {
   case "$1" in
@@ -177,6 +181,15 @@ run_opencode() {
         return 0
       fi
       printf '%s' "$_out" >&2
+      # Name the rejection. Without this line a shape-rejected answer and a
+      # provider error both surface as rc 1, and review-in-chunks.sh reported
+      # complete-but-misformatted reviews as "model API error" (consumer PR 99,
+      # run 36024963902). review-in-chunks.sh parses this line back out of the
+      # chunk's stderr log; the format is `<marker> <provider/model> (<n> bytes)`.
+      # Bytes via wc, not ${#_out}: that counts characters, and review bodies
+      # are full of multi-byte emoji.
+      printf '\n%s %s (%s bytes)\n' "$SHAPE_REJECT_MARKER" "$_target" \
+        "$(printf '%s' "$_out" | wc -c | tr -d ' ')" >&2
       return 1
     fi
     echo "opencode-with-fallback.sh: OPENCODE_OUTPUT_SHAPE_CHECK not found: ${OPENCODE_OUTPUT_SHAPE_CHECK} — falling back to the ${OPENCODE_MIN_OUTPUT_BYTES}-byte floor" >&2

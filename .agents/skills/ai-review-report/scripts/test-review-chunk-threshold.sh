@@ -299,16 +299,21 @@ _ct "no hardcoded 300s chunk timeout remains" "0" \
 # Two branches since LADR-081: one for "the budget was split and both tiers ran
 # out", one for "the budget was too small to split, so the secondary never ran".
 # Both must exist — collapsing them back to one is how the marker starts lying
-# about whether the fallback got a turn.
-_ct "timeout marker reports the configured budget, not a hardcoded 5 minutes" "3" \
+# about whether the fallback got a turn. A fourth covers the LADR-084 retry,
+# which runs unsplit on purpose: without it the too-small branch fired and
+# claimed the secondary was never reached while the log showed it running
+# (consumer PR 99, run 36024963902).
+_ct "timeout marker reports the configured budget, not a hardcoded 5 minutes" "4" \
   "$(grep -c 'Reason:\*\* Timeout' "$_ric")"
 # The marker must interpolate the RESOLVED budget. Reporting the unscaled base
 # Variable is how consumer PR 65 run 35011956699 killed a chunk at its scaled
 # 850 s and told the reader it had exceeded 700 s.
 _ct "the timeout marker reports the resolved budget, not the unscaled base" "0" \
   "$(grep 'Reason:\*\* Timeout' "$_ric" | grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT}s')"
-_ct "all three timeout branches name a resolved budget, never the unscaled base" "3" \
+_ct "all four timeout branches name a resolved budget, never the unscaled base" "4" \
   "$(grep 'Reason:\*\* Timeout' "$_ric" | grep -cE '\$\{_chunk_timeout\}s|\$\{_primary_budget\}s')"
+_ct "the LADR-084 retry timeout gets its own branch, checked before the split branches" "1" \
+  "$(grep -c 'exit_code" -eq 124 \] && \[ "\${CHUNK_RETRY_ATTEMPT:-0}" = "1" \]' "$_ric")"
 # The degenerate chain (secondary == primary) must say so rather than blame the
 # budget size — a marker that guesses is the defect LADR-081 set out to fix.
 _ct "a same-model secondary gets its own honest branch" "1" \
@@ -575,6 +580,56 @@ _ct "runtime: the default base retries the primary rather than splitting" "2" \
   "$(grep -c '^primary-model$' "${_rt}/calls.log")"
 _ct "runtime: the default base never reaches the second stage" "0" \
   "$(_rt_has "${_rt}/calls.log" '^secondary-model$')"
+# The retry above ran unsplit and timed out again, so the posted marker must be
+# the LADR-084 retry branch — the too-small-to-split branch used to fire here and
+# deny a secondary that was in the chain (consumer PR 99, run 36024963902).
+_ct "runtime: a timed-out retry posts the retry-timeout reason" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'Timeout on the retry')"
+_ct "runtime: a timed-out retry does not claim the secondary was unreachable" "0" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'secondary was not reached')"
+
+# --- Runtime proof: a shape rejection is reported as a format failure (LADR-091)
+# The transport names each model whose answer the completeness check rejected;
+# the chunk gate must parse those lines back out and say "format", not "model API
+# error". Drive the REAL failure block with a transport stub that writes the
+# marker exactly as lib/opencode-with-fallback.sh does (the literal is read from
+# the real helper, so a drift between the two files fails here too).
+_real_helper="$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+_srm="$(sed -n 's/^SHAPE_REJECT_MARKER="\(.*\)"$/\1/p' "$_real_helper")"
+_ct "runtime: the transport's shape-rejection marker can be read" "1" \
+  "$([ -n "$_srm" ] && echo 1 || echo 0)"
+cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << RTSHAPE
+#!/usr/bin/env bash
+prompt_file="\${@: -1}"
+if [[ "\$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+for m in "\$1" "\$2"; do
+  [ -n "\$m" ] || continue
+  printf 'narrated a review without a Low line\n\n%s openai/%s (1234 bytes)\n' "${_srm}" "\$m" >&2
+done
+exit 1
+RTSHAPE
+chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+rm -rf "${_rt}/ci_temp/reviews"
+(
+  cd "${_rt}"
+  OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+  OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+  GITHUB_OUTPUT="${_rt}/gh3.out" \
+  PATH="${_rt}/bin:${PATH}" \
+  bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+    "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+    > "${_rt}/run-shape.log" 2>&1
+) || true
+_ct "runtime: a shape-rejected chain is reported as a format failure" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'Reason:\*\* Output format, not (only) the provider')"
+_ct "runtime: a shape-rejected chain is not blamed on the model API" "0" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
+_ct "runtime: every shape-rejected model is named with its size" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'completeness check:\*\* openai/primary-model (1234 bytes), openai/secondary-model (1234 bytes)$')"
+_ct "runtime: a shape-rejected chunk still fail-closes (LADR-031)" "1" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.failed' 2>/dev/null | wc -l | tr -d ' ')"
 
 [ "$_ct_fail" -eq 0 ] || exit 1
 

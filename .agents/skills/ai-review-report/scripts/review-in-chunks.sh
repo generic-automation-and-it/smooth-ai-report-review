@@ -1091,6 +1091,12 @@ For each file, use this structure:
 - 🟡 [VERIFIED] Medium Priority: [description] or "None found"
 - 🔵 [VERIFIED|SPECULATIVE] Low Priority: [description] or "None found"
 
+**Format rules the gate checks mechanically — a review that breaks them is discarded as incomplete, even when its content is right:**
+- **One `### 📄 File:` heading per changed file, each naming the file.** Never collapse files into a range (`NFR-01.md` … `NFR-07.md`) — a file your headings never name counts as unreviewed. To group several clean files, use `### 📄 Files:` and list **every** filename.
+- **Write all four severity lines for every file**, in the order above, even when only one of them has a finding — the Low line is how the gate knows you reached the end.
+- **Cite every finding as `filename:line` from the file under its heading** (e.g. `Handler.cs:42`), not only as "(line 42)" or a location in another file.
+- **End a clean line at "None found".** Put any justification on its own line below it, never after "None found" on the same line — text after it reads as a review cut off mid-sentence.
+
 Only include real defects, risks, or actionable documentation/maintenance issues in **Issues Found**. Passing consistency checks belong outside this section or should be omitted.
 
 **Pre-existing (informational):**
@@ -1467,7 +1473,31 @@ EOF
       echo "## ⚠️ Review Failed for Chunk: ${chunk_dir}"
       echo ""
       echo "**Exit Code:** ${exit_code}"
-      if [ "$exit_code" -eq 124 ]; then
+      # Models whose answer arrived but was rejected by lib/review-has-shape.sh
+      # (opencode-with-fallback.sh names each one on stderr). Both rc 1 and a
+      # timeout can hide this: on consumer PR 99 run 36024963902 every model in
+      # the chain wrote a complete review, each was rejected for its format, and
+      # the marker still said "model API error" — pointing at the provider when
+      # the fix was in the prompt or the predicate (LADR-091).
+      #
+      # `_shape_reject_marker` must equal SHAPE_REJECT_MARKER in
+      # lib/opencode-with-fallback.sh byte-for-byte; the transport writes
+      # `<marker> <provider/model> (<n> bytes)` and this keeps what follows the
+      # marker. test-opencode-with-fallback-targets.sh pins the two literals,
+      # test-review-chunk-threshold.sh drives this block end to end.
+      local _shape_reject_marker='opencode-with-fallback.sh: output-shape check rejected the response from'
+      local _shape_rejected
+      _shape_rejected="$(awk -v m="$_shape_reject_marker" \
+        'index($0, m) == 1 { s = substr($0, length(m) + 2); out = out (out == "" ? "" : ", ") s } END { print out }' \
+        "ci_temp/reviews/chunk_${chunk_num}_stderr.log" 2>/dev/null)"
+      if [ "$exit_code" -eq 124 ] && [ "${CHUNK_RETRY_ATTEMPT:-0}" = "1" ]; then
+        # LADR-084: the retry deliberately runs unsplit, so none of the three
+        # first-attempt branches below describes it — the budget-too-small one
+        # used to fire and claim the secondary was never reached, while the log
+        # showed it running. Attempt 1 may have failed for a different reason
+        # (the sweep retries every `.failed` chunk), so claim nothing about it.
+        echo "**Reason:** Timeout on the retry (>${_chunk_timeout}s). The retry runs the model chain unsplit (LADR-084), with the secondary \`${_secondary_model}\` still in the chain after the primary, and the whole chain ran out of time; the first attempt's failure is in the run log. Raise \`OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT\` if this recurs."
+      elif [ "$exit_code" -eq 124 ]; then
         # Report the budget that was ACTUALLY enforced, and say honestly whether
         # the secondary got a turn. The old single line did neither: it
         # interpolated the unscaled base Variable, so a chunk killed at its
@@ -1487,8 +1517,16 @@ EOF
         fi
       elif [ "$exit_code" -eq 137 ]; then
         echo "**Reason:** Out of memory or killed"
+      elif [ -n "$_shape_rejected" ]; then
+        # Not "every model": a chain can mix a shape rejection with a provider
+        # error, and the list below names only the models that answered.
+        echo "**Reason:** Output format, not (only) the provider: the model(s) listed below answered, but the answer failed the completeness check (\`lib/review-has-shape.sh\`) — a changed file never named, a missing Low severity line, or a finding without a \`file:line\` anchor. Any model in the chain not listed failed at the provider. The rejected text is in the diagnostic log."
       else
         echo "**Reason:** opencode / model API error (all fallbacks exhausted)"
+      fi
+      if [ -n "$_shape_rejected" ]; then
+        echo ""
+        echo "**Rejected as incomplete by the completeness check:** ${_shape_rejected}"
       fi
       echo ""
       echo "**Chunk:** ${chunk_dir} (${#files[@]} files)"
