@@ -9,9 +9,11 @@
 #   pr_diff      : ci_temp/pr_diff.txt — source of the per-finding diff hunk
 #
 # Always exits 0. This is enrichment, exactly like the graph analysis, RTK and
-# check-versions: every failure path logs one ⚠️ line and leaves the merged
-# document byte-identical, never writes a chunk_<n>.failed flag (LADR-031 owns
-# that channel), and never changes the gate's exit code.
+# check-versions: a preflight or configuration failure logs one ⚠️ line and
+# leaves the merged document byte-identical. After preflight, one malformed
+# response leaves only that item unscored while successful scores and the
+# skipped count are recorded. The script never writes a chunk_<n>.failed flag
+# (LADR-031 owns that channel) and never changes the gate's exit code.
 #
 # Why raw HTTP and not `opencode run`
 # -----------------------------------
@@ -52,10 +54,11 @@ SKILL_ROOT="$(cd "$LIB_DIR/../.." && pwd)"
 QUESTIONS="$SKILL_ROOT/assets/decisions-questions.json"
 RESOLVER="$LIB_DIR/resolve-provider.sh"
 
-# Request budget. Jev's hard limit is 32,000 tokens per request; this keeps a
-# request under ~24k at a conservative 3 bytes per token (code tokenises worse
-# than prose), leaving headroom for the questions and the answer.
-BUDGET_BYTES=72000
+# Request budget. Jev's hard limit is 32,000 tokens per request. A token cannot
+# represent less than one input byte, so capping the complete serialized request
+# at 24,000 bytes gives a hard upper bound of 24,000 input tokens and
+# leaves headroom for provider-side framing and the answer.
+BUDGET_BYTES=24000
 # Initial cap on one finding's diff hunk, before the budget check trims further.
 HUNK_MAX_BYTES=24000
 # Concurrent per-finding requests. Plain batches, not `wait -n`: this script is
@@ -66,6 +69,7 @@ PARALLEL=4
 MAX_FINDINGS=60
 # One retry for the two statuses the vendor documents as transient.
 RETRY_DELAY="${_DECISIONS_RETRY_DELAY:-2}"
+case "$RETRY_DELAY" in ''|*[!0-9]*) RETRY_DELAY=2 ;; esac
 
 info() { echo "ℹ️  Decision model (LADR-093): $*"; }
 warn() { echo "⚠️  Decision model (LADR-093): $*"; }
@@ -185,18 +189,27 @@ unset OPENCODE_DECISIONS_API_KEY
 # post <request> <response> — prints the HTTP status (000 on timeout/network).
 # Returns 0 only for a 200 whose body carries an `answers` object.
 post() {
-  local req="$1" resp="$2" code attempt=1
+  local req="$1" resp="$2" code attempt=1 now remaining
+  local deadline=$(( $(date +%s) + timeout ))
   while :; do
+    now="$(date +%s)"
+    remaining=$(( deadline - now ))
+    if [ "$remaining" -le 0 ]; then
+      code="000"
+      break
+    fi
     # Without -f, curl exits non-zero only for transport failures. A timeout
     # mid-body still prints the status it had received (often 200) with a
     # truncated body, so a non-zero exit is reported as 000 whatever -w said.
-    code="$(curl -sS -o "$resp" -w '%{http_code}' --max-time "$timeout" \
+    code="$(curl -sS -o "$resp" -w '%{http_code}' --max-time "$remaining" \
       -H @"$work/auth.hdr" -H 'Content-Type: application/json' \
       --data-binary @"$req" "$url" 2>"${resp}.err")" || code="000"
     code="${code:-000}"
     case "$code" in
       429|529)
         if [ "$attempt" -lt 2 ]; then
+          remaining=$(( deadline - $(date +%s) ))
+          [ "$remaining" -gt "$RETRY_DELAY" ] || break
           attempt=2
           sleep "$RETRY_DELAY"
           continue
