@@ -2,7 +2,8 @@
 # review-has-shape.sh — does this text contain a COMPLETED chunk review?
 #
 # Usage:  review-has-shape.sh <file>     # or pipe the text on stdin
-# Exit 0 = yes, 1 = no. Prints nothing.
+# Exit 0 = yes, 1 = no. Nothing on stdout; a rejection prints ONE line on
+# stderr naming the rule that failed (`review-has-shape.sh: rejected — …`).
 # Optional env: OPENCODE_EXPECTED_CHUNK_FILES — newline-separated paths the
 # chunk asked the model to review; with two or more, each must be mentioned.
 #
@@ -52,9 +53,19 @@ _rhs_cleanup() {
 }
 trap _rhs_cleanup EXIT
 
+# Every "no" names its rule. The verdict alone was not diagnosable: consumer
+# run 36160307420 rejected a complete 10 KB deepseek review of a two-file
+# chunk, the handover to the secondary cost eleven minutes, and nothing in the
+# log or the artifact said which of the three rules below had fired. stderr
+# only — stdout stays empty, so no caller's capture changes.
+_rhs_reject() { # _rhs_reject <reason>
+  printf 'review-has-shape.sh: rejected — %s\n' "$1" >&2
+  exit 1
+}
+
 _rhs_src="${1:-}"
 if [ -n "$_rhs_src" ]; then
-  [ -f "$_rhs_src" ] || exit 1
+  [ -f "$_rhs_src" ] || _rhs_reject "input file not found: ${_rhs_src}"
 else
   _rhs_src="$(mktemp)"
   _rhs_own_src="$_rhs_src"
@@ -204,7 +215,7 @@ EOF_ALL
 ${OPENCODE_EXPECTED_CHUNK_FILES}
 EOF_EXPECTED
   if [ "$_rhs_expected_n" -ge 2 ] && [ -n "$_rhs_missing" ]; then
-    exit 1
+    _rhs_reject "chunk file(s) never named in the review's headings or severity lines: $(printf '%s' "$_rhs_missing" | tr '\n' ' ' | sed 's/ *$//')"
   fi
 fi
 
@@ -435,7 +446,10 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
 
 _rhs_i=1
 while [ "$_rhs_i" -le "$_rhs_nsec" ]; do
-  _rhs_section_ok "$_rhs_tail.$_rhs_i" || exit 1
+  if ! _rhs_section_ok "$_rhs_tail.$_rhs_i"; then
+    _rhs_head="$(sed -n '1{s/^[[:space:]]*//;p;}' "$_rhs_tail.$_rhs_i" 2>/dev/null | cut -c1-160)"
+    _rhs_reject "section ${_rhs_i} of ${_rhs_nsec} (${_rhs_head:-<empty>}) is incomplete: no \"None found\" / Low result under **Issues Found:**, and no severity-marked finding with a file:line anchor"
+  fi
   _rhs_i=$((_rhs_i + 1))
 done
 exit 0
