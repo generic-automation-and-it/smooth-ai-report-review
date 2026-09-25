@@ -642,6 +642,70 @@ _ct "runtime: every shape-rejected model is named with its size" "1" \
 _ct "runtime: a shape-rejected chunk still fail-closes (LADR-031)" "1" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.failed' 2>/dev/null | wc -l | tr -d ' ')"
 
+# --- Runtime proof: LADR-094 wiring through the REAL chunk script ------------
+# Both stages carry the re-ask count and the rejected-output file; the
+# predicate's reasons reach the console, where the diagnostic tail could not
+# show them on run 36160307420. Web access is off by default, and the prompt
+# must follow the RESOLVED config: the shipped config denies webfetch, a
+# custom one may re-allow it, and an unknown config keeps the old wording.
+cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'RT94'
+#!/usr/bin/env bash
+prompt_file="${@: -1}"
+if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+printf '%s|%s|%s\n' "$1" "${OPENCODE_SHAPE_REJECT_RETRIES:-}" "${OPENCODE_REJECTED_OUTPUT_FILE:-}" >> "$RT94_CALLS"
+if [ "$1" = "primary-model" ]; then
+  echo "review-has-shape.sh: rejected — section 1 of 1 (stub) is incomplete" >&2
+  exit 1
+fi
+printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued — `alpha/a.txt:1`.\n\n%.0s' {1..20}
+RT94
+chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+printf '{"agent":{"review":{"tools":{"webfetch":true},"permission":{"webfetch":"allow"}}}}\n' > "${_rt}/web-allowed.json"
+_rt94() { # _rt94 <label> <config>
+  rm -rf "${_rt}/ci_temp/reviews"
+  (
+    cd "${_rt}"
+    RT94_CALLS="${_rt}/$1.calls" \
+    OPENCODE_CONFIG="$2" \
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900 \
+    OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+    OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+    GITHUB_OUTPUT="${_rt}/$1.gh" \
+    PATH="${_rt}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+      > "${_rt}/$1.log" 2>&1
+  ) || true
+  cp "${_rt}/ci_temp/chunk_0_prompt.txt" "${_rt}/$1.prompt" 2>/dev/null || : > "${_rt}/$1.prompt"
+}
+_rt94 rt94-default "$REPO_ROOT/.agents/skills/ai-review-report/assets/opencode.json"
+_ct "LADR-094 runtime: stage 1 re-asks once and keeps rejected answers" "1" \
+  "$(_rt_has "${_rt}/rt94-default.calls" '^primary-model|1|ci_temp/reviews/chunk_0.shape-rejected.txt$')"
+_ct "LADR-094 runtime: stage 2 re-asks once and keeps rejected answers" "1" \
+  "$(_rt_has "${_rt}/rt94-default.calls" '^secondary-model|1|ci_temp/reviews/chunk_0.shape-rejected.txt$')"
+_ct "LADR-094 runtime: the predicate's reason reaches the console at the handover" "1" \
+  "$(_rt_has "${_rt}/rt94-default.log" '↳ review-has-shape.sh: rejected — section 1 of 1 (stub)')"
+_ct "LADR-094 runtime: the rescued chunk still completes" "1" \
+  "$(_rt_has "${_rt}/rt94-default.log" 'rescued by secondary')"
+_ct "LADR-094 runtime: the shipped config turns web access off" "1" \
+  "$(_rt_has "${_rt}/rt94-default.log" 'Web access for chunk reviews: off')"
+_ct "LADR-094 runtime: web off — the prompt forbids fetching" "1" \
+  "$(_rt_has "${_rt}/rt94-default.prompt" 'No web access (MANDATORY)')"
+_ct "LADR-094 runtime: web off — the prompt never tells the model to use webfetch" "0" \
+  "$(grep -c 'via `webfetch`\|Webfetch fail-fast\|/webfetch/websearch)' "${_rt}/rt94-default.prompt")"
+_rt94 rt94-web "${_rt}/web-allowed.json"
+_ct "LADR-094 runtime: a config that allows webfetch keeps the web wording" "1" \
+  "$(_rt_has "${_rt}/rt94-web.prompt" 'Webfetch fail-fast (MANDATORY)')"
+_ct "LADR-094 runtime: web on — no 'no web access' rule" "0" \
+  "$(grep -c 'No web access (MANDATORY)' "${_rt}/rt94-web.prompt")"
+_rt94 rt94-noconfig "${_rt}/does-not-exist.json"
+_ct "LADR-094 runtime: an unreadable config keeps the web wording" "1" \
+  "$(_rt_has "${_rt}/rt94-noconfig.prompt" 'Webfetch fail-fast (MANDATORY)')"
+_ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" "4" \
+  "$(diff "${_rt}/rt94-web.prompt" "${_rt}/rt94-default.prompt" | grep -c '^<')"
+
 [ "$_ct_fail" -eq 0 ] || exit 1
 
 # --- No-review detection: narration is not a review (LADR-077) ---------------

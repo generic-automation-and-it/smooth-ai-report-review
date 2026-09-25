@@ -17,7 +17,7 @@ Autonomous counterpart to `/ai-review`: consumes the OpenCode Review Report's lo
 ## Key Behaviors
 
 - The workflow inlines `SKILL.md` into the prompt because opencode headless `run` does not auto-activate project skills and the `analyse` agent has the `skill` tool disabled.
-- The agent is intentionally edit-only in `.agents/skills/ai-review-report/assets/opencode.json`: read/list/grep/glob/edit allowed; bash, skill, task, webfetch, and websearch denied.
+- The agent is intentionally edit-only in `.agents/skills/ai-review-report/assets/opencode.json`: read/list/grep/glob/edit allowed; bash, skill, task, webfetch, websearch and execute (v2 Code Mode, whose runtime has its own `fetch` — LADR-094 in the report skill) denied.
 - Summary comments are posted by the existing `.agents/skills/ai-review/scripts/copilot-review.sh summary` helper so GitHub plumbing stays centralized.
 - The deterministic filter `filter-failing-test-findings.sh` withholds findings whose basis is a failing test before the model sees them, and the withheld findings are reported in the summary comment so the filtering is auditable.
 

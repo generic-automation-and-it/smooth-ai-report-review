@@ -151,7 +151,7 @@
   "agent": {
     "analyse": {
       "mode": "primary",
-      "description": "Edit-only autonomous low/medium review-fix agent (LADR-042): no skill/task/bash/web access. The workflow supplies only gate-authored medium/low findings and performs git operations itself.",
+      "description": "Edit-only autonomous low/medium review-fix agent (LADR-042): no skill/task/bash/web access, and no execute (Code Mode, which can reach the network). The workflow supplies only gate-authored medium/low findings and performs git operations itself.",
       "tools": {
         "skill": false,
         "task": false,
@@ -167,6 +167,7 @@
         "bash": "deny",
         "webfetch": "deny",
         "websearch": "deny",
+        "execute": "deny",
         "read": "allow",
         "grep": "allow",
         "glob": "allow",
@@ -176,22 +177,23 @@
     },
     "review": {
       "mode": "primary",
-      "description": "Locked-down PR-review agent (LADR-029): no skill/task/edit/bash; read + web (fetch/search) enabled. Disabling skill/task stops the review model self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure mode); bash is denied so a prompt-injected diff cannot run arbitrary commands on the runner, while webfetch/websearch stay on so the model can verify references during review.",
+      "description": "Locked-down PR-review agent (LADR-029, LADR-094): read/grep/glob/list only. No skill/task/edit/bash: disabling skill/task stops the review model self-activating this repo's own ai-review-report skill when a chunk under review contains the gate's workflow/skill files (the empty-output / silent-failure mode), and bash is denied so a prompt-injected diff cannot run arbitrary commands on the runner. No webfetch/websearch by default (LADR-094): web research was a recurring time sink and half the fetches failed; platform claims are verified from the repo and its context files or tagged [SPECULATIVE]. A custom config (LADR-047) may re-allow them, and the chunk prompt follows. execute (Code Mode) is denied: in opencode 2.0.12 its JavaScript runtime carries its own fetch, which a webfetch deny does not cover.",
       "tools": {
         "skill": false,
         "task": false,
         "edit": false,
         "bash": false,
-        "webfetch": true,
-        "websearch": true
+        "webfetch": false,
+        "websearch": false
       },
       "permission": {
         "skill": "deny",
         "task": "deny",
         "edit": "deny",
         "bash": "deny",
-        "webfetch": "allow",
-        "websearch": "allow",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "execute": "deny",
         "read": "allow",
         "grep": "allow",
         "glob": "allow",

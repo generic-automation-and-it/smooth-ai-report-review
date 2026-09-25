@@ -108,6 +108,58 @@ structured_findings_enabled() {
 # by the transport (spending the fallback) and then rejected by the chunk gate.
 CHUNK_SHAPE_CHECK="$(dirname "${BASH_SOURCE[0]}")/lib/review-has-shape.sh"
 
+# LADR-094: what a chunk does after a FORMAT rejection. Consumer run
+# 36160307420 spent eleven of its 21 minutes on one two-file chunk: the primary
+# answered in 293 s, the shape check refused the answer, the remaining 707 s
+# went to a slower secondary that explored (web fetches included) until the
+# budget killed it, and the retry sweep then re-ran the SAME primary, which
+# passed in 95 s. Two changes here:
+#   - a shape-rejected model is re-asked once before the chain moves on
+#     (constant, not a Variable — like LADR-078's retry count);
+#   - every rejected answer is kept in chunk_<n>.shape-rejected.txt, which the
+#     LADR-062 artifact ships (`.txt`, not `.md`: eval/run-evals.sh cats
+#     chunk_*.md into the scored review).
+CHUNK_SHAPE_REJECT_RETRIES=1
+
+# LADR-094: web access is off by default (`review` denies webfetch/websearch
+# and execute in assets/opencode.json), and the chunk prompt must say so —
+# the old wording told the model to verify platform claims "via webfetch",
+# which it can no longer do. The prompt follows the RESOLVED config, not the
+# default: a custom config (LADR-047) that re-allows webfetch gets the web
+# wording back, byte-identical to before. Unknown (no config, unreadable, no
+# jq) also keeps the web wording — a prompt that mentions an unavailable tool
+# costs nothing, a prompt that forbids an available one changes reviews.
+# Survey of 23 slow consumer runs (09-19..09-25): 23 web calls, 11 of them
+# failed, and chunks that used the web took a median 438 s against 253 s.
+CHUNK_WEB_TOOLS=1
+if [ -n "${OPENCODE_CONFIG:-}" ] && [ -r "${OPENCODE_CONFIG}" ] && command -v jq >/dev/null 2>&1 \
+   && jq -e '(.agent.review // {}) | (.permission.webfetch == "deny") or (.tools.webfetch == false)' "${OPENCODE_CONFIG}" >/dev/null 2>&1; then
+  CHUNK_WEB_TOOLS=0
+fi
+if [ "$CHUNK_WEB_TOOLS" = "1" ]; then
+  CHUNK_PROMPT_PLATFORM_RULES='- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo'\''s docs, or official documentation via `webfetch`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
+- **Webfetch fail-fast (MANDATORY):** `webfetch` and `websearch` are a bounded verification aid, not a research loop. If a fetch fails (any 4xx/5xx, timeout, or unreachable URL), do NOT retry it and do NOT try alternate URLs for the same claim — stop, tag the dependent finding [SPECULATIVE], and move on. Hard cap: at most 3 webfetch/websearch calls total per chunk (this review session), successful or not. Never fetch external docs to research secret/token formats or scanning patterns — verify suspected secrets with local `grep`/`read_file` only.'
+  CHUNK_PROMPT_EXPLORATION_RULE='**Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list/webfetch/websearch) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.'
+  CHUNK_PROMPT_PLATFORM_STEP='4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior via `webfetch` of official docs before flagging Critical/High — or downgrade to [SPECULATIVE]. One fetch attempt per claim: if it fails (4xx/5xx/timeout), do NOT retry or try alternate URLs — downgrade to [SPECULATIVE] and move on. Known traps that are NOT issues:'
+  echo "🌐 Web access for chunk reviews: on (the resolved config allows webfetch)"
+else
+  CHUNK_PROMPT_PLATFORM_RULES='- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo'\''s docs, or code in this repository that demonstrates the behavior. There is no web access in this review. Seeing the code in the diff does NOT verify the platform claim. If you cannot verify the claim from the repository, tag the finding [SPECULATIVE] — never [VERIFIED].
+- **No web access (MANDATORY):** `webfetch` and `websearch` are disabled for this review — do not try to fetch or search anything, and do not look for another way to reach the network. Verify suspected secrets with local `grep`/`read_file` only.'
+  CHUNK_PROMPT_EXPLORATION_RULE='**Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.'
+  CHUNK_PROMPT_PLATFORM_STEP='4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior from the repository (a context file, the repo'\''s docs, or code that demonstrates it) before flagging Critical/High — or downgrade to [SPECULATIVE]. There is no web access in this review. Known traps that are NOT issues:'
+  echo "🌐 Web access for chunk reviews: off (LADR-094)"
+fi
+
+# Echo the shape predicate's reasons for chunk <n> to the console, one line
+# each. The stderr log holds them, but the diagnostic group prints only its
+# tail, which a rejected answer's findings JSON or the next model's narration
+# fills first (run 36160307420). Never into the posted body: a reason can quote
+# a heading, and `#`+digits there autolinks (LADR-067).
+chunk_shape_notes() { # chunk_shape_notes <chunk_num>
+  grep -h -e '^review-has-shape.sh: rejected' -e '^opencode-with-fallback.sh: re-asking' \
+    "ci_temp/reviews/chunk_${1}_stderr.log" 2>/dev/null | sed 's/^/     ↳ /' || true
+}
+
 chunk_review_has_shape() {
   # Delegates to lib/review-has-shape.sh so the transport gate in
   # lib/opencode-with-fallback.sh and this authoritative gate cannot disagree
@@ -914,8 +966,7 @@ EOF
   - **[VERIFIED]** — You saw the relevant source code in this chunk's diff OR you read the file using \`read_file\` to confirm the issue exists.
   - **[SPECULATIVE]** — You are inferring from partial context (e.g., a file was mentioned but not included in this chunk, or you are guessing about behavior you have not verified).
 - Place the tag immediately after the priority emoji (e.g., "🟠 [VERIFIED] High Priority: ..." or "🔵 [SPECULATIVE] Low Priority: ...").
-- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo's docs, or official documentation via \`webfetch\`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
-- **Webfetch fail-fast (MANDATORY):** \`webfetch\` and \`websearch\` are a bounded verification aid, not a research loop. If a fetch fails (any 4xx/5xx, timeout, or unreachable URL), do NOT retry it and do NOT try alternate URLs for the same claim — stop, tag the dependent finding [SPECULATIVE], and move on. Hard cap: at most 3 webfetch/websearch calls total per chunk (this review session), successful or not. Never fetch external docs to research secret/token formats or scanning patterns — verify suspected secrets with local \`grep\`/\`read_file\` only.
+${CHUNK_PROMPT_PLATFORM_RULES}
 EOF
 
   # LADR-055: confidence anchors + quote-the-line gate. Quoted heredoc — this
@@ -1052,7 +1103,9 @@ EOF
 - You're unsure if something is handled elsewhere → READ the file to verify before flagging
 - You want to flag a Critical or High Priority issue → ALWAYS read the file first to confirm
 
-**Exploration budget (MANDATORY):** You have a bounded time budget for this review. Keep total tool calls (read/grep/glob/list/webfetch/websearch) to roughly 20 or fewer. When you approach that budget, STOP exploring and write the review with the evidence you already have — tag anything you could not verify [SPECULATIVE] instead of gathering more evidence. A complete review with a few [SPECULATIVE] tags is worth far more than an exhaustive investigation that never produces a review. Verify targeted claims; do not cross-check every documentation statement against the whole source tree.
+EOF
+  printf '%s\n' "$CHUNK_PROMPT_EXPLORATION_RULE" >> ci_temp/chunk_${chunk_num}_prompt.txt
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
 
 **Zero-match glob fail-fast (MANDATORY):** a `glob` that returns 0 matches has answered you — it is not an invitation to retry with a different pattern. Do NOT re-run it as `x/**`, `x/**/*`, `x/*` or any other variant, and do not widen it to the repo root. Dot-prefixed paths are the trap: `.docs/`, `.github/` and `.agents/` routinely return 0 matches from `glob` for directories that plainly exist and that you can read. Confirm existence ONCE by reading the directory itself (`read` / `list` on `.docs`), take that as the answer, and move on. Observed cost of ignoring this: in one review all three documentation chunks spent their turn re-globbing `.docs/**`, `.docs/**/*` and `.docs/adrs/*` — two ran out of turn part-way through the structured block at the end of their output, and the third never wrote a review at all.
 
@@ -1060,7 +1113,9 @@ EOF
 1. Identify potential issue in the DIFF
 2. **Read the CURRENT file state** using `read_file` to verify the issue exists in the actual code (not just in the diff hunk). The diff may show partial context — the issue may have been fixed in an earlier commit on the same branch.
 3. **Confirm the flagged symbol/pattern exists** in the current file. If `read_file` shows the symbol is absent, DO NOT flag it — the diff is showing a removal or the change was already applied.
-4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior via `webfetch` of official docs before flagging Critical/High — or downgrade to [SPECULATIVE]. One fetch attempt per claim: if it fails (4xx/5xx/timeout), do NOT retry or try alternate URLs — downgrade to [SPECULATIVE] and move on. Known traps that are NOT issues:
+EOF
+  printf '%s\n' "$CHUNK_PROMPT_PLATFORM_STEP" >> ci_temp/chunk_${chunk_num}_prompt.txt
+  cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
    - In a workflow with `on.workflow_call`, the `github` context (`event_name`, `event.pull_request.*`) is the CALLER's. `github.event_name` is never "workflow_call"; a job `if:` gate listing the caller's event names and `github.event.pull_request.*` references are valid in reusable workflows.
    - GitHub Actions `branches:`/`tags:`/`paths:` filters are glob patterns, NOT regex. Dots are literal; never suggest regex-escaping them.
 5. Only flag if the issue is TRULY present after checking the current file state
@@ -1333,8 +1388,9 @@ EOF
   else
     echo "  ⚠️ Chunk ${chunk_num}: no runtime AGENTS.md — reviewing without loaded project rules" >&2
   fi
-  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+  if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_SHAPE_REJECT_RETRIES="$CHUNK_SHAPE_REJECT_RETRIES" OPENCODE_REJECTED_OUTPUT_FILE="ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
     _chunk_rc=0
+    chunk_shape_notes "$chunk_num"
   else
     _stage1_rc=$?
     _chunk_rc=$_stage1_rc
@@ -1353,9 +1409,10 @@ EOF
       if [ "$_remaining" -gt 0 ]; then
         _split_used=1
         echo "  ⚠️ Chunk ${chunk_num} primary ${OPENCODE_MODEL_ID} failed (rc ${_stage1_rc}) after ${_elapsed}s — handing ${_remaining}s to secondary ${_secondary_model} (LADR-081)"
+        chunk_shape_notes "$chunk_num"
         # stdout is overwritten (stage 1 may have left partial output); stderr is
         # appended so stage 1's diagnostics survive alongside stage 2's.
-        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
+        if OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_SHAPE_REJECT_RETRIES="$CHUNK_SHAPE_REJECT_RETRIES" OPENCODE_REJECTED_OUTPUT_FILE="ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_remaining}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$_secondary_model" "" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>>ci_temp/reviews/chunk_${chunk_num}_stderr.log; then
           echo "  ✅ Chunk ${chunk_num} rescued by secondary ${_secondary_model}"
           _chunk_rc=0
         else
@@ -1462,6 +1519,7 @@ EOF
   else
     local exit_code=$_chunk_rc
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
+    chunk_shape_notes "$chunk_num"
     # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
     # step rm -rf's ci_temp on always(), so by the time anyone read the workflow
     # log the file it pointed at was gone (PR #106 run 30756015689 lost the only
@@ -1520,7 +1578,7 @@ EOF
       elif [ -n "$_shape_rejected" ]; then
         # Not "every model": a chain can mix a shape rejection with a provider
         # error, and the list below names only the models that answered.
-        echo "**Reason:** Output format, not (only) the provider: the model(s) listed below answered, but the answer failed the completeness check (\`lib/review-has-shape.sh\`) — a changed file never named, a missing Low severity line, or a finding without a \`file:line\` anchor. Any model in the chain not listed failed at the provider. The rejected text is in the diagnostic log."
+        echo "**Reason:** Output format, not (only) the provider: the model(s) listed below answered, but the answer failed the completeness check (\`lib/review-has-shape.sh\`) — a changed file never named, a missing Low severity line, or a finding without a \`file:line\` anchor. Any model in the chain not listed failed at the provider. The rejected text is kept in \`ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt\` (shipped in the run artifact), each entry headed by the check's reason."
       else
         echo "**Reason:** opencode / model API error (all fallbacks exhausted)"
       fi

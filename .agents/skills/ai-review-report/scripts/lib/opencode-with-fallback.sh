@@ -31,6 +31,15 @@
 #                             Unset = byte floor alone, exactly as before, so
 #                             non-chunk callers are unaffected. A set-but-missing
 #                             path warns and degrades to the byte floor.
+#   OPENCODE_SHAPE_REJECT_RETRIES  Extra attempts a model gets when its answer
+#                             ARRIVED but the shape check rejected it, before
+#                             the chain moves on (default 0 = move on at once).
+#                             Provider errors and empty output never retry
+#                             here. Only meaningful with OPENCODE_OUTPUT_SHAPE_CHECK.
+#   OPENCODE_REJECTED_OUTPUT_FILE  When set, every shape-rejected answer is
+#                             APPENDED there (header: model, bytes, UTC time,
+#                             the predicate's reason; body capped at 64 KB).
+#                             Diagnostic only — nothing reads it back.
 #   OPENCODE_RUN_CWD          Working directory for the opencode invocation.
 #                             When set, opencode runs from that cwd so its
 #                             directory-scope AGENTS.md discovery picks up the
@@ -77,6 +86,14 @@ PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-gemini}"
 OPENCODE_AGENT="${OPENCODE_AGENT:-review}"
 OPENCODE_MIN_OUTPUT_BYTES="${OPENCODE_MIN_OUTPUT_BYTES:-200}"
 OPENCODE_OUTPUT_SHAPE_CHECK="${OPENCODE_OUTPUT_SHAPE_CHECK:-}"
+OPENCODE_REJECTED_OUTPUT_FILE="${OPENCODE_REJECTED_OUTPUT_FILE:-}"
+OPENCODE_SHAPE_REJECT_RETRIES="${OPENCODE_SHAPE_REJECT_RETRIES:-0}"
+case "$OPENCODE_SHAPE_REJECT_RETRIES" in
+  ''|*[!0-9]*) OPENCODE_SHAPE_REJECT_RETRIES=0 ;;
+esac
+# run_opencode's status for "the model answered, the shape check said no".
+# Internal only: try_run folds it back to 1, so callers still see 0 or 1.
+SHAPE_REJECT_RC=3
 # Keep in lockstep with `_shape_reject_marker` in review-in-chunks.sh's
 # failure-reason block, which parses this line back out of the chunk's stderr
 # log. test-opencode-with-fallback-targets.sh asserts the two literals are equal.
@@ -125,7 +142,7 @@ run_opencode() {
   #   the next model in the chain instead of returning a hollow "success" that
   #   short-circuits the fallback. Whatever little came back is echoed to stderr
   #   for diagnostics. Reviews are a few KB, so buffering in a var is safe.
-  local _out _target
+  local _out _target _why _bytes
   _target="$(model_target "$1")"
   # cd into OPENCODE_RUN_CWD (when set) so opencode's directory-scope AGENTS.md
   # discovery loads the runtime AGENTS.md the caller generated at that cwd. The
@@ -180,11 +197,29 @@ run_opencode() {
   # and degrade to the byte floor rather than reject every model in the chain.
   if [ -n "$OPENCODE_OUTPUT_SHAPE_CHECK" ]; then
     if [ -f "$OPENCODE_OUTPUT_SHAPE_CHECK" ]; then
-      if printf '%s' "$_out" | bash "$OPENCODE_OUTPUT_SHAPE_CHECK"; then
+      # The predicate's stderr is its reason for a "no" (one line); capture it
+      # so it reaches both the stderr log and the rejected-output file.
+      if _why="$(printf '%s' "$_out" | bash "$OPENCODE_OUTPUT_SHAPE_CHECK" 2>&1 >/dev/null)"; then
         printf '%s\n' "$_out"
         return 0
       fi
       printf '%s' "$_out" >&2
+      _bytes="$(printf '%s' "$_out" | wc -c | tr -d ' ')"
+      [ -z "$_why" ] || printf '\n%s' "$_why" >&2
+      # Keep the rejected answer where the run artifact can carry it. The
+      # stderr copy above is not enough: the diagnostic group prints only a
+      # tail (on run 36160307420 that tail was all findings JSON, which the
+      # predicate strips before judging), and a later attempt truncates the
+      # stderr log. Appended, so a retry never erases the first attempt.
+      if [ -n "$OPENCODE_REJECTED_OUTPUT_FILE" ]; then
+        {
+          printf '===== shape-rejected: %s (%s bytes) at %s =====\n' \
+            "$_target" "$_bytes" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '%s\n\n' "${_why:-review-has-shape.sh gave no reason}"
+          printf '%s' "$_out" | head -c 65536
+          printf '\n\n'
+        } >> "$OPENCODE_REJECTED_OUTPUT_FILE" 2>/dev/null || true
+      fi
       # Name the rejection. Without this line a shape-rejected answer and a
       # provider error both surface as rc 1, and review-in-chunks.sh reported
       # complete-but-misformatted reviews as "model API error" (consumer PR 99,
@@ -192,9 +227,11 @@ run_opencode() {
       # chunk's stderr log; the format is `<marker> <provider/model> (<n> bytes)`.
       # Bytes via wc, not ${#_out}: that counts characters, and review bodies
       # are full of multi-byte emoji.
-      printf '\n%s %s (%s bytes)\n' "$SHAPE_REJECT_MARKER" "$_target" \
-        "$(printf '%s' "$_out" | wc -c | tr -d ' ')" >&2
-      return 1
+      printf '\n%s %s (%s bytes)\n' "$SHAPE_REJECT_MARKER" "$_target" "$_bytes" >&2
+      # Nothing came back at all is a silent provider failure, not a format
+      # problem, so it does not earn the same-model retry below.
+      [ "$_bytes" -gt 0 ] || return 1
+      return "$SHAPE_REJECT_RC"
     fi
     echo "opencode-with-fallback.sh: OPENCODE_OUTPUT_SHAPE_CHECK not found: ${OPENCODE_OUTPUT_SHAPE_CHECK} — falling back to the ${OPENCODE_MIN_OUTPUT_BYTES}-byte floor" >&2
   fi
@@ -206,9 +243,25 @@ run_opencode() {
 }
 
 try_run() {
-  local model="$1"
+  local model="$1" _rc _left="$OPENCODE_SHAPE_REJECT_RETRIES"
   [ -z "$model" ] && return 1
-  run_opencode "$model"
+  while :; do
+    _rc=0
+    run_opencode "$model" || _rc=$?
+    [ "$_rc" -eq 0 ] && return 0
+    # A model that ANSWERED but in the wrong shape is re-asked before the chain
+    # moves on; a provider error is not (it would most likely fail again, and
+    # the next tier is the better use of the clock). On run 36160307420 the
+    # primary's rejected answer was followed by 707 s of a slower secondary
+    # that never finished, then a sweep retry of the SAME primary that passed
+    # in 95 s — this puts that second chance first.
+    if [ "$_rc" -eq "$SHAPE_REJECT_RC" ] && [ "$_left" -gt 0 ]; then
+      _left=$((_left - 1))
+      echo "opencode-with-fallback.sh: re-asking $(model_target "$model") after a shape rejection (${_left} retr$([ "$_left" -eq 1 ] && echo y || echo ies) left)" >&2
+      continue
+    fi
+    return 1
+  done
 }
 
 try_run "$primary" \

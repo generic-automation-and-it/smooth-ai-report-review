@@ -763,4 +763,106 @@ _want_bytes="$(printf '%s' "$(OPENCODE_STUB_CALLS=/dev/null "${marker_dir}/bin/o
 echo "✓ transport names each shape-rejected model; the chunk gate parses the same marker literal"
 echo "✓ shape predicate: narration rejected, real findings accepted"
 
+# --- LADR-094: a shape rejection is named, kept, and re-asked once ----------
+# Consumer run 36160307420: the primary's complete 10 KB answer was rejected,
+# 707 s went to a slower secondary that never finished, and the sweep's retry
+# of the SAME primary then passed in 95 s. Nothing said which rule fired.
+l94="${tmp_dir}/ladr094"
+mkdir -p "${l94}/bin"
+NARRATION='Let me check the remaining files before writing the review, then I will summarise everything.'
+# Stateful stub: answers from a queue of modes, one per call — `narr` (a
+# rejected answer), `clean` (accepted), `err` (provider error), `empty`.
+cat > "${l94}/bin/opencode" <<STUB
+#!/bin/bash
+cat >/dev/null
+agent=""; model=""
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in --agent) agent="\$2"; shift 2;; --model) model="\$2"; shift 2;; *) shift;; esac
+done
+printf '%s %s\n' "\$model" "\$agent" >> "\$L94_CALLS"
+n=\$(wc -l < "\$L94_CALLS" | tr -d ' ')
+mode="\$(sed -n "\${n}p" "\$L94_MODES")"
+case "\$mode" in
+  narr)  printf '%s' "$NARRATION" ;;
+  clean) printf '%s' '$CLEAN' ;;
+  err)   exit 1 ;;
+  empty) : ;;
+esac
+STUB
+chmod +x "${l94}/bin/opencode"
+l94_run() { # l94_run <label> <modes...>  (env passes through)
+  local label="$1"; shift
+  printf '%s\n' "$@" > "${l94}/${label}.modes"
+  : > "${l94}/${label}.calls"
+  PATH="${l94}/bin:$PATH" L94_CALLS="${l94}/${label}.calls" L94_MODES="${l94}/${label}.modes" \
+    OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OUTPUT_SHAPE_CHECK="$SHAPE" \
+    bash "$HELPER" m1 m2 "" -- "$prompt" > "${l94}/${label}.out" 2> "${l94}/${label}.err" && echo 0 || echo 1
+}
+l94_calls() { cut -d' ' -f1 "${l94}/$1.calls" | tr '\n' ' ' | sed 's/ $//'; }
+
+# The predicate names its rule on stderr; stdout stays empty for every caller.
+_why_out="$(printf '%s' "$NARRATION" | bash "$SHAPE" 2>/dev/null)" || true
+_why_err="$(printf '%s' "$NARRATION" | bash "$SHAPE" 2>&1 >/dev/null)" || true
+[ -z "$_why_out" ] && printf '%s' "$_why_err" | grep -q '^review-has-shape.sh: rejected — section 1 of 1' || {
+  echo "FAIL: a rejection must name its rule on stderr only (stdout='${_why_out}', stderr='${_why_err}')" >&2; exit 1; }
+_why_err="$(printf '%s' "$CLEAN" | OPENCODE_EXPECTED_CHUNK_FILES=$'src/Ftp/FtpHelper.cs\nsrc/Ftp/FtpClient.cs' bash "$SHAPE" 2>&1 >/dev/null)" || true
+printf '%s' "$_why_err" | grep -q 'never named.*src/Ftp/FtpClient.cs' || {
+  echo "FAIL: an omitted chunk file must be named in the rejection reason (got '${_why_err}')" >&2; exit 1; }
+[ -z "$(printf '%s' "$CLEAN" | bash "$SHAPE" 2>&1)" ] || {
+  echo "FAIL: an accepted review must print nothing on either stream" >&2; exit 1; }
+echo "✓ LADR-094: the shape predicate names the rule it rejected on (stderr only)"
+
+# Default: no retry — byte-identical to pre-LADR-094 for every caller.
+[ "$(l94_run default narr narr)" = "1" ] && [ "$(l94_calls default)" = "openai/m1 openai/m2" ] || {
+  echo "FAIL: without OPENCODE_SHAPE_REJECT_RETRIES a rejected model must not be re-asked (calls: $(l94_calls default))" >&2; exit 1; }
+# Rejected once, accepted on the re-ask: the secondary is never reached.
+export OPENCODE_SHAPE_REJECT_RETRIES=1
+[ "$(l94_run rescued narr clean)" = "0" ] && [ "$(l94_calls rescued)" = "openai/m1 openai/m1" ] || {
+  echo "FAIL: a shape-rejected primary must be re-asked once before the chain moves on (calls: $(l94_calls rescued))" >&2; exit 1; }
+grep -q 'FtpHelper.cs' "${l94}/rescued.out" && grep -q '^opencode-with-fallback.sh: re-asking openai/m1 after a shape rejection' "${l94}/rescued.err" || {
+  echo "FAIL: the re-ask must be announced on stderr and its answer returned" >&2; exit 1; }
+# Exactly once per model, then the chain moves on; rc stays 1 (never 3).
+[ "$(l94_run exhausted narr narr narr narr)" = "1" ] && [ "$(l94_calls exhausted)" = "openai/m1 openai/m1 openai/m2 openai/m2" ] || {
+  echo "FAIL: each model gets exactly one re-ask (calls: $(l94_calls exhausted))" >&2; exit 1; }
+PATH="${l94}/bin:$PATH" L94_CALLS="${l94}/rc.calls" L94_MODES="${l94}/exhausted.modes" OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai \
+  OPENCODE_OUTPUT_SHAPE_CHECK="$SHAPE" bash "$HELPER" m1 "" "" -- "$prompt" >/dev/null 2>&1 && _rc94=0 || _rc94=$?
+[ "$_rc94" = "1" ] || { echo "FAIL: the transport's exit status must stay 0/1, got ${_rc94}" >&2; exit 1; }
+# Provider errors and empty answers are not format problems: no re-ask.
+[ "$(l94_run provider err clean)" = "0" ] && [ "$(l94_calls provider)" = "openai/m1 openai/m2" ] || {
+  echo "FAIL: a provider error must go straight to the next model (calls: $(l94_calls provider))" >&2; exit 1; }
+[ "$(l94_run empty empty clean)" = "0" ] && [ "$(l94_calls empty)" = "openai/m1 openai/m2" ] || {
+  echo "FAIL: an empty answer must go straight to the next model (calls: $(l94_calls empty))" >&2; exit 1; }
+echo "✓ LADR-094: a shape-rejected model is re-asked exactly once; provider errors and empty output are not"
+
+# Every rejected answer is appended, with its reason; a retry never erases one.
+export OPENCODE_REJECTED_OUTPUT_FILE="${l94}/rejected.txt"
+l94_run kept narr narr narr narr >/dev/null
+[ "$(grep -c '^===== shape-rejected: openai/m[12] (' "$OPENCODE_REJECTED_OUTPUT_FILE")" = "4" ] \
+  && [ "$(grep -c '^review-has-shape.sh: rejected — ' "$OPENCODE_REJECTED_OUTPUT_FILE")" = "4" ] \
+  && [ "$(grep -cxF "$NARRATION" "$OPENCODE_REJECTED_OUTPUT_FILE")" = "4" ] || {
+  echo "FAIL: each rejected answer must be kept with a header and the predicate's reason" >&2; cat "$OPENCODE_REJECTED_OUTPUT_FILE" >&2; exit 1; }
+# The stderr contract LADR-091 parses is unchanged: marker line, then bytes.
+grep -q "^${_marker_val} openai/m1 ([0-9]* bytes)$" "${l94}/kept.err" || {
+  echo "FAIL: the shape-rejection marker line must keep its exact format" >&2; exit 1; }
+: > "$OPENCODE_REJECTED_OUTPUT_FILE"
+l94_run keptclean clean >/dev/null
+[ ! -s "$OPENCODE_REJECTED_OUTPUT_FILE" ] || { echo "FAIL: an accepted answer must not be written to the rejected-output file" >&2; exit 1; }
+unset OPENCODE_REJECTED_OUTPUT_FILE OPENCODE_SHAPE_REJECT_RETRIES
+echo "✓ LADR-094: rejected answers are kept, headed by model, size and reason"
+
+# Both chunk-review stages hand over the retry count and the rejected-output
+# file (and nothing else changed about which agent they run).
+[ "$(grep -c 'OPENCODE_SHAPE_REJECT_RETRIES="$CHUNK_SHAPE_REJECT_RETRIES" OPENCODE_REJECTED_OUTPUT_FILE="ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt" OPENCODE_RUN_CWD="$_run_cwd"' "${SCRIPT_DIR}/review-in-chunks.sh")" = "2" ] || {
+  echo "FAIL: both chunk-review stages must pass the LADR-094 env (retries, rejected-output file)" >&2; exit 1; }
+# Web access is off by default, and Code Mode with it: in opencode 2.0.12 the
+# `execute` runtime carries its own fetch, which a webfetch deny does not cover.
+_cfg="${SCRIPT_DIR}/../assets/opencode.json"
+[ "$(jq -r '.agent.review | "\(.permission.webfetch) \(.permission.websearch) \(.permission.execute) \(.tools.webfetch) \(.tools.websearch)"' "$_cfg")" = "deny deny deny false false" ] || {
+  echo "FAIL: the review agent must deny webfetch, websearch and execute by default" >&2; exit 1; }
+[ "$(jq -r '.agent.analyse.permission.execute' "$_cfg")" = "deny" ] || {
+  echo "FAIL: the analyse agent must deny execute (Code Mode can reach the network)" >&2; exit 1; }
+[ "$(jq -r '.agent | keys | join(",")' "$_cfg")" = "analyse,review" ] || {
+  echo "FAIL: unexpected agent set in opencode.json: $(jq -r '.agent | keys | join(",")' "$_cfg")" >&2; exit 1; }
+echo "✓ LADR-094: both chunk stages are wired; review denies web and execute, analyse denies execute"
+
 echo "✓ opencode-with-fallback target tests passed"
