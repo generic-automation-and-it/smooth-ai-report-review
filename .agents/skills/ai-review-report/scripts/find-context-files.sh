@@ -99,13 +99,9 @@ fi
 # layer (the workflow's `||` chain, run-review.sh) turns blank into the
 # built-in product-repo list — which is how a repo without those files ended up
 # with five "not found" warnings on every run.
-_mcf_count=0
-_mcf_first=""
-for _mcf_tok in $MANDATORY_CONTEXT_FILES; do
-  _mcf_count=$((_mcf_count + 1))
-  [ -n "$_mcf_first" ] || _mcf_first="$_mcf_tok"
-done
-if [ "$_mcf_count" -eq 1 ] && [ "$(printf '%s' "$_mcf_first" | tr '[:upper:]' '[:lower:]')" = "none" ]; then
+# shellcheck disable=SC1091
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/mandatory-context.sh"
+if mandatory_context_is_none "$MANDATORY_CONTEXT_FILES"; then
   echo "  ℹ️ MANDATORY_CONTEXT_FILES=none — the repo declares no mandatory context files"
   MANDATORY_CONTEXT_FILES=""
 fi

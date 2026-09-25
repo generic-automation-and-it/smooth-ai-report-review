@@ -196,6 +196,22 @@ grep -Fxq 'docs/rules.txt' "$REPO/ci_temp/mandatory_context_files.txt" \
   || fail "'none' inside a list discarded the real paths next to it"
 ok "'none' only opts out as the whole value"
 
+# The predicate itself, directly: the finder and local-review.sh both source
+# this one definition, so these cases bind both call sites at once.
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/mandatory-context.sh"
+for _yes in 'none' 'NONE' 'None' '  none  ' $'\n\tnone\n'; do
+  mandatory_context_is_none "$_yes" || fail "mandatory_context_is_none rejected $(printf '%q' "$_yes")"
+done
+for _no in '' ' ' 'no ne' 'none docs/a.md' 'docs/none' 'nones' $'none\nx'; do
+  if mandatory_context_is_none "$_no"; then fail "mandatory_context_is_none accepted $(printf '%q' "$_no")"; fi
+done
+grep -q 'lib/mandatory-context.sh' "$SCRIPT_DIR/local-review.sh" \
+  || fail "local-review.sh no longer uses the shared opt-out predicate"
+grep -q 'lib/mandatory-context.sh' "$FINDER" \
+  || fail "find-context-files.sh no longer uses the shared opt-out predicate"
+ok "one opt-out predicate: whole-value 'none' only, shared by the finder and local-review.sh"
+
 # Unset still fails closed (LADR-025/029): the opt-out is explicit, never implied.
 finder_rc=0
 ( cd "$REPO" && env -u MANDATORY_CONTEXT_FILES GITHUB_OUTPUT="$REPO/output" \
