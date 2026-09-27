@@ -91,6 +91,7 @@ case "$kind" in
                elif ($t | test("badfs")) then { fix_skip: { choice: "maybe" } }
                elif ($t | test("invalid")) then { fix_skip: { choice: "skip_invalid", probabilities: { fix: 0.1, skip_intentional: 0.1, skip_invalid: 0.7, skip_deferred: 0.1 }, confidence: 0.6 } }
                elif ($t | test("intent")) then { fix_skip: { choice: "skip_intentional", probabilities: { fix: 0.45, skip_intentional: 0.5, skip_invalid: 0.05, skip_deferred: 0 } } }
+               elif ($t | test("edge")) then { fix_skip: { choice: "skip_invalid", probabilities: { fix: 0.505, skip_intentional: 0, skip_invalid: 0.495, skip_deferred: 0 } } }
                elif ($t | test("nodist")) then { fix_skip: { choice: "skip_deferred" } }
                else { fix_skip: { choice: "fix", probabilities: { fix: 0.8, skip_intentional: 0.1, skip_invalid: 0.05, skip_deferred: 0.05 } } } end)) }' "$data" > "$out" ;;
 esac
@@ -315,6 +316,13 @@ run_rec filt_bad analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DE
 check "Test 5c: an invalid threshold falls back to 0.5" "2 3" "$(paste -sd ' ' - < "$TMP_DIR/out_filt_bad/withhold.txt")"
 check "Test 5d: the table lists what was withheld, without #" "1" \
   "$(grep -c '^Withheld from the autonomous fixer (filter, P(skip) ≥ 60%): 3\.$' "$TMP_DIR/out_filt/recommendations.md" || true)"
+BODY_SAVE="$BODY"; BODY="$TMP_DIR/edge.md"
+printf '### 🟡 Medium Priority Issues\n\n1. 🟡 [VERIFIED] Medium Priority: edge claim — `src/a.sh:3` (chunk 0)\n' > "$BODY"
+run_rec edge analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MODE=filter \
+  OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.5
+BODY="$BODY_SAVE"
+check "Test 5e: the threshold compares the raw P(skip) — 0.495 shows as 50% but is not withheld at 0.5" "50|" \
+  "$(awk -F '\t' 'NR == 2 { printf "%s", $5 }' "$TMP_DIR/out_edge/recommendations.tsv")|$(cat "$TMP_DIR/out_edge/withhold.txt")"
 
 # --- 6. review scope ---------------------------------------------------------------------
 echo ""
@@ -376,6 +384,13 @@ check "Test 9d: filter removes the finding and its continuation lines, keeps the
 check "Test 9e: the withheld report holds the finding verbatim, and the canonical count" "3|1" \
   "$(grep -c . "$TMP_DIR/rep_f" | tr -d ' ')|$(cat "$TMP_DIR/rep_f.count")"
 check "Test 9f: the withhold is announced on stderr" "1" "$(grep -c 'Withheld 1 finding' "$TMP_DIR/apply.err" || true)"
+low_section="$(awk '/^### 🔵 Low/{f=1; next} /^### /{f=0} f' "$BODY")"
+printf '5\n' > "$TMP_DIR/wh5.txt"
+out="$(printf '%s' "$low_section" | bash "$APPLY" "$tsv" "$TMP_DIR/wh5.txt" "$TMP_DIR/rep_gap" 2>/dev/null)"
+check "Test 9f2: a gap left by a withheld item turns survivors into bold literal numbers (CommonMark would renumber 6 as 5)" \
+  "- **4.** 🔵|- **6.** 🔵" "$(printf '%s\n' "$out" | grep -oE '^- \*\*[0-9]+\.\*\* 🔵' | paste -sd '|' -)"
+check "Test 9f3: without a gap the ordered list is left as rendered" "2" \
+  "$(printf '%s' "$section" | bash "$APPLY" "$tsv" "$TMP_DIR/wh.txt" "$TMP_DIR/rep_nogap" 2>/dev/null | grep -cE '^(2\. |- \*\*T1\)\*\*)')"
 check "Test 9g: no recommendations → byte-identical pass-through" "$section" \
   "$(printf '%s' "$section" | bash "$APPLY" "$TMP_DIR/missing.tsv" "" "$TMP_DIR/rep_none")"
 check "Test 9h: …with a zero count" "0" "$(cat "$TMP_DIR/rep_none.count")"
