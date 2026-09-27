@@ -87,9 +87,9 @@ case "$kind" in
   preflight) printf '{"model":"jev-1.13","answers":{"preflight":{"noul":0.97}}}' > "$out" ;;
   pr) printf '{"model":"jev-1.13","answers":{"block_merge":{"noul":0.4},"dominant_risk":{"choice":"tests"},"overall_risk":{"score":1}}}' > "$out" ;;
   finding)
-    jq -c '
+    jq -c --arg m "${STUB_MODEL:-jev-1.13}" '
       .state.finding.title as $t
-      | { model: "jev-1.13",
+      | { model: $m,
           answers: ({
             supported: { noul: 0.8 },
             severity: { choice: "medium", probabilities: {} },
@@ -187,6 +187,13 @@ check "Test 1c: an unusable fix_skip answer keeps the finding scored, with fix_s
   "$(jq -r '.findings[1].decisions | "\(.supported) \(.fix_skip)"' "$TMP_DIR/gate.json")"
 check "Test 1d: a usable answer is stored with its unrounded P(skip)" "fix 0.25" \
   "$(jq -r '.findings[0].decisions.fix_skip | "\(.choice) \(.skip_probability)"' "$TMP_DIR/gate.json")"
+# The provider returns a dated snapshot for the configured id; both are kept so
+# consumers can compare configuration with configuration (reuse fix, PR 179).
+merged_doc "$TMP_DIR/snap.json" "$F1"
+reset_stub snap
+(cd "$SB" && STUB_MODEL=jev-1.13-20260917 scorer "$TMP_DIR/snap.json" >/dev/null 2>&1)
+check "Test 1d2: a finding and the summary keep the returned snapshot AND the requested id" "jev-1.13-20260917 jev-1.13|jev-1.13" \
+  "$(jq -r '.findings[0].decisions | "\(.model) \(.requested_model)"' "$TMP_DIR/snap.json")|$(jq -r '.decisions_summary.requested_model' "$TMP_DIR/snap.json")"
 check "Test 1e: the gate document records the question, not the consumer purpose" "true false" \
   "$(jq -r '.decisions_summary | "\(.context.fix_skip_asked) \(has("purpose"))"' "$TMP_DIR/gate.json")"
 reset_stub gate_filter
@@ -464,6 +471,31 @@ check "Test 5i: another decision provider → re-scored" "4|1" \
   "$(calls)|$(grep -c 'the gate used OPENCODE-GO-DECISIONS, this scope asks for OPENROUTER-DECISIONS' "$TMP_DIR/rec_provider.log")"
 rec model "$TMP_DIR/skips_same.md" OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.14
 check "Test 5j: another model → re-scored" "4" "$(calls)"
+# The gate records the model the provider RETURNED (a dated snapshot) next to
+# the one it REQUESTED. Reuse compares requested with configured — comparing the
+# returned name never matched, so no gate answer was ever reused (PR 179 run
+# 36338648038: "the gate used model typesafe/jev-1.13-20260917, this scope asks
+# for typesafe/jev-1.13").
+cp "$ART/findings.merged.json" "$TMP_DIR/art_saved.json"
+jq '.findings |= map(if .decisions then .decisions += {model: "jev-1.13-20260917", requested_model: "jev-1.13"} else . end)' \
+  "$TMP_DIR/art_saved.json" > "$ART/findings.merged.json"
+rec snapshot "$TMP_DIR/skips_same.md" OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.13
+check "Test 5j2: a dated returned snapshot of the configured model is reused (requested id recorded)" "2|0" \
+  "$(calls)|$(grep -c 'gate answers not reused' "$TMP_DIR/rec_snapshot.log" || true)"
+jq '.findings |= map(if .decisions then .decisions += {model: "jev-1.13-20260917"} | del(.decisions.requested_model) else . end)' \
+  "$TMP_DIR/art_saved.json" > "$ART/findings.merged.json"
+rec legacy "$TMP_DIR/skips_same.md" OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.13
+check "Test 5j3: an older artifact with only the dated name is reused too" "2" "$(calls)"
+jq '.findings |= map(if .decisions then .decisions += {model: "jev-1.13-beta"} | del(.decisions.requested_model) else . end)' \
+  "$TMP_DIR/art_saved.json" > "$ART/findings.merged.json"
+rec notdate "$TMP_DIR/skips_same.md" OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.13
+check "Test 5j4: a non-date suffix is another model → re-scored" "4" "$(calls)"
+jq '.findings |= map(if .decisions then .decisions += {model: "jev-1.13-20260917", requested_model: "jev-1.12"} else . end)' \
+  "$TMP_DIR/art_saved.json" > "$ART/findings.merged.json"
+rec otherreq "$TMP_DIR/skips_same.md" OPENCODE_REVIEW_REPORT_DECISIONS_MODEL=jev-1.13
+check "Test 5j5: the gate requested another model → re-scored, and the note names what it requested" "4|1" \
+  "$(calls)|$(grep -c 'the gate used model jev-1.12, this scope asks for jev-1.13' "$TMP_DIR/rec_otherreq.log")"
+cp "$TMP_DIR/art_saved.json" "$ART/findings.merged.json"
 mv "$ART/decision_skip_areas.md" "$TMP_DIR/saved_skips.md"
 rec noskipfile "$TMP_DIR/skips_same.md"
 mv "$TMP_DIR/saved_skips.md" "$ART/decision_skip_areas.md"

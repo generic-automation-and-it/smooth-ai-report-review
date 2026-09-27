@@ -722,7 +722,13 @@ while [ "$i" -lt "$to_score" ]; do
                  # rejects an unparenthesised `{…} + (…)` as an object value;
                  # jq 1.8 accepts it, so a local run cannot catch the break.
                  value: ({ provider: $provider,
+                          # `model` is what the provider RETURNS — a dated
+                          # snapshot (typesafe/jev-1.13-20260917); the
+                          # configured id is `requested_model`. Consumers
+                          # compare configuration with configuration
+                          # (recommend-fix-skip.sh), so both are kept.
                           model: (.model // $model),
+                          requested_model: $model,
                           diff_hunk_found: $hunk_found,
                           code_context: $has_ctx,
                           supported: $a.supported.noul,
@@ -864,6 +870,7 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
   | .decisions_summary = (
       { provider: $provider,
         model: ([ $dec[] | .model ] | first // $model),
+        requested_model: $model,
         mode: $mode,
         mode_requested: $mode_requested,
         mode_note: (if $mode_note == "" then null else $mode_note end),

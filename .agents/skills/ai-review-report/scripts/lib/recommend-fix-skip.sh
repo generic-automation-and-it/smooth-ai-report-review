@@ -189,12 +189,26 @@ art_dir=""
 [ -n "$artifact" ] && [ -s "$artifact" ] && art_dir="$(cd "$(dirname "$artifact")" && pwd)"
 # Whitespace-insensitive, so a re-wrapped description is not a new decision.
 norm() { [ -f "${1:-}" ] && tr -s '[:space:]' ' ' < "$1" | sed 's/^ //; s/ $//'; }
+# same_model <gate requested> <gate returned> <wanted> — did the gate run the
+# model this scope is configured for? Compare configuration with configuration:
+# the provider RETURNS a dated snapshot (typesafe/jev-1.13-20260917) for the
+# configured id (typesafe/jev-1.13), so comparing the returned name with the
+# configured one never matched and no gate answer was ever reused (PR 179's
+# analyse run 36338648038). Artifacts written before `requested_model` existed
+# fall back to the returned name, exact or with a -YYYYMMDD snapshot suffix.
+same_model() {
+  if [ -n "$1" ]; then [ "$1" = "$3" ]; return; fi
+  [ "$2" = "$3" ] && return 0
+  case "$2" in "$3"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) return 0 ;; esac
+  return 1
+}
 reuse_note=""
 reuse=false
 if [ -n "$art_dir" ] && jq -e '[.findings[] | select(.gate_decisions.fix_skip.choice != null)] | length > 0' "$out_dir/findings.json" >/dev/null 2>&1; then
   want_provider="$(printf '%s' "${d_provider:-OPENCODE-GO-DECISIONS}" | tr '[:lower:]' '[:upper:]')"
   gate_provider="$(jq -r '[.findings[].gate_decisions.provider // empty] | first // ""' "$out_dir/findings.json")"
   gate_model="$(jq -r '[.findings[].gate_decisions.model // empty] | first // ""' "$out_dir/findings.json")"
+  gate_req_model="$(jq -r '[.findings[].gate_decisions.requested_model // empty] | first // ""' "$out_dir/findings.json")"
   if [ ! -f "$art_dir/decision_skip_areas.md" ]; then
     reuse_note="the run artifact does not record the Skip Areas the gate judged against"
   elif [ -z "$skip_areas" ] || [ ! -f "$skip_areas" ] || [ ! -r "$skip_areas" ]; then
@@ -203,8 +217,8 @@ if [ -n "$art_dir" ] && jq -e '[.findings[] | select(.gate_decisions.fix_skip.ch
     reuse_note="the PR's Skip Areas changed since the gate scored"
   elif [ "$gate_provider" != "$want_provider" ]; then
     reuse_note="the gate used ${gate_provider:-another provider}, this scope asks for ${want_provider}"
-  elif [ -n "$d_model" ] && [ "$gate_model" != "$d_model" ]; then
-    reuse_note="the gate used model ${gate_model}, this scope asks for ${d_model}"
+  elif [ -n "$d_model" ] && ! same_model "$gate_req_model" "$gate_model" "$d_model"; then
+    reuse_note="the gate used model ${gate_req_model:-$gate_model}, this scope asks for ${d_model}"
   else
     reuse=true
   fi
