@@ -73,14 +73,22 @@ while IFS= read -r -d '' f; do
     s/\bxox[abprs]-[A-Za-z0-9-]{10,}/<REDACTED>/g;
     s/(\b[Bb]earer\s+)[A-Za-z0-9._~+\/=-]{16,}/$1<REDACTED>/g;
     s{(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]+@}{$1<REDACTED>@}gi;
-    # Quoted values first ("…" or \x27…\x27, spaces allowed inside): the
-    # unquoted form stops at a quote and never matched them (review 5331716081
-    # finding 1). A doubled quote is the connection-string escape for a quote
-    # inside the value, so it belongs to the value: "alpha""omega" is one
-    # credential, not "alpha" plus a visible "omega" (review 5331790729).
-    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)"(?!<REDACTED>")(?:[^"\n]|"")*"/$1"<REDACTED>"/gi;
-    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)\x27(?!<REDACTED>\x27)(?:[^\x27\n]|\x27\x27)*\x27/$1\x27<REDACTED>\x27/gi;
-    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)(?![\x27"]|<REDACTED>)[^;"\x27\s]+/$1<REDACTED>/gi;
+    # Connection-string credential values (Password= / Pwd= / AccountKey= /
+    # SharedAccessKey=). Three reviews on PR 183 each found a way to leave part
+    # of one visible, so the value is taken in whole:
+    #   - quoted "…" or \x27…\x27: a doubled quote ("") and a backslash escape
+    #     (\") stay inside the value (5331716081, 5331790729, 5331802857);
+    #   - unquoted: everything up to the `;` delimiter or the end of the line,
+    #     spaces and escaped quotes (a JSON-embedded \"…\") included. A log
+    #     line with no `;` is therefore redacted to its end — over-redaction is
+    #     the safe direction.
+    # Quoted forms run first; the unquoted pass skips a value that starts with
+    # a quote or is already <REDACTED>.
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)"(?!<REDACTED>")(?:\\.|""|[^"\\\n])*"/$1"<REDACTED>"/gi;
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)\x27(?!<REDACTED>\x27)(?:\\.|\x27\x27|[^\x27\\\n])*\x27/$1\x27<REDACTED>\x27/gi;
+    # `\s*+` is possessive: the spaces after `=` cannot be given back, so a
+    # space never becomes "the value" in front of an already-redacted one.
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)(?![\x27"]|<REDACTED>)(?:\\.|[^;"\x27\\\r\n])+/$1<REDACTED>/gi;
   ' "$f" || { echo "redact-secrets.sh: could not redact a file under ${dir}" >&2; exit 1; }
 done < "$list"
 

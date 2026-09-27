@@ -111,6 +111,21 @@ printf 'e: Password="alpha""omega";\nf: Pwd='"'"'it'"''"'s-secret'"'"';\ng: Pass
 bash "$REDACT" "$Q" >/dev/null 2>&1
 check "Test 5e: doubled quotes are part of the value — nothing of it survives" "0|1|1|1" \
   "$(grep -cE 'alpha|omega|s-secret|lead' "$Q/doubled.txt" || true)|$(grep -c '^e: Password="<REDACTED>";$' "$Q/doubled.txt")|$(grep -c "^f: Pwd='<REDACTED>';$" "$Q/doubled.txt")|$(grep -c '^g: Password="<REDACTED>";$' "$Q/doubled.txt")"
+# Review 5331802857: an unquoted value runs to the `;` delimiter (spaces
+# included), and escaped quotes stay inside a value — JSON-embedded or not.
+# Redacting twice changes nothing.
+W="$TMP_DIR/whole"; mkdir -p "$W"
+cat > "$W/cs.txt" <<'EOF'
+a: Server=db;Password=my secret pass;Timeout=5
+b: {"cs": "Server=db;Password=\"abc def\";"}
+c: Password="in\"side";
+d: Pwd='it\'s';
+EOF
+bash "$REDACT" "$W" >/dev/null 2>&1; cp "$W/cs.txt" "$TMP_DIR/once.txt"; bash "$REDACT" "$W" >/dev/null 2>&1
+check "Test 5f: spaces, delimiters and escaped quotes leave nothing visible; a second pass is a no-op" "0|4|same" \
+  "$(grep -cE 'secret pass|abc def|side|it.s' "$W/cs.txt" || true)|$(grep -c '<REDACTED>' "$W/cs.txt")|$(cmp -s "$W/cs.txt" "$TMP_DIR/once.txt" && echo same || echo changed)"
+check "Test 5g: the rest of the connection string is kept" "1|1" \
+  "$(grep -c '^a: Server=db;Password=<REDACTED>;Timeout=5$' "$W/cs.txt")|$(grep -c '^b: {"cs": "Server=db;Password=<REDACTED>;"}$' "$W/cs.txt")"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 
