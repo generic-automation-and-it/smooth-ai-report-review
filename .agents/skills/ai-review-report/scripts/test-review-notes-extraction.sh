@@ -206,7 +206,9 @@ run: 777
 OUT_LABELS="$(printf '%s\n' "$BODY_LABELS" | bash "$LIB")"
 if printf '%s\n' "$OUT_LABELS" | grep -qE 'ai-review-decisions|run: 777|skip intentional'; then
   fail "13f. the ai-review-decisions label block leaked into the extracted notes"
-elif printf '%s\n' "$OUT_LABELS" | grep -q 'middleware ordering' && printf '%s\n' "$OUT_LABELS" | grep -q 'trailing note survives'; then
+# `AI Review Response` only occurs in the table heading: `middleware ordering`
+# is also in a Skip Areas bullet, so it could not prove the table survived.
+elif printf '%s\n' "$OUT_LABELS" | grep -q 'AI Review Response' && printf '%s\n' "$OUT_LABELS" | grep -q 'trailing note survives'; then
   pass "13f. the label block is stripped; the table and the text after it survive"
 else
   fail "13f. text around the label block was lost"
