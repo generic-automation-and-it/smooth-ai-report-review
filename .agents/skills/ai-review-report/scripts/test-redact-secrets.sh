@@ -82,6 +82,27 @@ printf 'x %s-longer y\n' "$ENVKEY" > "$TMP_DIR/p.md"; mkdir -p "$TMP_DIR/p"; mv 
 env A_API_KEY="$ENVKEY" B_API_KEY="$ENVKEY-longer" bash "$REDACT" "$TMP_DIR/p" >/dev/null 2>&1
 check "Test 2: the longest matching value wins" "x <REDACTED> y" "$(cat "$TMP_DIR/p/p.md")"
 
+# Review 5331632755 finding 2: connection strings, from the environment and by
+# shape — without redacting plain URLs.
+C="$TMP_DIR/conn"; mkdir -p "$C"
+DBURL="postgres://app:Sup3rSecretPw@db:5432/orders"
+ADO="Server=db;User Id=sa;Password=Pa55w0rd-ado;"
+cat > "$C/log.txt" <<EOF
+env url: $DBURL
+env ado: $ADO
+shape: mysql://root:hunter2hunter@localhost/db
+pairs: Pwd=plainpwd99; AccountKey=abcDEF123+/==; SharedAccessKey=zzzz9999
+keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com
+EOF
+env DATABASE_URL="$DBURL" DB_CONNECTION_STRING="$ADO" GITHUB_SERVER_URL=https://github.com \
+  OPENCODE_REVIEW_REPORT_OPENAI_URL=https://gateway.example/v1 bash "$REDACT" "$C" >/dev/null 2>&1
+check "Test 5a: connection strings from the environment are replaced whole" "1|1" \
+  "$(grep -c '^env url: <REDACTED>$' "$C/log.txt")|$(grep -c '^env ado: <REDACTED>$' "$C/log.txt")"
+check "Test 5b: a URL's password and Password=/Pwd=/AccountKey= values go by shape" "1|1" \
+  "$(grep -c '^shape: mysql://root:<REDACTED>@localhost/db$' "$C/log.txt")|$(grep -c '^pairs: Pwd=<REDACTED>; AccountKey=<REDACTED>; SharedAccessKey=<REDACTED>$' "$C/log.txt")"
+check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
+  "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
+
 bash "$REDACT" "$TMP_DIR/missing" >/dev/null 2>&1
 check "Test 3a: a missing directory exits 0" "0" "$?"
 bash "$REDACT" >/dev/null 2>&1

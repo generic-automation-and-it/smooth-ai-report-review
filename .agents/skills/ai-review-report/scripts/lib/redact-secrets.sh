@@ -12,13 +12,20 @@
 #
 #   1. Exact values. Every environment variable whose NAME looks like a secret
 #      (*_API_KEY, *_TOKEN, *_SECRET, *_PASSWORD, *_PAT) and whose value is at
-#      least 8 characters is replaced wherever it appears. Values are read from
-#      the environment inside perl — never passed as arguments, so they never
+#      least 8 characters is replaced wherever it appears. So is a connection
+#      string (*CONNECTION_STRING*, *_DSN, DATABASE_URL, *_URI, *_URL) — but
+#      only when its value actually carries a credential (URL userinfo, or a
+#      Password=/AccountKey= pair): a plain URL such as GITHUB_SERVER_URL must
+#      not redact every link to github.com. Values are read from the
+#      environment inside perl — never passed as arguments, so they never
 #      reach argv or a process listing.
 #   2. Well-known credential shapes, whatever their source: GitHub tokens
 #      (ghp_/gho_/ghu_/ghs_/ghr_, github_pat_), OpenAI/Anthropic/OpenRouter-style
 #      `sk-…` keys, AWS access key ids, Google API keys, Slack tokens, bearer
-#      tokens, and PEM private-key blocks.
+#      tokens, PEM private-key blocks, and connection-string credentials: the
+#      password in `scheme://user:password@host` and the value of
+#      Password= / Pwd= / AccountKey= / SharedAccessKey= pairs (review
+#      5331632755 finding 2 — the checklist names connection strings).
 #
 # Exit status is the contract the caller relies on: 0 only when every file was
 # processed. On any failure it exits non-zero, and the caller must then NOT
@@ -36,10 +43,14 @@ while IFS= read -r -d '' f; do
   files=$((files + 1))
   perl -0777 -i -pe '
     BEGIN {
+      $cred = qr{://[^/\s@:]*:[^/\s@]+@|(?:password|pwd|accountkey|sharedaccesskey)\s*=}i;
       @vals = sort { length($b) <=> length($a) }
               grep { length($_) >= 8 }
-              map  { $ENV{$_} }
-              grep { /(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|_PAT)$/ || /^(?:GH_TOKEN|GITHUB_TOKEN)$/ } keys %ENV;
+              ( ( map { $ENV{$_} }
+                  grep { /(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|_PAT)$/ || /^(?:GH_TOKEN|GITHUB_TOKEN)$/ } keys %ENV ),
+                ( grep { /$cred/ }
+                  map { $ENV{$_} }
+                  grep { /(?:CONNECTION_?STRING|CONNSTR|_DSN|_URI|_URL)$/i || /^DATABASE_URL$/ } keys %ENV ) );
     }
     for my $v (@vals) { s/\Q$v\E/<REDACTED>/g; }
     s/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----/<REDACTED>/gs;
@@ -50,6 +61,8 @@ while IFS= read -r -d '' f; do
     s/\bAIza[0-9A-Za-z_-]{35}\b/<REDACTED>/g;
     s/\bxox[abprs]-[A-Za-z0-9-]{10,}/<REDACTED>/g;
     s/(\b[Bb]earer\s+)[A-Za-z0-9._~+\/=-]{16,}/$1<REDACTED>/g;
+    s{(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]+@}{$1<REDACTED>@}gi;
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)(?!<REDACTED>)[^;"\x27\s]+/$1<REDACTED>/gi;
   ' "$f" || { echo "redact-secrets.sh: could not redact a file under ${dir}" >&2; exit 1; }
 done < <(find "$dir" -type f -print0)
 
