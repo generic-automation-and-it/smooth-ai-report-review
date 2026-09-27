@@ -64,6 +64,7 @@ write_decision_record() {
                         jev_severity: (.decisions.severity.choice // null),
                         jev_confidence: (.decisions.severity.confidence // null),
                         sanctioned: (.decisions.sanctioned // null),
+                        previously_skipped: (.decisions.previously_skipped // null),
                         diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' > "$out"
   rm -f "$empty"
 }

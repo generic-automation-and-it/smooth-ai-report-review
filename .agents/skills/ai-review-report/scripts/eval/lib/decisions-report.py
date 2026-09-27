@@ -37,6 +37,9 @@ measures all of them:
   sev@c       adopt Jev's severity when its choice confidence >= c
   rules@t     drop non-critical findings with sanctioned >= t   (rules given)
   either@t    drop non-critical when supported < t OR sanctioned >= t
+  skipped@t   drop non-critical findings with previously_skipped >= t
+              (only when the PR had Skip Areas — real findings from the gate;
+              the planted corpus has none)
 """
 
 from __future__ import annotations
@@ -158,6 +161,17 @@ def either_at(t):
     return apply
 
 
+def skipped_at(t):
+    def apply(findings):
+        return [
+            f for f in findings
+            if f.get("severity") == "critical"
+            or f.get("previously_skipped") is None
+            or f["previously_skipped"] < t
+        ]
+    return apply
+
+
 POLICIES = [
     ("base", base),
     ("filter@0.50", filter_at(0.50)),
@@ -170,6 +184,9 @@ POLICIES = [
 RULE_POLICIES = [
     ("rules@0.50", rules_at(0.50)),
     ("either@0.50", either_at(0.50)),
+]
+SKIP_POLICIES = [
+    ("skipped@0.50", skipped_at(0.50)),
 ]
 
 
@@ -278,6 +295,19 @@ def main():
         print(f"    separation (AUC)      : {fmt(auc([1 - x for x in tp_s], [1 - x for x in fp_s]))}")
         print("")
 
+    # --- 1c. the re-raise question, when the PR had Skip Areas ------------------
+    fp_k = [f.get("previously_skipped") for d in scored for f in d.get("findings", [])
+            if is_false_positive(d, f) and f.get("previously_skipped") is not None]
+    tp_k = [f.get("previously_skipped") for d in scored for f in d.get("findings", [])
+            if is_true_catch(d, f) and f.get("previously_skipped") is not None]
+    has_skips = bool(fp_k or tp_k)
+    if has_skips:
+        print(" 1c. `previously_skipped` (re-raises a Skip Areas item) by ground truth")
+        print(f"    known false positives : {summarise(fp_k)}")
+        print(f"    true catches          : {summarise(tp_k)}")
+        print(f"    separation (AUC)      : {fmt(auc([1 - x for x in tp_k], [1 - x for x in fp_k]))}")
+        print("")
+
     # --- 2. what would Jev's severity have said? ------------------------------
     fp_below = sum(1 for s in fp_sev if s in SEV_RANK and SEV_RANK[s] < FLAG_MIN)
     tp_ok = sum(1 for s, m in tp_sev
@@ -293,7 +323,8 @@ def main():
     print(" 3. What each policy would have done (structured findings, per sample)")
     print(f"    {'policy':<12} {'DR re-raised':>14} {'MC caught':>11}   verdict vs base")
     base_dr = base_mc = None
-    for name, pol in POLICIES + (RULE_POLICIES if has_rules else []):
+    for name, pol in (POLICIES + (RULE_POLICIES if has_rules else [])
+                      + (SKIP_POLICIES if has_skips else [])):
         dr_hits = sum(1 for d in dr if fixture_outcome(d, pol(d.get("findings", [])))[0])
         mc_hits = sum(1 for d in mc if fixture_outcome(d, pol(d.get("findings", [])))[1])
         if name == "base":

@@ -53,6 +53,8 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 4. **No function-local traps.** Do not install trap handlers inside any function definition. All trap installation happens at the script scope before any function is called.
 
+5. **The `ai-review-decisions` block is eval data with a fixed shape (ai-review-report LADR-096).** Execute writes it only when the processed review carries `<!-- ai-review-report run=<digits> -->`, and only for numbered findings. `ai-review-report/scripts/eval/harvest-real-findings.sh --from-pr` parses it line by line: `<!-- ai-review-decisions` alone on the first line, `run: <digits>`, `N: fix|skip intentional|skip invalid|skip deferred`, `-->` alone on the last line. Keep the closing `-->` on its own line: `extract-review-notes.sh` strips a comment from the gate's prompts only as a line range ending in `-->`. Changing a class name is a change to the harvester too. `deferred` is the safe default for a doubtful skip because it is never harvested.
+
 ## Environment Variables
 
 None new — this skill inherits env-var handling from `SKILL.md`.
@@ -73,5 +75,6 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 ## Changelog
 
+- **2026-09-27:** Execute (Non-Copilot flow) records the human's fix/skip decisions as an invisible `ai-review-decisions` block when the review carries the gate's run marker, feeding the decision model's real-findings labels (ai-review-report LADR-096).
 - **2026-09-27:** Replaced the per-tool `models` frontmatter block with `effort: high` and dropped `model:` from `agents/openai.yaml`: skills no longer switch model per tool or provider.
 - **2026-08-14:** Added AGENTS.md with copilot-review.sh EXIT-trap scope bug fix documentation (false failure + temp-file leak resolved via script-scoped registry + by-name assignment helper).
