@@ -234,9 +234,12 @@ scripts/eval/
   `harvest-real-findings.sh --from-pr N` or `--scan [--limit N]` turns it into
   records with `label_reason`. **`deferred` and anything unrecognised are never
   harvested**: a mislabelled `fp` is the dangerous direction, because it makes a
-  suppressing policy look safe. Harvesting is idempotent, and it reports and
-  skips expired artifacts, so a periodic `--scan` of each consumer repo inside the
-  retention window is the whole procedure. Live gate records now also carry
+  suppressing policy look safe. The **latest** decision per finding wins,
+  deferred included: a later deferred removes an earlier record, and a
+  correction refreshes it — or removes it when the artifact has expired, because
+  a superseded label must never survive. Otherwise harvesting is idempotent and
+  reports and skips expired artifacts, so a periodic `--scan` of each consumer
+  repo inside the retention window is the whole procedure. Live gate records now also carry
   `sanctioned` (per-chunk rules) and `previously_skipped` (the PR's Skip Areas);
   the report adds section 1c and the `skipped@0.50` policy when present. Neither
   may act until the real set shows zero lost true positives (LADR-096 roadmap,

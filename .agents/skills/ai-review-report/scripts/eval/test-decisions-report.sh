@@ -267,6 +267,42 @@ check "2x: a deferred skip is never harvested (a real issue left for later is no
 check "2y: a second --from-pr does not download again" "1" \
   "$(PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_BODY="$TMP/prbody.md" \
       bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HP" --from-pr 42 2>&1 | grep -c 'run 777: already harvested')"
+# Last decision wins, deferred included (review of PR 171, finding 1.): a later
+# `skip deferred` must supersede an earlier harvestable label, and remove a
+# record already written for it.
+labels_body() { # labels_body <out> <decision for finding 1> [<later decision for finding 1>]
+  { printf '<!-- ai-review-decisions\nrun: 777\n1: %s\n-->\n' "$2"
+    [ -z "${3:-}" ] || printf '\n<!-- ai-review-decisions\nrun: 777\n1: %s\n-->\n' "$3"; } > "$1"
+}
+HD="$TMP/harvest-deferred"
+labels_body "$TMP/b-deferred.md" "skip invalid" "skip deferred"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-deferred.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HD" --from-pr 42 >/dev/null 2>&1
+check "2y2: a later deferred supersedes an earlier false-positive label" "false" \
+  "$([ -f "$HD/pr42-run777-f1.json" ] && echo true || echo false)"
+labels_body "$TMP/b-invalid.md" "skip invalid"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-invalid.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HD" --from-pr 42 >/dev/null 2>&1
+check "2y3: ...and removes a record harvested before the correction" "fp/invalid|false|1" \
+  "$(jq -r '"\(.label)/\(.label_reason)"' "$HD/pr42-run777-f1.json")|$(PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_BODY="$TMP/b-deferred.md" \
+      bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HD" --from-pr 42 > "$TMP/hd.log" 2>&1; [ -f "$HD/pr42-run777-f1.json" ] && echo true || echo false)|$(grep -c 'finding 1: latest decision is deferred — earlier label removed' "$TMP/hd.log")"
+# A corrected decision refreshes the stored record instead of counting as
+# "already harvested" (review of PR 171, finding 2.).
+HC="$TMP/harvest-corrected"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-invalid.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HC" --from-pr 42 >/dev/null 2>&1
+labels_body "$TMP/b-fix.md" "fix"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-fix.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HC" --from-pr 42 > "$TMP/hc.log" 2>&1
+check "2y4: a corrected decision re-harvests the record with the new label" "tp/fix|0" \
+  "$(jq -r '"\(.label)/\(.label_reason)"' "$HC/pr42-run777-f1.json")|$(grep -c 'already harvested' "$TMP/hc.log")"
+# A correction whose artifact has expired cannot be recorded; the superseded
+# label must not survive it.
+labels_body "$TMP/b-intentional.md" "skip intentional"
+PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_BODY="$TMP/b-intentional.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HC" --from-pr 42 > "$TMP/hc2.log" 2>&1
+check "2y5: an unrefreshable correction removes the superseded record, loudly" "false|1" \
+  "$([ -f "$HC/pr42-run777-f1.json" ] && echo true || echo false)|$(grep -c 'finding 1: superseded label removed — the corrected decision (fp:intentional) could not be harvested' "$TMP/hc2.log")"
 jq -n --rawfile b "$TMP/prbody.md" '[{number: 42, body: $b}, {number: 43, body: "## Summary\nno labels"}]' > "$TMP/prs.json"
 HS="$TMP/harvest-scan"
 check "2z: --scan visits only PRs that carry labels, and writes their records" "1/2" \

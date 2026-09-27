@@ -24,7 +24,11 @@
 #              fix → tp; skip intentional / skip invalid → fp; skip deferred
 #              (a real issue left for later) and anything unrecognised are NOT
 #              harvested — a doubtful skip costs a label, it never becomes one.
-#              Idempotent: a run whose records all exist is not downloaded again.
+#              The LAST decision for a finding wins, deferred included: a later
+#              deferred removes an earlier record, and a corrected decision
+#              refreshes it. A record already matching the latest decision is
+#              not downloaded again; one that cannot be refreshed (artifact
+#              expired) is removed rather than kept with the old label.
 #   --scan     --from-pr for every PR in the repo (newest --limit, default 100)
 #              whose description carries such a block. A run whose artifact has
 #              expired is reported and skipped; the scan continues.
@@ -66,8 +70,10 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$REPO" ] || REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 
-# decision_blocks — PR body on stdin → one "<run> <n> <label>[:<reason>]" line
-# per harvestable decision. The block is an HTML comment, so it is invisible in
+# decision_blocks — PR body on stdin → one "<run> <n> <label>:<reason>" line
+# per decision: tp/fp for harvestable ones, `none` for deferred or unrecognised
+# ones. Non-harvestable decisions are kept on purpose, so they still take part
+# in last-decision-wins and can supersede an earlier label. The block is an HTML comment, so it is invisible in
 # the rendered description and stripped from the gate's prompts by
 # lib/extract-review-notes.sh. Lines that do not parse are ignored.
 decision_blocks() {
@@ -83,12 +89,14 @@ decision_blocks() {
       if (d == "fix") print run, n, "tp:fix"
       else if (d == "skip intentional") print run, n, "fp:intentional"
       else if (d == "skip invalid") print run, n, "fp:invalid"
+      else if (d == "skip deferred") print run, n, "none:deferred"
+      else print run, n, "none:unrecognised"
     }'
 }
 
 # from_pr <number> [body_file] — harvest every labelled run in one PR.
 from_pr() {
-  local pr="$1" body="${2:-}" pairs runs run labels want f rc=0
+  local pr="$1" body="${2:-}" pairs runs run labels harvest stale f n l rec rc=0
   if [ -z "$body" ]; then
     body="$(mktemp)"
     gh pr view "$pr" -R "$REPO" --json body -q .body > "$body" || { rm -f "$body"; echo "⚠️  PR $pr: description unreadable — skipped" >&2; return 1; }
@@ -101,22 +109,50 @@ from_pr() {
   runs="$(printf '%s\n' "$pairs" | awk '{print $1}' | awk '!seen[$0]++')"
   for run in $runs; do
     # The last decision for a finding wins: a second execute round on the same
-    # review corrects the first.
+    # review corrects the first — including a correction to `deferred`.
     labels="$(printf '%s\n' "$pairs" | awk -v r="$run" '$1 == r { last[$2] = $3; if (!($2 in seen)) { seen[$2] = 1; order[++k] = $2 } }
       END { for (i = 1; i <= k; i++) printf "%s=%s ", order[i], last[order[i]] }')"
-    want=0
+    harvest=""; stale=""
     for f in $labels; do
-      [ -f "$OUT/pr${pr}-run${run}-f${f%%=*}.json" ] || want=1
+      n="${f%%=*}"; l="${f#*=}"
+      rec="$OUT/pr${pr}-run${run}-f${n}.json"
+      case "$l" in
+        none:*)
+          # The human's latest word is "not a label". An earlier record for
+          # this finding is now wrong ground truth, so it goes.
+          if [ -f "$rec" ]; then
+            rm -f "$rec"
+            echo "ℹ️  PR $pr run $run finding $n: latest decision is ${l#none:} — earlier label removed"
+          fi
+          continue ;;
+      esac
+      # Harvest when the record is missing OR carries a superseded decision.
+      if [ ! -f "$rec" ]; then
+        harvest="$harvest $f"
+      elif [ "$(jq -r '"\(.label):\(.label_reason // "")"' "$rec" 2>/dev/null)" != "$l" ]; then
+        harvest="$harvest $f"; stale="$stale $n"
+      fi
     done
-    if [ "$want" -eq 0 ]; then
+    if [ -z "$harvest" ]; then
       echo "ℹ️  PR $pr run $run: already harvested"
       continue
     fi
     # shellcheck disable=SC2086 # labels are whitespace-separated n=label pairs
-    bash "${BASH_SOURCE[0]}" --repo "$REPO" --pr "$pr" --out "$OUT" "$run" $labels || {
+    if ! bash "${BASH_SOURCE[0]}" --repo "$REPO" --pr "$pr" --out "$OUT" "$run" $harvest; then
       echo "⚠️  PR $pr run $run: not harvested (artifact expired, or the run was not scored) — continuing" >&2
       rc=1
-    }
+      # A record the human has since corrected must not survive a failed
+      # refresh: a missing label costs data, a wrong one poisons the measure.
+      # Re-checked per record, because the refresh may have rewritten some.
+      for n in $stale; do
+        rec="$OUT/pr${pr}-run${run}-f${n}.json"
+        l="$(printf '%s\n' $harvest | awk -F= -v n="$n" '$1 == n { print $2 }')"
+        if [ -f "$rec" ] && [ "$(jq -r '"\(.label):\(.label_reason // "")"' "$rec" 2>/dev/null)" != "$l" ]; then
+          rm -f "$rec"
+          echo "⚠️  PR $pr run $run finding $n: superseded label removed — the corrected decision ($l) could not be harvested" >&2
+        fi
+      done
+    fi
   done
   return "$rc"
 }

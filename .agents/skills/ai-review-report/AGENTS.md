@@ -940,6 +940,7 @@ The LADRs are the **decisions an AI coder would plausibly re-litigate if they di
     - **Run marker.** When the merged findings were scored, the posted review ends with an invisible `<!-- ai-review-report run=<id> -->`.
     - **Label block.** `/ai-review execute` (Non-Copilot flow) copies that id into an invisible `ai-review-decisions` block after its fix/skip table, one line per numbered finding: `fix`, `skip intentional`, `skip invalid`, `skip deferred`.
     - **Harvest.** `eval/harvest-real-findings.sh --from-pr N` / `--scan` joins those decisions with the run artifact's live scores into `corpus/real-findings/`, keeping `label_reason`: fix → tp, intentional/invalid → fp.
+    - **The latest decision per finding wins, deferred included.** A later `skip deferred` removes an earlier record, and a corrected decision refreshes it. If the artifact has expired, the superseded record is removed rather than kept.
     - **Deferred and doubtful skips are never harvested.** A real issue left for later is no false positive, and a wrong `fp` label is the dangerous direction: it makes a suppressing policy look safe.
     - **Out of prompts.** The block is a multi-line HTML comment, so `extract-review-notes.sh` strips it from every prompt, and the human's choices cannot steer the next review.
 - **Consequences**:
