@@ -250,12 +250,17 @@ scripts/eval/
   at the sandbox head, and — for the eval — the per-chunk rules in `ci_temp`
   (before this the eval scored without them, unlike the gate). Records carry
   `fix_skip`, `fix_skip_p` and `code_context`. `decisions-report.py` prints a
-  `1d.` section only when fix_skip was asked: P(skip) by ground truth with AUC,
-  predicted FIX on a known false positive, predicted SKIP on a true catch (a fix
-  the autonomous filter would withhold), the human `label_reason` against the
-  predicted class, and **how many answers came with a distribution** — the live
-  check that the provider returns `probabilities.fix`, without which consumers
-  never act. The `fixskip@0.50` policy row is what `ai-analyse`'s
+  `1d.` section when fix_skip was asked: P(skip) by ground truth with AUC,
+  predicted FIX on a finding that should be skipped, predicted SKIP on one that
+  should be fixed (a fix the autonomous filter would withhold), the human
+  `label_reason` against the predicted class, and **how many questions were
+  answered, and how many with a distribution** — the live check that the
+  provider returns `probabilities.fix`, without which consumers never act.
+  Records carry `fix_skip_asked`, so an unanswered question stays in every
+  denominator instead of vanishing (review of PR 179). Its ground truth is its
+  own (`fixskip_truth`): a human-labelled real finding counts at ANY severity —
+  `ai-analyse` acts on Low findings too — while the gate-verdict tables keep
+  their Medium-and-above false-positive rule. The `fixskip@0.50` policy row is what `ai-analyse`'s
   `OPENCODE_ANALYSE_DECISIONS_MODE=filter` would have withheld. The harvester
   keeps the full reviewed `head`, the base branch tip as `base_tip` (not the
   merge base — a re-score resolves that itself, LADR-075) and the gate's `fix_skip`

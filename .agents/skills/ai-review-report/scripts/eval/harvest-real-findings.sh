@@ -245,6 +245,7 @@ for spec in "$@"; do
                            previously_skipped: (.decisions.previously_skipped // null),
                            diff_hunk_found: (.decisions.diff_hunk_found // null),
                            code_context: (.decisions.code_context // null),
+                           fix_skip_asked: ((.decisions // {}) | has("fix_skip")),
                            # The gate PREDICTION of this label (LADR-098),
                            # recorded beside the human decision — a score to
                            # measure, never itself a label.

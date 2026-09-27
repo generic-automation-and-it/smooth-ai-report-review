@@ -112,6 +112,26 @@ def is_true_catch(doc, f):
     return SEV_RANK.get(f.get("severity"), -1) >= need
 
 
+def fixskip_truth(doc, f):
+    """What a human decided (or should decide) for fix_skip: "fix", "skip" or None.
+
+    Separate from is_true_catch / is_false_positive on purpose: those measure
+    what the GATE's verdict does (a false positive only counts at Medium and
+    above, a catch only at its fixture's bar). The fix/skip question is asked
+    of every finding, and ai-analyse acts on Low ones too, so a human-labelled
+    real finding counts at ANY severity: its label is the ground truth.
+    """
+    if doc.get("label") == "tp":
+        return "fix"
+    if doc.get("label") == "fp":
+        return "skip"
+    if is_true_catch(doc, f):
+        return "fix"
+    if is_false_positive(doc, f):
+        return "skip"
+    return None
+
+
 # --- policies: each maps a finding list to the list a reader would see ------------
 def base(findings):
     return findings
@@ -337,31 +357,37 @@ def main():
 
     # --- 1d. the fix/skip prediction (LADR-097/098) ----------------------------
     all_f = [(d, f) for d in scored for f in d.get("findings", [])]
-    asked = [(d, f) for d, f in all_f if f.get("fix_skip") is not None]
+    # Asked = the record says so, or (records from before fix_skip_asked) an
+    # answer exists. An asked-but-unanswered question stays in every
+    # denominator: a provider that never answers must show as 0/N, not vanish.
+    asked = [(d, f) for d, f in all_f if f.get("fix_skip_asked") or f.get("fix_skip") is not None]
     has_fixskip = bool(asked)
     if has_fixskip:
-        with_p = [(d, f) for d, f in asked if f.get("fix_skip_p") is not None]
-        fp_p = [f["fix_skip_p"] for d, f in with_p if is_false_positive(d, f)]
-        tp_p = [f["fix_skip_p"] for d, f in with_p if is_true_catch(d, f)]
+        answered = [(d, f) for d, f in asked if f.get("fix_skip") is not None]
+        with_p = [(d, f) for d, f in answered if f.get("fix_skip_p") is not None]
+        fp_p = [f["fix_skip_p"] for d, f in with_p if fixskip_truth(d, f) == "skip"]
+        tp_p = [f["fix_skip_p"] for d, f in with_p if fixskip_truth(d, f) == "fix"]
         print(" 1d. `fix_skip` (predicted human decision) by ground truth")
+        print(f"    answered                     : {len(answered)}/{len(asked)}"
+              + ("" if len(answered) == len(asked) else "  — unanswered ones stay unscored for the consumers"))
         print(f"    answered with a distribution : {len(with_p)}/{len(asked)}"
               + ("" if len(with_p) == len(asked) else
-                 "  — P(skip) is missing where the provider returned no `probabilities.fix`;"
+                 "  — P(skip) is missing where the provider returned no usable `probabilities.fix`;"
                  " consumers never act on those"))
-        print(f"    P(skip), known false positives : {summarise(fp_p)}")
-        print(f"    P(skip), true catches          : {summarise(tp_p)}")
-        # Higher P(skip) should mean MORE likely a false positive.
+        print(f"    P(skip), should be skipped     : {summarise(fp_p)}")
+        print(f"    P(skip), should be fixed       : {summarise(tp_p)}")
+        # Higher P(skip) should mean MORE likely a finding to skip.
         print(f"    separation (AUC)               : {fmt(auc([1 - x for x in tp_p], [1 - x for x in fp_p]))}")
-        fix_on_fp = sum(1 for d, f in asked if is_false_positive(d, f) and f["fix_skip"] == "fix")
-        skip_on_tp = sum(1 for d, f in asked if is_true_catch(d, f) and f["fix_skip"] != "fix")
-        n_fp = sum(1 for d, f in asked if is_false_positive(d, f))
-        n_tp = sum(1 for d, f in asked if is_true_catch(d, f))
-        print(f"    predicted FIX on a false positive : {fix_on_fp}/{n_fp}")
-        print(f"    predicted SKIP on a true catch    : {skip_on_tp}/{n_tp}   (a fix the autonomous filter would withhold)")
+        fix_on_fp = sum(1 for d, f in answered if fixskip_truth(d, f) == "skip" and f["fix_skip"] == "fix")
+        skip_on_tp = sum(1 for d, f in answered if fixskip_truth(d, f) == "fix" and f["fix_skip"] != "fix")
+        n_fp = sum(1 for d, f in answered if fixskip_truth(d, f) == "skip")
+        n_tp = sum(1 for d, f in answered if fixskip_truth(d, f) == "fix")
+        print(f"    predicted FIX on one to skip   : {fix_on_fp}/{n_fp}")
+        print(f"    predicted SKIP on one to fix   : {skip_on_tp}/{n_tp}   (a fix the autonomous filter would withhold)")
         # Real findings carry the human's reason: does the predicted skip
         # CLASS match it, not just the fix/skip side?
         reasons = {}
-        for d, f in asked:
+        for d, f in answered:
             r = d.get("label_reason")
             if r:
                 reasons.setdefault(r, {}).setdefault(f["fix_skip"], 0)

@@ -35,7 +35,7 @@ HARNESS_WF="$REPO_ROOT/.github/workflows/llm-eval-harness.yml"
 
 TMP_DIR="$(mktemp -d)"
 SUITE_COMPLETED=0
-trap 'rc=$?; rm -rf "$TMP_DIR";  if [ "$SUITE_COMPLETED" != "1" ]; then echo ""; echo "❌ SUITE ABORTED EARLY (exit $rc) — assertions after this point never ran"; fi' EXIT
+trap 'rc=$?; rm -rf "$TMP_DIR"; if [ "$SUITE_COMPLETED" != "1" ]; then echo ""; echo "❌ SUITE ABORTED EARLY (exit $rc) — assertions after this point never ran"; fi' EXIT
 
 echo "=========================================="
 echo "Testing decisions hardening (LADR-098)"
@@ -347,6 +347,9 @@ check "Test 4e: a known sha (artifact metadata) is preferred over the header" "c
   "$(KNOWN=dddddddddddddddddddddddddddddddddddddddd rd known GH_HEAD=dddddddddddddddddddddddddddddddddddddddd)"
 printf 'no header here\n' > "$TMP_DIR/hdr.md"
 check "Test 4f: no reviewed commit → unknown, current diff" "unknown||CURRENT DIFF" "$(rd nohdr GH_HEAD=fffffff000000000000000000000000000000000)"
+printf '## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
+check "Test 4f2: a known reviewed commit but an unreadable PR head → unavailable with an EMPTY diff, never the current one" \
+  "unavailable|abc1234|" "$(rd nohead GH_HEAD=)"
 set +e
 bash "$REVIEW_DIFF" x y z >/dev/null 2>&1; rc_u=$?
 set -e
@@ -525,12 +528,30 @@ write_decision_record "$TMP_DIR/rec_dr.json" "$TMP_DIR/dr.json" 1 "" "" /dev/nul
 printf '{"id":"DR-Y","kind":"must-not-flag","forbidden_claim":"wrong"}\n' > "$TMP_DIR/dr_y.json"
 jq '.findings[0].severity = "medium"' "$TMP_DIR/rec_dr.json" > "$TMP_DIR/rec_dr_y.json"
 write_decision_record "$TMP_DIR/rec_dr_y.json" "$TMP_DIR/dr_y.json" 1 "" "" /dev/null "$TMP_DIR/records/DR-Y.1.json" 2>/dev/null || true
+# An asked-but-unanswered question (the key exists, null) and a real,
+# human-labelled Low false positive (review of PR 179, items 3 and 4).
+printf '{"id":"MC-Z","kind":"must-catch","min_severity":"MEDIUM"}\n' > "$TMP_DIR/mc_z.json"
+jq -n '{status:"complete", merged_chunks:[0], decisions_summary:{provider:"P", model:"M", scored:1},
+  findings:[{"#":1, severity:"medium", verified:true, title:"t", why_it_matters:"w",
+    decisions:{supported:0.5, severity:{choice:"medium"}, pre_existing:0.1, actionability:{score:1},
+               diff_hunk_found:true, fix_skip:null}}]}' > "$TMP_DIR/rec_null.json"
+write_decision_record "$TMP_DIR/rec_null.json" "$TMP_DIR/mc_z.json" 1 "" "" /dev/null "$TMP_DIR/records/MC-Z.1.json" 2>/dev/null || true
+check "Test 8a2: a record tells an unanswered question (asked, null) from one never asked" "true null|false null" \
+  "$(jq -r '.findings[0] | "\(.fix_skip_asked) \(.fix_skip)"' "$TMP_DIR/records/MC-Z.1.json")|$(jq -n '{status:"complete", merged_chunks:[0], decisions_summary:{scored:1}, findings:[{"#":1, severity:"low", verified:true, title:"t", decisions:{supported:0.5}}]}' > "$TMP_DIR/rec_na.json"; write_decision_record "$TMP_DIR/rec_na.json" "$TMP_DIR/mc_z.json" 1 "" "" /dev/null "$TMP_DIR/rec_na_out.json" 2>/dev/null; jq -r '.findings[0] | "\(.fix_skip_asked) \(.fix_skip)"' "$TMP_DIR/rec_na_out.json")"
+jq -n '{fixture:"PR1-abc-F2", kind:"must-not-flag", sample:1, variant:"real", status:"scored", label:"fp", label_reason:"invalid",
+  min_severity:"HIGH", forbidden_claim:"",
+  findings:[{severity:"low", verified:true, title:"nit", supported:0.2, diff_hunk_found:true,
+             fix_skip_asked:true, fix_skip:"skip_invalid", fix_skip_p:0.9}]}' > "$TMP_DIR/records/REAL-LOW.1.json"
 if command -v python3 >/dev/null 2>&1; then
   rep="$(python3 "$REPORT_PY" "$TMP_DIR/records" "T")"
+  check "Test 8b2: an unanswered question stays in the denominator" "1|1" \
+    "$(printf '%s\n' "$rep" | grep -c 'answered                     : 4/6  — unanswered ones stay unscored')|$(printf '%s\n' "$rep" | grep -c 'answered with a distribution : 4/6')"
+  check "Test 8b3: a human-labelled Low false positive counts in the fix/skip accuracy (its label is the truth)" "1|1" \
+    "$(printf '%s\n' "$rep" | grep -c 'P(skip), should be skipped     : n=3 ')|$(printf '%s\n' "$rep" | grep -c 'invalid      skip_invalid 1')"
   check "Test 8b: the report measures fix_skip and whether a distribution came back" "1|1|1" \
-    "$(printf '%s\n' "$rep" | grep -c '1d. `fix_skip`')|$(printf '%s\n' "$rep" | grep -c 'answered with a distribution : 3/3')|$(printf '%s\n' "$rep" | grep -c 'separation (AUC)               : 1.00')"
+    "$(printf '%s\n' "$rep" | grep -c '1d. `fix_skip`')|$(printf '%s\n' "$rep" | grep -c 'answered with a distribution : 4/6')|$(printf '%s\n' "$rep" | grep -c 'separation (AUC)               : 1.00')"
   check "Test 8c: …and what ai-analyse's filter would have done: the Medium false positive goes, the High is out of its reach" "1" \
-    "$(printf '%s\n' "$rep" | grep -cE '^ +fixskip@0\.50 +1/2 +1/1 +precision \+1$')"
+    "$(printf '%s\n' "$rep" | grep -cE '^ +fixskip@0\.50 +1/3 +2/2 +precision \+1$')"
   rep_old="$(python3 "$REPORT_PY" "$SCRIPT_DIR/eval/corpus/real-findings" "T")"
   check "Test 8d: records from before fix_skip render no fix_skip section or policy" "0" \
     "$(printf '%s\n' "$rep_old" | grep -cE '1d\. |fixskip@' || true)"

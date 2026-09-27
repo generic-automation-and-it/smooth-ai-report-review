@@ -718,10 +718,10 @@ while [ "$i" -lt "$to_score" ]; do
                           # Only an answer to a question we asked: without rules
                           # `sanctioned` was never put to the provider.
                           sanctioned: (if $has_rules and ($a.sanctioned.noul | prob) then $a.sanctioned.noul else null end),
-                           previously_skipped: (if $has_skips and ($a.previously_skipped.noul | prob) then $a.previously_skipped.noul else null end),
-                           actionability: { score: $a.actionability.score,
-                                            confidence: ($a.actionability.confidence // null) } }
-                         # LADR-097: present only when the question was asked.
+                          previously_skipped: (if $has_skips and ($a.previously_skipped.noul | prob) then $a.previously_skipped.noul else null end),
+                          actionability: { score: $a.actionability.score,
+                                           confidence: ($a.actionability.confidence // null) } }
+                        # LADR-097: present only when the question was asked.
                         # skip_probability is 1 - P(fix) when the provider
                         # returned a usable distribution, else null — a caller
                         # must never act on a probability it had to invent.

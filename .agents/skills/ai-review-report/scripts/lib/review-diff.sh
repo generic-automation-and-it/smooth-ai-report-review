@@ -16,10 +16,12 @@
 #                after it
 #   unknown      no reviewed commit could be determined → `gh pr diff`, and the
 #                caller should say that the revision was not verified
-#   unavailable  the PR moved on and the reviewed diff could not be fetched →
-#                <out_diff> is empty; the caller must NOT score against the
-#                current diff instead (that is the defect this script exists
-#                to prevent)
+#   unavailable  the reviewed commit is known but the diff at it cannot be
+#                established — the PR moved on and the compare failed, OR the
+#                PR head itself could not be read, so nobody can tell whether
+#                it moved on → <out_diff> is empty; the caller must NOT score
+#                against the current diff instead (that is the defect this
+#                script exists to prevent)
 # and the full reviewed sha on the second line when one is known (empty
 # otherwise), so the caller can read source at that revision.
 #
@@ -46,10 +48,18 @@ base="$(printf '%s' "$pr_json" | jq -r '.baseRefName // ""' 2>/dev/null)"
 
 current_diff() { gh pr diff "$pr" > "$out" 2>/dev/null || : > "$out"; }
 
-# Without both shas nothing can be compared: say so rather than guess.
-if [ -z "$reviewed" ] || [ -z "$head" ]; then
+# No reviewed commit: nothing to pin to, so the current diff is the only
+# option — and the caller says the revision was not verified.
+if [ -z "$reviewed" ]; then
   current_diff
-  printf 'unknown\n%s\n' "$reviewed"
+  printf 'unknown\n\n'
+  exit 0
+fi
+# A known reviewed commit but an unreadable PR head: the PR may have moved on,
+# and falling back to the current diff would score code the review never saw
+# (review of PR 179, finding 1). Refuse instead.
+if [ -z "$head" ]; then
+  printf 'unavailable\n%s\n' "$reviewed"
   exit 0
 fi
 # The header carries an abbreviated sha; the PR head is always full.
