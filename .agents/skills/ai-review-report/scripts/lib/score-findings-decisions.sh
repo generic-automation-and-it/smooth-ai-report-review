@@ -536,7 +536,7 @@ while [ "$i" -lt "$to_score" ]; do
                                            probabilities: ($a.fix_skip.probabilities // {}),
                                            confidence: ($a.fix_skip.confidence // null),
                                            skip_probability: (($a.fix_skip.probabilities // {}).fix
-                                                              | if prob then ((1 - .) * 1000 | round / 1000) else null end) } }
+                                                               | if prob then 1 - . else null end) } }
                            else {} end)) }
           else error("malformed answer") end' "$work/f_${i}.resp" >> "$work/decisions.jsonl" 2>/dev/null; then
       :
