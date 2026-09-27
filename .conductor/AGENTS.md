@@ -30,9 +30,11 @@ This section describes the kit's repo-agnostic behavior. It ships with the kit i
 - **Every `code-review-graph install --platform` call in `setup.sh` keeps `--no-instructions`.** Without it,
   `install` appends an MCP-tools section to `CLAUDE.md`, which in this repository is a committed symlink to
   `AGENTS.md` — the append would land in the tracked context file.
-- **Never hardcode `OPENCODE_API_KEY` / `OPENROUTER_API_KEY` here.** `imposter-container.sh` reads them from
-  the workspace environment and fails fast (`:?`) if either is unset — that's Conductor's job to supply, not
-  this script's.
+- **Never hardcode `OPENCODE_API_KEY` / `OPENROUTER_API_KEY` / `OPENCODE_OPENROUTER_API_KEY` here.**
+  `imposter-container.sh` reads the keys from the workspace environment, accepting either
+  `OPENCODE_API_KEY` or `OPENCODE_GO_API_KEY` for OpenCode Go and either `OPENROUTER_API_KEY` or
+  `OPENCODE_OPENROUTER_API_KEY` for OpenRouter. It fails fast (`:?`) if a required key is unset — that's
+  Conductor's job to supply, not this script's.
 - **Never restore `--pull=always` on the `docker run`.** It makes an unreachable or slow registry fatal
   (`exit 125`) *even when the image is already cached locally*, and by then the unconditional `docker rm -f`
   has already destroyed the working container — so a transient GHCR/DNS blip takes the router down and leaves
@@ -83,9 +85,10 @@ This section describes the kit's repo-agnostic behavior. It ships with the kit i
   add both names to `--preserve-env`, and add the two `-e` flags to the `docker run`.
 - **Enabling this in a new workspace.** Nothing to configure beyond secrets: once
   `.conductor/settings.toml` is on the branch a workspace is created from, Conductor runs its `setup` script
-  automatically. The only prerequisite is that the workspace has `OPENCODE_API_KEY` and `OPENROUTER_API_KEY`
-  set as environment variables (Conductor workspace/environment settings, not committed anywhere) — without
-  them `imposter-container.sh` exits immediately with a `:?` message naming the missing variable.
+  automatically. The only prerequisite is that the workspace has `OPENCODE_API_KEY` (or
+  `OPENCODE_GO_API_KEY`) and `OPENROUTER_API_KEY` (or `OPENCODE_OPENROUTER_API_KEY`) set as environment
+  variables (Conductor workspace/environment settings, not committed anywhere) — without them
+  `imposter-container.sh` exits immediately with a `:?` message naming the missing variable.
 - **Running the trigger.** `restart-imposter` is the workspace's default run script (icon `refresh-cw`) —
   run it any time to recreate the container without recreating the workspace: after a VM restart, pulling a
   new image tag, rotating either API key, or recovering from a crash-looped container. It skips the Codex and
