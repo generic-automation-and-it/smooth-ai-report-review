@@ -19,7 +19,7 @@ allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
   - Bash(git push:*)
-effort: medium        # review analysis + code fixes across multiple files
+effort: high          # review analysis, fix/skip judgment and code fixes across multiple files
 ---
 
 # AI PR Review Analyzer & Executor

@@ -41,9 +41,9 @@ Skills do not pin a model, and do not switch model per tool or provider — the 
 | Skill | Effort | Rationale |
 |-------|--------|-----------|
 | **ai-review-report** | high | Pipeline maintenance across workflow YAML, shell libs, prompts and LADRs |
-| **ai-review** | medium | Review analysis + multi-file code fixes |
-| **ai-analyse** | medium | Per-finding fix/skip judgment + scoped multi-file edits |
-| **git-commit-review-push** | medium | Chunked commits + trigger/trailer placement + upstream tracking |
+| **ai-review** | high | Review analysis, fix/skip judgment + multi-file code fixes |
+| **ai-analyse** | xhigh | Unattended: per-finding fix/skip judgment + edits with no human in the loop |
+| **git-commit-review-push** | low | Mechanical git plumbing — but it still asks when unclear and double-checks before pushing |
 
 `effort` governs the agent that *drives* a skill. The models the review gate itself calls are unrelated: they are chosen per provider by the gate's GitHub Variables (`OPENCODE_REVIEW_REPORT_MODEL_*`) or `--model`.
 

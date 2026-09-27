@@ -18,7 +18,7 @@ allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
   - Bash(git push:*)
-effort: medium        # per-finding fix/skip judgment + scoped multi-file edits
+effort: xhigh         # unattended: per-finding fix/skip judgment + edits with no human in the loop
 ---
 
 # AI Analyse
