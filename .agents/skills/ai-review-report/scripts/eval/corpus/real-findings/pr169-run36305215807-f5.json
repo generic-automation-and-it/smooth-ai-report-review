@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-98bf5f3-F5",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36305215807,
+    "commit": "98bf5f3",
+    "pr": "169",
+    "number": 5
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 75,
+      "title": "Decision measurement documentation incorrectly guarantees job completion",
+      "why_it_matters": "Enabling decision measurement can exhaust the eval job's 60-minute budget even though it cannot alter the computed verdict. The runner scores fixtures and then calibrates every planted finding in three variants, so the claim that it adds only one request per finding understates runtime and can mislead operators about incomplete reports or a future required check.",
+      "file": ".github/workflows/AGENTS.md",
+      "line": 64,
+      "first_evidence": ".github/workflows/AGENTS.md:64 -- it can never change the job's result, so turning it on cannot make the required check flaky — it only adds one small decision request per finding.",
+      "supported": 0.17,
+      "jev_severity": "medium",
+      "jev_confidence": 0.63,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

@@ -130,22 +130,103 @@ scripts/eval/
 
 ## Key Behaviors
 
-- **Decision-model scoring (LADR-093) is invisible to this harness — setting
-  `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` here changes nothing.** The
-  harness scores each fixture's chunk markdown straight out of
-  `review-in-chunks.sh`; the decision model runs after `merge-findings.sh`, on
-  the merged document, and only the rendered Issues Summary carries its output.
-  Measuring it (issue #156, "PR C" — the precondition for `filter` ever
-  defaulting on) needs a post-merge leg per fixture: merge the sandbox's
-  `ci_temp/reviews/chunk_*.findings.json`, run
-  `lib/score-findings-decisions.sh` in `annotate`, render with
-  `lib/render-findings-summary.sh`, and record for every must-NOT-flag hit the
-  `supported` probability of the offending finding (would `filter` have
-  suppressed it?) and for every must-catch hit whether `filter` would have
-  suppressed the catch. Score the rendered summary with the unchanged
-  `lib/score-review.sh` — the decision suffix sits after the label, so the flag
-  count is comparable. Report the delta; do not gate on it until it has been
-  run on the whole corpus more than once.
+- **Decision-model scoring (LADR-093) is MEASURED here, never gated on.** The
+  gate verdict comes from pre-merge chunk markdown and stays exactly as it was;
+  with `EVAL_DECISIONS` on (default: the gate's own
+  `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS`), `run-evals.sh`'s
+  `record_decisions` additionally runs the production post-merge path on each
+  sample's real sidecars — `merge-findings.sh`, then
+  `score-findings-decisions.sh` in **annotate** — and writes one record per
+  fixture-sample. `lib/decisions-report.py` then prints, after the verdict:
+  (1) Jev's `supported` distribution for **known false positives** (a DR
+  fixture's `[VERIFIED]` Critical/High/Medium matching its `forbidden_claim`)
+  versus **true catches** (a must-catch fixture's `[VERIFIED]` finding at or
+  above `min_severity`), with an AUC; (2) how Jev's severity lands on each; (3)
+  what `filter@t`, `demote@t` (VERIFIED→SPECULATIVE) and `sev@c` (adopt Jev's
+  severity above a confidence) would have done to DR re-raises and catches.
+  Policies are applied **offline** to the annotate answers, so one paid run
+  measures all of them and the measured document is never altered. Four rules:
+  it must never assign `fail` or abort the run (`test-decisions-report.sh`
+  greps for both); a sample whose decisions failed is **excluded** and named,
+  never counted as clean; a sample with no findings **is** counted (a clean DR
+  fixture and a missed catch are real outcomes); and the ground truth is the
+  corpus, matched on the structured title + rationale — the harness matches the
+  markdown line, and the structured set is post-confidence-gate, so both
+  baselines are reported rather than assumed equal. Treat any single run as a
+  hint: act on a policy only when it removes DR re-raises **without** losing a
+  catch across several runs (`EVAL_SAMPLES` > 1).
+- **Planted findings calibrate the decision model where the reviewer cannot.**
+  A good chunk model raises almost no known false positives, so the measurement
+  above had nothing to judge on the precision side (run 36303910662: 0
+  re-raises, AUC n/a). Every must-not-flag manifest therefore carries
+  `known_false_positive` — the exact wrong claim the fixture forbids, phrased to
+  match its own `forbidden_claim` — and every must-catch manifest carries
+  `known_true_positive`, both quoting a real line (`evidence_line`).
+  `calibrate-decisions.sh` scores each one alone through the production scorer
+  against the fixture's real diff, in two variants: **as-is** and **stripped**
+  (code comments removed — the fixtures explain themselves in comments such as
+  "DO NOT flag … intentional", which would hand the judge the answer key). It
+  calls only the decision provider, runs after the measurement when
+  `EVAL_DECISIONS` is on, and never changes `fail`. Keep the planted text honest:
+  a wrong claim must read the way a reviewer would actually write it, and its
+  title + rationale must match the fixture's `forbidden_claim` —
+  `test-decisions-report.sh` 4e fails otherwise.
+  **First result (2026-09-27, `jev-1.13`, one sample):** true catches scored
+  0.58–0.97, so no policy lost a catch at 0.25 or 0.5 in either variant.
+  Separation: AUC **0.93** as-is, **0.77** stripped. Jev rejects false
+  positives the code itself contradicts (invalid action ref 0.11, SDK mismatch
+  0.16, missing write key 0.16, tenant discriminator 0.25) and accepts those that
+  are true of the code but exempt by project policy (no max length 0.84,
+  throwing getter 0.85, sequential queries 0.88, no LangVersion 0.77, removed
+  rethrow 0.86) — `supported` judges evidence, and the project's standards are
+  not in its state. It also reads comments: DR-012 moved 0.11 → 0.60 and DR-015
+  0.26 → 0.80 when they were removed, so `review_rules.untrusted_content` does
+  not neutralise in-diff argument. Severity is a weak lever: only 1/14 planted
+  false positives drops below Medium on code alone, and Jev escalates one
+  (removed rethrow) to Critical. Read as: tag demotion / filter at 0.5 is a
+  plausible, catch-safe candidate on this corpus; severity reconciliation is
+  not; and the policy-exempt class needs project rules in the judge's state.
+  **Second result (same day): project rules close most of the gap.** A third
+  variant, `stripped+rules`, passes the corpus's DR standards as the scorer's
+  optional rules file (5th argument), which adds the `sanctioned` question —
+  "does a project rule declare this pattern acceptable?", kept separate from
+  `supported` so evidence and policy stay distinguishable. `sanctioned`
+  separated the planted false positives (mean 0.73) from the true catches (all
+  ≤ 0.11) with AUC **0.99**, and `supported` itself rose to AUC 0.99 with the
+  rules present. `either@0.50` (drop when `supported` < 0.5 or `sanctioned` ≥
+  0.5) removed **13 of 14** false positives and lost **no** catch. MC-001 — a
+  materialized NRE that DR-012's expression-tree exemption does not cover —
+  scored `sanctioned` 0.11, so Jev checked the rule's conditions rather than
+  its topic. The one survivor is DR-013 (mode-aware dead code), which needs
+  reasoning about the removed code path; Jev still rates it Critical. Severity
+  also improves with rules (9/14 false positives rated below Medium, against
+  1/14 without), but `sev@c` gains little because Jev's severity confidence is
+  mostly below 0.6. Re-running the stripped variant moved scores by at most
+  0.05, so a single run is close to deterministic. Caveat: these rules were
+  written for these fixtures and name each pattern; a real repository's
+  standards are less targeted, so this is an upper bound until measured on one.
+  **Re-run after the DR-002 plant fix** (its rationale had also claimed a real
+  divergence defect, so it was not a clean test of the forbidden claim):
+  as-is AUC 0.93, code-only 0.80, with rules `supported` 0.98 and `sanctioned`
+  1.00; `either@0.50` still removes 13/14 with no catch lost. The numbers moved
+  by at most 0.03, consistent with the near-deterministic behaviour above.
+- **Real findings overrule planted ones — and on the first 12 they disagree.**
+  `corpus/real-findings/` holds live gate findings with a human verdict and the
+  score the gate computed at the time (`harvest-real-findings.sh <run>
+  <n>=tp|fp`; committed because run artifacts expire, never re-scored).
+  `calibrate-decisions.sh` prints them as a fourth report at no cost. The first
+  twelve — every finding both gate reviews of PR 169 raised, all accepted and
+  fixed — scored `supported` mean **0.43** (0.12–0.88); `filter`/`demote@0.50`
+  would have hidden **9 of 12** real problems, and even `@0.25` two. Planted true
+  catches never went below 0.58. The difference is the kind of finding: planted
+  catches are single-line defects whose quoted line proves them; real review
+  findings describe behaviour across code ("a PR-level answer can make unscored
+  findings look scored"), which the one hunk around one line in the judge's
+  state cannot demonstrate. Conclusion until real false positives are labelled
+  too: **`supported` must not demote or filter anything**; it is a display, and
+  the rules-based `sanctioned` question is the more promising lever. Label every
+  skipped gate finding as `fp` when processing reviews, so the precision side
+  gets real data.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -218,6 +299,10 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | Real, human-labelled findings (`corpus/real-findings/`, `harvest-real-findings.sh`): the 12 accepted PR 169 findings scored mean 0.43, so filter/demote at 0.5 would hide 9 of 12 — planted catch-safety does not transfer. | LADR-093 |
+| 2026-09-27 | `stripped+rules` calibration variant and the scorer's optional rules file / `sanctioned` question: AUC 0.99, `either@0.50` removes 13/14 planted false positives with no catch lost; DR-013 is the only survivor. | LADR-093 |
+| 2026-09-27 | Planted findings: `known_false_positive` / `known_true_positive` in every manifest and `calibrate-decisions.sh` (as-is + stripped variants), run with the measurement. First result recorded above: catch-safe at 0.5, AUC 0.93 as-is / 0.77 code-only, severity reconciliation not supported. | LADR-093 |
+| 2026-09-27 | Decision-model scoring is now measured: `EVAL_DECISIONS` runs `record_decisions` (real merge + scorer in annotate) per sample and `lib/decisions-report.py` reports separation (AUC) and what filter/demote/severity policies would have done, after the verdict and without ever changing it. `test-decisions-report.sh` covers it offline. | LADR-093 |
 | 2026-09-24 | Recorded that LADR-093 decision-model scoring is invisible to this harness (it scores pre-merge chunk markdown) and what the post-merge measurement leg for issue #156 PR C must do. | LADR-093 |
 | 2026-06-08 | Initial eval-dir AGENTS.md: fixture hygiene, `EVAL_ARTIFACT_DIR` triage archive, post-merge canary trigger, strict precision bar, and safe `test-evals.sh` path. | — |
 | 2026-07-30 | Move the retired `.github/instructions` DR standards into the eval corpus and assemble them into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox. | — |

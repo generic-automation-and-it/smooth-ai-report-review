@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-0685e10-F2",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36304944118,
+    "commit": "0685e10",
+    "pr": "169",
+    "number": 2
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 100,
+      "title": "Eval guidance contradicts the new decision measurement",
+      "why_it_matters": "An editor could conclude that evals provide no decision-model evidence, although the optional measurement now runs. Distinguish the unchanged pre-merge eval verdict from the new post-merge decision report, as scripts/eval/AGENTS.md:133-149 does.",
+      "file": ".agents/skills/ai-review-report/AGENTS.md",
+      "line": 907,
+      "first_evidence": ".agents/skills/ai-review-report/AGENTS.md:907 -- and the eval corpus does not see it at all, because it scores pre-merge chunk markdown",
+      "supported": 0.43,
+      "jev_severity": "medium",
+      "jev_confidence": 0.91,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

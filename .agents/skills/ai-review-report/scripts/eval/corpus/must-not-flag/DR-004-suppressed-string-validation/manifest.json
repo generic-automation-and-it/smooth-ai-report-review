@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-004",
   "note": "Max-length validation is intentionally suppressed for columns that hold arbitrarily long values such as file paths, URLs, and external identifiers; reviewer must NOT flag the missing length limit or the suppression as a code smell.",
-  "forbidden_claim": "(max.?length|length limit|length validation|string length)"
+  "forbidden_claim": "(max.?length|length limit|length validation|string length)",
+  "known_false_positive": {
+    "title": "BlobKey and SourceUrl have no max length",
+    "severity": "medium",
+    "file": "src/Project.Infrastructure/Persistence/Configurations/AttachmentConfiguration.cs",
+    "evidence_line": "builder.Property(a => a.BlobKey)",
+    "why_it_matters": "Without HasMaxLength these map to unbounded text columns, so oversized values are accepted and the columns cannot be indexed efficiently. Add a max length validation to both properties."
+  }
 }

@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-013",
   "note": "PR deletes a feature-flag property AND the throw gated on it. The throw was unreachable in continuous mode (the surviving mode), so removing it is dead-code cleanup, not a regression. Reviewer must NOT flag a swallowed-exception regression.",
-  "forbidden_claim": "(remov|delet).{0,60}(throw|guard|validation).{0,80}(regression|behaviou?r change|silently|no longer)"
+  "forbidden_claim": "(remov|delet).{0,60}(throw|guard|validation).{0,80}(regression|behaviou?r change|silently|no longer)",
+  "known_false_positive": {
+    "title": "Removing the rethrow silently swallows transfer failures",
+    "severity": "high",
+    "file": "src/Project.Infrastructure/Ftp/FtpHelper.cs",
+    "evidence_line": "_logger.LogError(ex, \"Transfer failed for {Path}\", path);",
+    "why_it_matters": "The catch block no longer rethrows, so a failed transfer is only logged and the caller believes it succeeded. This is a behaviour change that silently loses files."
+  }
 }

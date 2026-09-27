@@ -495,7 +495,9 @@ assemble_run_artifacts() {
   # LADR-093: the decision model's PR-level verdicts, or null when it did not
   # run. Re-validated as JSON so a malformed value can never break the file.
   local decisions_json='null'
-  if [ -s "$WORK_DIR/findings.merged.json" ]; then
+  if [ -s "$WORK_DIR/findings.merged.json" ] \
+     && printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
+        | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
     decisions_json="$(jq -c '.decisions_summary // null' "$WORK_DIR/findings.merged.json" 2>/dev/null)"
     printf '%s' "$decisions_json" | jq -e . >/dev/null 2>&1 || decisions_json='null'
   fi

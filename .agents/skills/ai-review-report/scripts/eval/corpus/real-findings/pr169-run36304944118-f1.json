@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-0685e10-F1",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "HIGH",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36304944118,
+    "commit": "0685e10",
+    "pr": "169",
+    "number": 1
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "high",
+      "verified": true,
+      "confidence": 100,
+      "title": "Incomplete finding scores are counted as scored samples",
+      "why_it_matters": "A successful PR-level answer can create decisions_summary even when every per-finding decision failed. The policy table then counts an unmeasured sample as scored and can misleadingly show no change; classify samples with skipped finding scores separately or exclude them.",
+      "file": ".agents/skills/ai-review-report/scripts/eval/run-evals.sh",
+      "line": 194,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/eval/run-evals.sh:194 -- if jq -e '.decisions_summary | type == \"object\"' ci_temp/findings.merged.json >/dev/null 2>&1; then",
+      "supported": 0.37,
+      "jev_severity": "medium",
+      "jev_confidence": 0.54,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

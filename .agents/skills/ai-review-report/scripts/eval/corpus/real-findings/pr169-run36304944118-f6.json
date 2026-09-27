@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-0685e10-F6",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36304944118,
+    "commit": "0685e10",
+    "pr": "169",
+    "number": 6
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 75,
+      "title": "Partial sidecar coverage is counted as a scored sample",
+      "why_it_matters": "On a multi-chunk sample, merging a subset of sidecars can succeed and the resulting record is treated as scored. Omitted findings then look like genuine misses or clean DR results in the policy comparison; compare merged_chunks against the existing total_chunks value and exclude incomplete samples.",
+      "file": ".agents/skills/ai-review-report/scripts/eval/run-evals.sh",
+      "line": 188,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/eval/run-evals.sh:188 -- if bash \"$SKILL_SCRIPTS_DIR/lib/merge-findings.sh\" ci_temp/reviews ci_temp/findings.merged.json \\",
+      "supported": 0.47,
+      "jev_severity": "high",
+      "jev_confidence": 0.51,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

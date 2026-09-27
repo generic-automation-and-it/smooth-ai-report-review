@@ -133,6 +133,7 @@
                 }
               },
               "pre_existing": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the defect predates this diff. Informational only." },
+              "sanctioned": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Probability that a project rule declares the flagged pattern intentional or acceptable. Present only when the scorer was given project rules (5th argument); null otherwise. Policy, kept separate from `supported` (evidence)." },
               "actionability": {
                 "type": "object",
                 "required": ["score"],

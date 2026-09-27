@@ -3,5 +3,12 @@
   "kind": "must-catch",
   "label": "MC-001",
   "min_severity": "HIGH",
-  "note": "Real NullReferenceException risk: the query is materialized with ToListAsync first, then plain C# dereferences result.Customer.Name where Customer is a nullable navigation property that EF may not have loaded, causing NRE at runtime."
+  "note": "Real NullReferenceException risk: the query is materialized with ToListAsync first, then plain C# dereferences result.Customer.Name where Customer is a nullable navigation property that EF may not have loaded, causing NRE at runtime.",
+  "known_true_positive": {
+    "title": "NullReferenceException: Customer navigation not loaded before dereference",
+    "severity": "high",
+    "file": "src/Project.Application/Features/Orders/GetOrderSummaryHandler.cs",
+    "evidence_line": "o.Customer.Name,",
+    "why_it_matters": "The orders are materialized with ToListAsync without Include(o => o.Customer), so with lazy loading off Customer is null and o.Customer.Name throws for every order the handler returns."
+  }
 }

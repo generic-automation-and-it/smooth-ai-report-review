@@ -2,11 +2,18 @@
 # score-findings-decisions.sh — score the merged findings with a structured
 # decision model and write its typed verdicts back into the document (LADR-093).
 #
-# Usage: score-findings-decisions.sh <merged_json> [reviews_dir] [total_chunks] [pr_diff]
+# Usage: score-findings-decisions.sh <merged_json> [reviews_dir] [total_chunks] [pr_diff] [rules_file]
 #   merged_json  : ci_temp/findings.merged.json, rewritten in place (tmp + mv)
 #   reviews_dir  : ci_temp/reviews — read for chunk_<n>.failed flags (filter fence)
 #   total_chunks : chunk count of this run — the filter fence needs it
 #   pr_diff      : ci_temp/pr_diff.txt — source of the per-finding diff hunk
+#   rules_file   : OPTIONAL project review standards. When given, each finding
+#                  request also carries `project_rules` and asks `sanctioned`
+#                  (does a project rule declare this pattern acceptable?) —
+#                  policy, kept separate from `supported` (evidence). Not wired
+#                  into run-review.sh yet: it is measured first by
+#                  eval/calibrate-decisions.sh. Without it the request is
+#                  exactly what it was.
 #
 # Always exits 0. This is enrichment, exactly like the graph analysis, RTK and
 # check-versions: a preflight or configuration failure logs one ⚠️ line and
@@ -48,6 +55,7 @@ merged="${1:-ci_temp/findings.merged.json}"
 reviews_dir="${2:-ci_temp/reviews}"
 total_chunks="${3:-}"
 pr_diff="${4:-ci_temp/pr_diff.txt}"
+rules_file="${5:-}"
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$LIB_DIR/../.." && pwd)"
@@ -61,6 +69,9 @@ RESOLVER="$LIB_DIR/resolve-provider.sh"
 BUDGET_BYTES=24000
 # Initial cap on one finding's diff hunk, before the budget check trims further.
 HUNK_MAX_BYTES=24000
+# Cap on the optional project rules. The budget trim below only ever shortens
+# the hunk, so the rules must fit on their own with room for the evidence.
+RULES_MAX_BYTES=12000
 # Concurrent per-finding requests. Plain batches, not `wait -n`: this script is
 # also reached from local-review.sh, which carries no Bash >= 4 guard.
 PARALLEL=4
@@ -187,6 +198,20 @@ trap 'rm -rf "$work" "${merged}.decisions.tmp"' EXIT
 ( umask 077; printf 'Authorization: Bearer %s\n' "$OPENCODE_DECISIONS_API_KEY" > "$work/auth.hdr" )
 unset OPENCODE_DECISIONS_API_KEY
 
+# Optional project rules (5th argument), capped with a visible marker for the
+# same reason a cut hunk is marked: an unmarked cut reads as "there are no more
+# rules". An empty file means "no rules", and the request stays unchanged.
+: > "$work/rules.txt"
+has_rules=false
+if [ -n "$rules_file" ] && [ -s "$rules_file" ]; then
+  if [ "$(wc -c < "$rules_file" | tr -d ' ')" -gt "$RULES_MAX_BYTES" ]; then
+    { head -c "$RULES_MAX_BYTES" "$rules_file"; printf '\n[... project rules truncated to fit the decision model context budget]\n'; } > "$work/rules.txt"
+  else
+    cp "$rules_file" "$work/rules.txt"
+  fi
+  has_rules=true
+fi
+
 # post <request> <response> — prints the HTTP status (000 on timeout/network).
 # Returns 0 only for a 200 whose body carries an `answers` object.
 post() {
@@ -290,10 +315,11 @@ hunk() {
 
 # build_finding_request <index> <hunk_file> <out>
 build_finding_request() {
-  jq -c --argjson i "$1" --rawfile hunk "$2" --slurpfile q "$QUESTIONS" --arg model "$model" '
+  jq -c --argjson i "$1" --rawfile hunk "$2" --slurpfile q "$QUESTIONS" --arg model "$model" \
+     --rawfile rules "$work/rules.txt" --argjson has_rules "$has_rules" '
     .findings[$i] as $f | $q[0] as $q
     | { model: $model,
-        state: {
+        state: ({
           # Deliberately WITHOUT the chunk model own `severity` and
           # `pre_existing`: two of the four questions ask the judge to decide
           # exactly those, and showing the answer under test anchors it. The
@@ -303,8 +329,10 @@ build_finding_request() {
                        | with_entries(select(.value != null))),
           diff_hunk: $hunk,
           review_rules: $q.review_rules
-        },
-        questions: $q.per_finding }' "$merged" > "$3"
+        }
+        + (if $has_rules then { project_rules: $rules } else {} end)),
+        questions: ($q.per_finding
+                    + (if $has_rules then ($q.per_finding_rules | del(."$comment")) else {} end)) }' "$merged" > "$3"
 }
 
 # --- Per-finding requests -------------------------------------------------------
@@ -378,13 +406,17 @@ while [ "$i" -lt "$to_score" ]; do
     hunk_found=true
     [ -f "$work/f_${i}.nohunk" ] && hunk_found=false
     if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" \
-        --argjson hunk_found "$hunk_found" '
+        --argjson hunk_found "$hunk_found" --argjson has_rules "$has_rules" '
         .answers as $a
         | def prob: type == "number" and . >= 0 and . <= 1;
           if ($a.supported.noul | prob)
              and (($a.severity.choice // "") | IN("critical", "high", "medium", "low"))
              and ($a.pre_existing.noul | prob)
              and ($a.actionability.score | type == "number")
+             # When rules were supplied `sanctioned` was asked, so its answer is
+             # required like the others: a missing one must leave the finding
+             # unscored (and counted as skipped), not silently become null.
+             and (($has_rules | not) or ($a.sanctioned.noul | prob))
           then { key: ($i | tostring),
                  value: { provider: $provider,
                           model: (.model // $model),
@@ -394,6 +426,9 @@ while [ "$i" -lt "$to_score" ]; do
                                       probabilities: ($a.severity.probabilities // {}),
                                       confidence: ($a.severity.confidence // null) },
                           pre_existing: $a.pre_existing.noul,
+                          # Only an answer to a question we asked: without rules
+                          # `sanctioned` was never put to the provider.
+                          sanctioned: (if $has_rules and ($a.sanctioned.noul | prob) then $a.sanctioned.noul else null end),
                           actionability: { score: $a.actionability.score,
                                            confidence: ($a.actionability.confidence // null) } } }
           else error("malformed answer") end' "$work/f_${i}.resp" >> "$work/decisions.jsonl" 2>/dev/null; then

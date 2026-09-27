@@ -74,6 +74,10 @@ on:
         description: "Fixtures evaluated concurrently (blank = EVAL_PARALLEL Variable, else 4). Each one is a live model call — raising this trades wall-clock for provider rate-limit risk, and a rate-limited fixture fails the run as an INFRA failure."
         required: false
         type: string
+      decisions:
+        description: "Measure decisions (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only; adds a paid decision request per sample finding, plus a calibration of 20 planted findings in three variants (about 180 small decision-provider requests; no chat model)."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -173,6 +177,11 @@ jobs:
             # fail-open minimal output on an empty set.
             .agents/skills/ai-review-report/scripts/test-build-runtime-agents.sh
             .agents/skills/ai-review-report/scripts/eval/test-evals.sh
+            # The decision-model measurement leg: the analyzer against records
+            # with known ground truth, record_decisions end to end on a fake
+            # fixture (real merge + scorer, curl shim), and the guards that keep
+            # it from ever moving the eval verdict.
+            .agents/skills/ai-review-report/scripts/eval/test-decisions-report.sh
           )
           for test_script in "${tests[@]}"; do
             echo "::group::${test_script}"
@@ -261,6 +270,16 @@ jobs:
       # a precision FAIL is inspectable (the per-fixture sandbox is wiped on exit).
       # Uploaded by the post-run step below (if: always(), since a regression exits 1).
       EVAL_ARTIFACT_DIR: ${{ github.workspace }}/ci_temp/eval-artifacts
+      # Decision-model measurement (LADR-093 follow-up, report-only). Off unless
+      # the dispatch input or the gate's own ENABLE_DECISIONS Variable says on,
+      # so the eval measures exactly the decision provider the gate is set to
+      # use. It prints a precision/recall table per policy after the verdict and
+      # archives one record per sample under eval-artifacts/decisions/; it can
+      # never change the exit code. The keys it needs are already forwarded above.
+      EVAL_DECISIONS: ${{ github.event.inputs.decisions || vars.OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS || '0' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || 'OPENCODE-GO-DECISIONS' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '20' }}
 
     steps:
       - name: Checkout Code

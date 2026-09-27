@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-005",
   "note": "A property that throws InvalidOperationException when accessed without satisfying the guard is intentional defensive programming; reviewer must NOT flag the throwing property as an anti-pattern or suggest removing the exception.",
-  "forbidden_claim": "(propert(y|ies)|getter).{0,60}(should not|must not|anti.?pattern|avoid).{0,20}throw|throw.{0,40}anti.?pattern"
+  "forbidden_claim": "(propert(y|ies)|getter).{0,60}(should not|must not|anti.?pattern|avoid).{0,20}throw|throw.{0,40}anti.?pattern",
+  "known_false_positive": {
+    "title": "Property getters should not throw exceptions",
+    "severity": "medium",
+    "file": "src/Project.Domain/Documents/UploadedDocument.cs",
+    "evidence_line": ": throw new InvalidOperationException(",
+    "why_it_matters": "FileName and BlobKey throw from their getters, which is an anti-pattern: serializers, debuggers and data binding read properties freely and will crash. Return null or expose a TryGetFileName method instead."
+  }
 }

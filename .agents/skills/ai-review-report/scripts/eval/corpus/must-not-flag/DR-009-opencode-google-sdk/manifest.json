@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-009",
   "note": "The gemini provider intentionally declares npm @ai-sdk/google while being pointed at an OpenAI-compatible gateway — opencode is provider-agnostic transport and the SDK label does not dictate the host. The reviewer must NOT flag a provider/SDK mismatch or suggest switching to @ai-sdk/openai-compatible. The fixture is ONE file, mirroring the real assets/opencode.json (no baseURL — it is injected at install time, LADR-034); the gateway relationship is explained by the DR-009 context document injected alongside it, so the fixture does not need to demonstrate it. Fixture history: it once shipped a static baseURL placeholder that the DR-009 context calls a design violation, and later a setup-opencode-config.sh excerpt whose jq-missing path silently returned 0 — both were correct findings against added scaffolding. Remove surface here, never add it.",
-  "forbidden_claim": "(sdk|@ai-sdk/google|provider).{0,80}(mismatch|incompatible|wrong (sdk|provider)|should (be|use) .{0,30}openai)"
+  "forbidden_claim": "(sdk|@ai-sdk/google|provider).{0,80}(mismatch|incompatible|wrong (sdk|provider)|should (be|use) .{0,30}openai)",
+  "known_false_positive": {
+    "title": "Provider SDK mismatch: gemini uses @ai-sdk/google against an OpenAI-compatible gateway",
+    "severity": "high",
+    "file": ".agents/skills/ai-review-report/assets/opencode.json",
+    "evidence_line": "\"npm\": \"@ai-sdk/google\",",
+    "why_it_matters": "The gateway speaks the OpenAI protocol, so the Google SDK sends requests it cannot parse and every review call fails. The provider should use @ai-sdk/openai-compatible."
+  }
 }

@@ -3,5 +3,12 @@
   "kind": "must-catch",
   "label": "MC-002",
   "min_severity": "HIGH",
-  "note": "Real concurrency defect: Task.WhenAll runs two queries concurrently on the SAME DbContext instance (not thread-safe) — corruption/crash. This is exactly the bug DR-007 warns against; the reviewer SHOULD flag it."
+  "note": "Real concurrency defect: Task.WhenAll runs two queries concurrently on the SAME DbContext instance (not thread-safe) — corruption/crash. This is exactly the bug DR-007 warns against; the reviewer SHOULD flag it.",
+  "known_true_positive": {
+    "title": "Task.WhenAll runs two queries concurrently on the same DbContext",
+    "severity": "high",
+    "file": "src/Project.Application/Features/Vessels/GetVesselDashboardHandler.cs",
+    "evidence_line": "await Task.WhenAll(voyagesTask, claimsTask);",
+    "why_it_matters": "Both ToListAsync calls start before either is awaited, so two operations run on one DbContext, which is not thread-safe. EF Core throws 'A second operation was started on this context' or corrupts the change tracker."
+  }
 }

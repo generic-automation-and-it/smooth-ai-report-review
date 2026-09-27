@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-014",
   "forbidden_claim": "discriminator|global query filter|hasqueryfilter|(shared|single|one) (database|db)[^.]{0,60}(tenant|instead|should)|(database|db).?per.?tenant[^.]{0,80}(anti.?pattern|does not scale|scalab|should not|avoid)|tenant isolation[^.]{0,80}(not enforced|missing|insufficient|only|solely|relies)",
-  "note": "When the same diff contains an LADR documenting a design decision and code implementing that exact decision, the reviewer must NOT flag the chosen approach at Critical/High. The forbidden_claim targets objections to LADR-10's CHOSEN APPROACH specifically -- demanding a discriminator column or global query filter, arguing for a shared/single database, calling database-per-tenant an anti-pattern or unscalable, or asserting tenant isolation is unenforced because it rests on connection-string selection. Adjacent true findings (connection-string value validation, null guards, options lifetime) are NOT re-raises and are counted as non-blocking Unrelated findings -- which is what the fixture's own docstring already said in prose that the scorer could not read."
+  "note": "When the same diff contains an LADR documenting a design decision and code implementing that exact decision, the reviewer must NOT flag the chosen approach at Critical/High. The forbidden_claim targets objections to LADR-10's CHOSEN APPROACH specifically -- demanding a discriminator column or global query filter, arguing for a shared/single database, calling database-per-tenant an anti-pattern or unscalable, or asserting tenant isolation is unenforced because it rests on connection-string selection. Adjacent true findings (connection-string value validation, null guards, options lifetime) are NOT re-raises and are counted as non-blocking Unrelated findings -- which is what the fixture's own docstring already said in prose that the scorer could not read.",
+  "known_false_positive": {
+    "title": "Use a shared database with a tenant discriminator instead of a database per tenant",
+    "severity": "high",
+    "file": "src/Project.Infrastructure/Tenancy/TenantConnectionResolver.cs",
+    "evidence_line": "if (!options.Value.ConnectionStrings.TryGetValue(tenantId, out var connectionString))",
+    "why_it_matters": "One database per tenant multiplies connection pools, migrations and backups with every new tenant. A single database with a TenantId discriminator column and a global query filter is simpler to operate."
+  }
 }

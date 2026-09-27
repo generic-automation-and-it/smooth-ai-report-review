@@ -3,5 +3,12 @@
   "kind": "must-catch",
   "label": "MC-005",
   "min_severity": "HIGH",
-  "note": "Hardcoded API key committed in source: the private const ApiKey literal will be stored in git history and visible to anyone with repo read access, enabling unauthorized use of the external payment service."
+  "note": "Hardcoded API key committed in source: the private const ApiKey literal will be stored in git history and visible to anyone with repo read access, enabling unauthorized use of the external payment service.",
+  "known_true_positive": {
+    "title": "Hardcoded production API key committed in source",
+    "severity": "high",
+    "file": "src/Project.Infrastructure/Clients/Payments/PaymentGatewayClient.cs",
+    "evidence_line": "private const string ApiKey = \"sk-live-",
+    "why_it_matters": "The live payment API key is a string constant, so it is stored in git history and readable by anyone with repository access, allowing unauthorized charges. Load it from configuration or a secret store."
+  }
 }
