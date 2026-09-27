@@ -86,6 +86,13 @@ while IFS= read -r -d '' f; do
     # a quote or is already <REDACTED>.
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)"(?!<REDACTED>")(?:\\.|""|[^"\\\n])*"/$1"<REDACTED>"/gi;
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)\x27(?!<REDACTED>\x27)(?:\\.|\x27\x27|[^\x27\\\n])*\x27/$1\x27<REDACTED>\x27/gi;
+    # Fail-closed for an UNTERMINATED quoted value (a log line cut mid-value:
+    # Password="abc123secret): the passes above need the closing quote, the one
+    # below skips a value starting with a quote, so neither matched and the
+    # value survived (review 5331831530). A terminated value is already
+    # <REDACTED> by now, so anything else after an opening quote is redacted
+    # through the `;` delimiter or the end of the line.
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)(["\x27])(?!<REDACTED>)[^;\r\n]*/$1$2<REDACTED>/gi;
     # `\s*+` is possessive: the spaces after `=` cannot be given back, so a
     # space never becomes "the value" in front of an already-redacted one.
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)(?![\x27"]|<REDACTED>)(?:\\.|[^;"\x27\\\r\n])+/$1<REDACTED>/gi;

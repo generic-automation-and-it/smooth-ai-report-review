@@ -126,6 +126,13 @@ check "Test 5f: spaces, delimiters and escaped quotes leave nothing visible; a s
   "$(grep -cE 'secret pass|abc def|side|it.s' "$W/cs.txt" || true)|$(grep -c '<REDACTED>' "$W/cs.txt")|$(cmp -s "$W/cs.txt" "$TMP_DIR/once.txt" && echo same || echo changed)"
 check "Test 5g: the rest of the connection string is kept" "1|1" \
   "$(grep -c '^a: Server=db;Password=<REDACTED>;Timeout=5$' "$W/cs.txt")|$(grep -c '^b: {"cs": "Server=db;Password=<REDACTED>;"}$' "$W/cs.txt")"
+# Review 5331831530: an unterminated quoted value (a log line cut mid-value)
+# is redacted through the delimiter or the end of the line — fail closed.
+U2="$TMP_DIR/unterminated"; mkdir -p "$U2"
+printf 'a: Password="abc123secret\nb: Pwd='"'"'cut-off-value;Server=x\nc: Password="ok-quoted";\n' > "$U2/log.txt"
+bash "$REDACT" "$U2" >/dev/null 2>&1; cp "$U2/log.txt" "$TMP_DIR/u_once.txt"; bash "$REDACT" "$U2" >/dev/null 2>&1
+check "Test 5h: unterminated quoted credentials are redacted to the delimiter or line end; idempotent" "0|1|1|1|same" \
+  "$(grep -cE 'abc123secret|cut-off-value|ok-quoted' "$U2/log.txt" || true)|$(grep -c '^a: Password="<REDACTED>$' "$U2/log.txt")|$(grep -c "^b: Pwd='<REDACTED>;Server=x$" "$U2/log.txt")|$(grep -c '^c: Password="<REDACTED>";$' "$U2/log.txt")|$(cmp -s "$U2/log.txt" "$TMP_DIR/u_once.txt" && echo same || echo changed)"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 
