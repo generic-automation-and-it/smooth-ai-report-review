@@ -421,6 +421,15 @@ RENDER="$SCRIPT_DIR/lib/render-findings-summary.sh"
 check "Test 3f: the review's Coverage note says the rules were trimmed" "1" \
   "$(OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER" "$TMP_DIR/trim.json" 2>/dev/null | grep -c 'For 1 finding(s) the rules were trimmed to fit the request (rule files first)')"
 
+# Omission findings (PR 179 review 5331608121): the reviewer quotes the place
+# where the missing code must be, and the judge is told that is the evidence.
+check "Test 3g: the chunk prompt tells the reviewer how to quote an omission" "1" \
+  "$(grep -c 'quote the step, function or call \*\*where X must happen\*\*' "$SCRIPT_DIR/review-in-chunks.sh")"
+check "Test 3h: the supported question judges an omission by the place that lacks the code" "1|1|1" \
+  "$(jq -r '.per_finding.supported.instructions' "$SCRIPT_DIR/../assets/decisions-questions.json" | grep -c 'the demonstrating code is the place where it must be')|$(jq -r '.per_finding.supported.criteria.true' "$SCRIPT_DIR/../assets/decisions-questions.json" | grep -c 'For an omission')|$(jq -r '.per_finding.supported.criteria.false' "$SCRIPT_DIR/../assets/decisions-questions.json" | grep -c 'only mentions the topic')"
+check "Test 3i: the request still carries the supported question with its criteria" "true|true" \
+  "$(finding_reqs | head -1 | jq -r '(.questions.supported.criteria.true | test("omission")) and (.questions.supported.type == "noul")')|$(finding_reqs | head -1 | jq -r '.questions.supported.criteria.false | test("only mentions the topic")')"
+
 # --- 4. review-diff.sh ----------------------------------------------------------------
 echo ""
 echo "--- the diff as reviewed ---"

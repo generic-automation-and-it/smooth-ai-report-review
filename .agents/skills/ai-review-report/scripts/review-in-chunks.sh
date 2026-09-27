@@ -996,6 +996,7 @@ Before you anchor a finding at `75` or `100`, quote the verbatim line(s) that ma
 - "`dict.get()` may return None" → quote the dict's initialization.
 - "race between A and B" → quote both A and B.
 - "swapped argument / wrong return" → quote the call site **and** the signature.
+- "X is missing" (no guard, no redaction, no check, no test, no doc line) → quote the step, function or call **where X must happen** — the place that lacks it — not a nearby line that only mentions the topic, and name what is absent in `why_it_matters`. An omission is proven by showing the place, and a judge reading your quote sees only that place.
 
 **If you cannot quote the motivating line, you cannot claim `75`+ — step down to `50`.** This is enforced mechanically after the review, not on trust: a finding at `75` or `100` with no quoted first evidence is demoted to `50` automatically, and the demotion is counted in the posted report.
 
