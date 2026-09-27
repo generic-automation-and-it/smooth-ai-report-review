@@ -169,21 +169,17 @@
       <line x1="6" y1="20" x2="16" y2="20" stroke="#2dd4bf" stroke-width="1.8"/>
     </g>
     <text x="500" y="266" fill="#e6edf3" font-size="13" font-weight="600">Decisions AI</text>
-    <text x="500" y="281" fill="#8b949e" font-size="10">optional · Jev scores every finding</text>
+    <text x="500" y="281" fill="#8b949e" font-size="10">optional · Jev over HTTP (not via opencode)</text>
 
-    <!-- Remote decisions providers -->
+    <!-- Remote Jev: a hosted decisions URL -->
     <text x="464" y="309" fill="#2dd4bf" font-size="9" font-weight="600" letter-spacing="0.5">REMOTE</text>
-    <rect x="518" y="297" width="90" height="18" rx="9" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-    <text x="563" y="310" text-anchor="middle" fill="#5eead4" font-size="9">OpenRouter · Jev</text>
-    <rect x="614" y="297" width="84" height="18" rx="9" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-    <text x="656" y="310" text-anchor="middle" fill="#5eead4" font-size="9">OpenCode · Jev</text>
+    <rect x="516" y="297" width="188" height="18" rx="9" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+    <text x="610" y="310" text-anchor="middle" fill="#5eead4" font-size="9">Jev · https · OpenRouter / OpenCode</text>
 
-    <!-- Local decisions providers -->
+    <!-- Local Jev: a decisions URL on your own machine -->
     <text x="464" y="339" fill="#2dd4bf" font-size="9" font-weight="600" letter-spacing="0.5">LOCAL</text>
-    <rect x="518" y="327" width="66" height="18" rx="9" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-    <text x="551" y="340" text-anchor="middle" fill="#5eead4" font-size="9">LM Studio</text>
-    <rect x="590" y="327" width="60" height="18" rx="9" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-    <text x="620" y="340" text-anchor="middle" fill="#5eead4" font-size="9">openjev</text>
+    <rect x="516" y="327" width="188" height="18" rx="9" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+    <text x="610" y="340" text-anchor="middle" fill="#5eead4" font-size="9">Jev · http://localhost · LM Studio / openjev</text>
 
     <text x="580" y="370" text-anchor="middle" fill="#484f58" font-size="9">score % · rule-allowed · previously skipped</text>
     <text x="580" y="382" text-anchor="middle" fill="#484f58" font-size="9">shown next to priority and verdict</text>
@@ -250,7 +246,7 @@
       <tspan fill="#a78bfa" font-weight="600">opencode</tspan> — provider-agnostic model transport
     </text>
     <text x="480" y="458" text-anchor="middle" fill="#484f58" font-size="10">Native APIs  ·  LiteLLM proxy  ·  OpenCode Go gateway</text>
-    <text x="480" y="474" text-anchor="middle" fill="#2dd4bf" font-size="10">Decisions AI  ·  remote OpenRouter / OpenCode Jev  ·  local LM Studio / openjev</text>
+    <text x="480" y="474" text-anchor="middle" fill="#2dd4bf" font-size="10">Decisions AI  ·  Jev over HTTP  ·  remote URL or local URL</text>
   </g>
 
   <!-- Five consumption channels badge -->

@@ -9,9 +9,9 @@ Three review skills back it:
 - **`ai-review`** — consumes a posted review and applies fix/skip decisions (`/ai-review`).
 - **`ai-analyse`** — autonomous CI fixer for gate-authored low/medium findings (`/ai-analyse` when used interactively).
 
-**Decisions AI (optional).** Set `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` and a structured decision model (TypeSafe Jev) scores every finding before the review is posted. The scores appear next to each finding's priority, e.g. `(decision score 91% · rule-allowed 4% · previously skipped 88%)`, and a block-merge / risk line appears under the verdict. Choose the provider with `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`:
-- **Remote:** `OPENROUTER-DECISIONS` (OpenRouter, `typesafe/jev-1.13`, reuses `OPENCODE_OPENROUTER_API_KEY`) or `OPENCODE-GO-DECISIONS` (OpenCode, `jev-1.13`, reuses `OPENCODE_GO_OPENAI_API_KEY`).
-- **Local:** a Jev-compatible decisions server such as LM Studio or openjev.
+**Decisions AI (optional).** Set `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` and a structured decision model (TypeSafe Jev) scores every finding before the review is posted. The gate calls Jev directly over HTTP at a decisions URL, not through opencode. The scores appear next to each finding's priority, e.g. `(decision score 91% · rule-allowed 4% · previously skipped 88%)`, and a block-merge / risk line appears under the verdict. Choose the provider with `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`:
+- **Remote Jev (https):** `OPENROUTER-DECISIONS` (`https://openrouter.ai/api/alpha/decisions`, `typesafe/jev-1.13`, reuses `OPENCODE_OPENROUTER_API_KEY`) or `OPENCODE-GO-DECISIONS` (`https://opencode.ai/zen/v1/systemone`, `jev-1.13`, reuses `OPENCODE_GO_OPENAI_API_KEY`).
+- **Local Jev (http):** a Jev decisions server on your own machine, such as LM Studio or openjev at `http://localhost:…`.
 
 Scores are informational in the default `annotate` mode and never change the verdict there. See [Decision model scoring](#decision-model-scoring-optional).
 
