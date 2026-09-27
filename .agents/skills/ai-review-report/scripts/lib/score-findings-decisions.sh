@@ -449,9 +449,14 @@ diff_files > "$work/diff_files.txt"
 # decision vendor as code context: a finding's path is model output that PR
 # content can steer, and the code context goes to a third party. The finding's
 # own diff hunk is unaffected (it always went, like the chunk review's diff).
+# Directories are checked as well as the basename: an ordinary-named file inside
+# `.env/`, `.env.local/`, `.ssh/`, `.aws/` or `.gnupg/` is just as secret.
 is_sensitive_path() {
+  case "/$1/" in
+    */.env/*|*/.env.*/*|*/.ssh/*|*/.aws/*|*/.gnupg/*) return 0 ;;
+  esac
   case "${1##*/}" in
-    .env|.env.*|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfstate|*.tfstate.*) return 0 ;;
+    .env|.env.*|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.json|*.tfstate|*.tfstate.*) return 0 ;;
     id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|.npmrc|.pypirc|.netrc|.git-credentials|credentials|credentials.*) return 0 ;;
   esac
   return 1

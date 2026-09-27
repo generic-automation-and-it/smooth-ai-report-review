@@ -313,6 +313,17 @@ check "Test 2m: a secret-looking file gets no source excerpt and no named-file h
   "$(printf '%s\n' "$ctx" | grep -c '\.env\.production` around')|$(printf '%s\n' "$ctx" | grep -c 'server.pem')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `app.sh`')"
 check "Test 2n: a path named with a slash is looked up without a stray-backslash grep warning" "0" \
   "$(grep -c 'stray' "$TMP_DIR/sec.log" || true)"
+# The path check itself: directory components and Terraform JSON vars count too.
+eval "$(awk '/^is_sensitive_path\(\) \{/,/^\}/' "$SCORER")"
+sens=""
+for p in .env config/.env.local/db.yml .env/settings.json deploy/.ssh/config home/.aws/credentials .gnupg/pubring.kbx \
+         infra/prod.tfvars.json infra/x.auto.tfvars.json infra/state.tfstate.backup; do
+  is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
+done
+for p in src/env.sh docs/environment.md src/.envrc_notes/readme.md infra/main.tf app/ssh/client.go; do
+  is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
+done
+check "Test 2o: sensitive directory components and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyynnnnn" "$sens"
 
 
 # --- 3. findings_with_rules counts only requests actually sent -------------------------
