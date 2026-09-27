@@ -195,7 +195,7 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Context**: Semantic grouping and aggregation are classification/summarisation; the old `auto` label hid the real model behind a proxy router and coupled the tiers.
 - **Decision**:
   - Every non-chunk-review call runs on `OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR` (default `gemini-3-flash-preview`), falling back to the **resolved review model** (known healthy).
-  - The orchestrator is intentionally **not** probed at startup.
+  - **Amended by LADR-066:** the orchestrator is now probed in the background at startup; a failed probe reroutes orchestrator calls to the resolved review model.
   - Removed, do not restore: `auto`, `resolve_model()`'s `auto`→flash mapping, `get_aggregation_model()`.
 - **Consequences**: `**Model:**` shows the resolved review model.
 ### LADR-023: opencode as Transport for Gemini Models
@@ -263,7 +263,7 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Date**: 2026-06-07
 - **Status**: Accepted (supersedes LADR-017; amended by LADR-100 — no holistic section is written)
 - **Context**: The default `OPENCODE_REVIEW_MIN_FILE_COUNT_BEFORE_CHUNCKING=10` puts most small PRs in one chunk, so LADR-017's short-circuit left the common case with placeholders.
-- **Decision**: `aggregate-reviews.sh` runs the holistic call for every PR (all summary sections; phrasing adapts to chunk count). Safety stays downstream and chunk-count-agnostic: `chunk_<n>.failed` fail-closed (LADR-031), incremental never `APPROVE` (LADR-004), REQUEST_CHANGES on a <50-byte summary; LADR-020 still applies.
+- **Decision**: `aggregate-reviews.sh` runs the aggregation summary call for every PR (including single-chunk PRs). LADR-100 removed the holistic output and superseded LADR-020's sections. Safety stays downstream and chunk-count-agnostic: `chunk_<n>.failed` fail-closed (LADR-031), incremental never `APPROVE` (LADR-004), REQUEST_CHANGES on a <50-byte summary.
 ### LADR-031: Out-of-Band Chunk-Failure Signal (flag file, not marker-text grep)
 
 - **Date**: 2026-06-07
@@ -291,8 +291,8 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
   - `scripts/eval/` drives the **real** `review-in-chunks.sh` with the CI transport verbatim (`resolve-provider.sh`, the config installer — `prepare-opencode-config.sh` since LADR-071 —, `opencode-health.sh`, `opencode-with-fallback.sh`) — no new transport or prompt copy.
   - **Precision**: fixtures per DR; any re-raise at Critical/High/Medium fails (**zero tolerance**, deliberately stricter than the gate's blocking bar). Fixtures are minimal, carry a "do NOT flag" comment, and must not contain a real bug (DR-001 uses `init` so it compiles).
   - **Recall**: synthesized seeded defects must be flagged at ≥ labeled severity (`manifest.json`); fails below `EVAL_RECALL_THRESHOLD` (default 80%).
-  - LADR-012 grammar; each fixture runs in a throwaway git sandbox with the DR standards (`.github/instructions/code-review-standards.instructions.md` + DR-012…014 supplement) at production dot-paths.
-  - Paid triggers: `eval/local-evals.sh`, `workflow_dispatch`, `pull_request` as a **required check** (draft/fork skip via job `if:`); no post-merge canary (double bill). Relevance is an in-job `Scope check`, never `paths:` — a `paths:` filter on a required check wedges every PR it skips.
+  - LADR-012 grammar; each fixture runs in a throwaway git sandbox with the corpus DR standards snapshot and supplement assembled at the production dot-path `.agents/skills/code-review-standards/SKILL.md`.
+  - Paid triggers: `eval/local-evals.sh`, `workflow_dispatch`, `pull_request` in the report-only `llm-evals` job (`continue-on-error: true`; draft/fork skip via job `if:`). The separate offline `opencode-v2-regressions` job is blocking. No post-merge canary (double bill). Relevance is an in-job `Scope check`, never `paths:` — a `paths:` filter on a required check wedges every PR it skips.
   - **Never in the default bash-test path**; `eval/test-evals.sh` is the offline stub (`EVAL_SELFTEST`). `EVAL_SAMPLES>1` → majority rule for precision and recall (LADR-069).
   - `EVAL_ARTIFACT_DIR` keeps `<id>.review.md`/`<fixture>.lastlog`; CI uploads `ci_temp/eval-artifacts/` with `if: always()` to tell real re-raises from fixture hygiene.
 - **Consequences**: Path coupling covers `scripts/eval/`. Orchestrator-tier calls are out of scope.
