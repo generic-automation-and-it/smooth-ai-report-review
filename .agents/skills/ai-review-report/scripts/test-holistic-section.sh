@@ -213,6 +213,13 @@ bash "$HS" place "$TMP_DIR/p5.md" "$TMP_DIR/h1.md"
 check "Test 6e: a fenced \`## \` line inside the Issues Summary does not end it" "1" \
   "$(awk '/^## not a heading/{n=NR} /^## 🔄 Holistic/{print (n && NR > n) ? 1 : 0; exit}' "$TMP_DIR/p5.md")"
 
+# Review 5331393801 finding 5: the only Issues Summary heading is fenced, so
+# the target is the Recommendation, not the end of the body.
+printf '## 📋 Overall Summary\n```markdown\n## 🔍 Issues Summary\n```\n\n## 🎯 Recommendation\nok\n' > "$TMP_DIR/p7.md"
+bash "$HS" place "$TMP_DIR/p7.md" "$TMP_DIR/h1.md"
+check "Test 6f: a fenced Issues Summary heading does not choose the target; placed before the Recommendation" "📋 Overall Summary,🔄 Holistic Cross-Chunk Analysis,🎯 Recommendation" \
+  "$(awk '/^[[:space:]]*```/{f=!f; next} !f && /^## /' "$TMP_DIR/p7.md" | sed 's/^## //' | paste -sd, -)"
+
 # --- Test 7: degradation ------------------------------------------------------
 bash "$HS" split "$TMP_DIR/missing.md" "$TMP_DIR/m7.md" "$TMP_DIR/h7.md"
 check "Test 7a: missing input → empty outputs, exit 0" "0|0|0" \
