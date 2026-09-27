@@ -607,8 +607,13 @@ check "Test 9c2: the decision block starts from a clean slate (no stale status o
   "$(grep -c '^            rm -rf ci_temp/decisions$' "$ANALYSE_WF")|$(awk '/^            rm -rf ci_temp\/decisions$/{getline; print}' "$ANALYSE_WF" | grep -c 'rm -f ci_temp/filter_reports/\*_decisions_withheld ')"
 check "Test 9c3: an unavailable reviewed diff sets the status itself instead of reading a file" "1" \
   "$(awk '/if \[ "\$diff_revision" = "unavailable" \]; then/{f=1} f && /decisions_status="unavailable"/{print 1; exit} f && /^            else$/{exit}' "$ANALYSE_WF")"
-check "Test 9d: the analyse run uploads its artifact, always, without the gate's copy" "1|1|1" \
-  "$(grep -c 'name: ai-analyse-run-\${{ github.run_id }}' "$ANALYSE_WF")|$(awk '/- name: Upload ai-analyse run artifacts/{getline; print}' "$ANALYSE_WF" | grep -c 'if: always()')|$(grep -c '!ci_temp/decisions/artifact/' "$ANALYSE_WF")"
+check "Test 9d: the analyse run uploads its artifact, always" "1|1" \
+  "$(grep -c 'name: ai-analyse-run-\${{ github.run_id }}' "$ANALYSE_WF")|$(awk '/- name: Upload ai-analyse run artifacts/{getline; print}' "$ANALYSE_WF" | grep -c 'if: always()')"
+# Review 5331170285 finding 3: named files only — never the whole decisions
+# directory, which also holds the raw PR diff and body and the gate's artifact.
+upload_paths="$(awk '/- name: Upload ai-analyse run artifacts/{f=1} f && /path: \|/{p=1; next} p && /^ *[a-z-]+:/{exit} p' "$ANALYSE_WF")"
+check "Test 9d2: the upload names its files: scorer output yes; the decisions dir, PR diff, PR body and gate artifact no" "1|0|0|0" \
+  "$(printf '%s\n' "$upload_paths" | grep -c 'ci_temp/decisions/out/$')|$(printf '%s\n' "$upload_paths" | grep -cE 'ci_temp/decisions/?$' || true)|$(printf '%s\n' "$upload_paths" | grep -cE 'pr_diff|pr_body|decisions/artifact' || true)|$(printf '%s\n' "$upload_paths" | grep -c '^ *!' || true)"
 check "Test 9e: the analyse job forwards the code-context Variable" "1" \
   "$(grep -c "OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT || '1' }}" "$ANALYSE_WF")"
 for t in test-decisions-hardening.sh ../../ai-analyse/scripts/test-filter-failing-test-findings.sh \

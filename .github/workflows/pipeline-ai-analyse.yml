@@ -917,10 +917,17 @@ jobs:
       # FIX/SKIP table, the failing-test and decision-model withhold reports,
       # the decision recommendations and the test-gate report — so the
       # decision model's advice can later be compared with what the fixer did
-      # and whether it held. Monitoring data, never labels (LADR-096). The
-      # gate's own artifact, downloaded for evidence, is left out: it is
-      # already uploaded by the run that produced it. No secret is on disk:
-      # the scorer's auth header lives in its own mktemp dir, removed on exit.
+      # and whether it held. Monitoring data, never labels (LADR-096).
+      #
+      # A NAMED list, never the whole decisions directory: that also holds the
+      # raw PR diff and PR body the scorer read (pr_diff.txt, pr_body.md), and
+      # a secret pasted into either would sit in a 30-day artifact (review
+      # 5331170285 finding 3). Both can be fetched from the PR again; the
+      # parsed findings, scope, Skip Areas and scorer output are what the
+      # comparison needs. The gate's own artifact, downloaded for evidence, is
+      # left out too: the run that produced it already uploaded it. No secret
+      # is on disk: the scorer's auth header lives in its own mktemp dir,
+      # removed on exit.
       - name: Upload ai-analyse run artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -930,8 +937,9 @@ jobs:
             ci_temp/analyse_prompt.md
             ci_temp/analyse_out.md
             ci_temp/filter_reports/
-            ci_temp/decisions/
-            !ci_temp/decisions/artifact/
+            ci_temp/decisions/scope.md
+            ci_temp/decisions/skip_areas.md
+            ci_temp/decisions/out/
             ci_temp/test_gate/report.txt
           if-no-files-found: ignore
           retention-days: 30
