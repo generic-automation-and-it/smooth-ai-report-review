@@ -62,6 +62,17 @@
       ]
     }
   },
+  "per_finding_rules": {
+    "$comment": "Asked only when the scorer is given a rules file (5th argument). `supported` judges evidence; this judges POLICY, so the two stay separate questions — a finding can be well evidenced and still sanctioned by the project's own standards.",
+    "sanctioned": {
+      "type": "noul",
+      "instructions": "`project_rules` are this project's own review standards. Does a rule in `project_rules` explicitly declare the pattern that `finding` flags to be intentional, required or acceptable in code like this, so that the finding should not be raised? Check the rule's conditions against the code in `diff_hunk`, not just its topic.",
+      "criteria": {
+        "true": "A rule names this pattern or this exact situation as intentional or accepted, and the code meets the rule's stated conditions.",
+        "false": "No rule covers this pattern, or a rule covers the topic but its conditions do not hold for this code (for example, a rule that exempts one context while this code is in another), or a rule forbids the pattern."
+      }
+    }
+  },
   "pr_level": {
     "block_merge": {
       "type": "noul",

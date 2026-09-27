@@ -186,6 +186,25 @@ scripts/eval/
   (removed rethrow) to Critical. Read as: tag demotion / filter at 0.5 is a
   plausible, catch-safe candidate on this corpus; severity reconciliation is
   not; and the policy-exempt class needs project rules in the judge's state.
+  **Second result (same day): project rules close most of the gap.** A third
+  variant, `stripped+rules`, passes the corpus's DR standards as the scorer's
+  optional rules file (5th argument), which adds the `sanctioned` question —
+  "does a project rule declare this pattern acceptable?", kept separate from
+  `supported` so evidence and policy stay distinguishable. `sanctioned`
+  separated the planted false positives (mean 0.73) from the true catches (all
+  ≤ 0.11) with AUC **0.99**, and `supported` itself rose to AUC 0.99 with the
+  rules present. `either@0.50` (drop when `supported` < 0.5 or `sanctioned` ≥
+  0.5) removed **13 of 14** false positives and lost **no** catch. MC-001 — a
+  materialized NRE that DR-012's expression-tree exemption does not cover —
+  scored `sanctioned` 0.11, so Jev checked the rule's conditions rather than
+  its topic. The one survivor is DR-013 (mode-aware dead code), which needs
+  reasoning about the removed code path; Jev still rates it Critical. Severity
+  also improves with rules (9/14 false positives rated below Medium, against
+  1/14 without), but `sev@c` gains little because Jev's severity confidence is
+  mostly below 0.6. Re-running the stripped variant moved scores by at most
+  0.05, so a single run is close to deterministic. Caveat: these rules were
+  written for these fixtures and name each pattern; a real repository's
+  standards are less targeted, so this is an upper bound until measured on one.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -258,6 +277,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | `stripped+rules` calibration variant and the scorer's optional rules file / `sanctioned` question: AUC 0.99, `either@0.50` removes 13/14 planted false positives with no catch lost; DR-013 is the only survivor. | LADR-093 |
 | 2026-09-27 | Planted findings: `known_false_positive` / `known_true_positive` in every manifest and `calibrate-decisions.sh` (as-is + stripped variants), run with the measurement. First result recorded above: catch-safe at 0.5, AUC 0.93 as-is / 0.77 code-only, severity reconciliation not supported. | LADR-093 |
 | 2026-09-27 | Decision-model scoring is now measured: `EVAL_DECISIONS` runs `record_decisions` (real merge + scorer in annotate) per sample and `lib/decisions-report.py` reports separation (AUC) and what filter/demote/severity policies would have done, after the verdict and without ever changing it. `test-decisions-report.sh` covers it offline. | LADR-093 |
 | 2026-09-24 | Recorded that LADR-093 decision-model scoring is invisible to this harness (it scores pre-merge chunk markdown) and what the post-merge measurement leg for issue #156 PR C must do. | LADR-093 |

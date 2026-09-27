@@ -32,6 +32,8 @@ measures all of them:
   filter@t    drop non-critical findings with supported < t (hunk found)
   demote@t    [VERIFIED] -> [SPECULATIVE] when supported < t
   sev@c       adopt Jev's severity when its choice confidence >= c
+  rules@t     drop non-critical findings with sanctioned >= t   (rules given)
+  either@t    drop non-critical when supported < t OR sanctioned >= t
 """
 
 from __future__ import annotations
@@ -136,6 +138,23 @@ def sev_at(c):
     return apply
 
 
+def rules_at(t):
+    def apply(findings):
+        return [
+            f for f in findings
+            if f.get("severity") == "critical"
+            or f.get("sanctioned") is None
+            or f["sanctioned"] < t
+        ]
+    return apply
+
+
+def either_at(t):
+    def apply(findings):
+        return rules_at(t)(filter_at(t)(findings))
+    return apply
+
+
 POLICIES = [
     ("base", base),
     ("filter@0.50", filter_at(0.50)),
@@ -144,6 +163,10 @@ POLICIES = [
     ("demote@0.25", demote_at(0.25)),
     ("sev@0.60", sev_at(0.60)),
     ("sev@0.80", sev_at(0.80)),
+]
+RULE_POLICIES = [
+    ("rules@0.50", rules_at(0.50)),
+    ("either@0.50", either_at(0.50)),
 ]
 
 
@@ -230,6 +253,21 @@ def main():
           + ("" if a is not None else "  (needs at least one of each)"))
     print("")
 
+    # --- 1b. the policy question, when the scorer was given project rules -------
+    fp_s = [f.get("sanctioned") for d in scored for f in d.get("findings", [])
+            if is_false_positive(d, f) and f.get("sanctioned") is not None]
+    tp_s = [f.get("sanctioned") for d in scored for f in d.get("findings", [])
+            if is_true_catch(d, f) and f.get("sanctioned") is not None]
+    has_rules = bool(fp_s or tp_s)
+    if has_rules:
+        print(" 1b. `sanctioned` (a project rule allows it) by ground truth")
+        print(f"    known false positives : {summarise(fp_s)}")
+        print(f"    true catches          : {summarise(tp_s)}")
+        # Higher sanctioned should mean MORE likely a false positive, so the
+        # separation is measured on (1 - sanctioned) like `supported`.
+        print(f"    separation (AUC)      : {fmt(auc([1 - x for x in tp_s], [1 - x for x in fp_s]))}")
+        print("")
+
     # --- 2. what would Jev's severity have said? ------------------------------
     fp_below = sum(1 for s in fp_sev if s in SEV_RANK and SEV_RANK[s] < FLAG_MIN)
     tp_ok = sum(1 for s, m in tp_sev
@@ -245,7 +283,7 @@ def main():
     print(" 3. What each policy would have done (structured findings, per sample)")
     print(f"    {'policy':<12} {'DR re-raised':>14} {'MC caught':>11}   verdict vs base")
     base_dr = base_mc = None
-    for name, pol in POLICIES:
+    for name, pol in POLICIES + (RULE_POLICIES if has_rules else []):
         dr_hits = sum(1 for d in dr if fixture_outcome(d, pol(d.get("findings", [])))[0])
         mc_hits = sum(1 for d in mc if fixture_outcome(d, pol(d.get("findings", [])))[1])
         if name == "base":

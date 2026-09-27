@@ -111,6 +111,7 @@ case "$kind" in
                           probabilities: { critical: 0.1, high: 0.2, medium: 0.6, low: 0.1 },
                           confidence: 0.74 },
               pre_existing: { type: "noul", noul: 0.08 },
+              sanctioned: { type: "noul", noul: (if ($f.title | test("weak")) then 0.93 else 0.04 end) },
               actionability: { type: "score", score: 1.6, confidence: 0.6,
                                legend: { "0": "Advisory", "1": "Judgement", "2": "Mechanical" },
                                probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 } } },
@@ -195,7 +196,7 @@ run_scorer() {
     OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 \
     OPENCODE_GO_OPENAI_API_KEY=go-secret-key OPENCODE_OPENROUTER_API_KEY=or-secret-key \
     "$@" \
-    bash "$SCORER" "$merged" "$TMP_DIR/reviews_$name" "$total" "$DIFF" > "$TMP_DIR/$name.log" 2>&1
+    bash "$SCORER" "$merged" "$TMP_DIR/reviews_$name" "$total" "$DIFF" ${RULES_FILE:+"$RULES_FILE"} > "$TMP_DIR/$name.log" 2>&1
 }
 calls() { ls "$STUB_DIR"/url_* 2>/dev/null | wc -l | tr -d ' '; }
 
@@ -469,6 +470,30 @@ if [ -n "$PY_BIN" ]; then
   check "Test 10a: a producer-supplied decisions object is stripped by the merge" "false/1" \
     "$(printf '%s' "$out" | jq -r '"\(.findings[0] | has("decisions"))/\(.findings | length)"')"
 fi
+
+# --- Test 13: optional project rules (5th argument) --------------------------------
+printf '%s\n' "## DR-900: weak claims are accepted here" > "$TMP_DIR/rules.md"
+write_merged "$TMP_DIR/t13.json"
+RULES_FILE="$TMP_DIR/rules.md" run_scorer t13 "$TMP_DIR/t13.json" 2
+check "Test 13a: with rules, every finding request carries project_rules" "4" \
+  "$(jq -s '[.[] | select(.state.finding? and (.state.project_rules | test("DR-900")))] | length' "$STUB_DIR"/req_*.json)"
+check "Test 13b: with rules, the sanctioned question is asked" "true" \
+  "$(jq -s '[.[] | select(.state.finding?)][0].questions | has("sanctioned")' "$STUB_DIR"/req_*.json)"
+check "Test 13c: the asset comment never reaches the provider" "false" \
+  "$(jq -s '[.[] | select(.state.finding?)][0].questions | has("$comment")' "$STUB_DIR"/req_*.json)"
+check "Test 13d: sanctioned is recorded per finding, separate from supported" "0.93/0.12" \
+  "$(jq -r '.findings[0].decisions | "\(.sanctioned)/\(.supported)"' "$TMP_DIR/t13.json")"
+check "Test 13e: without rules the request carries neither project_rules nor sanctioned" "0/0" \
+  "$(jq -s '[.[] | select(.state.project_rules?)] | length' "$TMP_DIR"/stub_t2/req_*.json)/$(jq -s '[.[] | select(.questions.sanctioned?)] | length' "$TMP_DIR"/stub_t2/req_*.json)"
+check "Test 13f: without rules sanctioned is null, not a guessed value" "null" \
+  "$(jq -r '.findings[0].decisions.sanctioned' "$TMP_DIR/t2.json")"
+head -c 20000 /dev/zero | tr '\0' 'r' > "$TMP_DIR/big-rules.md"
+write_merged "$TMP_DIR/t13b.json"
+RULES_FILE="$TMP_DIR/big-rules.md" run_scorer t13b "$TMP_DIR/t13b.json" 2
+check "Test 13g: oversized rules are capped and say so" "true/true" \
+  "$(jq -s '[.[] | select(.state.project_rules?)][0].state.project_rules | "\(length < 12200)/\(test("project rules truncated"))"' -r "$STUB_DIR"/req_*.json)"
+check "Test 13h: capped rules still fit the request budget" "true" \
+  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
 
 # --- Test 12: enriched findings validate against the schema ---------------------------
 # Optional: needs the jsonschema package, which ubuntu-latest does not promise.

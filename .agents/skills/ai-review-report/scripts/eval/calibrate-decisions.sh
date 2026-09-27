@@ -20,6 +20,13 @@
 #             Jev must judge the code alone. This is the honest discrimination
 #             test; a large gap between the variants means Jev is reading the
 #             comments, not the code.
+#   stripped+rules
+#             stripped, plus the corpus's project standards (the same DR
+#             documents the chunk reviewer is given) as the scorer's rules file,
+#             which adds the `sanctioned` question. Tests whether knowing the
+#             project's decisions lets Jev reject the policy-exempt class, and
+#             whether it checks a rule's conditions (DR-012 exempts expression
+#             trees; MC-001 is a materialized NRE the rule does not cover).
 #
 # Usage: calibrate-decisions.sh [out_dir]
 #   Uses OPENCODE_REVIEW_REPORT_DECISIONS_{PROVIDER,MODEL,TIMEOUT} and that
@@ -41,7 +48,12 @@ command -v git >/dev/null 2>&1 || { echo "❌ git is required" >&2; exit 2; }
 [ -f "$SCORER" ] || { echo "❌ scorer not found at $SCORER" >&2; exit 2; }
 
 OUT="${1:-$(mktemp -d "${TMPDIR:-/tmp}/jev-calibration.XXXXXX")}"
-mkdir -p "$OUT/as-is" "$OUT/stripped" "$OUT/work"
+mkdir -p "$OUT/as-is" "$OUT/stripped" "$OUT/stripped+rules" "$OUT/work"
+# The project standards the chunk reviewer reads (run-evals.sh assembles the
+# same two files into the fixture sandbox).
+RULES="$OUT/work/project-rules.md"
+{ cat "$CORPUS_DIR/context/code-review-standards.md"; printf '\n\n'
+  cat "$CORPUS_DIR/context/code-review-standards-supplement.md"; } > "$RULES" 2>/dev/null || : > "$RULES"
 
 # strip_comments <file> — in place, by extension. Conservative on purpose: a
 # trailing `//` only counts with whitespace on both sides, so `https://…` in a
@@ -68,11 +80,11 @@ calibrate_one() {
     cd "$sb" || exit 0
     git init -q && git config user.email c@c && git config user.name c
     if [ -d "$fdir/before" ]; then cp -R "$fdir/before/." .; fi
-    [ "$variant" = "stripped" ] && git ls-files -o --exclude-standard -z | while IFS= read -r -d '' f; do strip_comments "$f"; done
+    case "$variant" in stripped*) git ls-files -o --exclude-standard -z | while IFS= read -r -d '' f; do strip_comments "$f"; done ;; esac
     git add -A && git commit -q --allow-empty -m base
     git rm -rq --ignore-unmatch . >/dev/null 2>&1 || true
     cp -R "$fdir/after/." .
-    [ "$variant" = "stripped" ] && find . -path ./.git -prune -o -type f -print0 | while IFS= read -r -d '' f; do strip_comments "$f"; done
+    case "$variant" in stripped*) find . -path ./.git -prune -o -type f -print0 | while IFS= read -r -d '' f; do strip_comments "$f"; done ;; esac
     git add -A && git commit -q --allow-empty -m head
     mkdir -p ci_temp/reviews
     git diff HEAD~1..HEAD > ci_temp/pr_diff.txt
@@ -94,8 +106,10 @@ calibrate_one() {
           malformed_returns: 0, malformed_findings: 0, malformed_reasons: {}, malformed_return_reasons: {} }' \
       > ci_temp/findings.merged.json
 
+    rules_arg=""
+    [ "$variant" = "stripped+rules" ] && rules_arg="$RULES"
     OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
-      bash "$SCORER" ci_temp/findings.merged.json ci_temp/reviews 1 ci_temp/pr_diff.txt \
+      bash "$SCORER" ci_temp/findings.merged.json ci_temp/reviews 1 ci_temp/pr_diff.txt ${rules_arg:+"$rules_arg"} \
       > ci_temp/score.log 2>&1 || true
 
     status="unavailable"; note=""
@@ -118,6 +132,7 @@ calibrate_one() {
                           supported: (.decisions.supported // null),
                           jev_severity: (.decisions.severity.choice // null),
                           jev_confidence: (.decisions.severity.confidence // null),
+                          sanctioned: (.decisions.sanctioned // null),
                           diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' \
       > "$OUT/$variant/$id.1.json"
   )
@@ -129,10 +144,10 @@ manifests=( "$CORPUS_DIR"/must-not-flag/*/manifest.json "$CORPUS_DIR"/must-catch
 shopt -u nullglob
 [ "${#manifests[@]}" -gt 0 ] || { echo "❌ no fixtures under $CORPUS_DIR" >&2; exit 2; }
 
-echo "Calibrating ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER:-OPENCODE-GO-DECISIONS} on ${#manifests[@]} planted findings × 2 variants (as-is, stripped)…"
+echo "Calibrating ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER:-OPENCODE-GO-DECISIONS} on ${#manifests[@]} planted findings × 3 variants (as-is, stripped, stripped+rules)…"
 # Plain batches, not `wait -n` (Bash 3.2, same reason as the scorer).
 jobs_in_batch=0
-for variant in as-is stripped; do
+for variant in as-is stripped stripped+rules; do
   for m in "${manifests[@]}"; do
     calibrate_one "$m" "$variant" &
     jobs_in_batch=$((jobs_in_batch + 1))
@@ -145,9 +160,11 @@ if command -v python3 >/dev/null 2>&1; then
   python3 "$REPORT" "$OUT/as-is" "PLANTED FINDINGS — as-is (fixture comments kept)" || true
   echo ""
   python3 "$REPORT" "$OUT/stripped" "PLANTED FINDINGS — stripped (comments removed; code only)" || true
+  echo ""
+  python3 "$REPORT" "$OUT/stripped+rules" "PLANTED FINDINGS — stripped + project rules (code only, standards given)" || true
 else
   echo "ℹ️  Records written to $OUT; no python3 to summarise them."
 fi
 echo ""
-echo "Records: $OUT/{as-is,stripped}/"
+echo "Records: $OUT/{as-is,stripped,stripped+rules}/"
 exit 0

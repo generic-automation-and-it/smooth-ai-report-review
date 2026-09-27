@@ -218,6 +218,7 @@ record_decisions() {
                           supported: (.decisions.supported // null),
                           jev_severity: (.decisions.severity.choice // null),
                           jev_confidence: (.decisions.severity.confidence // null),
+                          sanctioned: (.decisions.sanctioned // null),
                           diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' \
       > "$DECISIONS_DIR/${id}.${sample}.json" 2>/dev/null || true
   )

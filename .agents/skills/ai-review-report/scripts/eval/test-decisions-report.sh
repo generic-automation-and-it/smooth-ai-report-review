@@ -66,6 +66,28 @@ check "1j: Jev severity — false positive rated below Medium" "1" \
 check "1k: no records → says so, exit 0" "0/1" \
   "$(mkdir -p "$TMP/empty"; o="$(python3 "$REPORT" "$TMP/empty")"; echo "$?/$(printf '%s' "$o" | grep -c 'did not run')")"
 
+# Rule-based policies, on records that carry `sanctioned` (rules were given).
+R2="$TMP/records-rules"; mkdir -p "$R2"
+fr() { # fr <severity> <title> <supported> <sanctioned>
+  printf '{"severity":"%s","verified":true,"confidence":100,"title":"%s","why_it_matters":"w","supported":%s,"sanctioned":%s,"jev_severity":"medium","jev_confidence":0.5,"diff_hunk_found":true}' "$@"
+}
+# A policy-exempt false positive: well evidenced (0.85) but sanctioned (0.9).
+printf '{"fixture":"DR-950","kind":"must-not-flag","sample":1,"min_severity":"HIGH","forbidden_claim":"langversion","status":"scored","findings":[%s]}' \
+  "$(fr medium 'Missing LangVersion' 0.85 0.90)" > "$R2/DR-950.1.json"
+# A hallucinated false positive: not sanctioned (0.3) but unsupported (0.1).
+printf '{"fixture":"DR-951","kind":"must-not-flag","sample":1,"min_severity":"HIGH","forbidden_claim":"invalid","status":"scored","findings":[%s]}' \
+  "$(fr high 'Invalid action ref' 0.10 0.30)" > "$R2/DR-951.1.json"
+printf '{"fixture":"MC-950","kind":"must-catch","sample":1,"min_severity":"HIGH","forbidden_claim":"","status":"scored","findings":[%s]}' \
+  "$(fr high 'SQL injection' 0.95 0.05)" > "$R2/MC-950.1.json"
+out2="$(python3 "$REPORT" "$R2")"
+check "1l: the sanctioned section appears when rules were given" "1" "$(printf '%s\n' "$out2" | grep -c '1b. `sanctioned`')"
+check "1m: rules@0.50 removes only the policy-exempt false positive" "1" \
+  "$(printf '%s\n' "$out2" | grep -cE '^ +rules@0.50 +1/2 +1/1 ')"
+check "1n: either@0.50 removes both kinds without losing the catch" "1" \
+  "$(printf '%s\n' "$out2" | grep -cE '^ +either@0.50 +0/2 +1/1 ')"
+check "1o: without sanctioned values the rule policies are not printed" "0" \
+  "$(printf '%s\n' "$out" | grep -cE '^ +(rules|either)@')"
+
 # --- 2. record_decisions, end to end on a fake fixture sandbox ----------------------
 # The function is cut out of run-evals.sh, so this exercises the real code, not
 # a copy. It drives the REAL merge-findings.sh and score-findings-decisions.sh.
@@ -96,7 +118,7 @@ if jq -e '.questions.preflight' "$data" >/dev/null 2>&1; then
 elif jq -e '.questions.block_merge' "$data" >/dev/null 2>&1; then
   printf '{"model":"jev-1.13","answers":{"block_merge":{"type":"noul","noul":0.2},"dominant_risk":{"type":"choice","choice":"maintainability","confidence":0.5},"overall_risk":{"type":"score","score":1.0,"confidence":0.5}}}' > "$out"
 else
-  printf '{"model":"jev-1.13","answers":{"supported":{"type":"noul","noul":0.07},"severity":{"type":"choice","choice":"low","probabilities":{},"confidence":0.88},"pre_existing":{"type":"noul","noul":0.1},"actionability":{"type":"score","score":0.4,"confidence":0.6}}}' > "$out"
+  printf '{"model":"jev-1.13","answers":{"supported":{"type":"noul","noul":0.07},"severity":{"type":"choice","choice":"low","probabilities":{},"confidence":0.88},"pre_existing":{"type":"noul","noul":0.1},"sanctioned":{"type":"noul","noul":0.2},"actionability":{"type":"score","score":0.4,"confidence":0.6}}}' > "$out"
 fi
 printf '200'
 SHIM
@@ -159,9 +181,9 @@ check "4c: every planted evidence line exists in its fixture file" "0" \
 CAL="$TMP/cal"
 ( export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0
   bash "$SCRIPT_DIR/calibrate-decisions.sh" "$CAL" > "$TMP/cal.log" 2>&1 )
-check "4d: calibration scores 20 planted findings in each of two variants" "20/20" \
-  "$(ls "$CAL/as-is" | wc -l | tr -d ' ')/$(ls "$CAL/stripped" | wc -l | tr -d ' ')"
-check "4e: ground truth holds — all 14 planted FPs count as DR re-raises, all 6 TPs as catches (both variants)" "2" \
+check "4d: calibration scores 20 planted findings in each of three variants" "20/20/20" \
+  "$(ls "$CAL/as-is" | wc -l | tr -d ' ')/$(ls "$CAL/stripped" | wc -l | tr -d ' ')/$(ls "$CAL/stripped+rules" | wc -l | tr -d ' ')"
+check "4e: ground truth holds — all 14 planted FPs count as DR re-raises, all 6 TPs as catches (every variant)" "3" \
   "$(grep -cE '^ +base +14/14 +6/6 ' "$TMP/cal.log")"
 # Code comments only: Markdown headings (DR-014 ships its LADR document, which
 # is the point of that fixture) and C# directives such as `#nullable` are not
@@ -175,6 +197,10 @@ check "4f2: the as-is variant keeps them (the two variants really differ)" "true
   "$(find "$CAL"/work/as-is-* -path '*/.git' -prune -o -name '*.cs' -type f -print0 | xargs -0 grep -lE '^[[:space:]]*//' 2>/dev/null | grep -q . && echo true || echo false)"
 check "4g: every planted finding quotes its code line (no line-not-found fallback)" "0" \
   "$(jq -r '.findings[0].first_evidence' "$CAL"/work/*/ci_temp/findings.merged.json | grep -cE ' -- $' || true)"
+check "4i: only the rules variant sends project rules (the DR standards)" "0/20" \
+  "$(cat "$CAL"/work/stripped-*/ci_temp/score.log >/dev/null 2>&1; jq -s '[.[] | select(.findings[0].sanctioned != null)] | length' "$CAL"/stripped/*.json)/$(jq -s '[.[] | select(.findings[0].sanctioned != null)] | length' "$CAL"/stripped+rules/*.json)"
+check "4j: the rules report adds the sanctioned section and the rule policies" "1/1/1" \
+  "$(grep -c '1b. `sanctioned`' "$TMP/cal.log")/$(grep -cE '^ +rules@0.50 ' "$TMP/cal.log")/$(grep -cE '^ +either@0.50 ' "$TMP/cal.log")"
 check "4h: run-evals runs the calibration only with the measurement, and it cannot abort" "1" \
   "$(grep -c 'calibrate-decisions.sh" "\${EVAL_ARTIFACT_DIR:+\$EVAL_ARTIFACT_DIR/calibration}" || true' "$RUN_EVALS")"
 
