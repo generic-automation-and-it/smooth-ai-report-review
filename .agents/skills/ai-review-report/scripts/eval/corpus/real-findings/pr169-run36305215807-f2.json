@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-98bf5f3-F2",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36305215807,
+    "commit": "98bf5f3",
+    "pr": "169",
+    "number": 2
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 100,
+      "title": "Excluded decision samples are counted but not identified",
+      "why_it_matters": "A report with unavailable samples gives only their count, so a reader cannot tell which fixtures did not contribute to a policy comparison without inspecting records individually. Name each excluded fixture and sample with its status and note as the measurement contract requires.",
+      "file": ".agents/skills/ai-review-report/scripts/eval/lib/decisions-report.py",
+      "line": 227,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/eval/lib/decisions-report.py:227 -- print(f\" Excluded       : {unusable} sample(s) with no usable decisions \"",
+      "supported": 0.88,
+      "jev_severity": "medium",
+      "jev_confidence": 0.79,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

@@ -19,6 +19,9 @@ Ground truth comes from the corpus, not from Jev and not from the chunk model:
     the harness's own strict rule, DR-014).
   - must-catch fixture: a finding is a TRUE CATCH when it is [VERIFIED] at or
     above the manifest `min_severity`.
+  - real findings (corpus/real-findings/, harvest-real-findings.sh): a human
+    verdict on a live gate finding — tp is recorded as must-catch at its own
+    severity, fp as must-not-flag with no claim pattern.
 
 One deliberate difference from the harness: the harness matches the claim
 against the rendered markdown line, this matches the structured finding's
@@ -252,8 +255,8 @@ def main():
             elif d["kind"] == "must-not-flag" and s is not None:
                 unrelated.append(s)
     print(" 1. `supported` probability by ground truth")
-    print(f"    known false positives (DR re-raises) : {summarise(fp)}")
-    print(f"    true catches (seeded defects)        : {summarise(tp)}")
+    print(f"    known false positives              : {summarise(fp)}")
+    print(f"    true catches                       : {summarise(tp)}")
     print(f"    other findings on DR fixtures        : {summarise(unrelated)}  (truth unknown — info only)")
     a = auc(tp, fp)
     print(f"    separation (AUC, 1.0 = perfect, 0.5 = chance): {fmt(a)}"

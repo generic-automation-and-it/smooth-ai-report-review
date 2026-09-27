@@ -150,6 +150,13 @@ if command -v python3 >/dev/null 2>&1; then
   python3 "$REPORT" "$OUT/stripped" "PLANTED FINDINGS — stripped (comments removed; code only)" || true
   echo ""
   python3 "$REPORT" "$OUT/stripped+rules" "PLANTED FINDINGS — stripped + project rules (code only, standards given)" || true
+  # Real, human-labelled gate findings with the scores the gate computed live
+  # (harvest-real-findings.sh). No request is made for these. They are the
+  # check that planted results transfer: on the first 12 they did not.
+  if ls "$CORPUS_DIR/real-findings/"*.json >/dev/null 2>&1; then
+    echo ""
+    python3 "$REPORT" "$CORPUS_DIR/real-findings" "REAL FINDINGS — human-labelled, scored live by the gate" || true
+  fi
 else
   echo "ℹ️  Records written to $OUT; no python3 to summarise them."
 fi

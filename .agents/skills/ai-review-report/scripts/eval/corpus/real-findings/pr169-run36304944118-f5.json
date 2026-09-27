@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-0685e10-F5",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36304944118,
+    "commit": "0685e10",
+    "pr": "169",
+    "number": 5
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 75,
+      "title": "DR-002 planted false positive mixes its forbidden claim with an adjacent reliability defect",
+      "why_it_matters": "The planted false positive includes a plausible divergence failure as well as the forbidden redundant-storage claim. A decision-model score therefore cannot cleanly measure whether the model rejects the forbidden claim; remove the divergence sentence, consistent with the eval guidance that adjacent true findings are not DR re-raises.",
+      "file": ".agents/skills/ai-review-report/scripts/eval/corpus/must-not-flag/DR-002-hybrid-storage/manifest.json",
+      "line": 12,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/eval/corpus/must-not-flag/DR-002-hybrid-storage/manifest.json:12 -- \"why_it_matters\": \"Every log payload is persisted twice, doubling write latency and storage cost, and the two copies diverge when the second write fails after the first succeeded. Remove the object-store write or make one store the single source of truth.\"",
+      "supported": 0.44,
+      "jev_severity": "medium",
+      "jev_confidence": 0.24,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

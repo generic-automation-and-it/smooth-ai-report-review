@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-0685e10-F3",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36304944118,
+    "commit": "0685e10",
+    "pr": "169",
+    "number": 3
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 100,
+      "title": "Relative calibration output paths break after entering fixture sandboxes",
+      "why_it_matters": "A caller-supplied relative output directory is created from the caller's directory, but fixture jobs change into their sandboxes before writing records through that relative path. Calibration can consequently report no records and still exit successfully; resolve the output directory to an absolute path before launching jobs, matching run-evals.sh's corpus-path handling.",
+      "file": ".agents/skills/ai-review-report/scripts/eval/calibrate-decisions.sh",
+      "line": 50,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/eval/calibrate-decisions.sh:50 -- OUT=\"${1:-$(mktemp -d \"${TMPDIR:-/tmp}/jev-calibration.XXXXXX\")}\"",
+      "supported": 0.55,
+      "jev_severity": "high",
+      "jev_confidence": 0.75,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

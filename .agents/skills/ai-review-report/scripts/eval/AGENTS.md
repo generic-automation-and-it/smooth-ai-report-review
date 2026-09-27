@@ -210,6 +210,23 @@ scripts/eval/
   as-is AUC 0.93, code-only 0.80, with rules `supported` 0.98 and `sanctioned`
   1.00; `either@0.50` still removes 13/14 with no catch lost. The numbers moved
   by at most 0.03, consistent with the near-deterministic behaviour above.
+- **Real findings overrule planted ones — and on the first 12 they disagree.**
+  `corpus/real-findings/` holds live gate findings with a human verdict and the
+  score the gate computed at the time (`harvest-real-findings.sh <run>
+  <n>=tp|fp`; committed because run artifacts expire, never re-scored).
+  `calibrate-decisions.sh` prints them as a fourth report at no cost. The first
+  twelve — every finding both gate reviews of PR 169 raised, all accepted and
+  fixed — scored `supported` mean **0.43** (0.12–0.88); `filter`/`demote@0.50`
+  would have hidden **9 of 12** real problems, and even `@0.25` two. Planted true
+  catches never went below 0.58. The difference is the kind of finding: planted
+  catches are single-line defects whose quoted line proves them; real review
+  findings describe behaviour across code ("a PR-level answer can make unscored
+  findings look scored"), which the one hunk around one line in the judge's
+  state cannot demonstrate. Conclusion until real false positives are labelled
+  too: **`supported` must not demote or filter anything**; it is a display, and
+  the rules-based `sanctioned` question is the more promising lever. Label every
+  skipped gate finding as `fp` when processing reviews, so the precision side
+  gets real data.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -282,6 +299,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | Real, human-labelled findings (`corpus/real-findings/`, `harvest-real-findings.sh`): the 12 accepted PR 169 findings scored mean 0.43, so filter/demote at 0.5 would hide 9 of 12 — planted catch-safety does not transfer. | LADR-093 |
 | 2026-09-27 | `stripped+rules` calibration variant and the scorer's optional rules file / `sanctioned` question: AUC 0.99, `either@0.50` removes 13/14 planted false positives with no catch lost; DR-013 is the only survivor. | LADR-093 |
 | 2026-09-27 | Planted findings: `known_false_positive` / `known_true_positive` in every manifest and `calibrate-decisions.sh` (as-is + stripped variants), run with the measurement. First result recorded above: catch-safe at 0.5, AUC 0.93 as-is / 0.77 code-only, severity reconciliation not supported. | LADR-093 |
 | 2026-09-27 | Decision-model scoring is now measured: `EVAL_DECISIONS` runs `record_decisions` (real merge + scorer in annotate) per sample and `lib/decisions-report.py` reports separation (AUC) and what filter/demote/severity policies would have done, after the verdict and without ever changing it. `test-decisions-report.sh` covers it offline. | LADR-093 |

@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-0685e10-F4",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36304944118,
+    "commit": "0685e10",
+    "pr": "169",
+    "number": 4
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 100,
+      "title": "Missing sanctioned answers silently count as scored",
+      "why_it_matters": "A rules-enabled eval can report a finding as scored even when the provider omits the sanctioned answer, leaving the policy measurement incomplete without a malformed-answer warning. Unlike the other requested answers validated at lines 412–415, this answer silently becomes null; require a valid sanctioned.noul when rules were supplied so the existing unscored-finding path exposes the failed measurement.",
+      "file": ".agents/skills/ai-review-report/scripts/lib/score-findings-decisions.sh",
+      "line": 427,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/lib/score-findings-decisions.sh:427 -- sanctioned: (if $has_rules and ($a.sanctioned.noul | prob) then $a.sanctioned.noul else null end),",
+      "supported": 0.38,
+      "jev_severity": "high",
+      "jev_confidence": 0.73,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}

@@ -48,8 +48,8 @@ printf '{"fixture":"MC-902","kind":"must-catch","sample":1,"min_severity":"HIGH"
 out="$(python3 "$REPORT" "$R")"; rc=$?
 check "1a: report exits 0" "0" "$rc"
 check "1b: POSIX class in forbidden_claim is honoured (DR-002 shape)" "1" \
-  "$(printf '%s\n' "$out" | grep -c 'known false positives (DR re-raises) : n=1 ')"
-check "1c: true catches measured" "1" "$(printf '%s\n' "$out" | grep -c 'true catches (seeded defects)        : n=2 ')"
+  "$(printf '%s\n' "$out" | grep -c 'known false positives              : n=1 ')"
+check "1c: true catches measured" "1" "$(printf '%s\n' "$out" | grep -c 'true catches                       : n=2 ')"
 check "1d: separation — both catches outscore the false positive" "1" \
   "$(printf '%s\n' "$out" | grep -c 'separation (AUC, 1.0 = perfect, 0.5 = chance): 1.00')"
 check "1e: an unavailable sample is excluded, and says so" "1" "$(printf '%s\n' "$out" | grep -c 'Excluded       : 1 sample')"
@@ -143,7 +143,7 @@ check "2e: manifest ground truth copied into the record" "must-not-flag/redundan
 check "2f: annotate mode — the measured document lost nothing" "1" \
   "$(jq '.findings | length' "$SB/ci_temp/findings.merged.json")"
 check "2g: the analyzer reads the real record" "1" \
-  "$(python3 "$REPORT" "$TMP/decisions" | grep -c 'known false positives (DR re-raises) : n=1 ')"
+  "$(python3 "$REPORT" "$TMP/decisions" | grep -c 'known false positives              : n=1 ')"
 
 # Provider failure → a record with a status and a note, never a crash.
 rm -f "$SB/ci_temp/findings.merged.json" "$TMP/decisions"/*
@@ -185,6 +185,40 @@ check "2o: the report names an excluded sample, its status and note" "1" \
   "$(python3 "$REPORT" "$RX" | grep -c -- '- DR-777 sample 3 (stripped): partial — scored 1 of 2 findings')"
 check "2p: run-evals and calibrate both use the one writer" "2" \
   "$(grep -l 'write_decision_record' "$RUN_EVALS" "$SCRIPT_DIR/calibrate-decisions.sh" | wc -l | tr -d ' ')"
+
+# --- 2q. real, human-labelled findings ----------------------------------------------
+REAL="$SCRIPT_DIR/corpus/real-findings"
+check "2q: every committed real record is labelled and carries a live score" "0" \
+  "$(jq -s '[.[] | select((.label | IN("tp","fp") | not) or (.findings[0].supported == null) or (.variant != "real"))] | length' "$REAL"/*.json)"
+check "2r: the PR 169 set reproduces — 12 accepted findings, filter@0.50 keeps only 3" "1/1" \
+  "$(python3 "$REPORT" "$REAL" | grep -cE '^ +base +0/0 +12/12 ')/$(python3 "$REPORT" "$REAL" | grep -cE '^ +filter@0.50 +0/0 +3/12 +RECALL -9')"
+# The harvester, against a fake gh that serves a local artifact.
+HB="$TMP/hbin"; mkdir -p "$HB"
+cat > "$HB/gh" <<'GH'
+#!/bin/bash
+case "$1 $2" in
+  "run download") d=""; while [ $# -gt 0 ]; do [ "$1" = "-D" ] && d="$2"; shift; done
+                  mkdir -p "$d/review-run-1"; cp "$HARVEST_FIXTURE" "$d/review-run-1/findings.merged.json" ;;
+  "run view") case "$*" in *headSha*) echo "abc1234" ;; *) echo "feat/x" ;; esac ;;
+  "pr list") echo "42" ;;
+  "repo view") echo "o/r" ;;
+esac
+GH
+chmod +x "$HB/gh"
+cp "$TMP/t13-like.json" "$TMP/hfix.json" 2>/dev/null || jq -n '{status:"complete",merged_chunks:[0],
+  decisions_summary:{provider:"P",model:"M",scored:2,skipped:0},
+  findings:[{"#":1,title:"a",severity:"high",verified:true,decisions:{supported:0.3,severity:{choice:"high",confidence:0.7}}},
+            {"#":2,title:"b",severity:"medium",verified:true,decisions:{supported:0.8,severity:{choice:"low",confidence:0.6}}}]}' > "$TMP/hfix.json"
+HOUT="$TMP/harvest"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix.json" bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HOUT" 777 1=tp 2=fp >/dev/null
+check "2s: harvester writes tp as must-catch at its own severity, fp as must-not-flag" "must-catch/HIGH/tp|must-not-flag/HIGH/fp" \
+  "$(jq -r '"\(.kind)/\(.min_severity)/\(.label)"' "$HOUT/pr42-run777-f1.json")|$(jq -r '"\(.kind)/\(.min_severity)/\(.label)"' "$HOUT/pr42-run777-f2.json")"
+check "2t: harvested records keep the live score and the source run" "0.3/777/abc1234" \
+  "$(jq -r '"\(.findings[0].supported)/\(.source.run)/\(.source.commit)"' "$HOUT/pr42-run777-f1.json")"
+check "2u: a label for a finding that does not exist is refused" "fail" \
+  "$(PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix.json" bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HOUT" 777 9=tp >/dev/null 2>&1 && echo ok || echo fail)"
+check "2v: with both labels present the analyzer computes separation (fixture is inverted: 0.00)" "1" \
+  "$(python3 "$REPORT" "$HOUT" | grep -c 'separation (AUC, 1.0 = perfect, 0.5 = chance): 0.00')"
 
 # --- 3. the measurement can never move the gate ------------------------------------
 check "3a: recording happens only when EVAL_DECISIONS is on" "1" \
@@ -231,7 +265,7 @@ check "4j: the rules report adds the sanctioned section and the rule policies" "
 ( cd "$TMP" && export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0 \
   && bash "$SCRIPT_DIR/calibrate-decisions.sh" rel-out > "$TMP/cal-rel.log" 2>&1 )
 check "4k: a RELATIVE out_dir still collects every record (workers cd into sandboxes)" "60" \
-  "$(ls "$TMP"/rel-out/as-is "$TMP"/rel-out/stripped "$TMP"/rel-out/stripped+rules 2>/dev/null | grep -c '\.json$')"
+  "$(find "$TMP/rel-out/as-is" "$TMP/rel-out/stripped" "$TMP/rel-out/stripped+rules" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
 check "4h: run-evals runs the calibration only with the measurement, and it cannot abort" "1" \
   "$(grep -c 'calibrate-decisions.sh" "\${EVAL_ARTIFACT_DIR:+\$EVAL_ARTIFACT_DIR/calibration}" || true' "$RUN_EVALS")"
 

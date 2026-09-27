@@ -1,0 +1,36 @@
+{
+  "fixture": "PR169-98bf5f3-F4",
+  "kind": "must-catch",
+  "sample": 1,
+  "variant": "real",
+  "min_severity": "MEDIUM",
+  "forbidden_claim": "",
+  "status": "scored",
+  "note": "",
+  "label": "tp",
+  "source": {
+    "run": 36305215807,
+    "commit": "98bf5f3",
+    "pr": "169",
+    "number": 4
+  },
+  "provider": "OPENROUTER-DECISIONS",
+  "model": "typesafe/jev-1.13-20260917",
+  "findings": [
+    {
+      "severity": "medium",
+      "verified": true,
+      "confidence": 75,
+      "title": "Partial sidecar coverage counted as a complete measured sample",
+      "why_it_matters": "When a multi-chunk review has only some usable sidecars, the merge succeeds and the measurement scores the incomplete set. A catch in a missing sidecar can be reported as missed rather than unmeasured; check merged_chunks against the recorded chunk total before including the sample.",
+      "file": ".agents/skills/ai-review-report/scripts/eval/run-evals.sh",
+      "line": 188,
+      "first_evidence": ".agents/skills/ai-review-report/scripts/eval/run-evals.sh:188 -- if bash \"$SKILL_SCRIPTS_DIR/lib/merge-findings.sh\" ci_temp/reviews ci_temp/findings.merged.json \\",
+      "supported": 0.29,
+      "jev_severity": "high",
+      "jev_confidence": 0.33,
+      "sanctioned": null,
+      "diff_hunk_found": true
+    }
+  ]
+}
