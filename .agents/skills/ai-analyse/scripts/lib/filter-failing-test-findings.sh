@@ -97,7 +97,7 @@ fi
 # withheld for. Under-indented sub-bullets are the common case in this
 # pipeline, not an edge case.
 # LADR-068: findings render as an ORDERED list (`1. `, `2. `) while the soft
-# buckets, pre-existing and holistic items stay `- ` bullets, so both forms open
+# buckets, pre-existing (and, in reviews from before LADR-100, holistic) items stay `- ` bullets, so both forms open
 # a new item. Matching only `- ` silently stopped detecting every finding when
 # the renderer changed — the whole section collapsed into one item and this
 # filter became a no-op, disabling the LADR-056 failing-test guard with no error

@@ -1484,7 +1484,7 @@ if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
   {
     cat "$WORK_DIR/review_before_chunks.md"
     echo ""
-    echo "> **ℹ️ Detailed chunk reviews omitted** — review body exceeded ${MAX_BODY_SIZE} character limit (${BODY_SIZE} chars). The holistic overview above contains all aggregated findings. See [workflow logs](${LOGS_URL}) for full per-file reviews."
+    echo "> **ℹ️ Detailed chunk reviews omitted** — review body exceeded ${MAX_BODY_SIZE} character limit (${BODY_SIZE} chars). The overview above contains all aggregated findings. See [workflow logs](${LOGS_URL}) for full per-file reviews."
     echo ""
     if [ "$AFTER_CHUNKS" = "yes" ]; then
       cat "$WORK_DIR/review_after_chunks.md"

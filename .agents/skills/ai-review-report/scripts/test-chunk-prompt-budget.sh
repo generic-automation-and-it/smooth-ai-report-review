@@ -39,9 +39,8 @@ SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/revie
 # silently tests the fallback-template path instead of the stubbed summary.
 SOURCE_SPLIT_CHAIN_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
 SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
-# LADR-099: aggregation splits and places the holistic section through these.
-SOURCE_HOLISTIC_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/holistic-section.sh"
-SOURCE_NUMBER_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/number-holistic-items.sh"
+# LADR-100: aggregation strips any holistic section a model still writes.
+SOURCE_STRIP_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/strip-holistic-section.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -64,8 +63,7 @@ setup_repo() {
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
   cp "${SOURCE_SPLIT_CHAIN_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
-  cp "${SOURCE_HOLISTIC_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/holistic-section.sh"
-  cp "${SOURCE_NUMBER_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/number-holistic-items.sh"
+  cp "${SOURCE_STRIP_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/strip-holistic-section.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
@@ -274,16 +272,14 @@ run_aggregation_case() {
     fail "${label}: summary call failed in the sandbox — a lib is missing from setup_repo (see ${run_log})"
   fi
 
-  # LADR-099: the holistic section sits under the Issues Summary, outside the
-  # collapsed details, numbered H1) in place of the model's own number.
-  local hol_line details_line
-  hol_line="$(grep -n '^## 🔄 Holistic Cross-Chunk Analysis' ci_temp/final_review.md | head -1 | cut -d: -f1)"
-  details_line="$(grep -n 'View Detailed Reviews' ci_temp/final_review.md | head -1 | cut -d: -f1)"
-  if [ -n "${hol_line}" ] && [ -n "${details_line}" ] && [ "${hol_line}" -lt "${details_line}" ] \
-     && grep -q '^- \*\*H1)\*\* The two stub chunks' ci_temp/final_review.md; then
-    pass "${label}: holistic section posted above the details, numbered H1)"
+  # LADR-100: the stub still writes the old marker and a holistic section, as a
+  # model might from habit. Neither may reach the posted body, and the verdict
+  # section before them must survive.
+  if ! grep -q 'Holistic Cross-Chunk\|DETAILED_SECTION_MARKER\|The two stub chunks' ci_temp/final_review.md \
+     && grep -q '^## 🎯 Recommendation' ci_temp/final_review.md; then
+    pass "${label}: no holistic section in the posted body; the Recommendation is kept"
   else
-    fail "${label}: holistic section missing, inside the details, or unnumbered (see ci_temp/final_review.md)"
+    fail "${label}: a holistic section reached the posted body, or the Recommendation was lost (see ci_temp/final_review.md)"
   fi
 
   local action
@@ -315,10 +311,13 @@ run_aggregation_case() {
     else
       fail "${label}: coverage-gaps block missing from summary prompt"
     fi
-    if grep -q "NOT a missing implementation" ci_temp/summary_prompt.txt; then
-      pass "${label}: scoped missing-implementations bullet present"
+    # LADR-100 removed the holistic checklist that carried the scoped
+    # "missing implementations" bullet; the coverage-gaps block above is the
+    # rule that remains. The checklist must not come back.
+    if grep -q "Missing implementations\|Cross-Chunk Issues Found" ci_temp/summary_prompt.txt; then
+      fail "${label}: the holistic checklist is back in the summary prompt"
     else
-      fail "${label}: scoped missing-implementations bullet missing"
+      pass "${label}: no holistic checklist in the summary prompt"
     fi
   fi
 }
