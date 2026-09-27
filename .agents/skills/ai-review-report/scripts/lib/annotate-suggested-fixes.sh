@@ -50,7 +50,11 @@ demoted=$(jq -r '(.demoted_no_quote // 0) | tostring' "$merged" 2>/dev/null || e
 # LADR-093 filter mode moves unsupported findings out of the merged set into
 # decisions_summary.suppressed — a fourth way a fix can lose its number. Without
 # this count a filter-only run skipped the note entirely.
-decision_suppressed=$(jq -r '((.decisions_summary.suppressed // []) | length) | tostring' "$merged" 2>/dev/null || echo 0)
+decision_suppressed=0
+if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
+     | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+  decision_suppressed=$(jq -r '((.decisions_summary.suppressed // []) | length) | tostring' "$merged" 2>/dev/null || echo 0)
+fi
 case "$malformed" in ''|*[!0-9]*) malformed=0 ;; esac
 case "$suppressed" in ''|*[!0-9]*) suppressed=0 ;; esac
 case "$demoted" in ''|*[!0-9]*) demoted=0 ;; esac

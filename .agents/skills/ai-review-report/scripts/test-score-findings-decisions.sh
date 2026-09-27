@@ -418,21 +418,30 @@ check "Test 8d: findings beyond the cap are counted as skipped" "60/541" \
   "$(jq -r '"\(.decisions_summary.scored)/\(.decisions_summary.skipped)"' "$TMP_DIR/t8b.json")"
 
 # --- Test 9: rendering ---------------------------------------------------------------
+# The renderer enforces the feature flag itself, so the decision renders only
+# with OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS on; 9e2 pins the flag-off case.
+render_on() { OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$@"; }
 if [ -x "$RENDER_SH" ]; then
   write_merged "$TMP_DIR/t9.json"; cp "$TMP_DIR/t9.json" "$TMP_DIR/t9.orig"
   run_scorer t9 "$TMP_DIR/t9.json" 2
-  bash "$RENDER_SH" "$TMP_DIR/t9.orig" > "$TMP_DIR/t9.plain.md"
-  bash "$RENDER_SH" "$TMP_DIR/t9.json" > "$TMP_DIR/t9.dec.md"
-  check "Test 9a: supported suffix after the chunk reference" "1" \
-    "$(grep -c '^4\. 🟡 \[VERIFIED\] Medium Priority: solid medium claim — `src/b.sh:7` (chunk 0) · decision: supported 0.91$' "$TMP_DIR/t9.dec.md")"
-  check "Test 9b: [UNSUPPORTED] below the threshold" "1" \
-    "$(grep -c '^2\. 🟠 \[VERIFIED\] High Priority: weak high claim — `src/a.sh:20` (chunk 0) · decision: supported 0.12 \[UNSUPPORTED\]$' "$TMP_DIR/t9.dec.md")"
-  check "Test 9c: severity disagreement is shown, severity itself unchanged" "1" \
-    "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority: overrated high claim — .* · decision: supported 0.91 (decision model: medium)$' "$TMP_DIR/t9.dec.md")"
-  check "Test 9d: the Coverage block says the decision model ran" "1" \
-    "$(grep -c '^- \*\*Decision model:\*\* `OPENCODE-GO-DECISIONS/jev-1.13` (annotate) — scored 4, skipped 0$' "$TMP_DIR/t9.dec.md")"
+  render_on "$TMP_DIR/t9.orig" > "$TMP_DIR/t9.plain.md"
+  render_on "$TMP_DIR/t9.json" > "$TMP_DIR/t9.dec.md"
+  check "Test 9a: the decision score sits next to the priority" "1" \
+    "$(grep -c '^4\. 🟡 \[VERIFIED\] Medium Priority (decision score 91%): solid medium claim — `src/b.sh:7` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
+  check "Test 9b: [UNSUPPORTED] below the threshold, inside the same tag" "1" \
+    "$(grep -c '^2\. 🟠 \[VERIFIED\] High Priority (decision score 12% \[UNSUPPORTED\]): weak high claim — `src/a.sh:20` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
+  check "Test 9c: severity disagreement stays at the end of the line, severity unchanged" "1" \
+    "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority (decision score 91%): overrated high claim — .* · decision model rates it Medium Priority$' "$TMP_DIR/t9.dec.md")"
+  check "Test 9c2: the label (text before the first colon) holds exactly one severity word" "0" \
+    "$(grep -E '^[0-9]+\. ' "$TMP_DIR/t9.dec.md" | cut -d: -f1 | grep -ciE '(critical|high|medium|low).*(critical|high|medium|low)' || true)"
+  check "Test 9d: the Coverage block says the decision model ran and what the score means" "1" \
+    "$(grep -c '^- \*\*Decision model:\*\* `OPENCODE-GO-DECISIONS/jev-1.13` (annotate) — scored 4, skipped 0\. \*\*Decision score\*\* = the probability that the quoted evidence demonstrates the finding; below 50% it is marked \[UNSUPPORTED\]\.$' "$TMP_DIR/t9.dec.md")"
   check "Test 9e: without decisions the render is unchanged by this feature" "0" \
-    "$(grep -c 'decision' "$TMP_DIR/t9.plain.md" || true)"
+    "$(grep -ci 'decision' "$TMP_DIR/t9.plain.md" || true)"
+  check "Test 9e2: flag OFF — a document that carries decisions renders none of them" "0" \
+    "$(OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=0 bash "$RENDER_SH" "$TMP_DIR/t9.json" | grep -ci 'decision' || true)"
+  check "Test 9e3: flag OFF — byte-identical to a render of the undecorated document" "same" \
+    "$(bash "$RENDER_SH" "$TMP_DIR/t9.json" > "$TMP_DIR/t9.off.md"; cmp -s "$TMP_DIR/t9.off.md" "$TMP_DIR/t9.plain.md" && echo same || echo different)"
   if [ -f "$SCORE_SH" ]; then
     check "Test 9f: score-review.sh reads the same flags with and without decisions" \
       "$(bash "$SCORE_SH" "$TMP_DIR/t9.plain.md" | tr '\n' ',')" \
@@ -443,20 +452,47 @@ if [ -x "$RENDER_SH" ]; then
     "$(grep -coE '#[0-9]' "$TMP_DIR/t9.dec.md" || true)"
   write_merged "$TMP_DIR/t9f.json"
   run_scorer t9f "$TMP_DIR/t9f.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=filter
-  bash "$RENDER_SH" "$TMP_DIR/t9f.json" > "$TMP_DIR/t9f.md"
-  check "Test 9h: filter lists what it suppressed, without a number" "1" \
-    "$(grep -c '^  - suppressed: 🟠 High Priority: weak high claim — `src/a.sh:20` (supported 0.12)$' "$TMP_DIR/t9f.md")"
+  render_on "$TMP_DIR/t9f.json" > "$TMP_DIR/t9f.md"
+  check "Test 9h: filter lists what it suppressed, with its score and without a number" "1" \
+    "$(grep -c '^  - suppressed: 🟠 High Priority (decision score 12%): weak high claim — `src/a.sh:20`$' "$TMP_DIR/t9f.md")"
   check "Test 9i: filter summary contains no autolinking #<digits>" "0" \
     "$(grep -coE '#[0-9]' "$TMP_DIR/t9f.md" || true)"
   check "Test 9j: filter Coverage line counts the suppression" "1" \
-    "$(grep -c '(filter) — scored 4, skipped 0, suppressed 1$' "$TMP_DIR/t9f.md")"
+    "$(grep -c '(filter) — scored 4, skipped 0, suppressed 1\. ' "$TMP_DIR/t9f.md")"
 fi
+
+# --- Test 9m: the decision model's verdict line, next to the Recommendation ----------
+VERDICT_SH="$SCRIPT_DIR/lib/render-decision-verdict.sh"
+rec() { printf '## 🎯 Recommendation\n\n**Decision:** APPROVE\n**Rationale:** r\n\n**MACHINE_READABLE_ACTION:** APPROVE\n'; }
+rec > "$TMP_DIR/rec.md"; cp "$TMP_DIR/rec.md" "$TMP_DIR/rec.orig"
+bash "$VERDICT_SH" "$TMP_DIR/t2.json" "$TMP_DIR/rec.md" >/dev/null
+check "Test 9m: flag OFF — the Recommendation is untouched" "same" \
+  "$(cmp -s "$TMP_DIR/rec.md" "$TMP_DIR/rec.orig" && echo same || echo changed)"
+OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$VERDICT_SH" "$TMP_DIR/t2.json" "$TMP_DIR/rec.md" >/dev/null
+check "Test 9n: flag ON — the evaluation sits directly under the decision" "**Decision model:** block-merge probability 83% · overall risk Moderate (2.4 of 4) · dominant risk correctness (66%) — informational; the decision above follows the review policy." \
+  "$(sed -n '5p' "$TMP_DIR/rec.md")"
+check "Test 9o: it is its own paragraph, and the decision and action lines are unchanged" "1/1/1" \
+  "$(sed -n '6p' "$TMP_DIR/rec.md" | grep -c '^$')/$(grep -c '^\*\*Decision:\*\* APPROVE$' "$TMP_DIR/rec.md")/$(grep -c '^\*\*MACHINE_READABLE_ACTION:\*\* APPROVE$' "$TMP_DIR/rec.md")"
+OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$VERDICT_SH" "$TMP_DIR/t2.json" "$TMP_DIR/rec.md" >/dev/null
+check "Test 9p: idempotent — never added twice" "1" "$(grep -c '^\*\*Decision model:\*\*' "$TMP_DIR/rec.md")"
+check "Test 9q: it cannot be read as a verdict by the fallback text parser" "0" \
+  "$(grep '^\*\*Decision model:\*\*' "$TMP_DIR/rec.md" | grep -ciE 'approve|request changes|#[0-9]' || true)"
+rec > "$TMP_DIR/rec2.md"; cp "$TMP_DIR/rec2.md" "$TMP_DIR/rec2.orig"
+OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$VERDICT_SH" "$TMP_DIR/t6p.json" "$TMP_DIR/rec2.md" >/dev/null
+check "Test 9r: no PR-level answers → no line" "same" \
+  "$(cmp -s "$TMP_DIR/rec2.md" "$TMP_DIR/rec2.orig" && echo same || echo changed)"
+check "Test 9s: aggregation calls it just before the summary is assembled" "1" \
+  "$(awk '/lib\/render-decision-verdict\.sh/{v=NR} /^cat ci_temp\/pr_summary_main\.md >> ci_temp\/final_review\.md/{print (v && v < NR) ? 1 : 0; exit}' "$AGG_SH")"
 
 # --- Test 9k: a fix whose finding filter suppressed is explained ---------------------
 ANNOTATE_SH="$SCRIPT_DIR/lib/annotate-suggested-fixes.sh"
 if [ -f "$ANNOTATE_SH" ]; then
   printf '## 📝 Suggested Fixes\n\n### `src/a.sh:20`\nFix it.\n' > "$TMP_DIR/t9k.md"
+  cp "$TMP_DIR/t9k.md" "$TMP_DIR/t9k.orig"
   bash "$ANNOTATE_SH" "$TMP_DIR/t9f.json" "$TMP_DIR/t9k.md" 2>/dev/null
+  check "Test 9k0: flag OFF — decision suppressions are not cited" "same" \
+    "$(cmp -s "$TMP_DIR/t9k.md" "$TMP_DIR/t9k.orig" && echo same || echo changed)"
+  OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$ANNOTATE_SH" "$TMP_DIR/t9f.json" "$TMP_DIR/t9k.md" 2>/dev/null
   check "Test 9k: the Suggested Fixes note names decision-model suppression" "1" \
     "$(grep -c '1 were suppressed by the decision model as unsupported by their quoted evidence' "$TMP_DIR/t9k.md")"
 fi
@@ -492,6 +528,9 @@ write_merged "$TMP_DIR/t13b.json"
 RULES_FILE="$TMP_DIR/big-rules.md" run_scorer t13b "$TMP_DIR/t13b.json" 2
 check "Test 13g: oversized rules are capped and say so" "true/true" \
   "$(jq -s '[.[] | select(.state.project_rules?)][0].state.project_rules | "\(length < 12200)/\(test("project rules truncated"))"' -r "$STUB_DIR"/req_*.json)"
+OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t13.json" > "$TMP_DIR/t13.md" 2>/dev/null
+check "Test 13i: with project rules the tag also shows rule-allowed" "1" \
+  "$(grep -c '(decision score 12% \[UNSUPPORTED\] · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
 check "Test 13h: capped rules still fit the request budget" "true" \
   "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
 
@@ -529,7 +568,7 @@ prompt_block() { # prompt_block <merged> → the text appended to summary_prompt
   cp "$1" "$d/ci_temp/findings.merged.json"
   { awk '/^DECISION_FACTS=""$/,/^  echo "🎯 Decision-model verdicts added/' "$AGG_SH"; echo 'fi'; } > "$d/block.sh"
   : > "$d/ci_temp/summary_prompt.txt"
-  (cd "$d" && bash block.sh >/dev/null 2>&1)
+  (cd "$d" && OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS="${PROMPT_FLAG-1}" bash block.sh >/dev/null 2>&1)
   cat "$d/ci_temp/summary_prompt.txt"
 }
 p_ann="$(prompt_block "$TMP_DIR/t2.json")"
@@ -542,6 +581,10 @@ check "Test 11i: the prompt keeps the decision rule authoritative" "1" \
 check "Test 11j: filter mode says findings were removed, not tagged" "1" \
   "$(prompt_block "$TMP_DIR/t4.json" | grep -c '1 non-critical finding(s) whose quoted evidence it judged unsupported (probability below 0.50) were removed')"
 check "Test 11k: no decisions → no prompt block" "" "$(prompt_block "$TMP_DIR/t1.json")"
+check "Test 11k2: flag OFF — decisions in the document never reach the prompt" "" \
+  "$(PROMPT_FLAG=0 prompt_block "$TMP_DIR/t2.json")"
+check "Test 11k3: metadata.json takes decisions_summary only with the flag on" "1" \
+  "$(awk '/local decisions_json=.null./{f=1} f && /OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS/{print 1; exit}' "$RUN_REVIEW")"
 check "Test 11e: the run artifact metadata carries decisions_summary" "1" \
   "$(grep -c '"decisions_summary": ' "$RUN_REVIEW")"
 for f in .github/workflows/pipeline-code-review-report.yml .docs/examples/code-review-local.yml; do

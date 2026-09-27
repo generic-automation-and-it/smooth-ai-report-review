@@ -54,6 +54,10 @@ if [ -z "$merged" ] || [ ! -s "$merged" ]; then
 fi
 command -v jq >/dev/null 2>&1 || exit 1
 jq -e '.status == "complete"' "$merged" >/dev/null 2>&1 || exit 1
+# LADR-093 feature flag (default off). `tr`, not ${v,,}: Bash 3.2 safe.
+decisions_on=false
+printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
+  | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' && decisions_on=true
 
 jq -r '
   def clean: gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "");
@@ -70,23 +74,36 @@ jq -r '
     elif . == "medium" then "Medium Priority"
     else "Low Priority" end;
 
-  # A probability as fixed two decimals (0.9 renders 0.90), so a column of
-  # them reads evenly and a test can pin the exact text.
-  def p2:
-    (. * 100 | round) as $n
-    | "\(($n / 100) | floor).\(($n % 100) | if . < 10 then "0\(.)" else "\(.)" end)";
+  # A probability as a whole percentage, which is how a reader scans it.
+  def pct: "\((. * 100) | round)%";
 
-  # LADR-093 annotate rendering. Absent decisions render nothing, so a document
-  # the decision model never saw renders byte-identically to before. The
-  # original severity is never replaced: a disagreement is shown beside it.
-  def decision_suffix($ds):
+  # LADR-093 annotate rendering, in two places so a reader (and ai-analyse)
+  # sees the evaluation next to the priority it qualifies.
+  #
+  # decision_tag goes INSIDE the label, right after the priority word. That is
+  # safe only because it carries NO colon and NO severity word:
+  # eval/lib/score-review.sh takes the label as the text before the first
+  # colon and counts it by [VERIFIED] plus a severity keyword, so a colon here
+  # would move the boundary and a second severity word would double-count the
+  # finding. [UNSUPPORTED] does not contain VERIFIED, and rule-allowed appears
+  # only when the scorer was given project rules.
+  #
+  # decision_suffix stays at the END of the line and carries only the decision
+  # model severity when it disagrees, because that text IS a severity word.
+  # Absent decisions render nothing: the output is byte-identical to before.
+  def decision_tag($ds):
     if (.decisions.supported // null) == null then ""
     else
-      " · decision: supported \(.decisions.supported | p2)"
+      " (decision score \(.decisions.supported | pct)"
       + (if .decisions.supported < ($ds.min_probability // 0.5) then " [UNSUPPORTED]" else "" end)
-      + (if (.decisions.severity.choice // .severity) != .severity
-         then " (decision model: \(.decisions.severity.choice))" else "" end)
+      + (if (.decisions.sanctioned // null) != null then " · rule-allowed \(.decisions.sanctioned | pct)" else "" end)
+      + ")"
     end;
+  def decision_suffix($ds):
+    if (.decisions.supported // null) == null then ""
+    elif (.decisions.severity.choice // .severity) != .severity
+    then " · decision model rates it \(.decisions.severity.choice | sev_label)"
+    else "" end;
 
   # The Coverage line saying the decision model ran, plus what filter mode
   # removed. Suppression nobody can see is suppression nobody should trust, so
@@ -97,10 +114,11 @@ jq -r '
     if $ds == null then empty
     else
       "- **Decision model:** `\($ds.provider)/\($ds.model)` (\($ds.mode)) — scored \($ds.scored), skipped \($ds.skipped)"
-        + (if $ds.mode == "filter" then ", suppressed \($ds.suppressed | length)" else "" end),
+        + (if $ds.mode == "filter" then ", suppressed \($ds.suppressed | length)" else "" end)
+        + ". **Decision score** = the probability that the quoted evidence demonstrates the finding; below \($ds.min_probability | pct) it is marked [UNSUPPORTED].",
       ( if ($ds.mode_note // "") != "" then "  - \($ds.mode_note | clean)" else empty end ),
       ( ($ds.suppressed // []) | .[0:10][]
-        | "  - suppressed: \(.severity | sev_emoji) \(.severity | sev_label): \(.title | clean) — `\(.file):\(.line)` (supported \(.supported | p2))" ),
+        | "  - suppressed: \(.severity | sev_emoji) \(.severity | sev_label) (decision score \(.supported | pct)): \(.title | clean) — `\(.file):\(.line)`" ),
       ( (($ds.suppressed // []) | length) - 10 | if . > 0 then "  - …and \(.) further suppressed finding\(if . == 1 then "" else "s" end)" else empty end )
     end;
 
@@ -148,7 +166,9 @@ jq -r '
   def bullet($ds):
     "\(.["#"]). \(.severity | sev_emoji) "
     + (if .verified == true then "[VERIFIED]" else "[SPECULATIVE]" end)
-    + " \(.severity | sev_label): \(.title | clean)"
+    + " \(.severity | sev_label)"
+    + decision_tag($ds)
+    + ": \(.title | clean)"
     + " — `\(.file)"
     + ":\(.line)"
     + "`"
@@ -224,7 +244,12 @@ jq -r '
       | .[] ),
     "";
 
-  (.decisions_summary // null) as $ds
+  # Feature flag, enforced HERE as well as upstream: decisions only exist when
+  # OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS was on, but a merged document left
+  # over from an earlier run (local re-runs, eval sandboxes) must not render
+  # them once the flag is off.
+  (if $decisions_on then . else del(.decisions_summary) | .findings |= map(del(.decisions)) end)
+  | (.decisions_summary // null) as $ds
   | "## 🔍 Issues Summary",
   "",
   "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
@@ -290,4 +315,4 @@ jq -r '
   "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
   ""
 ' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" \
-    --arg missing_chunks "$missing_chunks" "$merged"
+    --arg missing_chunks "$missing_chunks" --argjson decisions_on "$decisions_on" "$merged"

@@ -296,7 +296,11 @@ fi
 # sync/escalation after this call never reads these numbers — so they can make
 # the prose more honest, never the posted state greener.
 DECISION_FACTS=""
-if [ -s ci_temp/findings.merged.json ]; then
+# Behind the feature flag even though the facts only exist when it was on — a
+# merged document left over from an earlier run must not leak into the prompt.
+if [ -s ci_temp/findings.merged.json ] \
+   && printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
+      | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   DECISION_FACTS=$(jq -r '
     def p2: (. * 100 | round) as $n | "\(($n / 100) | floor).\(($n % 100) | if . < 10 then "0\(.)" else "\(.)" end)";
     .decisions_summary // empty
@@ -1098,6 +1102,12 @@ if [ "$REVIEW_TYPE" = "incremental" ] && [ "$agg_ok" = "true" ]; then
   ' ci_temp/pr_summary_main.md > ci_temp/pr_summary_main.incremental.md
   mv ci_temp/pr_summary_main.incremental.md ci_temp/pr_summary_main.md
 fi
+# LADR-093: the decision model's PR-level evaluation, next to the verdict it
+# qualifies. Last edit before assembly so no later rewrite of the
+# Recommendation can drop it. Behind OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS
+# (checked inside), informational only, and a no-op without PR-level answers.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-decision-verdict.sh" \
+  ci_temp/findings.merged.json ci_temp/pr_summary_main.md || true
 cat ci_temp/pr_summary_main.md >> ci_temp/final_review.md
 
 # Add collapsible detailed section
