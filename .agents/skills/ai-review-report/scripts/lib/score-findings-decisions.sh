@@ -465,7 +465,7 @@ is_sensitive_path() {
   case "${1##*/}" in
     kubeconfig|kubeconfig.*|*.kubeconfig|*-kubeconfig|*_kubeconfig) return 0 ;;
     secrets|.secrets|secrets.*|secret.*|*[-_.]secrets.*|*[-_.]secret.*|*[-_.]secrets|*[-_.]secret) return 0 ;;
-    .env|.env.*|.envrc|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.json|*.tfstate|*.tfstate.*) return 0 ;;
+    .env|.env.*|.envrc|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.*|*.tfstate|*.tfstate.*) return 0 ;;
     id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|.npmrc|.pypirc|.netrc|.git-credentials|credentials|credentials.*) return 0 ;;
   esac
   return 1

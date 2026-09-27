@@ -1468,6 +1468,13 @@ LOGS_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/actions/
 echo "Review body size: ${BODY_SIZE} characters (limit: ${MAX_BODY_SIZE})"
 if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
   echo "⚠️  Review body exceeds limit — building compact version"
+  # The aggregator puts artifact markers after the detailed reviews. Keep both
+  # the run-id lookup and (when scored) the run= label channel even when that
+  # entire section is omitted. Reserve their bytes before choosing a compact
+  # body rather than appending past GitHub's size limit.
+  RUN_MARKERS="$(grep -E '^<!-- ai-review-report run(-id)?=[0-9]+ -->$' "$WORK_DIR/final_review.md" || true)"
+  MARKER_BYTES=0
+  [ -z "$RUN_MARKERS" ] || MARKER_BYTES="$(printf '%s\n' "$RUN_MARKERS" | wc -c | tr -d ' ')"
   sed '/^## 📂 Detailed Chunk Reviews/,$d' "$WORK_DIR/review_comment.md" > "$WORK_DIR/review_before_chunks.md"
   AFTER_CHUNKS=""
   if grep -q "^## 📚 AI Review Context Documents" "$WORK_DIR/review_comment.md"; then
@@ -1484,18 +1491,26 @@ if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
     fi
   } > "$WORK_DIR/review_comment_compact.md"
   COMPACT_SIZE="$(wc -c < "$WORK_DIR/review_comment_compact.md" | tr -d ' ')"
-  if [ "$COMPACT_SIZE" -le "$MAX_BODY_SIZE" ]; then
+  if [ "$((COMPACT_SIZE + MARKER_BYTES))" -le "$MAX_BODY_SIZE" ]; then
     mv "$WORK_DIR/review_comment_compact.md" "$WORK_DIR/review_comment.md"
   else
-    TRUNC_HALF=30000
+    TRUNC_NOTE="> **⚠️ Review truncated** — compact version still too large (${COMPACT_SIZE} chars, limit ${MAX_BODY_SIZE}). See [workflow logs](${LOGS_URL}) for full review."
+    TRUNC_OVERHEAD="$(printf '\n---\n%s\n---\n' "$TRUNC_NOTE" | wc -c | tr -d ' ')"
+    TRUNC_HALF=$(( (MAX_BODY_SIZE - MARKER_BYTES - TRUNC_OVERHEAD) / 2 ))
+    [ "$TRUNC_HALF" -le 30000 ] || TRUNC_HALF=30000
     {
       head -c "$TRUNC_HALF" "$WORK_DIR/review_comment_compact.md"
       echo ""
       echo "---"
-      echo "> **⚠️ Review truncated** — compact version still too large (${COMPACT_SIZE} chars, limit ${MAX_BODY_SIZE}). See [workflow logs](${LOGS_URL}) for full review."
+      echo "$TRUNC_NOTE"
       echo "---"
       tail -c "$TRUNC_HALF" "$WORK_DIR/review_comment_compact.md"
     } > "$WORK_DIR/review_comment.md"
+  fi
+  if [ -n "$RUN_MARKERS" ]; then
+    while IFS= read -r marker; do
+      grep -Fxq -- "$marker" "$WORK_DIR/review_comment.md" || printf '%s\n' "$marker" >> "$WORK_DIR/review_comment.md"
+    done <<< "$RUN_MARKERS"
   fi
   rm -f "$WORK_DIR/review_before_chunks.md" "$WORK_DIR/review_after_chunks.md" "$WORK_DIR/review_comment_compact.md"
 fi

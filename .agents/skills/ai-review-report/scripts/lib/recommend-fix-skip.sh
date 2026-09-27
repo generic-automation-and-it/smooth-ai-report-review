@@ -23,8 +23,8 @@
 # present is therefore REUSED, not re-asked, when the answer is still valid:
 #   - the Skip Areas the gate saw equal the PR's current ones (a new skip
 #     bullet changes `previously skipped`, so it forces a re-score), and
-#   - the gate used the decision provider this scope asks for (and the same
-#     model, when one is set).
+#   - the gate used the decision provider and effective model this scope asks
+#     for (including that provider's default when no model was configured).
 # Everything else is re-scored with --purpose fix_skip, the artifact's per-chunk
 # rules when present, and the reviewed revision. The table says which is which.
 #
@@ -202,6 +202,16 @@ same_model() {
   case "$2" in "$3"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) return 0 ;; esac
   return 1
 }
+# Match the decision scope's provider defaults in resolve-provider.sh without
+# sourcing it here: resolution also requires a key, while reuse must not make
+# an HTTP request or require a key when every gate answer is still valid.
+effective_model="$d_model"
+if [ -z "$effective_model" ]; then
+  case "$(printf '%s' "${d_provider:-OPENCODE-GO-DECISIONS}" | tr '[:lower:]' '[:upper:]')" in
+    OPENCODE-GO-DECISIONS) effective_model="jev-1.13" ;;
+    OPENROUTER-DECISIONS) effective_model="typesafe/jev-1.13" ;;
+  esac
+fi
 reuse_note=""
 reuse=false
 if [ -n "$art_dir" ] && jq -e '[.findings[] | select(.gate_decisions.fix_skip.choice != null)] | length > 0' "$out_dir/findings.json" >/dev/null 2>&1; then
@@ -217,8 +227,8 @@ if [ -n "$art_dir" ] && jq -e '[.findings[] | select(.gate_decisions.fix_skip.ch
     reuse_note="the PR's Skip Areas changed since the gate scored"
   elif [ "$gate_provider" != "$want_provider" ]; then
     reuse_note="the gate used ${gate_provider:-another provider}, this scope asks for ${want_provider}"
-  elif [ -n "$d_model" ] && ! same_model "$gate_req_model" "$gate_model" "$d_model"; then
-    reuse_note="the gate used model ${gate_req_model:-$gate_model}, this scope asks for ${d_model}"
+  elif [ -z "$effective_model" ] || ! same_model "$gate_req_model" "$gate_model" "$effective_model"; then
+    reuse_note="the gate used model ${gate_req_model:-$gate_model}, this scope asks for ${effective_model:-an unknown model}"
   else
     reuse=true
   fi
