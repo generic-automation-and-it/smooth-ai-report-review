@@ -13,7 +13,7 @@ Commits the working tree as one-or-more Conventional-Commit chunks, embeds the `
 
 - **Use the gate's trigger matcher.** The check is `git log -1 --format='%B' | grep -qiE '/ai-review'`, matching the whole commit message exactly as the gate does. It accepts subject triggers, triggers with trailing text, and triggers before a final trailer block.
 - **Branch rename is opt-in via `--issue <number>`** and is skipped when the branch already conforms to `<type>/<issue>-*`. The `<type>` is taken from the just-made commit's Conventional-Commit type; the description is generated from the subject/diff, not copied from the old branch name verbatim.
-- **`models.claude: sonnet`** — the branch-rename + upstream-tracking logic needs broader reasoning than a trivial commit helper.
+- **No model pin.** The skill uses `effort: low`; this does not relax its pre-push checks.
 - **A clean tree still verifies the trigger before pushing.** With nothing to commit, the skill checks for unpushed commits (`git log @{u}..HEAD`; a missing upstream means everything local is unpushed) and runs the same trigger check + `%B` amend on HEAD before pushing — amending is safe exactly because the commit is unpushed. Without this, a hand-made untriggered commit gets pushed and the gate runs only an incremental review instead of the full one this skill promises.
 - **Empty working tree with no unpushed commits is not an error** — the skill reports "nothing to commit/push" and stops without pushing.
 
