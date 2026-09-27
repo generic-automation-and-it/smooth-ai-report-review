@@ -300,6 +300,66 @@ cap_copy() {
   fi
 }
 
+# cap_rules <src> <dst> <max> — the project rules, fitted into <max> bytes
+# without losing whole rule files to a byte prefix.
+#
+# The runtime AGENTS.md the gate builds is a header plus one section per source
+# file ("---" / "Source: `path`"). A plain `head -c` kept the first <max> bytes,
+# so generic context prose at the top pushed real rules out: PR 179's chunk 8
+# kept 12,000 of 19,065 bytes and cut the skill-secret-handling checklist line a
+# High finding rested on (byte 12,062), and the judge scored the finding 30%
+# without ever seeing it (review 5331608121). Now:
+#   - rule files (.github/instructions/**, .agents/rules/**, .agents/rules-scoped/**,
+#     *.instructions.md) go first and get the budget first;
+#   - within each tier the budget is shared evenly ("water-filling"): small
+#     files stay whole, large ones are cut to an equal share, each with a
+#     visible marker, so no file vanishes while another is kept whole;
+#   - what was cut is written to <dst>.trimmed ("<bytes before> <paths>"), so
+#     the caller can log it and record it on the decision.
+# A file with no sections falls back to cap_copy. On any jq failure, too.
+cap_rules() {
+  local src="$1" dst="$2" max="$3" res
+  rm -f "${dst}.trimmed"
+  if [ "$(wc -c < "$src" | tr -d ' ')" -le "$max" ]; then
+    cp "$src" "$dst"
+    return 0
+  fi
+  if ! grep -q '^Source: `' "$src" 2>/dev/null \
+     || ! res="$(jq -Rs --argjson max "$max" '
+          def isrule: test("^\\.github/instructions/|^\\.agents/rules(-scoped)?/|\\.instructions\\.md$");
+          def marker: "\n[... this file trimmed to fit the decision model context budget]\n";
+          # fill($secs; $budget): an even share per section, smallest first.
+          def fill($secs; $budget):
+            ($secs | to_entries | sort_by(.value.body | length)) as $order
+            | reduce $order[] as $e ({ b: $budget, n: ($secs | length), take: {} };
+                ((.b / .n) | floor) as $share
+                | ([($e.value.body | length), (if $share < 0 then 0 else $share end)] | min) as $t
+                | .take[$e.key | tostring] = $t | .b -= $t | .n -= 1)
+            | .take as $take
+            | [ $secs | to_entries[] | .value as $v | $take[.key | tostring] as $t
+                | if $t >= ($v.body | length) then $v + { cut: false }
+                  elif $t < 160 then $v + { cut: true, body: ("\n---\nSource: `" + $v.path + "`\n" + marker) }
+                  else $v + { cut: true, body: ($v.body[: ($t - (marker | length))] + marker) } end ];
+          split("\n---\nSource: `") as $p
+          | $p[0] as $head
+          | [ $p[1:][] | (index("`") // 0) as $k | { path: .[:$k], body: ("\n---\nSource: `" + .) } ] as $secs
+          | ($max - ($head | length) - 400) as $budget
+          | [ $secs[] | select(.path | isrule) ] as $rules
+          | [ $secs[] | select(.path | isrule | not) ] as $other
+          | fill($rules; $budget) as $r
+          | fill($other; ($budget - ([ $r[].body | length ] | add // 0))) as $o
+          | { text: ($head + ([ ($r + $o)[].body ] | join(""))),
+              before: ([ $head, $secs[].body ] | map(utf8bytelength) | add),
+              cut: [ ($r + $o)[] | select(.cut) | .path ] }' "$src" 2>/dev/null)"; then
+    cap_copy "$src" "$dst" "$max" "project rules"
+    printf '%s -\n' "$(wc -c < "$src" | tr -d ' ')" > "${dst}.trimmed"
+    return 0
+  fi
+  # head -c is only a guard: the text was sized in characters, the cap is bytes.
+  printf '%s' "$res" | jq -r '.text' | head -c "$max" > "$dst"
+  printf '%s' "$res" | jq -r '"\(.before) \(.cut | join(","))"' > "${dst}.trimmed"
+}
+
 # Optional project rules (5th argument). A file applies to every finding; a
 # directory is resolved per finding below. An empty file means "no rules", and
 # the request stays unchanged.
@@ -308,7 +368,7 @@ if [ -n "$rules_src" ] && [ -d "$rules_src" ]; then
   rules_source="chunk"
 elif [ -n "$rules_src" ] && [ -s "$rules_src" ]; then
   rules_source="file"
-  cap_copy "$rules_src" "$work/rules.txt" "$RULES_MAX_BYTES" "project rules"
+  cap_rules "$rules_src" "$work/rules.txt" "$RULES_MAX_BYTES"
 fi
 
 # rules_for <index> <out> — writes the finding's capped rules to <out> and
@@ -316,11 +376,13 @@ fi
 rules_for() {
   local c
   case "$rules_source" in
-    file) cp "$work/rules.txt" "$2" ;;
+    file) cp "$work/rules.txt" "$2"
+          rm -f "$2.trimmed"; [ -f "$work/rules.txt.trimmed" ] && cp "$work/rules.txt.trimmed" "$2.trimmed"
+          return 0 ;;
     chunk)
       for c in $(jq -r --argjson i "$1" '.findings[$i].chunks // [] | .[] | tostring | select(test("^[0-9]+$"))' "$merged"); do
         if [ -s "$rules_src/chunk_${c}/AGENTS.md" ]; then
-          cap_copy "$rules_src/chunk_${c}/AGENTS.md" "$2" "$RULES_MAX_BYTES" "project rules"
+          cap_rules "$rules_src/chunk_${c}/AGENTS.md" "$2" "$RULES_MAX_BYTES"
           return 0
         fi
       done
@@ -623,7 +685,11 @@ while [ "$i" -lt "$to_score" ]; do
   file="$(jq -r --argjson i "$i" '.findings[$i].file // ""' "$merged")"
   line="$(jq -r --argjson i "$i" '.findings[$i].line // 0 | tostring | (capture("^(?<n>[0-9]+)").n // "0")' "$merged")"
   hunk "$file" "$line" > "$work/f_${i}.hunk"
-  rules_for "$i" "$work/f_${i}.rules" || rm -f "$work/f_${i}.rules"
+  rules_for "$i" "$work/f_${i}.rules" || rm -f "$work/f_${i}.rules" "$work/f_${i}.rules.trimmed"
+  if [ -f "$work/f_${i}.rules.trimmed" ]; then
+    read -r _before _cut < "$work/f_${i}.rules.trimmed"
+    info "finding $((i + 1)): project rules trimmed to fit the ${RULES_MAX_BYTES}-byte cap (${_before} bytes; files cut: ${_cut:--})"
+  fi
   code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" || rm -f "$work/f_${i}.ctx"
   # No hunk is not evidence against the finding: most often the chunk model
   # wrote the path differently from the diff header (basename, "./" prefix).
@@ -705,12 +771,15 @@ while [ "$i" -lt "$to_score" ]; do
     [ -f "$work/f_${i}.nohunk" ] && hunk_found=false
     has_rules=false
     [ -f "$work/f_${i}.rules" ] && has_rules=true
+    rules_trimmed=false
+    [ -f "$work/f_${i}.rules.trimmed" ] && rules_trimmed=true
     has_ctx=false
     [ -f "$work/f_${i}.ctx" ] && has_ctx=true
     if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" \
         --argjson hunk_found "$hunk_found" --argjson has_rules "$has_rules" \
         --argjson has_skips "$has_skip_areas" --argjson ask_fix_skip "$ask_fix_skip" \
-        --argjson require_fix_skip "$purpose_fix_skip" --argjson has_ctx "$has_ctx" '
+        --argjson require_fix_skip "$purpose_fix_skip" --argjson has_ctx "$has_ctx" \
+        --argjson rules_trimmed "$rules_trimmed" '
         .answers as $a
         | def prob: type == "number" and . >= 0 and . <= 1;
           def valid_fix_skip: ((.choice // "") | IN("fix", "skip_intentional", "skip_invalid", "skip_deferred"));
@@ -751,6 +820,10 @@ while [ "$i" -lt "$to_score" ]; do
                           previously_skipped: (if $has_skips and ($a.previously_skipped.noul | prob) then $a.previously_skipped.noul else null end),
                           actionability: { score: $a.actionability.score,
                                            confidence: ($a.actionability.confidence // null) } }
+                        # Present only when the rules were cut to fit, so a low
+                        # `sanctioned` or `supported` can be read with that in
+                        # mind: the judge may not have seen the rule.
+                        + (if $rules_trimmed then { rules_trimmed: true } else {} end)
                         # LADR-097: present only when the question was asked.
                         # skip_probability is 1 - P(fix) when the provider
                         # returned a usable distribution, else null — a caller
@@ -850,11 +923,13 @@ fi
 # Counted over the requests actually built: a finding dropped for the byte
 # budget still has a rules file on disk and must not be counted.
 with_rules=0
+with_rules_trimmed=0
 with_ctx=0
 i=0
 while [ "$i" -lt "$to_score" ]; do
   if [ -f "$work/f_${i}.req" ]; then
     [ -f "$work/f_${i}.rules" ] && with_rules=$((with_rules + 1))
+    [ -f "$work/f_${i}.rules.trimmed" ] && with_rules_trimmed=$((with_rules_trimmed + 1))
     [ -f "$work/f_${i}.ctx" ] && with_ctx=$((with_ctx + 1))
   fi
   i=$((i + 1))
@@ -864,6 +939,7 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
    --arg rules_source "$rules_source" --argjson with_rules "${with_rules:-0}" \
    --argjson has_skips "$has_skip_areas" --argjson purpose_fix_skip "$purpose_fix_skip" \
    --argjson ask_fix_skip "$ask_fix_skip" --argjson with_ctx "$with_ctx" \
+   --argjson with_rules_trimmed "$with_rules_trimmed" \
    --arg mode "$mode" --arg mode_requested "$mode_requested" --arg mode_note "$mode_note" \
    --argjson min "$min_probability" --arg pr_scope "$pr_scope" \
    --argjson scored "$scored" --argjson skipped "$skipped" '
@@ -894,6 +970,7 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
                   # LADR-098 keys, present only when the feature ran, so a
                   # document from before it keeps its exact shape.
                   + (if $with_ctx > 0 then { findings_with_code_context: $with_ctx } else {} end)
+                  + (if $with_rules_trimmed > 0 then { findings_with_rules_trimmed: $with_rules_trimmed } else {} end)
                   + (if $ask_fix_skip then { fix_skip_asked: true } else {} end)),
         suppressed: [ $drop[] | { number_before_filter: .["#"], title, severity, file, line,
                                   supported: .decisions.supported } ] }

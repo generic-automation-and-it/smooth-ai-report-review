@@ -394,6 +394,33 @@ reset_stub cnt
 check "Test 3a: an over-budget finding is skipped and not counted as having been sent rules" "1|1" \
   "$(grep -c 'finding 2: request is .* bytes even without its diff hunk — skipped' "$TMP_DIR/cnt.log")|$(jq -r '.decisions_summary.context.findings_with_rules' "$TMP_DIR/cnt.json")"
 
+# Rules are fitted per file, rule files first (PR 179 review 5331608121: a
+# byte prefix of chunk 8's 19 KB rules cut the checklist line a High finding
+# rested on). A 16 KB generic section comes first in the file; the real rule
+# after it must still reach the judge, whole, and the cut must be recorded.
+GENERIC="$(head -c 16000 /dev/zero | tr '\0' 'g')"
+{
+  printf '# Runtime review instructions (chunk 0)\n\nheader\n'
+  printf '\n---\nSource: `.agents/BIG_AGENTS.md`\n\n%s\n' "$GENERIC"
+  printf '\n---\nSource: `.github/instructions/skills/secret.instructions.md`\n\n- [ ] Knowledge artefacts redact to <REDACTED>.\n'
+} > "$TMP_DIR/sectioned_rules.md"
+merged_doc "$TMP_DIR/trim.json" "$F1"
+reset_stub trim
+(cd "$SB" && scorer "$TMP_DIR/trim.json" "$TMP_DIR/sectioned_rules.md" > "$TMP_DIR/trim.log" 2>&1)
+rules_sent="$(finding_reqs | jq -r '.state.project_rules // ""')"
+check "Test 3b: the rule file after a big generic section reaches the judge whole; the generic one is trimmed" "1|1|1" \
+  "$(printf '%s\n' "$rules_sent" | grep -c 'Knowledge artefacts redact to <REDACTED>')|$(printf '%s\n' "$rules_sent" | grep -c 'this file trimmed to fit')|$([ "$(printf '%s' "$rules_sent" | wc -c)" -le 12100 ] && echo 1 || echo 0)"
+check "Test 3c: rule files come first in what is sent" "1" \
+  "$(printf '%s\n' "$rules_sent" | awk '/^Source: /{print; exit}' | grep -c 'secret.instructions.md')"
+check "Test 3d: the cut is logged and recorded on the decision and in the summary" "1|true|1" \
+  "$(grep -c 'finding 1: project rules trimmed to fit the 12000-byte cap (.* bytes; files cut: .agents/BIG_AGENTS.md)' "$TMP_DIR/trim.log")|$(jq -r '.findings[0].decisions.rules_trimmed' "$TMP_DIR/trim.json")|$(jq -r '.decisions_summary.context.findings_with_rules_trimmed' "$TMP_DIR/trim.json")"
+check "Test 3e: rules that fit leave no trimmed mark" "null|null" \
+  "$(jq -r '.findings[0].decisions.rules_trimmed' "$TMP_DIR/cnt.json")|$(jq -r '.decisions_summary.context.findings_with_rules_trimmed' "$TMP_DIR/cnt.json")"
+
+RENDER="$SCRIPT_DIR/lib/render-findings-summary.sh"
+check "Test 3f: the review's Coverage note says the rules were trimmed" "1" \
+  "$(OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER" "$TMP_DIR/trim.json" 2>/dev/null | grep -c 'For 1 finding(s) the rules were trimmed to fit the request (rule files first)')"
+
 # --- 4. review-diff.sh ----------------------------------------------------------------
 echo ""
 echo "--- the diff as reviewed ---"
