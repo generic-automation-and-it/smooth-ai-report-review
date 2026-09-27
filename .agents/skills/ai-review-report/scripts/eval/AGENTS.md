@@ -252,7 +252,7 @@ scripts/eval/
   `fix_skip`, `fix_skip_p` and `code_context`. `decisions-report.py` prints a
   `1d.` section when fix_skip was asked: P(skip) by ground truth with AUC,
   predicted FIX on a finding that should be skipped, predicted SKIP on one that
-  should be fixed (a fix the autonomous filter would withhold), the human
+  should be fixed, and the part of those the autonomous `filter` would actually withhold (Medium/Low, P(skip) ≥ 0.50, hunk found — the same rule as `fixskip@0.50`), the human
   `label_reason` against the predicted class, and **how many questions were
   answered, and how many with a distribution** — the live check that the
   provider returns `probabilities.fix`, without which consumers never act.

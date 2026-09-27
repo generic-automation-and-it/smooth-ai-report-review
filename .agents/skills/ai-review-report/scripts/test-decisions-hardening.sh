@@ -570,6 +570,21 @@ if command -v python3 >/dev/null 2>&1; then
     "$(printf '%s\n' "$rep" | grep -c '1d. `fix_skip`')|$(printf '%s\n' "$rep" | grep -c 'answered with a distribution : 4/6')|$(printf '%s\n' "$rep" | grep -c 'separation (AUC)               : 1.00')"
   check "Test 8c: …and what ai-analyse's filter would have done: the Medium false positive goes, the High is out of its reach" "1" \
     "$(printf '%s\n' "$rep" | grep -cE '^ +fixskip@0\.50 +1/3 +2/2 +precision \+1$')"
+  # Review 5331170285 finding 2: a predicted SKIP on a real fix is a prediction
+  # error at any severity, but the filter withholds only Medium/Low with a
+  # P(skip) at the threshold and a matching hunk. Three real fixes predicted
+  # SKIP: a High, a Medium without a hunk, a Medium with one.
+  mkdir -p "$TMP_DIR/records_ws"
+  for spec in "HIGH high true" "MNOHUNK medium false" "MED medium true"; do
+    set -- $spec
+    jq -n --arg sev "$2" --argjson hunk "$3" '{fixture:"PR1-ws", kind:"must-catch", sample:1, variant:"real", status:"scored",
+      label:"tp", label_reason:"fix", min_severity:"LOW",
+      findings:[{severity:$sev, verified:true, title:"real", supported:0.9, diff_hunk_found:$hunk,
+                 fix_skip_asked:true, fix_skip:"skip_intentional", fix_skip_p:0.9}]}' > "$TMP_DIR/records_ws/REAL-$1.1.json"
+  done
+  rep_ws="$(python3 "$REPORT_PY" "$TMP_DIR/records_ws" "T")"
+  check "Test 8f: prediction errors and actual withholds are counted apart" "1|1" \
+    "$(printf '%s\n' "$rep_ws" | grep -c 'predicted SKIP on one to fix   : 3/3   (prediction error, any severity)')|$(printf '%s\n' "$rep_ws" | grep -c 'of which filter@0.50 withholds: 1/3')"
   rep_old="$(python3 "$REPORT_PY" "$SCRIPT_DIR/eval/corpus/real-findings" "T")"
   check "Test 8d: records from before fix_skip render no fix_skip section or policy" "0" \
     "$(printf '%s\n' "$rep_old" | grep -cE '1d\. |fixskip@' || true)"

@@ -219,16 +219,20 @@ SKIP_POLICIES = [
 ]
 
 
+def fixskip_withholds(f, t):
+    """What ai-analyse's `filter` mode would withhold (recommend-fix-skip.sh):
+    a Medium/Low finding predicted SKIP, with a P(skip) at or above the
+    threshold, whose diff hunk was found. Anything else stays in scope."""
+    return (f.get("severity") in ("medium", "low")
+            and f.get("fix_skip") not in (None, "fix")
+            and f.get("fix_skip_p") is not None
+            and f.get("diff_hunk_found") is not False
+            and f["fix_skip_p"] >= t)
+
+
 def fixskip_at(t):
     def apply(findings):
-        return [
-            f for f in findings
-            if f.get("severity") not in ("medium", "low")
-            or f.get("fix_skip") in (None, "fix")
-            or f.get("fix_skip_p") is None
-            or f.get("diff_hunk_found") is False
-            or f["fix_skip_p"] < t
-        ]
+        return [f for f in findings if not fixskip_withholds(f, t)]
     return apply
 
 
@@ -383,7 +387,13 @@ def main():
         n_fp = sum(1 for d, f in answered if fixskip_truth(d, f) == "skip")
         n_tp = sum(1 for d, f in answered if fixskip_truth(d, f) == "fix")
         print(f"    predicted FIX on one to skip   : {fix_on_fp}/{n_fp}")
-        print(f"    predicted SKIP on one to fix   : {skip_on_tp}/{n_tp}   (a fix the autonomous filter would withhold)")
+        # A predicted SKIP on a real fix is a prediction error at any severity;
+        # only the subset the filter conditions select is a fix it would
+        # actually withhold (the fixskip@0.50 row applies the same rule).
+        withheld_tp = sum(1 for d, f in answered
+                          if fixskip_truth(d, f) == "fix" and fixskip_withholds(f, 0.50))
+        print(f"    predicted SKIP on one to fix   : {skip_on_tp}/{n_tp}   (prediction error, any severity)")
+        print(f"      of which filter@0.50 withholds: {withheld_tp}/{n_tp}   (Medium/Low, P(skip) >= 0.50, hunk found)")
         # Real findings carry the human's reason: does the predicted skip
         # CLASS match it, not just the fix/skip side?
         reasons = {}
