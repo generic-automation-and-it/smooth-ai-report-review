@@ -222,10 +222,17 @@ def main():
     # A sample with no findings at all is a real outcome (a clean DR fixture, a
     # missed catch), not a failed measurement, so it counts in every table.
     scored = [d for d in docs if d.get("status") in ("scored", "no_findings")]
-    unusable = len(docs) - len(scored)
-    if unusable:
-        print(f" Excluded       : {unusable} sample(s) with no usable decisions "
-              "(provider unavailable or no merged findings) — see their `note`")
+    excluded = [d for d in docs if d.get("status") not in ("scored", "no_findings")]
+    if excluded:
+        # Named, not just counted: a reader must be able to tell WHICH fixtures
+        # are missing from every table below without opening the records.
+        print(f" Excluded       : {len(excluded)} sample(s) not fully measured — left out of every table:")
+        for d in excluded:
+            where = d.get("fixture", "?") + f" sample {d.get('sample', '?')}"
+            if d.get("variant"):
+                where += f" ({d['variant']})"
+            note = (d.get("note") or "").strip()
+            print(f"                  - {where}: {d.get('status', '?')}" + (f" — {note}" if note else ""))
     print("")
 
     # --- 1. does `supported` separate the known wrong from the known right? -----

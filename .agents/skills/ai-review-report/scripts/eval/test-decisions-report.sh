@@ -177,6 +177,12 @@ mk "$W/pronly.json" 0 '[0]';        check "2k: only the PR-level answer succeede
 mk "$W/cov.json" 2 '[0]';           check "2l: sidecars from fewer chunks than reviewed → partial_coverage" "partial_coverage|sidecars from 1 of 2 chunks" "$(st "$W/cov.json" 2)"
 mk "$W/nosum.json" 0 '[0]' no;      check "2m: findings but no decisions at all → unavailable" "unavailable|no finding was scored" "$(st "$W/nosum.json" 1)"
 check "2n: no merged document → no_merged" "no_merged|the merge produced no document" "$(st "$W/missing.json" 1)"
+# The report names every excluded sample and why.
+RX="$TMP/records-excluded"; mkdir -p "$RX"
+cp "$R/DR-900.1.json" "$RX/"
+write_decision_record "$W/part.json" "$TMP/manifest.json" 3 "stripped" 1 /dev/null "$RX/DR-777.3.json"
+check "2o: the report names an excluded sample, its status and note" "1" \
+  "$(python3 "$REPORT" "$RX" | grep -c -- '- DR-777 sample 3 (stripped): partial — scored 1 of 2 findings')"
 check "2p: run-evals and calibrate both use the one writer" "2" \
   "$(grep -l 'write_decision_record' "$RUN_EVALS" "$SCRIPT_DIR/calibrate-decisions.sh" | wc -l | tr -d ' ')"
 
