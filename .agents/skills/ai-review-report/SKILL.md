@@ -13,6 +13,10 @@ switches:
   - "`--post` - post the local review result back to the PR; requires `--pr NUMBER`."
   - "`--help` / `-h` - show local runner usage."
 description: Automated PR code review pipeline using chunked processing, context-aware analysis, and provider-selectable models (Gemini / Copilot / OpenAI / Anthropic / OpenCode Go / OpenRouter via OPENCODE_REVIEW_REPORT_PROVIDER) through the opencode CLI transport. Use when modifying the `pipeline-code-review-report` workflow, debugging review failures, adding/changing LADRs or Key Behaviors, or understanding the review decision matrix, two-tier review chain, chunked architecture, or false-positive prevention rules. Do NOT use for unrelated CI workflows or for AI-coder workflow rules (see `.agents/rules/ai-workflow-rules.instructions.md` instead).
+allowed-tools:
+  - Bash(.agents/skills/ai-review-report/scripts/local-review.sh:*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review-report/scripts/local-review.sh:*)
+effort: high          # pipeline maintenance spans workflow YAML, shell libs, prompts and LADRs
 ---
 
 # OpenCode CLI Code Review

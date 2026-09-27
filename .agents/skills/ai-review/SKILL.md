@@ -19,10 +19,7 @@ allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
   - Bash(git push:*)
-models:
-  claude: sonnet      # medium-complexity; review analysis + code fixes across multiple files
-  copilot: auto
-  codex: gpt-5.4
+effort: medium        # review analysis + code fixes across multiple files
 ---
 
 # AI PR Review Analyzer & Executor

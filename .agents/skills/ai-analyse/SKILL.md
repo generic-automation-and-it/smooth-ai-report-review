@@ -18,10 +18,7 @@ allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
   - Bash(git push:*)
-models:
-  claude: sonnet
-  copilot: auto
-  codex: gpt-5.4
+effort: medium        # per-finding fix/skip judgment + scoped multi-file edits
 ---
 
 # AI Analyse

@@ -6,10 +6,7 @@ allowed-tools:
   - Bash(git commit:*)
   - Bash(git log:*)
   - Bash(git push:*)
-models:
-  claude: sonnet      # medium-complexity; branch rename logic and upstream tracking require broader reasoning
-  copilot: auto
-  codex: gpt-5.4
+effort: medium        # chunked commits, trigger/trailer placement and upstream tracking
 ---
 
 # Git Commit, Review-Trigger, and Push
