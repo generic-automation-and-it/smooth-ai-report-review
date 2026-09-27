@@ -75,7 +75,7 @@ on:
         required: false
         type: string
       decisions:
-        description: "Measure the LADR-093 decision model on every sample (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only: never changes the eval result. Adds one small decision request per finding."
+        description: "Measure decisions (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only; adds a paid request per sample finding plus 40 calibration requests (20 planted findings in two variants), increasing cost and runtime."
         required: false
         type: string
 
