@@ -62,6 +62,24 @@ Two things about that input are worth knowing:
 - **Never write an identifier as `#1` (LADR-067).** GitHub autolinks `#` followed by digits to an issue or PR, so `#1` in anything you emit renders as a link to that repo's issue 1 and leaves a cross-reference on it. Findings are plain ordered-list items (`1.`, `2.`, LADR-068); the four prefixed classes are bullets carrying a bolded identifier (`- **R1)** …`), bolded because an unbolded trailing-paren number at the head of a bullet is itself a list marker and would vanish into list markup.
 - **`ci_temp/findings.merged.json` exists and is the intended future input.** The gate writes the full structured document — including `autofix_class` (`gated_auto` / `manual` / `advisory`), `owner`, `requires_verification`, and `suggested_fix` per finding — which is a far better autonomy predicate than "the severity is Medium": under the current severity-only rule (LADR-042) a Medium needing a design decision is auto-fixable while a Critical with a one-line mechanical fix is not. **Nothing consumes it yet.** Switching this skill's selection predicate from severity to route is a separate, deliberate change (Tier 1 item 5); do not start reading the JSON opportunistically, because the current comment-scraping path is what the workflow's trust boundary and `filter-test-self-fix.sh` enforcement are built around.
 
+### Decision-model recommendations (optional, LADR-097)
+
+When the repository sets `OPENCODE_ANALYSE_ENABLE_DECISIONS` truthy, the workflow asks a structured decision model (TypeSafe Jev, the gate's LADR-093 judge) to predict the FIX/SKIP decision for each Medium/Low finding **before** you see it, and writes the answer as one extra line directly under the finding:
+
+```
+3. 🟡 [VERIFIED] Medium Priority: … — `src/a.sh:3` (chunk 1)
+   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20% [UNSUPPORTED] · previously skipped 83% · actionability 1.6 of 2 (advisory)
+```
+
+`P(skip)` is 1 − the probability of `fix`; the class is one of `intentional` / `invalid` / `deferred` (the human label classes of LADR-096); `decision score` is the probability that the quoted evidence demonstrates the finding; `rule-allowed` / `previously skipped` say whether a project rule or the PR's Skip Areas already sanction it; `actionability` 2 means mechanically fixable. The line is **not** review text — never quote it as the finding.
+
+- **Use it in one direction only.** A SKIP recommendation is a good reason to SKIP — name it in the Reason column (`decision model: SKIP (invalid) 90%`). A FIX recommendation is **never** a reason to FIX on its own: every Decision Rule and Guardrail below still applies.
+- **`OPENCODE_ANALYSE_DECISIONS_MODE=filter`** additionally withholds, deterministically, every finding the model recommends skipping with `P(skip)` ≥ `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` (default `0.5`), the way failing-test findings are withheld (LADR-056). You never see those findings; the summary comment lists them for a human. Treat their absence like any other withheld finding, including in Suggested Fixes.
+- **A finding without the line was not scored** (feature off, request failed, over the cap, or the diff hunk was not found for a withhold). Decide it exactly as you would without the feature.
+- **Never a label.** These are model predictions. Nothing you print may be recorded as an `ai-review-decisions` label (that block is written only by a human's `/ai-review execute`).
+
+Configuration — clones of the gate's six Variables: `OPENCODE_ANALYSE_ENABLE_DECISIONS` (default `0`, never inherited from the gate), `OPENCODE_ANALYSE_DECISIONS_PROVIDER` / `_MODEL` / `_TIMEOUT` (blank → the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*`; the model is inherited only together with the provider), `OPENCODE_ANALYSE_DECISIONS_MODE` (`annotate` default / `filter`) and `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` (`0.5`). The key is the decision provider's existing Secret (`OPENCODE_GO_OPENAI_API_KEY` or `OPENCODE_OPENROUTER_API_KEY`).
+
 ## Decision Rules
 
 - Known intentional pattern: `SKIP`
@@ -69,6 +87,7 @@ Two things about that input are worth knowing:
 - Genuine bug or logic error in a low/medium finding: `FIX`
 - Real simplification with no trade-off: `FIX`
 - Speculative / "consider" language: `SKIP`
+- Decision model recommends SKIP (`🎯 Decision model:` line, when present) and you have no stronger evidence the finding is real and mechanically fixable: `SKIP`, citing it. A decision-model FIX alone is never sufficient for `FIX`.
 - A finding whose only viable fix would edit a test or the test framework, while `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is off (the default): `SKIP` with reason "test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)"
 - A finding whose basis is that a test is failing (regardless of `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX`): `SKIP` with reason "failing test is a signal — human decision required"
 - A Critical or High finding itself (its own priority is 🔴/🟠), even if included in suggested fixes: **omit entirely — no row, neither FIX nor SKIP**

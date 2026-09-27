@@ -61,6 +61,7 @@ jobs:
       medium_section: ${{ steps.guard.outputs.medium_section }}
       low_section: ${{ steps.guard.outputs.low_section }}
       suggested_fixes: ${{ steps.guard.outputs.suggested_fixes }}
+      review_run_id: ${{ steps.guard.outputs.review_run_id }}
     steps:
       - name: Checkout tooling source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -247,6 +248,12 @@ jobs:
           fi
 
           echo "act=true" >> "$GITHUB_OUTPUT"
+          # LADR-097: the gate stamps `<!-- ai-review-report run=<id> -->` into
+          # a review whose findings it scored. That id names the run artifact
+          # holding the findings' quoted evidence for the decision model; the
+          # analyse job falls back to the triggering run when it is absent.
+          review_run_id="$(sed -n 's/.*<!-- ai-review-report run=\([0-9][0-9]*\) -->.*/\1/p' ci_temp/latest_review.md | tail -n 1)"
+          echo "review_run_id=${review_run_id}" >> "$GITHUB_OUTPUT"
           output_multiline "medium_section" "$(printf '%s' "$scope_json" | jq -r '.medium')"
           output_multiline "low_section" "$(printf '%s' "$scope_json" | jq -r '.low')"
           output_multiline "suggested_fixes" "$(printf '%s' "$scope_json" | jq -r '.suggested_fixes')"
@@ -266,6 +273,26 @@ jobs:
       # or the test framework, so the suite stays an independent oracle for the
       # fix. Set to a truthy value (1/true/yes/on) to allow test self-fixes.
       OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX: ${{ vars.OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX || '' }}
+      # LADR-097: optional decision-model FIX/SKIP support — clones of the
+      # gate's six OPENCODE_REVIEW_REPORT_*DECISIONS* Variables. ENABLE is never
+      # inherited (scoring a review and steering an autonomous fixer are
+      # separate risk decisions); PROVIDER/MODEL/TIMEOUT fall back to the gate's
+      # values when blank (MODEL only together with the provider — see
+      # lib/recommend-fix-skip.sh); MODE (annotate | filter — filter WITHHOLDS a
+      # finding the model recommends skipping, it never adds one) and
+      # MIN_PROBABILITY (the P(skip) filter acts at) are analyse's own. The key
+      # is the chosen decision provider's existing Secret, already mapped below
+      # (OPENCODE-GO-DECISIONS → OPENCODE_GO_OPENAI_API_KEY,
+      # OPENROUTER-DECISIONS → OPENCODE_OPENROUTER_API_KEY).
+      OPENCODE_ANALYSE_ENABLE_DECISIONS: ${{ vars.OPENCODE_ANALYSE_ENABLE_DECISIONS || '0' }}
+      OPENCODE_ANALYSE_DECISIONS_PROVIDER: ${{ vars.OPENCODE_ANALYSE_DECISIONS_PROVIDER || '' }}
+      OPENCODE_ANALYSE_DECISIONS_MODEL: ${{ vars.OPENCODE_ANALYSE_DECISIONS_MODEL || '' }}
+      OPENCODE_ANALYSE_DECISIONS_MODE: ${{ vars.OPENCODE_ANALYSE_DECISIONS_MODE || 'annotate' }}
+      OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY: ${{ vars.OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY || '0.5' }}
+      OPENCODE_ANALYSE_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_ANALYSE_DECISIONS_TIMEOUT || '' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || '' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
+      OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '' }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
@@ -396,6 +423,12 @@ jobs:
           fi
 
       - name: Build analyse prompt
+        env:
+          # LADR-097 decision scoring only: gh pr diff / pr view / run download.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REVIEW_RUN_ID: ${{ needs.guard.outputs.review_run_id }}
+          TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           mkdir -p ci_temp ci_temp/filter_reports
@@ -405,6 +438,64 @@ jobs:
           # writes withheld bullets to the report file (and stderr).
           filtered_medium="$(printf '%s' "${MEDIUM_SECTION}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/medium_withheld)"
           filtered_low="$(printf '%s' "${LOW_SECTION}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/low_withheld)"
+          # LADR-097: optional decision-model FIX/SKIP recommendations, AFTER
+          # the failing-test filter so a withheld finding costs no request.
+          # Off unless OPENCODE_ANALYSE_ENABLE_DECISIONS is truthy (the lib
+          # checks). One-directional: annotate adds an advisory line under each
+          # scored finding; filter also withholds findings the model recommends
+          # skipping. Nothing here can add a finding to the fixer's scope.
+          # Both libs are guarded: this YAML runs from the default branch while
+          # the scripts come from the PR checkout, so a PR branch that predates
+          # them must still analyse (the LADR-071 two-name lesson). Every
+          # failure below falls back to the unannotated sections.
+          decisions_status="off"
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/recommend-fix-skip.sh" ] && \
+             [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/apply-decisions-to-scope.sh" ] && \
+             printf '%s' "${OPENCODE_ANALYSE_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+            mkdir -p ci_temp/decisions
+            {
+              echo "### 🟡 Medium Priority Issues"
+              printf '%s\n' "${filtered_medium}"
+              echo ""
+              echo "### 🔵 Low Priority / Nitpicks"
+              printf '%s\n' "${filtered_low}"
+            } > ci_temp/decisions/scope.md
+            if ! gh pr diff "${PR_NUMBER}" > ci_temp/decisions/pr_diff.txt 2>/dev/null; then
+              echo "::warning::gh pr diff failed — the decision model judges findings without their diff hunks"
+              : > ci_temp/decisions/pr_diff.txt
+            fi
+            { gh pr view "${PR_NUMBER}" --json body -q .body 2>/dev/null || true; } \
+              | bash "${REVIEW_SKILL_DIR}/scripts/lib/extract-review-notes.sh" --skip-areas > ci_temp/decisions/skip_areas.md 2>/dev/null \
+              || : > ci_temp/decisions/skip_areas.md
+            # The quoted evidence lives only in the gate's run artifact
+            # (LADR-062). The lib uses it only for a finding with the same
+            # number, file and title, so a wrong run degrades to "no evidence".
+            decision_run_id="${REVIEW_RUN_ID:-${TRIGGERING_RUN_ID:-}}"
+            artifact_args=()
+            if [ -n "$decision_run_id" ] && \
+               gh run download "$decision_run_id" -n "review-run-${decision_run_id}" -D ci_temp/decisions/artifact >/dev/null 2>&1 && \
+               [ -s ci_temp/decisions/artifact/findings.merged.json ]; then
+              artifact_args=(--artifact ci_temp/decisions/artifact/findings.merged.json)
+            fi
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/recommend-fix-skip.sh" --scope analyse \
+              --review ci_temp/decisions/scope.md --out-dir ci_temp/decisions/out \
+              --diff ci_temp/decisions/pr_diff.txt --skip-areas ci_temp/decisions/skip_areas.md \
+              --severities medium,low ${artifact_args[@]+"${artifact_args[@]}"} || true
+            decisions_status="$(cat ci_temp/decisions/out/status 2>/dev/null || echo unavailable)"
+            if [ "$decisions_status" = "scored" ]; then
+              if dm="$(printf '%s' "${filtered_medium}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/apply-decisions-to-scope.sh" \
+                    ci_temp/decisions/out/recommendations.tsv ci_temp/decisions/out/withhold.txt ci_temp/filter_reports/medium_decisions_withheld)" && \
+                 dl="$(printf '%s' "${filtered_low}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/apply-decisions-to-scope.sh" \
+                    ci_temp/decisions/out/recommendations.tsv ci_temp/decisions/out/withhold.txt ci_temp/filter_reports/low_decisions_withheld)"; then
+                filtered_medium="$dm"
+                filtered_low="$dl"
+              else
+                echo "::warning::could not apply the decision-model recommendations — analysing the unannotated findings"
+                decisions_status="unavailable"
+                rm -f ci_temp/filter_reports/*_decisions_withheld ci_temp/filter_reports/*_decisions_withheld.count
+              fi
+            fi
+          fi
           {
             echo "# ai-analyse headless execute"
             echo ""
@@ -448,6 +539,12 @@ jobs:
             # entries in Suggested Fixes are already excluded by rule.
             echo "This applies to the Suggested Fixes section too: if a suggested fix addresses something that is **not** listed in the Medium or Low sections above, do not apply it. Its finding was withheld deliberately — treat its absence from those sections as the decision, not as an oversight."
             echo ""
+            if [ "$decisions_status" = "scored" ]; then
+              echo "## Decision-model recommendations (advisory, LADR-097)"
+              echo ""
+              echo "A line starting \`🎯 Decision model:\` under a finding is an independent decision model's prediction of the FIX/SKIP decision a human would make, with its probabilities: \`P(skip)\`, \`decision score\` (does the quoted evidence demonstrate the finding), \`rule-allowed\`, \`previously skipped\` (does the PR's Skip Areas already record a decision not to fix it) and \`actionability\` (2 = mechanically fixable). It judged only the finding and its diff hunk. Treat it as evidence, never as authority, and only in one direction: a SKIP recommendation is a good reason to SKIP (say so in the Reason column, e.g. \"decision model: SKIP (invalid) 90%\"); a FIX recommendation is never a reason to FIX on its own — a FIX still has to meet every Decision Rule and guardrail above. The line is not part of the finding: never quote it as review text."
+              echo ""
+            fi
             echo "## Required output"
             echo ""
             echo "Edit files as needed, then print only the FIX/SKIP markdown table and a short note if no file changes were made. Do not run git."
@@ -741,6 +838,30 @@ jobs:
               echo '```'
               cat "$withheld_all"
               echo '```'
+            fi
+            # LADR-097: findings the decision model withheld (filter mode), then
+            # every recommendation, so no decision-model effect is invisible.
+            # The count is the one apply-decisions-to-scope.sh published.
+            decisions_withheld_count=0
+            for c in ci_temp/filter_reports/medium_decisions_withheld.count ci_temp/filter_reports/low_decisions_withheld.count; do
+              [ -s "$c" ] || continue
+              decisions_withheld_count=$(( decisions_withheld_count + $(tr -dc '0-9' < "$c") ))
+            done
+            if [ "$decisions_withheld_count" -gt 0 ]; then
+              echo ""
+              echo "**Withheld ${decisions_withheld_count} finding(s) the decision model recommends skipping** (\`OPENCODE_ANALYSE_DECISIONS_MODE=filter\`, LADR-097) — not auto-fixed; a human decides:"
+              echo ""
+              echo '```'
+              cat ci_temp/filter_reports/medium_decisions_withheld ci_temp/filter_reports/low_decisions_withheld 2>/dev/null || true
+              echo '```'
+            fi
+            if [ -s ci_temp/decisions/out/recommendations.md ]; then
+              echo ""
+              echo "<details><summary>Decision-model FIX/SKIP recommendations (advisory, never labels)</summary>"
+              echo ""
+              cat ci_temp/decisions/out/recommendations.md
+              echo ""
+              echo "</details>"
             fi
             echo ""
             cat ci_temp/analyse_out.md

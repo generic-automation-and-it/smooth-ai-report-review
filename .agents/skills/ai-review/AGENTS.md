@@ -55,9 +55,11 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 5. **The `ai-review-decisions` block is eval data with a fixed shape (ai-review-report LADR-096).** Execute writes it only when the processed review carries `<!-- ai-review-report run=<digits> -->`, and only for numbered findings. `ai-review-report/scripts/eval/harvest-real-findings.sh --from-pr` parses it line by line: `<!-- ai-review-decisions` alone on the first line, `run: <digits>`, `N: fix|skip intentional|skip invalid|skip deferred`, `-->` alone on the last line. Keep the closing `-->` on its own line: `extract-review-notes.sh` strips a comment from the gate's prompts only as a line range ending in `-->`. Changing a class name is a change to the harvester too. `deferred` is the safe default for a doubtful skip because it is never harvested.
 
+6. **`review-decisions.sh` borrows the scorer; it does not copy it (ai-review-report LADR-097).** `--usedecisions` needs ai-review-report's `lib/recommend-fix-skip.sh` (and through it `score-findings-decisions.sh`, the resolver and the questions asset). The helper finds it at the sibling path `../../ai-review-report` — true in-repo, for copy-install, for the Claude Code plugin (whose source is the whole repo) and for the npm plugin's `.agents/skills` links — or at `AI_REVIEW_REPORT_DIR`. When it is absent the helper prints why and exits 0: the analyse must continue without the column. Keep it Bash 3.2 safe like the rest of this skill (no `${v,,}`, no `mapfile`).
+
 ## Environment Variables
 
-None new — this skill inherits env-var handling from `SKILL.md`.
+`review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in. The key is never read by the helper itself: it is inherited by ai-review-report's `score-findings-decisions.sh`, the only process that uses it, which hands it to curl through a 0600 header file (`.github/instructions/skills/skill-secret-handling.instructions.md`). `gh` uses the developer's own authentication.
 
 ## Script Layout
 
@@ -67,6 +69,7 @@ None new — this skill inherits env-var handling from `SKILL.md`.
   AGENTS.md                   — This file (maintenance, LADRs, internals)
   scripts/
     copilot-review.sh         — GitHub REST/GraphQL plumbing for Copilot review routing
+    review-decisions.sh       — `--usedecisions`: decision-model FIX/SKIP recommendations (LADR-097)
 ```
 
 ## macOS Compatibility
@@ -75,6 +78,7 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 ## Changelog
 
+- **2026-09-27:** `--usedecisions` (analyse): `scripts/review-decisions.sh` adds decision-model FIX/SKIP recommendations for a gate review's numbered findings, using the CI gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` variables. Advisory; never a label (ai-review-report LADR-097).
 - **2026-09-27:** Execute (Non-Copilot flow) records the human's fix/skip decisions as an invisible `ai-review-decisions` block when the review carries the gate's run marker, feeding the decision model's real-findings labels (ai-review-report LADR-096).
 - **2026-09-27:** Replaced the per-tool `models` frontmatter block with `effort: high` and dropped `model:` from `agents/openai.yaml`: skills no longer switch model per tool or provider.
 - **2026-08-14:** Added AGENTS.md with copilot-review.sh EXIT-trap scope bug fix documentation (false failure + temp-file leak resolved via script-scoped registry + by-name assignment helper).

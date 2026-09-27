@@ -65,6 +65,17 @@
 # uses (lib/sync-recommendation-from-findings.sh): no failed chunk, and every
 # chunk present in the merge's own `merged_chunks`. Outside that fence it
 # degrades to annotate and says so. It never suppresses `critical`.
+#
+# Fix/skip purpose (LADR-097)
+# ---------------------------
+# `_DECISIONS_ASK_FIX_SKIP=1` is an INTERNAL switch (leading underscore: not a
+# Variable, never set by the gate) used only by lib/recommend-fix-skip.sh, the
+# `/ai-review --usedecisions` and `ai-analyse` path. It adds the
+# `per_finding_fix_skip` question (a prediction of the LADR-096 label class),
+# requires its answer like the others, stores it as `decisions.fix_skip`, and
+# skips the PR-level request — nothing on those paths reads block_merge. The
+# caller owns what the answer does; here it forces annotate, because this
+# script's filter acts on `supported` and on the gate's verdict fence.
 set -uo pipefail
 
 merged="${1:-ci_temp/findings.merged.json}"
@@ -102,6 +113,8 @@ MAX_FINDINGS=60
 # gateway), always inside the request's own timeout deadline.
 RETRY_DELAY="${_DECISIONS_RETRY_DELAY:-2}"
 case "$RETRY_DELAY" in ''|*[!0-9]*) RETRY_DELAY=2 ;; esac
+ask_fix_skip=false
+[ "${_DECISIONS_ASK_FIX_SKIP:-0}" = "1" ] && ask_fix_skip=true
 
 info() { echo "ℹ️  Decision model (LADR-093): $*"; }
 warn() { echo "⚠️  Decision model (LADR-093): $*"; }
@@ -131,6 +144,10 @@ if jq -e 'has("decisions_summary")' "$merged" >/dev/null 2>&1; then
 fi
 if [ ! -s "$QUESTIONS" ] || ! jq -e '.per_finding and .pr_level and .preflight' "$QUESTIONS" >/dev/null 2>&1; then
   warn "questions asset missing or unparseable (${QUESTIONS}) — merged findings left untouched"
+  exit 0
+fi
+if [ "$ask_fix_skip" = true ] && ! jq -e '.per_finding_fix_skip.fix_skip' "$QUESTIONS" >/dev/null 2>&1; then
+  warn "questions asset has no per_finding_fix_skip block (${QUESTIONS}) — merged findings left untouched"
   exit 0
 fi
 
@@ -167,6 +184,10 @@ case "$mode_requested" in
 esac
 mode="$mode_requested"
 mode_note=""
+if [ "$ask_fix_skip" = true ] && [ "$mode" != "annotate" ]; then
+  mode="annotate"
+  mode_note="fix/skip purpose: the caller owns filtering"
+fi
 
 min_probability="${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY:-0.5}"
 if ! [[ "$min_probability" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
@@ -375,7 +396,8 @@ build_finding_request() {
   [ -f "$rules_file" ] || rules_file="$work/empty.txt"
   jq -c --argjson i "$1" --rawfile hunk "$2" --slurpfile q "$QUESTIONS" --arg model "$model" \
      --rawfile rules "$rules_file" --argjson has_rules "$has_rules" \
-     --rawfile skips "$work/skip_areas.txt" --argjson has_skips "$has_skip_areas" '
+     --rawfile skips "$work/skip_areas.txt" --argjson has_skips "$has_skip_areas" \
+     --argjson ask_fix_skip "$ask_fix_skip" '
     .findings[$i] as $f | $q[0] as $q
     | { model: $model,
         state: ({
@@ -393,7 +415,8 @@ build_finding_request() {
         + (if $has_skips then { pr_skip_areas: $skips } else {} end)),
         questions: ($q.per_finding
                     + (if $has_rules then ($q.per_finding_rules | del(."$comment")) else {} end)
-                    + (if $has_skips then ($q.per_finding_skip_areas | del(."$comment")) else {} end)) }' "$merged" > "$3"
+                    + (if $has_skips then ($q.per_finding_skip_areas | del(."$comment")) else {} end)
+                    + (if $ask_fix_skip then ($q.per_finding_fix_skip | del(."$comment")) else {} end)) }' "$merged" > "$3"
 }
 : > "$work/empty.txt"
 
@@ -472,7 +495,7 @@ while [ "$i" -lt "$to_score" ]; do
     [ -f "$work/f_${i}.rules" ] && has_rules=true
     if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" \
         --argjson hunk_found "$hunk_found" --argjson has_rules "$has_rules" \
-        --argjson has_skips "$has_skip_areas" '
+        --argjson has_skips "$has_skip_areas" --argjson ask_fix_skip "$ask_fix_skip" '
         .answers as $a
         | def prob: type == "number" and . >= 0 and . <= 1;
           if ($a.supported.noul | prob)
@@ -484,8 +507,13 @@ while [ "$i" -lt "$to_score" ]; do
              # unscored (and counted as skipped), not silently become null.
              and (($has_rules | not) or ($a.sanctioned.noul | prob))
              and (($has_skips | not) or ($a.previously_skipped.noul | prob))
+             and (($ask_fix_skip | not)
+                  or (($a.fix_skip.choice // "") | IN("fix", "skip_intentional", "skip_invalid", "skip_deferred")))
           then { key: ($i | tostring),
-                 value: { provider: $provider,
+                 # The value is parenthesised because jq <= 1.7 (ubuntu-latest)
+                 # rejects an unparenthesised `{…} + (…)` as an object value;
+                 # jq 1.8 accepts it, so a local run cannot catch the break.
+                 value: ({ provider: $provider,
                           model: (.model // $model),
                           diff_hunk_found: $hunk_found,
                           supported: $a.supported.noul,
@@ -498,7 +526,18 @@ while [ "$i" -lt "$to_score" ]; do
                           sanctioned: (if $has_rules and ($a.sanctioned.noul | prob) then $a.sanctioned.noul else null end),
                           previously_skipped: (if $has_skips and ($a.previously_skipped.noul | prob) then $a.previously_skipped.noul else null end),
                           actionability: { score: $a.actionability.score,
-                                           confidence: ($a.actionability.confidence // null) } } }
+                                           confidence: ($a.actionability.confidence // null) } }
+                        # LADR-097: present only when the question was asked.
+                        # skip_probability is 1 - P(fix) when the provider
+                        # returned a usable distribution, else null — a caller
+                        # must never act on a probability it had to invent.
+                        + (if $ask_fix_skip then
+                             { fix_skip: { choice: $a.fix_skip.choice,
+                                           probabilities: ($a.fix_skip.probabilities // {}),
+                                           confidence: ($a.fix_skip.confidence // null),
+                                           skip_probability: (($a.fix_skip.probabilities // {}).fix
+                                                               | if prob then 1 - . else null end) } }
+                           else {} end)) }
           else error("malformed answer") end' "$work/f_${i}.resp" >> "$work/decisions.jsonl" 2>/dev/null; then
       :
     elif [ -z "$first_failure" ]; then
@@ -536,7 +575,11 @@ build_pr_request() { # build_pr_request <jq-filter-for-findings> <out>
 
 pr_scope="all"
 build_pr_request 'true' "$work/pr.req"
-if [ "$(wc -c < "$work/pr.req" | tr -d ' ')" -gt "$BUDGET_BYTES" ]; then
+if [ "$ask_fix_skip" = true ]; then
+  # Fix/skip purpose (LADR-097): no reader of block_merge on those paths, so
+  # the request would be a paid answer nobody sees.
+  pr_scope="not_asked"
+elif [ "$(wc -c < "$work/pr.req" | tr -d ' ')" -gt "$BUDGET_BYTES" ]; then
   pr_scope="critical_high"
   info "PR-level state exceeds the request budget — sending only critical and high findings"
   build_pr_request '.severity == "critical" or .severity == "high"' "$work/pr.req"
@@ -547,7 +590,7 @@ if [ "$(wc -c < "$work/pr.req" | tr -d ' ')" -gt "$BUDGET_BYTES" ]; then
 fi
 
 echo 'null' > "$work/pr.json"
-if [ "$pr_scope" != "skipped" ]; then
+if [ "$pr_scope" != "skipped" ] && [ "$pr_scope" != "not_asked" ]; then
   code="$(post "$work/pr.req" "$work/pr.resp")"
   if [ "$code" = "200" ] && jq -c '
       .answers as $a
@@ -583,7 +626,7 @@ with_rules="$(find "$work" -maxdepth 1 -name 'f_*.rules' 2>/dev/null | wc -l | t
 jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
    --arg provider "$provider" --arg model "$model" \
    --arg rules_source "$rules_source" --argjson with_rules "${with_rules:-0}" \
-   --argjson has_skips "$has_skip_areas" \
+   --argjson has_skips "$has_skip_areas" --argjson ask_fix_skip "$ask_fix_skip" \
    --arg mode "$mode" --arg mode_requested "$mode_requested" --arg mode_note "$mode_note" \
    --argjson min "$min_probability" --arg pr_scope "$pr_scope" \
    --argjson scored "$scored" --argjson skipped "$skipped" '
@@ -612,7 +655,9 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
                    skip_areas: $has_skips },
         suppressed: [ $drop[] | { number_before_filter: .["#"], title, severity, file, line,
                                   supported: .decisions.supported } ] }
-      + ($pr[0] // { block_merge: null, dominant_risk: null, overall_risk: null }) )
+      + ($pr[0] // { block_merge: null, dominant_risk: null, overall_risk: null })
+      # LADR-097: absent on the gate path, so its document is unchanged.
+      + (if $ask_fix_skip then { purpose: "fix_skip" } else {} end) )
 ' "$merged" > "${merged}.decisions.tmp" 2>"$work/write.err"
 
 if ! jq -e '.status == "complete" and (.decisions_summary | type == "object")' "${merged}.decisions.tmp" >/dev/null 2>&1; then

@@ -127,7 +127,11 @@ jobs:
           # touches only one of those files must still run them — with a
           # narrower scope a workflow-only PR set relevant=false and left this
           # required job green without running a single regression.
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/|\.docs/examples/|README\.md$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          # ai-analyse/ and ai-review/ are in scope because
+          # test-recommend-fix-skip.sh exercises their decision scripts
+          # (LADR-097): without them a PR touching only those scripts passed
+          # this required job without running the suite that tests them.
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|README\.md$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
@@ -167,6 +171,11 @@ jobs:
             # decisions scope, are pinned alongside it.
             .agents/skills/ai-review-report/scripts/test-score-findings-decisions.sh
             .agents/skills/ai-review-report/scripts/test-resolve-provider-scope.sh
+            # LADR-097 FIX/SKIP recommendations for /ai-review --usedecisions
+            # and ai-analyse: body parsing, the analyse namespace, the
+            # one-directional withhold rules, the gate path left unchanged, and
+            # pipeline-ai-analyse.yml's Variables / call order / guards.
+            .agents/skills/ai-review-report/scripts/test-recommend-fix-skip.sh
             # Per-chunk context scope filtering. Both directions of error are
             # real and asymmetric, so this pins the fail-open contract as hard
             # as it pins the glob matching.
