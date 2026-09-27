@@ -413,6 +413,10 @@ while [ "$i" -lt "$to_score" ]; do
              and (($a.severity.choice // "") | IN("critical", "high", "medium", "low"))
              and ($a.pre_existing.noul | prob)
              and ($a.actionability.score | type == "number")
+             # When rules were supplied `sanctioned` was asked, so its answer is
+             # required like the others: a missing one must leave the finding
+             # unscored (and counted as skipped), not silently become null.
+             and (($has_rules | not) or ($a.sanctioned.noul | prob))
           then { key: ($i | tostring),
                  value: { provider: $provider,
                           model: (.model // $model),

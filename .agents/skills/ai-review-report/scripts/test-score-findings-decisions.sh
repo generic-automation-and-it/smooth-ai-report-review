@@ -111,7 +111,8 @@ case "$kind" in
                           probabilities: { critical: 0.1, high: 0.2, medium: 0.6, low: 0.1 },
                           confidence: 0.74 },
               pre_existing: { type: "noul", noul: 0.08 },
-              sanctioned: { type: "noul", noul: (if ($f.title | test("weak")) then 0.93 else 0.04 end) },
+              sanctioned: (if env.STUB_MODE == "no_sanctioned" then null
+                           else { type: "noul", noul: (if ($f.title | test("weak")) then 0.93 else 0.04 end) } end),
               actionability: { type: "score", score: 1.6, confidence: 0.6,
                                legend: { "0": "Advisory", "1": "Judgement", "2": "Mechanical" },
                                probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 } } },
@@ -528,6 +529,12 @@ write_merged "$TMP_DIR/t13b.json"
 RULES_FILE="$TMP_DIR/big-rules.md" run_scorer t13b "$TMP_DIR/t13b.json" 2
 check "Test 13g: oversized rules are capped and say so" "true/true" \
   "$(jq -s '[.[] | select(.state.project_rules?)][0].state.project_rules | "\(length < 12200)/\(test("project rules truncated"))"' -r "$STUB_DIR"/req_*.json)"
+write_merged "$TMP_DIR/t13c.json"
+STUB_MODE=no_sanctioned RULES_FILE="$TMP_DIR/rules.md" run_scorer t13c "$TMP_DIR/t13c.json" 2
+check "Test 13j: rules given but sanctioned unanswered → finding unscored, not silently null" "0/4" \
+  "$(jq -r '"\(.decisions_summary.scored)/\(.decisions_summary.skipped)"' "$TMP_DIR/t13c.json")"
+check "Test 13k: ...and the malformed answer is warned about" "1" \
+  "$(grep -c 'first failure: finding 1: malformed answer' "$TMP_DIR/t13c.log")"
 OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t13.json" > "$TMP_DIR/t13.md" 2>/dev/null
 check "Test 13i: with project rules the tag also shows rule-allowed" "1" \
   "$(grep -c '(decision score 12% \[UNSUPPORTED\] · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
