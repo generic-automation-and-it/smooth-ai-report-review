@@ -1468,11 +1468,13 @@ LOGS_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/actions/
 echo "Review body size: ${BODY_SIZE} characters (limit: ${MAX_BODY_SIZE})"
 if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
   echo "⚠️  Review body exceeds limit — building compact version"
-  # The aggregator puts artifact markers after the detailed reviews. Keep both
-  # the run-id lookup and (when scored) the run= label channel even when that
-  # entire section is omitted. Reserve their bytes before choosing a compact
-  # body rather than appending past GitHub's size limit.
-  RUN_MARKERS="$(grep -E '^<!-- ai-review-report run(-id)?=[0-9]+ -->$' "$WORK_DIR/final_review.md" || true)"
+  # Only the aggregator's out-of-band marker list is authoritative. The review
+  # itself can quote marker-shaped text, including after the details heading.
+  # Reserve the genuine markers' bytes before choosing a compact body.
+  RUN_MARKERS=""
+  if [ -f "$WORK_DIR/aggregate_run_markers.txt" ]; then
+    RUN_MARKERS="$(cat "$WORK_DIR/aggregate_run_markers.txt")"
+  fi
   MARKER_BYTES=0
   [ -z "$RUN_MARKERS" ] || MARKER_BYTES="$(printf '%s\n' "$RUN_MARKERS" | wc -c | tr -d ' ')"
   sed '/^## 📂 Detailed Chunk Reviews/,$d' "$WORK_DIR/review_comment.md" > "$WORK_DIR/review_before_chunks.md"
@@ -1508,9 +1510,9 @@ if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
     } > "$WORK_DIR/review_comment.md"
   fi
   if [ -n "$RUN_MARKERS" ]; then
-    while IFS= read -r marker; do
-      grep -Fxq -- "$marker" "$WORK_DIR/review_comment.md" || printf '%s\n' "$marker" >> "$WORK_DIR/review_comment.md"
-    done <<< "$RUN_MARKERS"
+    # The consumer uses the last marker: always finish with the genuine values,
+    # even when the compacted prose already contains a quoted copy.
+    printf '%s\n' "$RUN_MARKERS" >> "$WORK_DIR/review_comment.md"
   fi
   rm -f "$WORK_DIR/review_before_chunks.md" "$WORK_DIR/review_after_chunks.md" "$WORK_DIR/review_comment_compact.md"
 fi
