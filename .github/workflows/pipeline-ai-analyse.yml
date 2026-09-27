@@ -62,6 +62,7 @@ jobs:
       low_section: ${{ steps.guard.outputs.low_section }}
       suggested_fixes: ${{ steps.guard.outputs.suggested_fixes }}
       review_run_id: ${{ steps.guard.outputs.review_run_id }}
+      review_commit: ${{ steps.guard.outputs.review_commit }}
     steps:
       - name: Checkout tooling source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -248,12 +249,17 @@ jobs:
           fi
 
           echo "act=true" >> "$GITHUB_OUTPUT"
-          # LADR-097: the gate stamps `<!-- ai-review-report run=<id> -->` into
-          # a review whose findings it scored. That id names the run artifact
-          # holding the findings' quoted evidence for the decision model; the
-          # analyse job falls back to the triggering run when it is absent.
-          review_run_id="$(sed -n 's/.*<!-- ai-review-report run=\([0-9][0-9]*\) -->.*/\1/p' ci_temp/latest_review.md | tail -n 1)"
+          # LADR-097/098: the gate stamps an invisible marker naming the run
+          # whose artifact holds this review's evidence, judge context and
+          # fix_skip answers — `run-id=` always (LADR-098), `run=` when it
+          # scored (older reviews carry only that). The analyse job falls back
+          # to the triggering run when neither is present. The header names
+          # the commit the review judged, so the decision model can be given
+          # that revision's diff rather than code pushed after the review.
+          review_run_id="$(sed -n 's/.*<!-- ai-review-report run\(-id\)\{0,1\}=\([0-9][0-9]*\) -->.*/\2/p' ci_temp/latest_review.md | tail -n 1)"
           echo "review_run_id=${review_run_id}" >> "$GITHUB_OUTPUT"
+          review_commit="$(sed -n 's/^## .*Code Review.* Commit: `\([0-9a-f]\{7,40\}\)`.*/\1/p' ci_temp/latest_review.md | head -n 1)"
+          echo "review_commit=${review_commit}" >> "$GITHUB_OUTPUT"
           output_multiline "medium_section" "$(printf '%s' "$scope_json" | jq -r '.medium')"
           output_multiline "low_section" "$(printf '%s' "$scope_json" | jq -r '.low')"
           output_multiline "suggested_fixes" "$(printf '%s' "$scope_json" | jq -r '.suggested_fixes')"
@@ -293,6 +299,13 @@ jobs:
       OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || '' }}
       OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
       OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '' }}
+      # The gate's decision-score threshold, so an analyse table marks a score
+      # weak quoted evidence exactly where the gate's review does. The analyse
+      # MIN_PROBABILITY above is only the P(skip) at which `filter` withholds.
+      OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}
+      # LADR-098: shared with the gate, not cloned — it only adds context to a
+      # re-scored finding (the enclosing code at the reviewed commit).
+      OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT || '1' }}
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
@@ -309,6 +322,12 @@ jobs:
       MEDIUM_SECTION: ${{ needs.guard.outputs.medium_section }}
       LOW_SECTION: ${{ needs.guard.outputs.low_section }}
       SUGGESTED_FIXES: ${{ needs.guard.outputs.suggested_fixes }}
+      # LADR-098 run artifact: the monitoring files, relative to ci_temp/. One
+      # list for the pre-test-gate snapshot and the final collection. Named on
+      # purpose — never the raw PR diff or body (review 5331170285 finding 3).
+      # Skip Areas are used at runtime to check gate-answer reuse, but may
+      # contain arbitrary pasted credentials; never persist the raw copy.
+      ANALYSE_RUN_FILES: analyse_prompt.md analyse_out.md filter_reports decisions/scope.md decisions/out
     steps:
       - name: Resolve PR head
         id: pr
@@ -428,6 +447,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           REVIEW_RUN_ID: ${{ needs.guard.outputs.review_run_id }}
+          REVIEW_COMMIT: ${{ needs.guard.outputs.review_commit }}
           TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
@@ -452,6 +472,10 @@ jobs:
           if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/recommend-fix-skip.sh" ] && \
              [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/apply-decisions-to-scope.sh" ] && \
              printf '%s' "${OPENCODE_ANALYSE_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+            # Fresh every time: the status and withhold reports the summary
+            # step reads must describe THIS run.
+            rm -rf ci_temp/decisions
+            rm -f ci_temp/filter_reports/*_decisions_withheld ci_temp/filter_reports/*_decisions_withheld.count
             mkdir -p ci_temp/decisions
             {
               echo "### 🟡 Medium Priority Issues"
@@ -460,28 +484,60 @@ jobs:
               echo "### 🔵 Low Priority / Nitpicks"
               printf '%s\n' "${filtered_low}"
             } > ci_temp/decisions/scope.md
-            if ! gh pr diff "${PR_NUMBER}" > ci_temp/decisions/pr_diff.txt 2>/dev/null; then
-              echo "::warning::gh pr diff failed — the decision model judges findings without their diff hunks"
-              : > ci_temp/decisions/pr_diff.txt
+            if gh pr view "${PR_NUMBER}" --json body -q .body > ci_temp/decisions/pr_body.md 2>/dev/null && \
+               bash "${REVIEW_SKILL_DIR}/scripts/lib/extract-review-notes.sh" --skip-areas \
+                 < ci_temp/decisions/pr_body.md > ci_temp/decisions/skip_areas.md 2>/dev/null; then
+              : # An empty section is valid when the live body was read successfully.
+            else
+              rm -f ci_temp/decisions/skip_areas.md
+              echo "::warning::could not verify the PR's current Skip Areas — gate predictions will be re-scored"
             fi
-            { gh pr view "${PR_NUMBER}" --json body -q .body 2>/dev/null || true; } \
-              | bash "${REVIEW_SKILL_DIR}/scripts/lib/extract-review-notes.sh" --skip-areas > ci_temp/decisions/skip_areas.md 2>/dev/null \
-              || : > ci_temp/decisions/skip_areas.md
-            # The quoted evidence lives only in the gate's run artifact
-            # (LADR-062). The lib uses it only for a finding with the same
-            # number, file and title, so a wrong run degrades to "no evidence".
+            # The gate's run artifact (LADR-062) holds the quoted evidence, the
+            # judge context and — LADR-098 — the gate's own fix_skip answers,
+            # which the lib reuses when the Skip Areas are unchanged. The lib
+            # uses a finding's entry only on a number + file + title match, so
+            # a wrong run degrades to "re-score without evidence".
             decision_run_id="${REVIEW_RUN_ID:-${TRIGGERING_RUN_ID:-}}"
             artifact_args=()
+            reviewed_sha=""
             if [ -n "$decision_run_id" ] && \
                gh run download "$decision_run_id" -n "review-run-${decision_run_id}" -D ci_temp/decisions/artifact >/dev/null 2>&1 && \
                [ -s ci_temp/decisions/artifact/findings.merged.json ]; then
               artifact_args=(--artifact ci_temp/decisions/artifact/findings.merged.json)
+              reviewed_sha="$(jq -r '.head_sha // "" | select(test("^[0-9a-f]{7,40}$"))' ci_temp/decisions/artifact/metadata.json 2>/dev/null || true)"
             fi
-            bash "${REVIEW_SKILL_DIR}/scripts/lib/recommend-fix-skip.sh" --scope analyse \
-              --review ci_temp/decisions/scope.md --out-dir ci_temp/decisions/out \
-              --diff ci_temp/decisions/pr_diff.txt --skip-areas ci_temp/decisions/skip_areas.md \
-              --severities medium,low ${artifact_args[@]+"${artifact_args[@]}"} || true
-            decisions_status="$(cat ci_temp/decisions/out/status 2>/dev/null || echo unavailable)"
+            # The diff AS REVIEWED (LADR-098): the head may have moved since
+            # the review, and a finding must be judged on the code it was
+            # raised against. Guarded like the other libs; a PR branch that
+            # predates review-diff.sh keeps the old current-diff behaviour.
+            diff_revision="current"
+            rev_args=()
+            if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/review-diff.sh" ]; then
+              diff_state="$(bash "${REVIEW_SKILL_DIR}/scripts/lib/review-diff.sh" "${PR_NUMBER}" /dev/null \
+                ci_temp/decisions/pr_diff.txt "${reviewed_sha:-${REVIEW_COMMIT:-}}")"
+              diff_revision="$(printf '%s\n' "$diff_state" | sed -n 1p)"
+              reviewed_sha="$(printf '%s\n' "$diff_state" | sed -n 2p)"
+              # --rev ships with review-diff.sh; an older recommend-fix-skip.sh
+              # on the PR branch would reject it as an unknown argument.
+              [ -z "$reviewed_sha" ] || rev_args=(--rev "$reviewed_sha")
+            elif ! gh pr diff "${PR_NUMBER}" > ci_temp/decisions/pr_diff.txt 2>/dev/null; then
+              : > ci_temp/decisions/pr_diff.txt
+            fi
+            case "$diff_revision" in
+              reviewed) echo "ℹ️  PR moved on since the review — the decision model judges the reviewed commit ${reviewed_sha:0:7}" ;;
+              unknown) echo "::warning::could not tell which commit the review judged — the decision model uses the current PR diff" ;;
+            esac
+            if [ "$diff_revision" = "unavailable" ]; then
+              echo "::warning::the diff at the reviewed commit could not be fetched — no decision-model recommendations this run"
+              decisions_status="unavailable"
+            else
+              [ -s ci_temp/decisions/pr_diff.txt ] || echo "::warning::no PR diff — the decision model judges findings without their diff hunks"
+              bash "${REVIEW_SKILL_DIR}/scripts/lib/recommend-fix-skip.sh" --scope analyse \
+                --review ci_temp/decisions/scope.md --out-dir ci_temp/decisions/out \
+                --diff ci_temp/decisions/pr_diff.txt --skip-areas ci_temp/decisions/skip_areas.md \
+                --severities medium,low ${artifact_args[@]+"${artifact_args[@]}"} ${rev_args[@]+"${rev_args[@]}"} || true
+              decisions_status="$(cat ci_temp/decisions/out/status 2>/dev/null || echo unavailable)"
+            fi
             if [ "$decisions_status" = "scored" ]; then
               if dm="$(printf '%s' "${filtered_medium}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/apply-decisions-to-scope.sh" \
                     ci_temp/decisions/out/recommendations.tsv ci_temp/decisions/out/withhold.txt ci_temp/filter_reports/medium_decisions_withheld)" && \
@@ -542,7 +598,7 @@ jobs:
             if [ "$decisions_status" = "scored" ]; then
               echo "## Decision-model recommendations (advisory, LADR-097)"
               echo ""
-              echo "A line starting \`🎯 Decision model:\` under a finding is an independent decision model's prediction of the FIX/SKIP decision a human would make, with its probabilities: \`P(skip)\`, \`decision score\` (does the quoted evidence demonstrate the finding), \`rule-allowed\`, \`previously skipped\` (does the PR's Skip Areas already record a decision not to fix it) and \`actionability\` (2 = mechanically fixable). It judged only the finding and its diff hunk. Treat it as evidence, never as authority, and only in one direction: a SKIP recommendation is a good reason to SKIP (say so in the Reason column, e.g. \"decision model: SKIP (invalid) 90%\"); a FIX recommendation is never a reason to FIX on its own — a FIX still has to meet every Decision Rule and guardrail above. The line is not part of the finding: never quote it as review text."
+              echo "A line starting \`🎯 Decision model:\` under a finding is an independent decision model's prediction of the FIX/SKIP decision a human would make, with its probabilities: \`P(skip)\`, \`decision score\` (does the quoted evidence demonstrate the finding), \`rule-allowed\`, \`previously skipped\` (does the PR's Skip Areas already record a decision not to fix it) and \`actionability\` (2 = mechanically fixable). It judged only the finding and its diff hunk. Treat it as evidence, never as authority, and only in one direction: a SKIP recommendation — a line that says \`recommends SKIP\` — is a good reason to SKIP (say so in the Reason column, e.g. \"decision model: SKIP (invalid) 90%\"); a line that says \`uncertain, leans …\` is no recommendation in either direction, so decide that finding on its own and never cite the line; a FIX recommendation is never a reason to FIX on its own — a FIX still has to meet every Decision Rule and guardrail above. The line is not part of the finding: never quote it as review text."
               echo ""
             fi
             echo "## Required output"
@@ -606,6 +662,18 @@ jobs:
           # The gate owns the verdict; do not re-derive it here from the report
           # file. A second copy of the decision logic is how LADR-056 ended up
           # reporting two different withheld counts for one run.
+          # Snapshot the run-artifact files OUTSIDE the checkout before any
+          # suite runs: a suite may clean ci_temp/ (run-test-gate.sh stages its
+          # own state out-of-tree for exactly that reason), and the upload would
+          # then lose them while `if-no-files-found: ignore` stayed green
+          # (review 5331170285 finding 6). Best-effort — monitoring must never
+          # fail the commit.
+          run_dir="${RUNNER_TEMP}/ai-analyse-run"
+          mkdir -p "$run_dir"
+          for f in $ANALYSE_RUN_FILES; do
+            [ -e "ci_temp/$f" ] || continue
+            mkdir -p "$run_dir/$(dirname "$f")" && cp -R "ci_temp/$f" "$run_dir/$(dirname "$f")/" || true
+          done
           mkdir -p ci_temp/test_gate
           gate_report="ci_temp/test_gate/report.txt"
           gate_rc=0
@@ -866,3 +934,64 @@ jobs:
             echo ""
             cat ci_temp/analyse_out.md
           } | "${AI_REVIEW_DIR}/scripts/copilot-review.sh" summary "$PR_NUMBER"
+
+      # LADR-098: what the autonomous run saw and did — the prompt, the fixer's
+      # FIX/SKIP table, the failing-test and decision-model withhold reports,
+      # the decision recommendations and the test-gate report — so the
+      # decision model's advice can later be compared with what the fixer did
+      # and whether it held. Monitoring data, never labels (LADR-096).
+      #
+      # A NAMED list (ANALYSE_RUN_FILES, job env), never the whole decisions
+      # directory: that also holds the
+      # raw PR diff and PR body the scorer read (pr_diff.txt, pr_body.md), and
+      # a secret pasted into either would sit in a 30-day artifact (review
+      # 5331170285 finding 3). Both can be fetched from the PR again; the
+      # parsed findings, scope and scorer output are what the comparison needs.
+      # Skip Areas may contain arbitrary pasted secrets, so the runtime copy
+      # is excluded too. The gate's own artifact, downloaded for evidence, is
+      # left out too: the run that produced it already uploaded it. No secret
+      # is on disk: the scorer's auth header lives in its own mktemp dir,
+      # removed on exit.
+      #
+      # Collected from the pre-test-gate snapshot (Commit fixes). Files the
+      # snapshot does not have — the run ended before the gate, or the step was
+      # skipped — are added from ci_temp without overwriting it (`cp -n`), and
+      # the test-gate report, written after the suites, always comes from there.
+      #
+      # Then redacted to <REDACTED> (skill-secret-handling checklist: knowledge
+      # artefacts redact secrets). The files are model prompts, model output,
+      # recommendations and test logs — text derived from the PR that can repeat
+      # a credential quoted in a finding or echoed by a test (review 5331608121
+      # finding 1). The token and the analyse PAT are mapped here only so their
+      # exact values can be found and replaced; the provider keys come from the
+      # job env. If the redaction lib is missing (a PR branch older than it) or
+      # fails, the collected files are DELETED rather than uploaded unredacted.
+      - name: Collect ai-analyse run artifacts
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_ANALYSE_GH_TOKEN: ${{ secrets.OPENCODE_ANALYSE_GH_TOKEN }}
+        run: |
+          run_dir="${RUNNER_TEMP}/ai-analyse-run"
+          mkdir -p "$run_dir"
+          for f in $ANALYSE_RUN_FILES test_gate/report.txt; do
+            [ -e "ci_temp/$f" ] || continue
+            mkdir -p "$run_dir/$(dirname "$f")" && cp -Rn "ci_temp/$f" "$run_dir/$(dirname "$f")/" || true
+          done
+          cp -f ci_temp/test_gate/report.txt "$run_dir/test_gate/report.txt" 2>/dev/null || true
+          redact="${REVIEW_SKILL_DIR:-}/scripts/lib/redact-secrets.sh"
+          if [ -n "${REVIEW_SKILL_DIR:-}" ] && [ -f "$redact" ] && bash "$redact" "$run_dir"; then
+            find "$run_dir" -type f | sed "s|^$run_dir/|  |" || true
+          else
+            echo "::warning::run artifact not redacted (redact-secrets.sh missing or failed) — uploading nothing"
+            rm -rf "$run_dir"
+          fi
+
+      - name: Upload ai-analyse run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-analyse-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/ai-analyse-run/
+          if-no-files-found: ignore
+          retention-days: 30

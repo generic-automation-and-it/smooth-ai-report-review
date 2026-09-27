@@ -121,7 +121,18 @@
               "provider": { "type": "string", "description": "Decision-provider selector: OPENCODE-GO-DECISIONS or OPENROUTER-DECISIONS." },
               "model": { "type": "string", "description": "Model id as the endpoint reported it." },
               "diff_hunk_found": { "type": "boolean", "description": "False when no diff hunk matched the finding file (usually a path written differently from the diff header). The judge is told so explicitly, and filter mode never suppresses such a finding." },
-              "supported": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the quoted evidence demonstrates the described defect. Rendered as `decision: supported 0.91`; below min_probability it renders [UNSUPPORTED] and, in filter mode, suppresses a non-critical finding." },
+              "code_context": { "type": "boolean", "description": "True when the request also carried `code_context` (LADR-098): the enclosing function at the reviewed revision and/or the hunks of other changed files the finding names. False when the feature was off, nothing was found, or the context was dropped to fit the request budget." },
+              "fix_skip": {
+                "type": ["object", "null"],
+                "description": "LADR-097/098: the decision model's PREDICTION of the human fix/skip decision (the LADR-096 label classes). Asked by the gate so /ai-review and ai-analyse can reuse it; null when asked but unanswered; absent when not asked. Never a label.",
+                "properties": {
+                  "choice": { "type": "string", "enum": ["fix", "skip_intentional", "skip_invalid", "skip_deferred"] },
+                  "probabilities": { "type": "object", "additionalProperties": { "type": "number" } },
+                  "confidence": { "type": ["number", "null"] },
+                  "skip_probability": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "1 - P(fix), unrounded; null when no distribution was returned, so nothing acts on an invented number." }
+                }
+              },
+              "supported": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the quoted evidence demonstrates the described defect. Rendered next to the priority as `(decision score 91%)`; below min_probability as `(decision score 38%, weak quoted evidence)`, and in filter mode it suppresses a non-critical finding." },
               "severity": {
                 "type": "object",
                 "required": ["choice"],
@@ -161,7 +172,7 @@
     },
     "decisions_summary": {
       "type": "object",
-      "description": "POST-MERGE ONLY — present on findings.merged.json, never on a chunk document (LADR-093). The run-level record of the decision model: provider, model, mode (annotate | filter, plus mode_requested and mode_note when filter degraded outside the full-coverage fence), min_probability, scored / skipped counts, pr_level_scope (all | critical_high | skipped | failed), `context` ({project_rules: none | file | chunk, findings_with_rules, skip_areas} — what the judge was given besides each finding and its hunk), `suppressed` (findings filter mode removed, each with number_before_filter, title, severity, file, line, supported), and the PR-level answers block_merge (0-1), dominant_risk ({choice, probabilities, confidence}) and overall_risk ({score, legend, probabilities, confidence}), each null when unanswered. Copied into the run artifact metadata.json and stated to the orchestrator as facts; it never changes the deterministic verdict path."
+      "description": "POST-MERGE ONLY — present on findings.merged.json, never on a chunk document (LADR-093). The run-level record of the decision model: provider, model, mode (annotate | filter, plus mode_requested and mode_note when filter degraded outside the full-coverage fence), min_probability, scored / skipped counts, pr_level_scope (all | critical_high | skipped | failed), `context` ({project_rules: none | file | chunk, findings_with_rules, skip_areas, and — LADR-098, only when they applied — findings_with_code_context and fix_skip_asked} — what the judge was given and asked besides each finding and its hunk), `purpose` (only `fix_skip`, on a /ai-review or ai-analyse document — LADR-097), `suppressed` (findings filter mode removed, each with number_before_filter, title, severity, file, line, supported), and the PR-level answers block_merge (0-1), dominant_risk ({choice, probabilities, confidence}) and overall_risk ({score, legend, probabilities, confidence}), each null when unanswered. Copied into the run artifact metadata.json and stated to the orchestrator as facts; it never changes the deterministic verdict path."
     }
   }
 }

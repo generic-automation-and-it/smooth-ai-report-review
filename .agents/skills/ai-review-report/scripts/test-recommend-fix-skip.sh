@@ -95,6 +95,10 @@ case "$kind" in
                elif ($t | test("nodist")) then { fix_skip: { choice: "skip_deferred" } }
                else { fix_skip: { choice: "fix", probabilities: { fix: 0.8, skip_intentional: 0.1, skip_invalid: 0.05, skip_deferred: 0.05 } } } end)) }' "$data" > "$out" ;;
 esac
+# STUB_FS_CONF: the model's own confidence on every fix/skip answer.
+if [ -n "${STUB_FS_CONF:-}" ] && [ "$kind" = "finding" ]; then
+  jq -c --argjson c "$STUB_FS_CONF" 'if .answers.fix_skip then .answers.fix_skip.confidence = $c else . end' "$out" > "$out.t" && mv "$out.t" "$out"
+fi
 printf '200'
 SHIM
 chmod +x "$BIN/curl"
@@ -275,8 +279,8 @@ check "Test 3g: recommendation, class and P(skip) = 1 - P(fix)" "SKIP intentiona
   "$(awk -F '\t' 'NR > 1 { printf "%s%s %s %s", s, $3, $4, $5; s = "|" }' "$tsv")"
 check "Test 3h: annotate writes no withhold list" "no" "$([ -e "$TMP_DIR/out_ann/withhold.txt" ] && echo yes || echo no)"
 check "Test 3i: the table carries no # + digit (LADR-067)" "0" "$(grep -cE '#[0-9]' "$TMP_DIR/out_ann/recommendations.md" || true)"
-check "Test 3j: the decision score below the threshold is marked [UNSUPPORTED]" "1" \
-  "$(grep -c '| 3\. .*20% \[UNSUPPORTED\]' "$TMP_DIR/out_ann/recommendations.md" || true)"
+check "Test 3j: the decision score below the threshold is marked weak quoted evidence" "1" \
+  "$(grep -c '| 3\. .*20%, weak quoted evidence' "$TMP_DIR/out_ann/recommendations.md" || true)"
 check "Test 3k: a finding with no diff hunk says so" "1" "$(grep -c '| 5\. .*(no diff hunk)' "$TMP_DIR/out_ann/recommendations.md" || true)"
 check "Test 3l: the document records the fix/skip purpose and no PR-level scope" "fix_skip not_asked" \
   "$(jq -r '.decisions_summary | "\(.purpose) \(.pr_level_scope)"' "$TMP_DIR/out_ann/decisions.json")"
@@ -323,6 +327,38 @@ run_rec edge analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISI
 BODY="$BODY_SAVE"
 check "Test 5e: the threshold compares the raw P(skip) — 0.495 shows as 50% but is not withheld at 0.5" "50|" \
   "$(awk -F '\t' 'NR == 2 { printf "%s", $5 }' "$TMP_DIR/out_edge/recommendations.tsv")|$(cat "$TMP_DIR/out_edge/withhold.txt")"
+
+# PR 179 review 5331521317: the decision-score threshold is the gate's in every
+# scope; the analyse MIN_PROBABILITY is only the P(skip) filter threshold.
+REC_EXTRA="--severities medium,low"
+run_rec thr_analyse analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.95
+check "Test 5f: a high analyse P(skip) threshold does not mark a 90% decision score weak quoted evidence" "0|1" \
+  "$(grep -c '| 2\. .*90%, weak quoted evidence' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)|$(grep -c '| 3\. .*20%, weak quoted evidence' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)"
+run_rec thr_gate analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY=0.95
+check "Test 5g: the gate's decision-score threshold decides weak quoted evidence in the analyse table" "1" \
+  "$(grep -c '| 2\. .*90%, weak quoted evidence' "$TMP_DIR/out_thr_gate/recommendations.md" || true)"
+check "Test 5h: the analyse job forwards the gate's decision-score threshold" "1" \
+  "$(grep -c "OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}" "$ANALYSE_WF" || true)"
+
+# A fix/skip answer below the confidence floor is shown as uncertain, never
+# withheld, and leans the way the model leaned (PR 179: the answers a human
+# overturned came at confidence 0.12 and 0.14).
+run_rec unsure analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MODE=filter \
+  OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.5 STUB_FS_CONF=0.12
+check "Test 5i: a low-confidence answer is UNCERTAIN in the TSV and is never withheld" "UNCERTAIN UNCERTAIN|" \
+  "$(awk -F '\t' '$1 == 2 || $1 == 3 { printf "%s%s", s, $3; s = " " }' "$TMP_DIR/out_unsure/recommendations.tsv")|$(cat "$TMP_DIR/out_unsure/withhold.txt" 2>/dev/null)"
+check "Test 5j: the table says which way it leans and how confident it was" "1" \
+  "$(grep -c '| 3\. .*| uncertain — leans SKIP (invalid), confidence 12% |' "$TMP_DIR/out_unsure/recommendations.md" || true)"
+section3="$(awk '/^### 🟡 Medium/{f=1} /^### 🔵/{f=0} f' "$BODY")"
+check "Test 5k: ai-analyse's advisory line says uncertain, not recommends" "1|0" \
+  "$(printf '%s' "$section3" | bash "$APPLY" "$TMP_DIR/out_unsure/recommendations.tsv" "" "$TMP_DIR/rep_unsure" | grep -c 'Decision model: uncertain, leans SKIP (invalid) (confidence 12%)')|$(printf '%s' "$section3" | bash "$APPLY" "$TMP_DIR/out_unsure/recommendations.tsv" "" "$TMP_DIR/rep_unsure2" | grep -c 'recommends SKIP (invalid)' || true)"
+run_rec sure analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MODE=filter \
+  OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.5 STUB_FS_CONF=0.3
+check "Test 5l: at the floor (0.3) the answer counts, and filter withholds as before" "2 3" \
+  "$(paste -sd ' ' - < "$TMP_DIR/out_sure/withhold.txt")"
+
+check "Test 5m: only a recommends-SKIP line is a reason to skip, in the skill and in the CI prompt (review 5331577898 finding 3)" "1|1" \
+  "$(grep -c 'Never treat an `uncertain, leans …` line as a recommendation' "$REPO_ROOT/.agents/skills/ai-analyse/SKILL.md")|$(grep -c 'is no recommendation in either direction, so decide that finding on its own' "$ANALYSE_WF")"
 
 # --- 6. review scope ---------------------------------------------------------------------
 echo ""
@@ -371,7 +407,7 @@ echo "--- ai-analyse scope filter ---"
 section="$(awk '/^### 🟡 Medium/{f=1; next} /^### /{f=0} f' "$BODY")"
 out="$(printf '%s' "$section" | bash "$APPLY" "$tsv" "" "$TMP_DIR/rep_ann")"
 check "Test 9a: annotate inserts one advisory line directly under a scored finding" \
-  "   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20% [UNSUPPORTED] · previously skipped 83% · actionability 1.6 of 2 (advisory)" \
+  "   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20%, weak quoted evidence · previously skipped 83% · actionability 1.6 of 2 (advisory)" \
   "$(printf '%s\n' "$out" | awk '/^3\. /{getline; print}')"
 check "Test 9b: …and keeps every original line" "$(printf '%s\n' "$section" | grep -c .)" \
   "$(printf '%s\n' "$out" | grep -v '🎯 Decision model' | grep -c .)"

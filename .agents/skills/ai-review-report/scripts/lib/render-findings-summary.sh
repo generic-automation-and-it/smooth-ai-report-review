@@ -85,7 +85,7 @@ jq -r '
   # eval/lib/score-review.sh takes the label as the text before the first
   # colon and counts it by [VERIFIED] plus a severity keyword, so a colon here
   # would move the boundary and a second severity word would double-count the
-  # finding. [UNSUPPORTED] does not contain VERIFIED; rule-allowed appears only
+  # finding. weak quoted evidence does not contain VERIFIED; rule-allowed appears only
   # when the finding was judged against project rules, and previously skipped
   # only when the PR description had Skip Areas bullets. Both are shown for
   # every finding they were asked about, low values included, because a
@@ -98,7 +98,7 @@ jq -r '
     if (.decisions.supported // null) == null then ""
     else
       " (decision score \(.decisions.supported | pct)"
-      + (if .decisions.supported < ($ds.min_probability // 0.5) then " [UNSUPPORTED]" else "" end)
+      + (if .decisions.supported < ($ds.min_probability // 0.5) then ", weak quoted evidence" else "" end)
       + (if (.decisions.sanctioned // null) != null then " · rule-allowed \(.decisions.sanctioned | pct)" else "" end)
       + (if (.decisions.previously_skipped // null) != null then " · previously skipped \(.decisions.previously_skipped | pct)" else "" end)
       + ")"
@@ -119,7 +119,7 @@ jq -r '
     else
       "- **Decision model:** `\($ds.provider)/\($ds.model)` (\($ds.mode)) — scored \($ds.scored), skipped \($ds.skipped)"
         + (if $ds.mode == "filter" then ", suppressed \($ds.suppressed | length)" else "" end)
-        + ". **Decision score** = the probability that the quoted evidence demonstrates the finding; below \($ds.min_probability | pct) it is marked [UNSUPPORTED]."
+        + ". **Decision score** = the probability that the quoted evidence demonstrates the finding; below \($ds.min_probability | pct) it is marked *weak quoted evidence*."
         + ( ($ds.context // {}) as $c
             | (if ($c.project_rules // "none") != "none" and ($c.findings_with_rules // 0) > 0
                then " **Rule-allowed** = the probability that a project rule declares the flagged pattern acceptable"
@@ -267,7 +267,7 @@ jq -r '
   | (.decisions_summary // null) as $ds
   | "## 🔍 Issues Summary",
   "",
-  "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, and `P1)` pre-existing. Quote the number when you accept, fix or skip an item.",
   "",
   section("critical"; "🔴 Critical Issues"; $ds),
   section("high"; "🟠 High Priority Issues"; $ds),

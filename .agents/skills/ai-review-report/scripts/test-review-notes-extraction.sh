@@ -235,7 +235,7 @@ for f in "$CHUNKS" "$AGG"; do
     pass "${n} no longer carries the narrow inline awk"
   fi
 done
-# 18 — the aggregation prompt needs the skip rule too (holistic 🔴/🟠 blocks alone).
+# 18 — the aggregation prompt needs the skip rule too (its Issues Summary sets the verdict when the merged findings cannot).
 if grep -q 'Skip Areas' "$AGG"; then
   pass "aggregate-reviews.sh prompt carries the Skip Areas out-of-scope rule"
 else

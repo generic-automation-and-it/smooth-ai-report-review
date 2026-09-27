@@ -65,6 +65,14 @@ write_decision_record() {
                         jev_confidence: (.decisions.severity.confidence // null),
                         sanctioned: (.decisions.sanctioned // null),
                         previously_skipped: (.decisions.previously_skipped // null),
-                        diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' > "$out"
+                        diff_hunk_found: (.decisions.diff_hunk_found // null),
+                        code_context: (.decisions.code_context // null),
+                        # Asked (the key exists, null when unusable) vs never
+                        # asked (no key): an unanswered question must count
+                        # against the measurement, not vanish from it.
+                        fix_skip_asked: ((.decisions // {}) | has("fix_skip")),
+                        fix_skip: (.decisions.fix_skip.choice // null),
+                        fix_skip_p: (.decisions.fix_skip.skip_probability // null),
+                        fix_skip_conf: (.decisions.fix_skip.confidence // null) } ] }' > "$out"
   rm -f "$empty"
 }

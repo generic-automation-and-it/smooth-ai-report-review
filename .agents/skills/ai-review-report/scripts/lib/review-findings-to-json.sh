@@ -8,8 +8,10 @@
 #   artifact_merged_json : OPTIONAL findings.merged.json from the run artifact
 #                          of the run that posted <review_md> (LADR-062). Used
 #                          only to ENRICH a parsed finding with the fields the
-#                          body never renders (quoted evidence, chunks) —
-#                          never as the finding list itself.
+#                          body never renders (quoted evidence, chunks, and —
+#                          LADR-098 — the gate's own `decisions`, carried as
+#                          `gate_decisions` for lib/recommend-fix-skip.sh to
+#                          reuse or not) — never as the finding list itself.
 #   severities           : OPTIONAL comma list (critical,high,medium,low);
 #                          blank = all four
 #
@@ -103,6 +105,7 @@ jq -R -s --slurpfile art "$art_file" --arg severities "$severities" '
                   + ($src | { evidence, first_evidence, chunks, confidence } | with_entries(select(.value != null)))
                   + (if ($f.why_it_matters // "") == "" and ($src.why_it_matters // "") != ""
                      then { why_it_matters: $src.why_it_matters } else {} end)
+                  + (if ($src.decisions | type) == "object" then { gate_decisions: $src.decisions } else {} end)
                   + { enriched_from_artifact: true }
              end)
      end) as $findings

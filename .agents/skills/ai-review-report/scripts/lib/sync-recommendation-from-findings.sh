@@ -3,7 +3,7 @@
 # from the post-validation merged findings document (issue #125 / LADR-055).
 #
 # Usage:
-#   sync-recommendation-from-findings.sh <merged_json> <summary_md> [holistic_md]
+#   sync-recommendation-from-findings.sh <merged_json> <summary_md>
 #
 # Environment:
 #   SYNC_ORIGINAL_ACTION  the orchestrator's own MACHINE_READABLE_ACTION
@@ -47,10 +47,9 @@
 # Decision rule (same tree the orchestrator prompt states):
 #   critical > 0 OR high > 0  → request_changes
 #   else                      → approve, or comment when the orchestrator said so
-# Holistic Critical/High items (no per-chunk sidecar entry) still block: when
-# the merged set has no critical/high, a non-empty Critical/High item under
-# Cross-Chunk Issues Found in [holistic_md] forces request_changes. Failed
-# chunks are handled by the caller (LADR-031/036), not here.
+# Failed chunks are handled by the caller (LADR-031/036), not here. There is no
+# holistic input any more: the separate holistic section was dropped (LADR-100)
+# after it never once blocked a PR the merged findings had not already blocked.
 #
 # Count lines rewritten (when present):
 #   - Count of 🔴 Critical Issues: N
@@ -70,7 +69,6 @@ set -euo pipefail
 
 merged="${1:-}"
 summary="${2:-}"
-holistic="${3:-}"
 
 if [ -z "$merged" ] || [ ! -s "$merged" ]; then
   exit 1
@@ -97,73 +95,21 @@ med=$(printf '%s' "$counts" | jq -r .medium)
 low=$(printf '%s' "$counts" | jq -r .low)
 pre=$(printf '%s' "$counts" | jq -r .pre_existing)
 
-# Holistic Critical/High still gate even when the merged set is empty of them.
-# Scan only after the Cross-Chunk Issues Found anchor, ignoring "None found" /
-# N/A placeholders.
-#
-# A list item is CONTENT, never a subsection header. That ordering is load-
-# bearing: the header probes below match an emoji plus a severity word, and a
-# model that writes its findings as `- **H1)** 🔴 Critical: …` instead of under
-# the template's `🔴 **Critical Issues**` heading matches them too — so the
-# earlier version consumed each blocking bullet AS a heading and counted zero.
-# A bullet that carries a 🔴/🟠 marker itself is therefore counted whatever
-# section it sits in; over-counting can only escalate, which is the safe
-# direction for a backstop.
-holistic_blocking=0
-if [ -n "$holistic" ] && [ -s "$holistic" ]; then
-  holistic_blocking=$(
-    awk '
-      BEGIN { sec = ""; n = 0 }
-      /^\*\*Cross-Chunk Issues Found:\*\*/ { started = 1; next }
-      !started { next }
-      /^[[:space:]]*[-*][[:space:]]/ {
-        line = $0
-        # Strip markdown emphasis for the placeholder probe.
-        gsub(/[`*_"]/, "", line)
-        lower = tolower(line)
-        if (lower ~ /none found/ || lower ~ /^[-* ]*n\/?a[.! ]*$/ || lower ~ /not applicable/) next
-        self_blocking = 0
-        if ($0 ~ /🔴/ || $0 ~ /🟠/) self_blocking = 1
-        else if (lower ~ /^[-* ]*(h[0-9]+\)[ ]*)?(critical|high( priority)?)[: ,.-]/) self_blocking = 1
-        if (sec == "block" || self_blocking) n++
-        next
-      }
-      /🔴/ && /Critical/ { sec = "block"; next }
-      /🟠/ && /High/     { sec = "block"; next }
-      /🟡/ && /Medium/   { sec = ""; next }
-      /🔵/               { sec = ""; next }
-      /^## /             { sec = ""; next }
-      # A bold label line ("**Additional Analysis:**", "**Overall Assessment:**")
-      # ends the severity subsections; without this a template that omits the
-      # Medium/Low headings leaves sec=="block" over unrelated prose bullets.
-      /^\*\*[^*]/        { sec = ""; next }
-      END { print n + 0 }
-    ' "$holistic" 2>/dev/null || echo 0
-  )
-  # Trim whitespace so arithmetic comparisons never see a trailing newline
-  # ("integer expression expected" under set -e / strict shells).
-  holistic_blocking="$(printf '%s' "$holistic_blocking" | tr -d '[:space:]')"
-fi
 # Coerce empty/non-numeric to 0 so -gt/-eq never choke.
 case "$crit" in ''|*[!0-9]*) crit=0 ;; esac
 case "$high" in ''|*[!0-9]*) high=0 ;; esac
 case "$med" in ''|*[!0-9]*) med=0 ;; esac
 case "$low" in ''|*[!0-9]*) low=0 ;; esac
 case "$pre" in ''|*[!0-9]*) pre=0 ;; esac
-case "$holistic_blocking" in ''|*[!0-9]*) holistic_blocking=0 ;; esac
 
 original_action="$(printf '%s' "${SYNC_ORIGINAL_ACTION:-}" \
   | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z_')"
 
-if [ "$crit" -gt 0 ] || [ "$high" -gt 0 ] || [ "$holistic_blocking" -gt 0 ]; then
+if [ "$crit" -gt 0 ] || [ "$high" -gt 0 ]; then
   decision="request_changes"
   decision_label="REQUEST CHANGES"
   action="REQUEST_CHANGES"
-  if [ "$holistic_blocking" -gt 0 ] && [ "$crit" -eq 0 ] && [ "$high" -eq 0 ]; then
-    rationale="Following policy: 0 critical and 0 high priority issues in the structured summary, but ${holistic_blocking} holistic cross-chunk Critical/High issue(s) remain — requesting changes."
-  else
-    rationale="Following policy: ${crit} critical and ${high} high priority issue(s) found - requesting changes."
-  fi
+  rationale="Following policy: ${crit} critical and ${high} high priority issue(s) found - requesting changes."
 elif [ "$original_action" = "comment" ]; then
   # No blocker in the merged set, but the orchestrator deliberately declined to
   # approve. Removing a block is sanctioned (issue #125); manufacturing an
@@ -247,7 +193,7 @@ mv "$tmp" "$summary"
 trap - EXIT
 
 # Surface the sync on stderr so CI logs show why the orchestrator's numbers moved.
-echo "Synced Recommendation from merged findings: critical=${crit} high=${high} medium=${med} low=${low} pre_existing=${pre} holistic_blocking=${holistic_blocking} original=${original_action:-unknown} → ${action}" >&2
+echo "Synced Recommendation from merged findings: critical=${crit} high=${high} medium=${med} low=${low} pre_existing=${pre} original=${original_action:-unknown} → ${action}" >&2
 
 printf '%s\n' "$decision"
 exit 0

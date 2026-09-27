@@ -40,6 +40,9 @@
 # show. Real, labelled findings are the only evidence that transfers to live
 # reviews, so they are kept as data: run artifacts expire, these records do
 # not. The scores are the ones the gate computed live; nothing is re-scored.
+# Since LADR-098 a record also carries the gate's fix_skip prediction (what
+# this human decision is measured against) and the full reviewed head plus the
+# base branch tip, from which a later re-score resolves the merge base.
 #
 # Writes one record per labelled finding to --out (default: the committed
 # corpus/real-findings/), in the shape lib/decisions-report.py reads:
@@ -187,6 +190,16 @@ merged="$(find "$tmp" -name findings.merged.json | head -n1)"
 jq -e '.decisions_summary | type == "object"' "$merged" >/dev/null \
   || { echo "❌ run $RUN was not scored by the decision model (flag off, or the provider failed)" >&2; exit 1; }
 sha="$(gh run view "$RUN" -R "$REPO" --json headSha -q '.headSha[0:7]')"
+# The reviewed revision in full (LADR-098), so a record can be re-scored later
+# against the exact code the finding was raised on (LADR-096 phase 4).
+# metadata.json's base_sha is the base BRANCH TIP at review time
+# (pull_request.base.sha), NOT the merge base: it is recorded as `base_tip`,
+# and a re-score must resolve the merge base itself (lib/resolve-diff-base.sh)
+# — a two-dot range from a tip re-imports the base's newer commits inverted
+# (LADR-075).
+meta="$(dirname "$merged")/metadata.json"
+head_full="$(jq -r '.head_sha // "" | select(test("^[0-9a-f]{40}$"))' "$meta" 2>/dev/null || true)"
+base_tip="$(jq -r '.base_sha // "" | select(test("^[0-9a-f]{40}$"))' "$meta" 2>/dev/null || true)"
 if [ -z "$PR" ]; then
   branch="$(gh run view "$RUN" -R "$REPO" --json headBranch -q .headBranch)"
   PR="$(gh pr list -R "$REPO" --state all --head "$branch" --json number -q '.[0].number // empty')"
@@ -202,7 +215,8 @@ for spec in "$@"; do
   jq -e --argjson n "$n" '[.findings[] | select(.["#"] == $n)] | length == 1' "$merged" >/dev/null \
     || { echo "❌ run $RUN has no finding $n." >&2; exit 2; }
   out="$OUT/pr${PR:-unknown}-run${RUN}-f${n}.json"
-  jq --argjson n "$n" --arg label "$label" --arg reason "$reason" --arg run "$RUN" --arg sha "$sha" --arg pr "${PR:-}" '
+  jq --argjson n "$n" --arg label "$label" --arg reason "$reason" --arg run "$RUN" --arg sha "$sha" --arg pr "${PR:-}" \
+     --arg head "$head_full" --arg base_tip "$base_tip" '
     .decisions_summary as $ds
     | (.findings[] | select(.["#"] == $n)) as $f
     | { fixture: "PR\($pr)-\($sha)-F\($n)",
@@ -218,7 +232,9 @@ for spec in "$@"; do
         note: (if ($f.decisions.supported // null) == null
                then "finding \($n). was not scored by the decision model in run \($run)" else "" end),
         label: $label, label_reason: (if $reason == "" then null else $reason end),
-        source: { run: ($run | tonumber), commit: $sha, pr: $pr, number: $n },
+        source: ({ run: ($run | tonumber), commit: $sha, pr: $pr, number: $n }
+                 + (if $head != "" then { head: $head } else {} end)
+                 + (if $base_tip != "" then { base_tip: $base_tip } else {} end)),
         provider: $ds.provider, model: $ds.model,
         findings: [ $f | { severity, verified: (.verified == true), confidence, title, why_it_matters,
                            file, line, first_evidence,
@@ -227,7 +243,15 @@ for spec in "$@"; do
                            jev_confidence: (.decisions.severity.confidence // null),
                            sanctioned: (.decisions.sanctioned // null),
                            previously_skipped: (.decisions.previously_skipped // null),
-                           diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' \
+                           diff_hunk_found: (.decisions.diff_hunk_found // null),
+                           code_context: (.decisions.code_context // null),
+                           fix_skip_asked: ((.decisions // {}) | has("fix_skip")),
+                           # The gate PREDICTION of this label (LADR-098),
+                           # recorded beside the human decision — a score to
+                           # measure, never itself a label.
+                           fix_skip: (.decisions.fix_skip.choice // null),
+                           fix_skip_p: (.decisions.fix_skip.skip_probability // null),
+                           fix_skip_conf: (.decisions.fix_skip.confidence // null) } ] }' \
     "$merged" > "$out"
   n_written=$((n_written + 1))
 done

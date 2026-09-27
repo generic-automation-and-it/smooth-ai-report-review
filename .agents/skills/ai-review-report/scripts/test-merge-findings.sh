@@ -850,110 +850,16 @@ fi
 #      the model to reuse a `#` number reintroduces the autolink there. The
 #      instruction is prose inside a heredoc — invisible to any check that
 #      looks for the rendered `**#1**`.
-#   2. The holistic legend, whose guard greps for the shape
-#      `number-holistic-items.sh` emits. Renaming the emitter without the guard
-#      left dead code: the guard never matched, so the legend — the only
-#      explanation a reader gets for `H1)` on the fallback path — silently
-#      stopped rendering, and its text still taught the old shape.
-NUMBER_SH="$SCRIPT_DIR/lib/number-holistic-items.sh"
+#   2. The holistic legend explaining `H1)` — removed with the holistic section
+#      itself (LADR-100); 20c pins that neither comes back.
 
 check "Test 20a: aggregation prompt no longer teaches a \`#\` number" "0" \
   "$(grep -cF 'Reuse one stable `#`' "$AGG_SH" || true)"
 check "Test 20b: aggregation prompt teaches the trailing-paren identifier" "1" \
   "$(grep -cF 'Reuse one stable `1)` identifier' "$AGG_SH" || true)"
 
-# The legend guard is asserted BEHAVIOURALLY, not by restating its regex here:
-# the regex is extracted from the script and run against output from the real
-# numberer. Restating it would let guard and emitter drift apart again while
-# the test stayed green — which is exactly how this defect shipped. Same
-# single-source-of-truth technique as test-minimize-reviews.sh Test 5.
-# Accept `grep -q` and `grep -qE` alike. Matching only the current `-qE` form
-# made this extraction return empty against the pre-fix script, which skipped
-# the behavioural check below entirely — a test that quietly does not run is
-# worse than one that fails, so the pattern deliberately spans both forms.
-legend_re="$(grep -F 'ci_temp/pr_summary_detailed.md 2>/dev/null' "$AGG_SH" \
-  | sed -n "s/.*grep -q[E]* '\([^']*\)'.*/\1/p" | head -1)"
-check "Test 20c: the legend guard regex was extractable from the script" "1" \
-  "$([ -n "$legend_re" ] && echo 1 || echo 0)"
-if [ -n "$legend_re" ] && [ -f "$NUMBER_SH" ]; then
-  printf '**Cross-Chunk Issues Found:**\n\n- A real cross-chunk item.\n' \
-    > "$TMP_DIR/holistic.md"
-  bash "$NUMBER_SH" "$TMP_DIR/holistic.md"
-  check "Test 20d: the legend guard matches what number-holistic-items.sh emits" "1" \
-    "$(grep -cE "$legend_re" "$TMP_DIR/holistic.md" || true)"
-fi
-
-check "Test 20e: the legend text contains no autolinking #<digits>" "0" \
-  "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -coE '#[0-9]' || true)"
-
-# 20e alone cannot catch the defect this test exists for: the pre-fix legend
-# said `#H1` / `#N`, which is `#` followed by a LETTER and never autolinked.
-# Its actual defect was teaching a shape the emitter no longer produces, so a
-# reader quoting the legend into a skip bullet wrote an identifier matching
-# nothing. Assert the shape positively, not just the absence of the hazard.
-# Match on `H1)` without the surrounding backticks: they are backslash-escaped
-# inside the echo (\`H1)\`), so a pattern including them matches nothing.
-check "Test 20g: the legend text names the current H1) shape" "1" \
-  "$(grep -F 'Cross-chunk items below are numbered' "$AGG_SH" | grep -cF 'H1)' || true)"
-
-# --- Test 22: the holistic legend names the shape of the path it ships beside -
-# The gate posts ONE body containing both the Issues Summary and the holistic
-# legend, and the two are rendered by different code on different paths:
-#
-#   primary  (FINDINGS_SUMMARY_APPLIED=true)  render-findings-summary.sh -> `1.`
-#   fallback (FINDINGS_SUMMARY_APPLIED=false) orchestrator free text      -> `1)`
-#
-# The fallback keeps `1)` deliberately: that summary is model prose, so its
-# per-section numbering is NOT guaranteed contiguous, and an ordered list there
-# would silently renumber. Bold literal text cannot.
-#
-# LADR-068 changed the primary path and left the legend asserting `1)`, so a
-# single posted review contradicted itself on the identifier shape — caught in
-# production on PR 115, not by this suite. Tests 20b/20g did not cover it: 20g
-# greps the legend for `H1)`, which never stopped matching. Nothing asserted the
-# findings-shape reference in either branch, which is why the drift was silent.
-#
-# Executed, not pattern-matched: the block is lifted from the script and run
-# under both values, so a future edit to the branch logic is caught rather than
-# a future edit to its wording.
-_shape_first="$(grep -n '_findings_shape=' "$AGG_SH" | head -1 | cut -d: -f1)"
-_shape_last="$(grep -n 'Cross-chunk items below are numbered' "$AGG_SH" | head -1 | cut -d: -f1)"
-check "Test 22a: the conditional legend block is present and extractable" "1" \
-  "$([ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ] && echo 1 || echo 0)"
-
-if [ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ]; then
-  # Start one line above the first assignment to capture the `if` itself, and
-  # strip the redirect so the echo lands on stdout.
-  sed -n "$((_shape_first - 1)),${_shape_last}p" "$AGG_SH" \
-    | sed 's| >> ci_temp/final_review.md||' > "$TMP_DIR/legend_block.sh"
-
-  legend_true="$(FINDINGS_SUMMARY_APPLIED=true  bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
-  legend_false="$(FINDINGS_SUMMARY_APPLIED=false bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
-
-  check "Test 22b: on the primary path the legend names the 1. findings shape" "1" \
-    "$(printf '%s' "$legend_true" | grep -cF '`1.` findings' || true)"
-  check "Test 22c: on the primary path it does NOT name the 1) shape" "0" \
-    "$(printf '%s' "$legend_true" | grep -cF '`1)` findings' || true)"
-  check "Test 22d: on the fallback path the legend names the 1) findings shape" "1" \
-    "$(printf '%s' "$legend_false" | grep -cF '`1)` findings' || true)"
-  check "Test 22e: on the fallback path it does NOT name the 1. shape" "0" \
-    "$(printf '%s' "$legend_false" | grep -cF '`1.` findings' || true)"
-
-  # Both branches keep the holistic sequence and stay autolink-free. The
-  # backticks travel through a variable expansion here; bash does not re-scan an
-  # expansion for command substitution, but an editor who rewrites this with an
-  # unquoted heredoc would silently delete the text (see the repo-wide rule).
-  check "Test 22f: both branches still name the H1) holistic sequence" "2" \
-    "$(printf '%s\n%s\n' "$legend_true" "$legend_false" | grep -cF 'H1)' || true)"
-  check "Test 22g: neither branch emits an autolinking #<digits>" "0" \
-    "$(printf '%s\n%s\n' "$legend_true" "$legend_false" | grep -coE '#[0-9]' || true)"
-
-  # An unset variable must fall to the literal form, never to the ordered-list
-  # form: the fallback path is where a wrong shape is unrecoverable.
-  legend_unset="$(env -u FINDINGS_SUMMARY_APPLIED bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
-  check "Test 22h: an unset flag defaults to the safe literal 1) shape" "1" \
-    "$(printf '%s' "$legend_unset" | grep -cF '`1)` findings' || true)"
-fi
+check "Test 20c: no holistic section, legend or numberer is left in aggregation (LADR-100)" "0|0|0|0" \
+  "$(grep -c 'Cross-chunk items below are numbered' "$AGG_SH" || true)|$(grep -c 'number-holistic-items' "$AGG_SH" || true)|$(grep -c 'pr_summary_detailed' "$AGG_SH" || true)|$(grep -c 'emit the three lines' "$AGG_SH" || true)"
 
 # --- Test 21: findings render as an ordered list, contiguously (LADR-068) ----
 # Two assertions that did not exist before and whose absence was the real gap:
@@ -1249,9 +1155,7 @@ None found
 **MACHINE_READABLE_ACTION:** REQUEST_CHANGES
 EOF
 
-  # Empty holistic — decision comes purely from merged findings.
-  : > "$TMP_DIR/sync-holistic.md"
-  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-merged.json" "$TMP_DIR/sync-summary.md" "$TMP_DIR/sync-holistic.md" 2>"$TMP_DIR/sync.err")"
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-merged.json" "$TMP_DIR/sync-summary.md" 2>"$TMP_DIR/sync.err")"
   check "Test 25a: high finding forces request_changes" "request_changes" "$decision"
   check "Test 25b: high count rewritten to 1" "1" \
     "$(grep -E 'Count of 🟠 High Priority Issues:' "$TMP_DIR/sync-summary.md" | grep -oE '[0-9]+' | head -1)"
@@ -1263,8 +1167,7 @@ EOF
     "$(grep -cF -- '- Count of 🗂️ Pre-existing issues: 0 — these do NOT block the PR' "$TMP_DIR/sync-summary.md" || true)"
 
   # Empty merged findings + orchestrator still saying REQUEST_CHANGES (the
-  # production contradiction after a hard drop) must soften to approve when
-  # holistic has nothing blocking.
+  # production contradiction after a hard drop) must soften to approve.
   cat > "$TMP_DIR/sync-empty-merged.json" <<'EOF'
 {"status":"complete","merged_chunks":[0],"findings":[],"pre_existing_findings":[],"suppressed_findings":[],"residual_risks":[],"testing_gaps":[],"suppressed_by_confidence":{},"demoted_no_quote":0,"merged_duplicates":0,"malformed_findings":2,"malformed_returns":0,"malformed_reasons":{"requires_verification: missing":2},"malformed_return_reasons":{}}
 EOF
@@ -1279,9 +1182,8 @@ EOF
 **Rationale:** Following policy: 0 critical and 1 high priority issue found - requesting changes.
 **MACHINE_READABLE_ACTION:** REQUEST_CHANGES
 EOF
-  : > "$TMP_DIR/sync-empty-holistic.md"
-  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary.md" "$TMP_DIR/sync-empty-holistic.md" 2>/dev/null)"
-  check "Test 25f: empty merged + no holistic softens to approve" "approve" "$decision"
+  decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary.md" 2>/dev/null)"
+  check "Test 25f: empty merged softens to approve" "approve" "$decision"
   check "Test 25g: high count rewritten to 0" "0" \
     "$(grep -E 'Count of 🟠 High Priority Issues:' "$TMP_DIR/sync-empty-summary.md" | grep -oE '[0-9]+' | head -1)"
   check "Test 25h: MACHINE_READABLE_ACTION is APPROVE" "1" \
@@ -1289,7 +1191,8 @@ EOF
   check "Test 25i: rationale no longer claims a high finding" "0" \
     "$(grep -cE '1 high priority' "$TMP_DIR/sync-empty-summary.md" || true)"
 
-  # Holistic Critical/High still blocks even when merged is empty.
+  # LADR-100: there is no holistic input any more. An old caller that still
+  # passes a holistic file as a third argument must not change the verdict.
   cat > "$TMP_DIR/sync-holistic-block.md" <<'EOF'
 ## 🔄 Holistic Cross-Chunk Analysis
 **Cross-Chunk Issues Found:**
@@ -1312,9 +1215,9 @@ EOF
 **MACHINE_READABLE_ACTION:** APPROVE
 EOF
   decision="$(bash "$SYNC_SH" "$TMP_DIR/sync-empty-merged.json" "$TMP_DIR/sync-empty-summary2.md" "$TMP_DIR/sync-holistic-block.md" 2>/dev/null)"
-  check "Test 25j: holistic Critical still forces request_changes" "request_changes" "$decision"
-  check "Test 25k: holistic rationale names the holistic path" "1" \
-    "$(grep -cF 'holistic cross-chunk' "$TMP_DIR/sync-empty-summary2.md" || true)"
+  check "Test 25j: a holistic file passed as a third argument is ignored" "approve" "$decision"
+  check "Test 25k: the rationale never mentions a holistic path" "0" \
+    "$(grep -ciF 'holistic' "$TMP_DIR/sync-empty-summary2.md" || true)"
 else
   echo "⏭️  sync-recommendation-from-findings.sh missing — skipping Test 25"
 fi
@@ -1328,30 +1231,6 @@ if [ -x "$SYNC_SH" ]; then
   cat > "$TMP_DIR/s26-medium.json" <<'MJ'
 {"status":"complete","merged_chunks":[0],"findings":[{"severity":"medium"}],"pre_existing_findings":[],"suppressed_findings":[],"malformed_findings":0,"demoted_no_quote":0}
 MJ
-
-  # A model that writes its holistic blockers as severity-prefixed bullets
-  # instead of under the template's subsection headings must still gate. The
-  # first implementation matched those bullets AS headings and counted zero.
-  printf '**Cross-Chunk Issues Found:**\n\n- **H1)** 🔴 Critical: shared DbContext across parallel tasks.\n- **H2)** 🟠 High: removed method still called.\n' \
-    > "$TMP_DIR/s26-h-inline.md"
-  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-a.md"
-  check "Test 26a: severity-prefixed holistic bullets still block" "request_changes" \
-    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-a.md" "$TMP_DIR/s26-h-inline.md" 2>/dev/null)"
-
-  # The template's own layout must keep working.
-  printf '**Cross-Chunk Issues Found:**\n\n🔴 **Critical Issues**\n- **H1)** Auth middleware missing.\n\n🟠 **High Priority Issues**\nNone found\n' \
-    > "$TMP_DIR/s26-h-heading.md"
-  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** APPROVE\n' > "$TMP_DIR/s26-b.md"
-  check "Test 26b: heading-style holistic Critical still blocks" "request_changes" \
-    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-b.md" "$TMP_DIR/s26-h-heading.md" 2>/dev/null)"
-
-  # ...and a holistic section with nothing blocking must NOT invent a block:
-  # placeholders, a Medium bullet and the trailing prose bullets are all benign.
-  printf '**Cross-Chunk Issues Found:**\n\n🔴 **Critical Issues**\n- None found\n\n🟡 **Medium Priority Issues**\n- 🟡 Medium: naming drift.\n\n**Additional Analysis:**\n- **Consistency:** fine\n' \
-    > "$TMP_DIR/s26-h-clean.md"
-  printf '## 🎯 Recommendation\n**MACHINE_READABLE_ACTION:** REQUEST_CHANGES\n' > "$TMP_DIR/s26-c.md"
-  check "Test 26c: a holistic section with no blocker does not block" "approve" \
-    "$(bash "$SYNC_SH" "$TMP_DIR/s26-medium.json" "$TMP_DIR/s26-c.md" "$TMP_DIR/s26-h-clean.md" 2>/dev/null)"
 
   # Count rewriting must survive the label shapes a model actually emits: bold
   # labels, an unfilled template placeholder, and trailing prose.

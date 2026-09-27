@@ -396,7 +396,7 @@ DIFF_SAVE="$DIFF"; DIFF="$BIG_DIFF"
 run_scorer t8 "$TMP_DIR/t8.json" 2
 DIFF="$DIFF_SAVE"
 max_req="$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1)"
-check "Test 8a: no request exceeds the 24000-byte budget" "true" "$([ "$max_req" -le 24000 ] && echo true || echo "false ($max_req)")"
+check "Test 8a: no request exceeds the 40000-byte budget" "true" "$([ "$max_req" -le 40000 ] && echo true || echo "false ($max_req)")"
 check "Test 8b: an oversized hunk is truncated, and says so" "true" \
   "$(jq -s '[.[] | select(.state.finding.file? == "src/a.sh")][0].state.diff_hunk | test("truncated to fit")' "$STUB_DIR"/req_*.json)"
 
@@ -431,14 +431,14 @@ if [ -x "$RENDER_SH" ]; then
   render_on "$TMP_DIR/t9.json" > "$TMP_DIR/t9.dec.md"
   check "Test 9a: the decision score sits next to the priority" "1" \
     "$(grep -c '^4\. 🟡 \[VERIFIED\] Medium Priority (decision score 91%): solid medium claim — `src/b.sh:7` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
-  check "Test 9b: [UNSUPPORTED] below the threshold, inside the same tag" "1" \
-    "$(grep -c '^2\. 🟠 \[VERIFIED\] High Priority (decision score 12% \[UNSUPPORTED\]): weak high claim — `src/a.sh:20` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
+  check "Test 9b: weak quoted evidence below the threshold, inside the same tag" "1" \
+    "$(grep -c '^2\. 🟠 \[VERIFIED\] High Priority (decision score 12%, weak quoted evidence): weak high claim — `src/a.sh:20` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
   check "Test 9c: severity disagreement stays at the end of the line, severity unchanged" "1" \
     "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority (decision score 91%): overrated high claim — .* · decision model rates it Medium Priority$' "$TMP_DIR/t9.dec.md")"
   check "Test 9c2: the label (text before the first colon) holds exactly one severity word" "0" \
     "$(grep -E '^[0-9]+\. ' "$TMP_DIR/t9.dec.md" | cut -d: -f1 | grep -ciE '(critical|high|medium|low).*(critical|high|medium|low)' || true)"
   check "Test 9d: the Coverage block says the decision model ran and what the score means" "1" \
-    "$(grep -c '^- \*\*Decision model:\*\* `OPENCODE-GO-DECISIONS/jev-1.13` (annotate) — scored 4, skipped 0\. \*\*Decision score\*\* = the probability that the quoted evidence demonstrates the finding; below 50% it is marked \[UNSUPPORTED\]\.$' "$TMP_DIR/t9.dec.md")"
+    "$(grep -c '^- \*\*Decision model:\*\* `OPENCODE-GO-DECISIONS/jev-1.13` (annotate) — scored 4, skipped 0\. \*\*Decision score\*\* = the probability that the quoted evidence demonstrates the finding; below 50% it is marked \*weak quoted evidence\*\.$' "$TMP_DIR/t9.dec.md")"
   check "Test 9e: without decisions the render is unchanged by this feature" "0" \
     "$(grep -ci 'decision' "$TMP_DIR/t9.plain.md" || true)"
   check "Test 9e2: flag OFF — a document that carries decisions renders none of them" "0" \
@@ -539,9 +539,9 @@ check "Test 13k: ...and the malformed answer is warned about" "1" \
   "$(grep -c 'first failure: finding 1: malformed answer' "$TMP_DIR/t13c.log")"
 OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t13.json" > "$TMP_DIR/t13.md" 2>/dev/null
 check "Test 13i: with project rules the tag also shows rule-allowed" "1" \
-  "$(grep -c '(decision score 12% \[UNSUPPORTED\] · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
+  "$(grep -c '(decision score 12%, weak quoted evidence · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
 check "Test 13h: capped rules still fit the request budget" "true" \
-  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
+  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 40000 ] && echo true || echo "false ($m)")"
 
 # --- Test 14: the gate's judge context — per-chunk rules and the PR's Skip Areas -----
 # run-review.sh passes its work dir as the rules source: each finding is judged
@@ -572,7 +572,7 @@ check "Test 14f: previously_skipped is recorded per finding" "0.05/0.88" \
 check "Test 14g: decisions_summary records what the judge was given" '{"project_rules":"chunk","findings_with_rules":3,"skip_areas":true}' \
   "$(jq -c '.decisions_summary.context' "$TMP_DIR/t14.json")"
 check "Test 14h: the requests still fit the budget" "true" \
-  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
+  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 40000 ] && echo true || echo "false ($m)")"
 OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t14.json" > "$TMP_DIR/t14.md" 2>/dev/null
 check "Test 14i: both context scores sit in the tag next to the priority" "1" \
   "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority (decision score 91% · rule-allowed 4% · previously skipped 88%): overrated high claim' "$TMP_DIR/t14.md")"
@@ -692,18 +692,18 @@ run_marker() { # run_marker <merged> <flag> <run_id> → what the block appends
   [ -n "$1" ] && cp "$1" "$d/ci_temp/findings.merged.json"
   awk '/^# LADR-093 label channel/{f=1} f{print} f && /^fi$/{exit}' "$AGG_SH" > "$d/block.sh"
   : > "$d/ci_temp/final_review.md"
-  (cd "$d" && OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS="$2" GITHUB_RUN_ID="$3" bash block.sh >/dev/null 2>&1)
+  (cd "$d" && OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS="$2" GITHUB_RUN_ID="$3" _REVIEW_RUN_ARTIFACT="${4:-1}" bash block.sh >/dev/null 2>&1)
   tr -d '\n' < "$d/ci_temp/final_review.md"
 }
 check "Test 11n: a scored run stamps its run id into the footer, invisibly" "<!-- ai-review-report run=36304944118 -->" \
   "$(run_marker "$TMP_DIR/t2.json" 1 36304944118)"
-check "Test 11o: no marker with the flag off, without scores, or for a non-numeric id" "||" \
-  "$(run_marker "$TMP_DIR/t2.json" 0 36304944118)|$(run_marker "$TMP_DIR/t1.json" 1 36304944118)|$(run_marker "$TMP_DIR/t2.json" 1 'x -->')"
+check "Test 11o: no marker with the flag off, without scores, for a non-numeric id, or without an uploaded artifact" "|||" \
+  "$(run_marker "$TMP_DIR/t2.json" 0 36304944118)|$(run_marker "$TMP_DIR/t1.json" 1 36304944118)|$(run_marker "$TMP_DIR/t2.json" 1 'x -->')|$(run_marker "$TMP_DIR/t2.json" 1 36304944118 0)"
 check "Test 11e: the run artifact metadata carries decisions_summary" "1" \
   "$(grep -c '"decisions_summary": ' "$RUN_REVIEW")"
 for f in .github/workflows/pipeline-code-review-report.yml .docs/examples/code-review-local.yml; do
   path="$SCRIPT_DIR/../../../../$f"
-  for v in ENABLE_DECISIONS DECISIONS_PROVIDER DECISIONS_MODEL DECISIONS_MODE DECISIONS_MIN_PROBABILITY DECISIONS_TIMEOUT; do
+  for v in ENABLE_DECISIONS DECISIONS_PROVIDER DECISIONS_MODEL DECISIONS_MODE DECISIONS_MIN_PROBABILITY DECISIONS_TIMEOUT DECISIONS_CODE_CONTEXT; do
     check "Test 11f: $f declares OPENCODE_REVIEW_REPORT_$v" "1" \
       "$(grep -cE "^ +OPENCODE_REVIEW_REPORT_${v}: " "$path")"
   done

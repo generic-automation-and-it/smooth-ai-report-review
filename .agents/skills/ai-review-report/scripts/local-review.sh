@@ -633,6 +633,11 @@ if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|tr
         bash "$SCRIPT_DIR/lib/extract-review-notes.sh" --skip-areas \
           < "$WORK_DIR/pr_description.txt" > "ci_temp/decision_skip_areas.md" 2>/dev/null || true
       fi
+      # LADR-098, as in run-review.sh: also ask fix_skip and give the judge
+      # the code around each finding at the reviewed revision. This path
+      # builds no code graph, so the source window is line-based.
+      _DECISIONS_ASK_FIX_SKIP=1 \
+      _DECISIONS_SOURCE_REV="${TO_SHA}" \
       bash "$SCRIPT_DIR/lib/score-findings-decisions.sh" \
         "ci_temp/findings.merged.json" \
         "ci_temp/reviews" \

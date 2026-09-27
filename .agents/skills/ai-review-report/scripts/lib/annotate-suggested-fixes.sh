@@ -28,7 +28,7 @@
 # No-ops (exit 0, file untouched) when: inputs are missing, jq is absent, the
 # merged document is not `complete`, there is no Suggested Fixes heading, nothing
 # was dropped/suppressed/demoted, or a note is already present. Best-effort by
-# construction, exactly like number-holistic-items.sh — a missing note is
+# construction, like the other post-processing libs — a missing note is
 # cosmetic, a mangled report is not.
 #
 # LADR-067: nothing emitted here may contain `#` followed by digits.

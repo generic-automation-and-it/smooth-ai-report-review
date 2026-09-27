@@ -40,6 +40,15 @@ measures all of them:
   skipped@t   drop non-critical findings with previously_skipped >= t
               (only when the PR had Skip Areas — real findings from the gate;
               the planted corpus has none)
+  fixskip@t   drop MEDIUM/LOW findings the fix_skip question recommends
+              skipping with P(skip) >= t and a found hunk — exactly what
+              ai-analyse's OPENCODE_ANALYSE_DECISIONS_MODE=filter would
+              withhold, since that fixer only ever sees Medium/Low
+              (LADR-097/098; only when fix_skip was asked)
+
+The fix_skip section also reports how many answers came back WITH a
+distribution (P(skip) needs `probabilities.fix`): it is the live check of the
+answer shape the consumers depend on, and records predate it with none.
 """
 
 from __future__ import annotations
@@ -101,6 +110,26 @@ def is_true_catch(doc, f):
         return False
     need = SEV_RANK.get((doc.get("min_severity") or "high").lower(), SEV_RANK["high"])
     return SEV_RANK.get(f.get("severity"), -1) >= need
+
+
+def fixskip_truth(doc, f):
+    """What a human decided (or should decide) for fix_skip: "fix", "skip" or None.
+
+    Separate from is_true_catch / is_false_positive on purpose: those measure
+    what the GATE's verdict does (a false positive only counts at Medium and
+    above, a catch only at its fixture's bar). The fix/skip question is asked
+    of every finding, and ai-analyse acts on Low ones too, so a human-labelled
+    real finding counts at ANY severity: its label is the ground truth.
+    """
+    if doc.get("label") == "tp":
+        return "fix"
+    if doc.get("label") == "fp":
+        return "skip"
+    if is_true_catch(doc, f):
+        return "fix"
+    if is_false_positive(doc, f):
+        return "skip"
+    return None
 
 
 # --- policies: each maps a finding list to the list a reader would see ------------
@@ -187,6 +216,38 @@ RULE_POLICIES = [
 ]
 SKIP_POLICIES = [
     ("skipped@0.50", skipped_at(0.50)),
+]
+
+
+# recommend-fix-skip.sh's FIX_SKIP_MIN_CONFIDENCE: below it an answer is
+# shown as uncertain and is never withheld. Keep the two in step.
+FIX_SKIP_MIN_CONFIDENCE = 0.3
+
+
+def fixskip_withholds(f, t):
+    """What ai-analyse's `filter` mode would withhold (recommend-fix-skip.sh):
+    a Medium/Low finding predicted SKIP, with a P(skip) at or above the
+    threshold, whose diff hunk was found, and whose answer is not uncertain
+    (its own confidence, when recorded, at or above FIX_SKIP_MIN_CONFIDENCE).
+    Anything else stays in scope. Records from before `fix_skip_conf` carry no
+    confidence and are judged as before."""
+    conf = f.get("fix_skip_conf")
+    return (f.get("severity") in ("medium", "low")
+            and f.get("fix_skip") not in (None, "fix")
+            and f.get("fix_skip_p") is not None
+            and f.get("diff_hunk_found") is not False
+            and f["fix_skip_p"] >= t
+            and (conf is None or conf >= FIX_SKIP_MIN_CONFIDENCE))
+
+
+def fixskip_at(t):
+    def apply(findings):
+        return [f for f in findings if not fixskip_withholds(f, t)]
+    return apply
+
+
+FIXSKIP_POLICIES = [
+    ("fixskip@0.50", fixskip_at(0.50)),
 ]
 
 
@@ -308,6 +369,55 @@ def main():
         print(f"    separation (AUC)      : {fmt(auc([1 - x for x in tp_k], [1 - x for x in fp_k]))}")
         print("")
 
+    # --- 1d. the fix/skip prediction (LADR-097/098) ----------------------------
+    all_f = [(d, f) for d in scored for f in d.get("findings", [])]
+    # Asked = the record says so, or (records from before fix_skip_asked) an
+    # answer exists. An asked-but-unanswered question stays in every
+    # denominator: a provider that never answers must show as 0/N, not vanish.
+    asked = [(d, f) for d, f in all_f if f.get("fix_skip_asked") or f.get("fix_skip") is not None]
+    has_fixskip = bool(asked)
+    if has_fixskip:
+        answered = [(d, f) for d, f in asked if f.get("fix_skip") is not None]
+        with_p = [(d, f) for d, f in answered if f.get("fix_skip_p") is not None]
+        fp_p = [f["fix_skip_p"] for d, f in with_p if fixskip_truth(d, f) == "skip"]
+        tp_p = [f["fix_skip_p"] for d, f in with_p if fixskip_truth(d, f) == "fix"]
+        print(" 1d. `fix_skip` (predicted human decision) by ground truth")
+        print(f"    answered                     : {len(answered)}/{len(asked)}"
+              + ("" if len(answered) == len(asked) else "  — unanswered ones stay unscored for the consumers"))
+        print(f"    answered with a distribution : {len(with_p)}/{len(asked)}"
+              + ("" if len(with_p) == len(asked) else
+                 "  — P(skip) is missing where the provider returned no usable `probabilities.fix`;"
+                 " consumers never act on those"))
+        print(f"    P(skip), should be skipped     : {summarise(fp_p)}")
+        print(f"    P(skip), should be fixed       : {summarise(tp_p)}")
+        # Higher P(skip) should mean MORE likely a finding to skip.
+        print(f"    separation (AUC)               : {fmt(auc([1 - x for x in tp_p], [1 - x for x in fp_p]))}")
+        fix_on_fp = sum(1 for d, f in answered if fixskip_truth(d, f) == "skip" and f["fix_skip"] == "fix")
+        skip_on_tp = sum(1 for d, f in answered if fixskip_truth(d, f) == "fix" and f["fix_skip"] != "fix")
+        n_fp = sum(1 for d, f in answered if fixskip_truth(d, f) == "skip")
+        n_tp = sum(1 for d, f in answered if fixskip_truth(d, f) == "fix")
+        print(f"    predicted FIX on one to skip   : {fix_on_fp}/{n_fp}")
+        # A predicted SKIP on a real fix is a prediction error at any severity;
+        # only the subset the filter conditions select is a fix it would
+        # actually withhold (the fixskip@0.50 row applies the same rule).
+        withheld_tp = sum(1 for d, f in answered
+                          if fixskip_truth(d, f) == "fix" and fixskip_withholds(f, 0.50))
+        print(f"    predicted SKIP on one to fix   : {skip_on_tp}/{n_tp}   (prediction error, any severity)")
+        print(f"      of which filter@0.50 withholds: {withheld_tp}/{n_tp}   (Medium/Low, P(skip) >= 0.50, hunk found)")
+        # Real findings carry the human's reason: does the predicted skip
+        # CLASS match it, not just the fix/skip side?
+        reasons = {}
+        for d, f in answered:
+            r = d.get("label_reason")
+            if r:
+                reasons.setdefault(r, {}).setdefault(f["fix_skip"], 0)
+                reasons[r][f["fix_skip"]] += 1
+        if reasons:
+            print("    human reason → predicted class:")
+            for r in sorted(reasons):
+                print(f"      {r:<12} " + ", ".join(f"{k} {v}" for k, v in sorted(reasons[r].items())))
+        print("")
+
     # --- 2. what would Jev's severity have said? ------------------------------
     fp_below = sum(1 for s in fp_sev if s in SEV_RANK and SEV_RANK[s] < FLAG_MIN)
     tp_ok = sum(1 for s, m in tp_sev
@@ -324,7 +434,8 @@ def main():
     print(f"    {'policy':<12} {'DR re-raised':>14} {'MC caught':>11}   verdict vs base")
     base_dr = base_mc = None
     for name, pol in (POLICIES + (RULE_POLICIES if has_rules else [])
-                      + (SKIP_POLICIES if has_skips else [])):
+                      + (SKIP_POLICIES if has_skips else [])
+                      + (FIXSKIP_POLICIES if has_fixskip else [])):
         dr_hits = sum(1 for d in dr if fixture_outcome(d, pol(d.get("findings", [])))[0])
         mc_hits = sum(1 for d in mc if fixture_outcome(d, pol(d.get("findings", [])))[1])
         if name == "base":

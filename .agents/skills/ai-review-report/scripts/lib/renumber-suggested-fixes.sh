@@ -50,7 +50,7 @@
 # Rewrites are confined to the Suggested Fixes section and skip fenced code, so
 # a diff that happens to contain the word "finding" is never edited. Plural or
 # range references (`findings 1-4`, `findings 1, 2`) are left alone: one anchor
-# cannot resolve a set. The holistic and per-chunk sections are out of scope by
+# cannot resolve a set. The per-chunk sections are out of scope by
 # design — LADR-005 keeps them verbatim.
 #
 # Idempotent: a second run maps each anchor to the same number, and the

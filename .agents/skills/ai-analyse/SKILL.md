@@ -68,13 +68,16 @@ When the repository sets `OPENCODE_ANALYSE_ENABLE_DECISIONS` truthy, the workflo
 
 ```
 3. 🟡 [VERIFIED] Medium Priority: … — `src/a.sh:3` (chunk 1)
-   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20% [UNSUPPORTED] · previously skipped 83% · actionability 1.6 of 2 (advisory)
+   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20%, weak quoted evidence · previously skipped 83% · actionability 1.6 of 2 (advisory)
 ```
 
 `P(skip)` is 1 − the probability of `fix`; the class is one of `intentional` / `invalid` / `deferred` (the human label classes of LADR-096); `decision score` is the probability that the quoted evidence demonstrates the finding; `rule-allowed` / `previously skipped` say whether a project rule or the PR's Skip Areas already sanction it; `actionability` 2 means mechanically fixable. The line is **not** review text — never quote it as the finding.
 
+A line that reads `🎯 Decision model: uncertain, leans … (confidence NN%)` means the model's own confidence in its fix/skip answer was below 30%. It is **not** a recommendation in either direction: decide on the finding alone, and never cite it as a reason. `filter` never withholds an uncertain finding.
+
 - **Use it in one direction only.** A SKIP recommendation is a good reason to SKIP — name it in the Reason column (`decision model: SKIP (invalid) 90%`). A FIX recommendation is **never** a reason to FIX on its own: every Decision Rule and Guardrail below still applies.
-- **`OPENCODE_ANALYSE_DECISIONS_MODE=filter`** additionally withholds, deterministically, every finding the model recommends skipping with `P(skip)` ≥ `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` (default `0.5`), the way failing-test findings are withheld (LADR-056). You never see those findings; the summary comment lists them for a human. Treat their absence like any other withheld finding, including in Suggested Fixes.
+- **`OPENCODE_ANALYSE_DECISIONS_MODE=filter`** additionally withholds, deterministically, every finding the model recommends skipping with `P(skip)` ≥ `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` (default `0.5`), the way failing-test findings are withheld (LADR-056). You never see those findings; the summary comment lists them for a human. Treat their absence like any other withheld finding, including in Suggested Fixes. This variable is only the withholding threshold; the decision-score threshold in the advisory line is the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY`.
+- **`(advisory, from gate scoring)`** marks an answer the review gate gave itself (LADR-098), with the chunk rules and quoted evidence; it is reused unless the PR's Skip Areas changed since. Other lines were re-scored for this run against the reviewed commit's diff when that commit is known. If it cannot be determined, the workflow warns and uses the current PR diff; if a known reviewed commit's diff is unavailable, it makes no recommendations.
 - **A finding without the line was not scored** (feature off, request failed, over the cap, or the diff hunk was not found for a withhold). Decide it exactly as you would without the feature.
 - **Never a label.** These are model predictions. Nothing you print may be recorded as an `ai-review-decisions` label (that block is written only by a human's `/ai-review execute`).
 
@@ -87,7 +90,7 @@ Configuration — clones of the gate's six Variables: `OPENCODE_ANALYSE_ENABLE_D
 - Genuine bug or logic error in a low/medium finding: `FIX`
 - Real simplification with no trade-off: `FIX`
 - Speculative / "consider" language: `SKIP`
-- Decision model recommends SKIP (`🎯 Decision model:` line, when present) and you have no stronger evidence the finding is real and mechanically fixable: `SKIP`, citing it. A decision-model FIX alone is never sufficient for `FIX`.
+- A line explicitly saying `🎯 Decision model: recommends SKIP` may support a `SKIP` when there is no stronger evidence the finding is real and mechanically fixable; cite the recommendation. Never treat an `uncertain, leans …` line as a recommendation or cite it as a reason. A decision-model FIX alone is never sufficient for `FIX`.
 - A finding whose only viable fix would edit a test or the test framework, while `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is off (the default): `SKIP` with reason "test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)"
 - A finding whose basis is that a test is failing (regardless of `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX`): `SKIP` with reason "failing test is a signal — human decision required"
 - A Critical or High finding itself (its own priority is 🔴/🟠), even if included in suggested fixes: **omit entirely — no row, neither FIX nor SKIP**

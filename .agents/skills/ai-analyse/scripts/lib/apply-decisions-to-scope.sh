@@ -50,16 +50,20 @@ printf '%s' "$input" | awk -F '\t' -v tsv="$tsv" -v wh="$withhold" -v rep="$with
     while ((getline line < tsv) > 0) {
       if (++r == 1) continue
       split(line, f, "\t")
-      rec = (f[3] == "FIX") ? "FIX" : "SKIP (" f[4] ")"
-      note = "   - 🎯 Decision model: recommends " rec
+      # UNCERTAIN (column 17 holds the confidence): the model leans one way
+      # but its own confidence is too low to call it a recommendation.
+      lean = (f[4] == "fix") ? "FIX" : "SKIP (" f[4] ")"
+      if (f[3] == "UNCERTAIN") note = "   - 🎯 Decision model: uncertain, leans " lean " (confidence " f[17] "%)"
+      else note = "   - 🎯 Decision model: recommends " ((f[3] == "FIX") ? "FIX" : "SKIP (" f[4] ")")
       sep = " — "
       if (f[5] != "") { note = note sep "P(skip) " f[5] "%"; sep = " · " }
-      if (f[6] != "") { note = note sep "decision score " f[6] "%" (f[7] == "yes" ? " [UNSUPPORTED]" : ""); sep = " · " }
+      if (f[6] != "") { note = note sep "decision score " f[6] "%" (f[7] == "yes" ? ", weak quoted evidence" : ""); sep = " · " }
       if (f[8] != "") { note = note sep "rule-allowed " f[8] "%"; sep = " · " }
       if (f[9] != "") { note = note sep "previously skipped " f[9] "%"; sep = " · " }
       if (f[10] != "") { note = note sep "actionability " f[10] " of 2"; sep = " · " }
       if (f[11] == "no") { note = note sep "no diff hunk found" }
-      ann[f[1]] = note " (advisory)"
+      # LADR-098: where the answer came from (column 16, absent before it).
+      ann[f[1]] = note ((f[16] == "gate") ? " (advisory, from gate scoring)" : " (advisory)")
     }
     while ((getline line < wh) > 0) { gsub(/[^0-9]/, "", line); if (line != "") drop[line] = 1 }
     FS = " "

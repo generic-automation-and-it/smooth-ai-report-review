@@ -59,7 +59,7 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 ## Environment Variables
 
-`review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in. The key is never read by the helper itself: it is inherited by ai-review-report's `score-findings-decisions.sh`, the only process that uses it, which hands it to curl through a 0600 header file (`.github/instructions/skills/skill-secret-handling.instructions.md`). `gh` uses the developer's own authentication.
+`review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in. The key is never read by the helper itself: it is inherited by ai-review-report's `score-findings-decisions.sh`, the only process that uses it, which hands it to curl through a 0600 header file (`.github/instructions/skills/skill-secret-handling.instructions.md`). `gh` uses the developer's own authentication. Since LADR-098 the helper also calls ai-review-report's `lib/review-diff.sh` (the diff as of the reviewed commit — it prints the reason and exits 0 without recommendations when that diff cannot be fetched) and passes the reviewed sha as `--rev`; it reads the always-on `run-id=` marker as well as the older `run=` one. Its temp directory (`${TMPDIR}/ai-review-decisions-<pr>.*`) is left in place on purpose: the printed `decisions.json` path is for the agent to read.
 
 ## Script Layout
 
@@ -78,6 +78,7 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 ## Changelog
 
+- **2026-09-27:** `--usedecisions` judges the diff as of the reviewed commit, reuses the gate's own fix/skip answers when still valid (Source column), finds the run through the always-on `run-id=` marker, and reads code at the reviewed commit (ai-review-report LADR-098).
 - **2026-09-27:** `--usedecisions` (analyse): `scripts/review-decisions.sh` adds decision-model FIX/SKIP recommendations for a gate review's numbered findings, using the CI gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` variables. Advisory; never a label (ai-review-report LADR-097).
 - **2026-09-27:** Execute (Non-Copilot flow) records the human's fix/skip decisions as an invisible `ai-review-decisions` block when the review carries the gate's run marker, feeding the decision model's real-findings labels (ai-review-report LADR-096).
 - **2026-09-27:** Replaced the per-tool `models` frontmatter block with `effort: high` and dropped `model:` from `agents/openai.yaml`: skills no longer switch model per tool or provider.

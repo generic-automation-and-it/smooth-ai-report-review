@@ -164,6 +164,10 @@ jobs:
             # asserts its own call sites in aggregate-reviews.sh, so a refactor
             # that drops one is caught here rather than in a posted review.
             .agents/skills/ai-review-report/scripts/test-merge-findings.sh
+            # LADR-100: no holistic section — a model that still writes one
+            # (marker or heading) has it stripped, fence-aware, and the sync
+            # takes no holistic input.
+            .agents/skills/ai-review-report/scripts/test-strip-holistic-section.sh
             # LADR-093 decision-model scorer: annotate/filter, the filter
             # fence, every best-effort failure path (the merged document must
             # stay byte-identical) and the rendered suffix — offline, curl is
@@ -176,6 +180,19 @@ jobs:
             # one-directional withhold rules, the gate path left unchanged, and
             # pipeline-ai-analyse.yml's Variables / call order / guards.
             .agents/skills/ai-review-report/scripts/test-recommend-fix-skip.sh
+            # LADR-098 decisions hardening: fix_skip in the gate and its reuse,
+            # the diff as reviewed, the code context and its budget order, the
+            # run-id marker and artifact, and the eval's fix_skip measurement.
+            .agents/skills/ai-review-report/scripts/test-decisions-hardening.sh
+            # The ai-analyse run artifact is redacted to <REDACTED> before upload,
+            # and uploaded not at all when it cannot be (skill-secret-handling).
+            .agents/skills/ai-review-report/scripts/test-redact-secrets.sh
+            # ai-analyse's own deterministic guards (LADR-045/056/057) and the
+            # decision-model scope filter they sit beside. The job's scope
+            # check already covers .agents/skills/ai-analyse/.
+            .agents/skills/ai-analyse/scripts/test-filter-failing-test-findings.sh
+            .agents/skills/ai-analyse/scripts/test-filter-test-self-fix.sh
+            .agents/skills/ai-analyse/scripts/test-run-test-gate.sh
             # Per-chunk context scope filtering. Both directions of error are
             # real and asymmetric, so this pins the fail-open contract as hard
             # as it pins the glob matching.

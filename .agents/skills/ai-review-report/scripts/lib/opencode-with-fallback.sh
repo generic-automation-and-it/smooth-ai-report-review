@@ -148,7 +148,7 @@ run_opencode() {
   #   debug a stuck/flaky chunk locally, re-run with --log-level info
   #   --print-logs.
   # --format default: human-readable markdown matching the legacy parser surface
-  #   (sed/grep on DETAILED_SECTION_MARKER and per-priority emoji lines).
+  #   (sed/grep on section headings and per-priority emoji lines).
   # Empty-output guard (LADR-029): opencode can exit 0 while emitting empty/tiny
   #   stdout (silent provider failure, or an agent that spent its turn on tool
   #   calls). Capture the output and FAIL (return 1) when it is below the same

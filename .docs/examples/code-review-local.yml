@@ -477,6 +477,9 @@ jobs:
           OPENCODE_REVIEW_REPORT_DECISIONS_MODE: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODE || 'annotate' }}
           OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}
           OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '20' }}
+          # LADR-098: give the judge the enclosing code at the reviewed revision and
+          # the hunks of other files a finding names. Falsy → diff hunk only.
+          OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT || '1' }}
           # Per-chunk review budget, seconds — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
           # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).

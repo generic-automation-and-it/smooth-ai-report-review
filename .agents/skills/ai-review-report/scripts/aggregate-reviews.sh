@@ -157,7 +157,7 @@ done
 
 echo "✅ Combined all chunk reviews"
 
-# LADR-030 (supersedes LADR-017): the holistic / high-level aggregation now runs
+# LADR-030 (supersedes LADR-017): the high-level aggregation now runs
 # for EVERY PR, including single-chunk ones, so reviewers always get an aggregated
 # Overall Summary, Issues Summary, Suggested Fixes and Recommendation — not just the
 # raw per-file chunk findings. LADR-017 skipped this for `TOTAL_CHUNKS=1` on the
@@ -204,10 +204,11 @@ if [ -f "ci_temp/pr_description.txt" ]; then
   PR_DESCRIPTION=$(cat "ci_temp/pr_description.txt")
   echo "PR description loaded (${#PR_DESCRIPTION} chars)"
 
-  # LADR-083: same lib as review-in-chunks.sh. The holistic pass needs the Skip
-  # Areas bullets as much as the chunk pass does — a holistic Critical/High blocks
-  # the PR on its own (it has no per-chunk sidecar to demote it), so a skipped
-  # finding re-raised here is as expensive as one re-raised in a chunk.
+  # LADR-083: same lib as review-in-chunks.sh. The aggregation pass needs the
+  # Skip Areas bullets as much as the chunk pass does — its own Issues Summary
+  # sets the verdict whenever the merged findings cannot (structured findings
+  # off, or no merged document), so a skipped finding re-raised here blocks the
+  # PR just like one re-raised in a chunk.
   AI_REVIEW_NOTES=$(printf '%s\n' "$PR_DESCRIPTION" | bash "$(dirname "${BASH_SOURCE[0]}")/lib/extract-review-notes.sh")
   if [ -n "$AI_REVIEW_NOTES" ]; then
     echo "✅ AI Review Notes extracted for aggregation (${#AI_REVIEW_NOTES} chars)"
@@ -264,7 +265,7 @@ EOF
   cat >> ci_temp/summary_prompt.txt << 'EOF'
 
 **MANDATORY RULES for incremental reviews:**
-1. You CANNOT make holistic claims about "missing implementations" or "missing integration" based on what you see
+1. You CANNOT make PR-wide claims about "missing implementations" or "missing integration" based on what you see
 2. The full PR may have 13 files but you only see changes to 1 file - the other 12 were already reviewed
 3. Per LADR-019 the aggregation step does NOT have \`read_file\` — symbol/file verification was already performed during the per-chunk review. Do NOT attempt file reads or claim you have verified anything against the current file state.
 4. **NEVER flag "missing integration" as 🟠 High Priority** on incremental reviews — chunk reviews already gated High findings via \`read_file\`. Re-asserting it at aggregation is not adding new signal.
@@ -283,8 +284,8 @@ The PR author has provided the following guidance for this review:
 
 ${AI_REVIEW_NOTES}
 
-**Important:** Consider these notes in your holistic analysis and recommendations.
-- Any items listed under **"Skip Areas"** MUST be treated as out-of-scope for 🔴 Critical, 🟠 High, and 🟡 Medium classifications. If you observe a concern in a skip area, flag it as 🔵 Low Priority at most. (LADR-083: a holistic 🔴/🟠 blocks the PR with no per-chunk sidecar to demote it, so re-raising a documented skip here is strictly worse than doing it in a chunk.)
+**Important:** Consider these notes in your summary and recommendation.
+- Any items listed under **"Skip Areas"** MUST be treated as out-of-scope for 🔴 Critical, 🟠 High, and 🟡 Medium classifications. If you observe a concern in a skip area, flag it as 🔵 Low Priority at most. (LADR-083: your Issues Summary sets the verdict whenever the merged findings cannot, so re-raising a documented skip here blocks the PR.)
 
 EOF
 fi
@@ -315,7 +316,7 @@ if [ -s ci_temp/findings.merged.json ] \
             "- Findings scored: \(.scored)"
             + (if .mode == "filter"
                then "; \((.suppressed // []) | length) non-critical finding(s) whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) were removed from the Issues Summary"
-               else "; findings whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) are tagged [UNSUPPORTED] in the Issues Summary" end)
+               else "; findings whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) are marked as having weak quoted evidence in the Issues Summary" end)
           else empty end ) ]
     | select(length > 0)
     | "An independent structured decision model (`\($ds.provider)/\($ds.model)`) scored the merged findings after the chunk reviews:", "", .[]
@@ -336,14 +337,9 @@ fi
 
 cat >> ci_temp/summary_prompt.txt << 'EOF'
 
-**Your task:** Provide TWO sections:
-1. A concise PR-level summary (for the main review body)
-2. A detailed holistic analysis (to be placed with the individual chunk reviews)
+**Your task:** Write the PR-level review in the format below — one overview for the main review body.
 
-**Important:** This PR's changes were reviewed in one or more chunks for memory efficiency; each chunk was reviewed independently. Your role is to:
-1. Aggregate all issues from the chunk review(s)
-2. Perform a HOLISTIC analysis looking for cross-cutting concerns, architectural issues, and patterns across the whole PR
-3. Surface issues that become apparent when viewing all changes together (for multi-chunk PRs this includes issues that span chunks)
+**Important:** This PR's changes were reviewed in one or more chunks for memory efficiency; each chunk was reviewed independently. Your role is to aggregate the chunk review(s) into that overview: summarise the PR, list every issue once, consolidate the suggested fixes and state the recommendation. Do not add a separate cross-chunk or holistic section (LADR-100).
 
 **Confidence Tag Handling:**
 - Individual chunk reviews tag findings as `[VERIFIED]` (reviewer saw the code) or `[SPECULATIVE]` (inferred from partial context).
@@ -371,7 +367,7 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 **Formatting Rules (MANDATORY):**
 - Use ASCII-safe characters in finding text: no box-drawing characters, no per-item horizontal rules, no Unicode arrows or middots. Write `->` instead of an arrow character.
 - **The severity emoji grammar is exempt and mandatory.** 🔴 🟠 🟡 🔵 🗂️ and the section headings below are parsed by downstream tooling — always emit them exactly as shown. The ASCII rule applies only to decorative characters inside the text of a finding.
-- Reuse one stable `1)` identifier per finding across every section it appears in. Never re-derive numbering per severity block, and never write `#` before a number (LADR-067): GFM autolinks `#`+digits to an issue/PR in the repo under review.
+- Reuse one stable `1)` identifier per finding across the Issues Summary, Suggested Fixes and Recommendation. Never re-derive numbering per severity block, and never write `#` before a number (LADR-067): GFM autolinks `#`+digits to an issue/PR in the repo under review.
 
 **Required Output Format:**
 
@@ -385,20 +381,19 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 
 ## 🔍 Issues Summary
 
-**Note:** Issues are categorized from BOTH individual chunk reviews AND holistic analysis. [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand)
+**Note:** Issues are aggregated from the individual chunk reviews. [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand)
 
 ### 🔴 Critical Issues
-[List all critical issues found across ALL chunks AND from holistic analysis, with file references]
-[Include cross-chunk issues that only become apparent when viewing the PR holistically]
+[List all critical issues found across ALL chunks, with file references]
 [If none: "None found"]
 
 ### 🟠 High Priority Issues
-[List all high priority issues found across ALL chunks AND from holistic analysis, with file references]
+[List all high priority issues found across ALL chunks, with file references]
 [Include integration issues, consistency problems, or architectural concerns]
 [If none: "None found"]
 
 ### 🟡 Medium Priority Issues
-[List medium priority issues or summarize common patterns from chunks AND holistic review]
+[List medium priority issues or summarize common patterns from the chunks]
 [If none: "None found"]
 
 ### 🔵 Low Priority / Nitpicks
@@ -467,119 +462,7 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 - ❌ Wrong: "1 medium issue that I think is important → REQUEST_CHANGES" (Violates policy)
 - ❌ Wrong: "No critical/high issues but many medium → REQUEST_CHANGES" (Violates policy)
 
----
-DETAILED_SECTION_MARKER
----
-
-## 🔄 Holistic Cross-Chunk Analysis
 EOF
-
-# Sync mode: narrowed holistic analysis for release branch sync PRs
-if [ "${REVIEW_MODE:-standard}" = "sync" ]; then
-  cat >> ci_temp/summary_prompt.txt << 'EOF'
-
-**Purpose:** This is a **release branch sync PR**. All code changes were previously reviewed in their original PRs. This analysis focuses ONLY on issues introduced by the merge/sync process itself.
-
-**What we looked for:**
-- **Merge conflict resolution errors** — Corrupted code, duplicated blocks, lost changes, or mangled syntax from incorrect conflict resolution
-- **Cross-PR breaking combinations** — Changes from separate PRs that are individually correct but incompatible when combined (e.g., removed method still called by another PR's code, conflicting signatures)
-- **Configuration/environment drift** — appsettings, feature flags, or env vars that were overridden or lost during the sync
-- **Migration ordering conflicts** — EF migrations with conflicting model snapshots or overlapping migration IDs
-
-**Explicitly DO NOT flag:** Coding style, naming, test coverage gaps, performance suggestions, documentation drift, refactoring opportunities, or any issue that would have been caught in the original PR review.
-
-**Severity threshold:** Only use 🔴 Critical and 🟠 High. Classify anything below that as 🔵 Low (informational only). Do NOT use 🟡 Medium for sync reviews.
-
-**Cross-Chunk Issues Found:**
-
-🔴 **Critical Issues**
-[List any merge/sync issues. If none: "None found"]
-
-🟠 **High Priority Issues**
-[List any cross-PR breaking combinations. If none: "None found"]
-
-🔵 **Low Priority / Informational**
-[List any minor observations. If none: "None found"]
-
-**Overall Assessment:** [Brief summary of sync-specific concerns or "No merge/sync issues identified — safe to merge."]
-EOF
-
-else
-  # Standard/migration/docs-only holistic analysis
-  cat >> ci_temp/summary_prompt.txt << 'EOF'
-
-**Purpose:** This analysis views the PR as a unified whole, looking beyond individual chunk reviews for cross-cutting concerns.
-
-**What we looked for:**
-- Architectural patterns or anti-patterns across chunks
-- Consistency issues between different parts of the codebase
-- Breaking changes that affect multiple areas
-- Security implications that span multiple files
-- Performance impacts when all changes are considered together
-- Cross-layer field consistency — entity fields reflected in DTOs, API responses, and frontend models across chunks
-- API contract breaking changes — removed/renamed fields, changed response types that could break existing consumers (frontend or external integrations)
-EOF
-
-  # Add integration-related checks only for FULL reviews
-  if [ "$REVIEW_TYPE" = "full" ]; then
-    cat >> ci_temp/summary_prompt.txt << 'EOF'
-- **Missing implementations** (e.g., frontend changes without backend support, or vice versa) — based ONLY on the diffs the chunk reviews actually saw. "A file was not present in the review chunks" is a review-coverage gap (🔵 Low, `[SPECULATIVE]`), NOT a missing implementation
-- **Integration concerns**: Verify new code is properly called/integrated into the application
-- **Dependency Injection**: New classes and interfaces must be properly registered in DI container
-- **Test Coverage**: Every code change should have corresponding tests added or updated
-- **Concurrency safety**: Patterns where changes across chunks introduce shared state access or parallel execution on the same DbContext/resource (DR-008). Flag as High Priority if multiple chunks show coordinated async patterns without DbContext isolation.
-EOF
-  else
-    cat >> ci_temp/summary_prompt.txt << 'EOF'
-
-**⚠️ INCREMENTAL REVIEW LIMITATION:** This is an incremental review - you only see changes since the last review.
-- Do NOT flag "missing integration" or "missing implementation" as High Priority
-- Per LADR-019, file-system verification belongs to the chunk-review step, not aggregation. If a chunk review didn't flag it, do not invent it here.
-- Integration concerns at the aggregation step are 🔵 Low Priority informational only
-EOF
-  fi
-
-  cat >> ci_temp/summary_prompt.txt << 'EOF'
-
-**Cross-Chunk Issues Found:**
-
-🔴 **Critical Issues**
-[List any critical cross-chunk issues. If none: "None found"]
-
-🟠 **High Priority Issues**
-[List any high priority cross-chunk issues. If none: "None found"]
-
-🟡 **Medium Priority Issues**
-[List any medium priority cross-chunk issues. If none: "None found"]
-
-🔵 **Low Priority / Nitpicks**
-[List any low priority cross-chunk issues. If none: "None found"]
-
-**Additional Analysis:**
-- **Consistency:** [Note any consistency issues across chunks]
-EOF
-
-  # LADR-020: Skip Integration / DI / Test Coverage sections on small PRs.
-  # Per-chunk reviews already evaluate these on the changed files they see.
-  # Re-asking the aggregation model to re-derive them on ≤2 chunks is duplicate
-  # work — those concerns are intra-chunk, not cross-chunk.
-  if [ "$REVIEW_TYPE" = "full" ] && [ "$TOTAL_CHUNKS" -gt 2 ]; then
-    cat >> ci_temp/summary_prompt.txt << 'EOF'
-- **Integration:** [Describe how chunks integrate together - verify new code is called in startup/entry points]
-- **Dependency Injection Analysis**: [List any new classes/interfaces and verify DI registration. If N/A: "Not applicable"]
-- **Test Coverage Analysis**: [For each code change, verify corresponding test file exists and was updated. If N/A: "Not applicable"]
-  - .NET: Look for *Test.cs, *Tests.cs files matching changed code files
-  - Frontend: Look for *.spec.ts files matching changed TypeScript files
-  - Python: Look for test_*.py files matching changed Python files
-EOF
-  fi
-
-  cat >> ci_temp/summary_prompt.txt << 'EOF'
-
-**Overall Assessment:** [Brief summary of cross-chunk concerns or "No significant cross-chunk concerns identified."]
-EOF
-
-fi  # end sync/standard branch
 
 cat >> ci_temp/summary_prompt.txt << 'EOF'
 
@@ -594,9 +477,9 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 
 **IMPORTANT - Individual Chunk Reviews for Reference:**
 
-The following individual chunk reviews are provided for your reference to perform the holistic analysis above.
+The following individual chunk reviews are provided for your reference to write the review above.
 **DO NOT include these chunk reviews in your output** - they will be added separately by the script.
-Your output should END after the "Overall Assessment" section above.
+Your output should END after the "Recommendation" section above.
 
 ---
 
@@ -652,7 +535,7 @@ fi
 # opencode can exit 0 while producing empty/tiny output (silent provider failure).
 # Without this, an empty pr_summary.md slips past the success branch and the posted
 # review loses its Overall Summary / Issues Summary / Recommendation entirely
-# (only "No holistic analysis section found" remains). Treat empty as failure so the
+# (nothing but the header remains). Treat empty as failure so the
 # conservative REQUEST_CHANGES fallback below is installed instead of a blank
 # overview. LADR-085 allows complete chunk + sidecar evidence to replace that
 # temporary action later; incomplete coverage keeps it fail-closed.
@@ -685,34 +568,18 @@ Please review the detailed chunk reviews below.
 EOF
 fi
 
-# Split the summary into main section and detailed section
-if grep -q "DETAILED_SECTION_MARKER" ci_temp/pr_summary.md; then
-  # Extract main summary (before marker)
-  sed '/DETAILED_SECTION_MARKER/,$d' ci_temp/pr_summary.md > ci_temp/pr_summary_main.md
-
-  # Extract detailed holistic analysis (after marker)
-  sed -n '/DETAILED_SECTION_MARKER/,$p' ci_temp/pr_summary.md | sed '1,3d' > ci_temp/pr_summary_detailed.md
-else
-  # Fallback if marker not found (backward compatibility)
-  cp ci_temp/pr_summary.md ci_temp/pr_summary_main.md
-  echo "## 🔄 Holistic Cross-Chunk Analysis" > ci_temp/pr_summary_detailed.md
-  echo "No holistic analysis section found." >> ci_temp/pr_summary_detailed.md
-fi
+# LADR-100: the review has no holistic section. The prompt no longer asks for
+# one, but a model that emits one anyway (the old DETAILED_SECTION_MARKER, or a
+# `## 🔄 Holistic Cross-Chunk Analysis` heading from habit) must not post a
+# second, differently-numbered overview — strip it. Best-effort: on any problem
+# the summary is kept as written.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/strip-holistic-section.sh" \
+  ci_temp/pr_summary.md ci_temp/pr_summary_main.md || true
+[ -s ci_temp/pr_summary_main.md ] || cp ci_temp/pr_summary.md ci_temp/pr_summary_main.md
 
 # An open fence at the end of the main summary swallows the <details> tag that
-# is appended right after it; one at the end of the detailed section swallows
-# the chunk reviews. Balance both halves (the PR #36 breakage was main-side).
+# is appended right after it (the PR #36 breakage).
 balance_fences ci_temp/pr_summary_main.md
-balance_fences ci_temp/pr_summary_detailed.md
-
-# LADR-063: number the holistic items (`H1)`, `H2)`, …) so every item in the
-# posted review is addressable, not just the deduplicated findings. Runs AFTER
-# balance_fences because the numberer skips fenced blocks and needs the fences
-# to be balanced before it can tell which lines are inside one. Best-effort by
-# construction: the script leaves the file untouched on any problem, so an
-# unnumbered holistic section is the worst case.
-bash "$(dirname "${BASH_SOURCE[0]}")/lib/number-holistic-items.sh" \
-  ci_temp/pr_summary_detailed.md || true
 
 # Build final review comment with proper structure
 # Format SHAs to 7 characters
@@ -883,8 +750,7 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         # orchestrator — which counted the Issues Summary *it* wrote, including
         # findings the merge later dropped as malformed. Sync counts and the
         # decision from the same merged document so severity lists, rationale,
-        # and the posted review state cannot disagree. Holistic Critical/High
-        # (no per-chunk sidecar) still block via the holistic file.
+        # and the posted review state cannot disagree.
         #
         # The sync can SOFTEN a verdict, so it is allowed only where "no
         # Critical/High in the merged set" is actually evidence about the PR.
@@ -914,7 +780,6 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
             bash "$(dirname "${BASH_SOURCE[0]}")/lib/sync-recommendation-from-findings.sh" \
               "$MERGED_FINDINGS_FILE" \
               ci_temp/pr_summary_main.md \
-              ci_temp/pr_summary_detailed.md \
               2>ci_temp/sync_recommendation.log || true
           )"
           if [ -s ci_temp/sync_recommendation.log ]; then
@@ -1108,6 +973,7 @@ fi
 # (checked inside), informational only, and a no-op without PR-level answers.
 bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-decision-verdict.sh" \
   ci_temp/findings.merged.json ci_temp/pr_summary_main.md || true
+
 cat ci_temp/pr_summary_main.md >> ci_temp/final_review.md
 
 # Add collapsible detailed section
@@ -1119,37 +985,6 @@ cat >> ci_temp/final_review.md << EOF
 <summary><b>📂 View Detailed Reviews</b> (click to expand)</summary>
 
 EOF
-
-# Add holistic analysis with header.
-#
-# LADR-063: when the numbering pass actually assigned identifiers, say what they
-# mean right here rather than only in the Issues Summary legend — that legend is
-# rendered by render-findings-summary.sh, which runs ONLY on full sidecar
-# coverage, so on the fallback path a reader would meet `H3)` with nothing
-# anywhere explaining it. Emitted conditionally so a section that was left
-# unnumbered (no anchor, degraded run) does not carry a legend for numbers it
-# does not have.
-if grep -qE '\*\*H[0-9]+\)' ci_temp/pr_summary_detailed.md 2>/dev/null; then
-  # LADR-068: on the primary structured-findings path the Issues Summary above
-  # renders findings as a `1.` ordered list; on the fallback path (structured
-  # findings disabled, or no merged document) the orchestrator's free-text
-  # summary is posted verbatim and instructed to write `1)`. The legend must
-  # match the path it ships beside, or a single posted review contradicts itself
-  # on the identifier shape — and a reader quoting the legend into a skip
-  # bullet writes an identifier matching nothing.
-  if [ "$FINDINGS_SUMMARY_APPLIED" = "true" ]; then
-    _findings_shape='`1.`'
-  else
-    _findings_shape='`1)`'
-  fi
-  echo "> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the ${_findings_shape} findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)." >> ci_temp/final_review.md
-  echo "" >> ci_temp/final_review.md
-fi
-cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md
-
-echo "" >> ci_temp/final_review.md
-echo "---" >> ci_temp/final_review.md
-echo "" >> ci_temp/final_review.md
 
 # Add individual chunk reviews with header
 cat >> ci_temp/final_review.md << EOF
@@ -1215,11 +1050,35 @@ fi
 # eval/harvest-real-findings.sh --from-pr joins the two into labelled records.
 # Only when the flag is on AND the merged findings were actually scored — an
 # unscored run has nothing to label — and only for a numeric run id.
+# Both markers need an artifact to point at: _REVIEW_RUN_ARTIFACT is exported
+# only by run-review.sh, whose EXIT trap assembles ci_temp/run/ for upload.
+# Keep the markers we actually emit out-of-band for run-review.sh's compaction:
+# review prose may quote a marker-shaped line, but must never forge one here.
+: > ci_temp/aggregate_run_markers.txt
 if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
      | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+    && printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}" | tr '[:upper:]' '[:lower:]' \
+       | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+    && [ "${_REVIEW_RUN_ARTIFACT:-0}" = "1" ] \
    && [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] \
    && jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
   printf '\n<!-- ai-review-report run=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/final_review.md
+  printf '<!-- ai-review-report run=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/aggregate_run_markers.txt
+fi
+
+# LADR-098 run-id channel: an ALWAYS-ON invisible marker naming the run whose
+# artifact (LADR-062) holds this review's findings, evidence and judge context,
+# so /ai-review --usedecisions and ai-analyse can find it even when the review
+# was not scored. Deliberately a different key (`run-id=`) from the label
+# marker above: `/ai-review execute` writes decision labels only for `run=`,
+# which promises scores to join with. Only when a run artifact is uploaded:
+# artifacts on AND run-review.sh is the entrypoint (see _REVIEW_RUN_ARTIFACT).
+if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}" | tr '[:upper:]' '[:lower:]' \
+     | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+   && [ "${_REVIEW_RUN_ARTIFACT:-0}" = "1" ] \
+   && [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+  printf '<!-- ai-review-report run-id=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/final_review.md
+  printf '<!-- ai-review-report run-id=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/aggregate_run_markers.txt
 fi
 
 echo ""
