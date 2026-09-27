@@ -250,7 +250,8 @@ for spec in "$@"; do
                            # recorded beside the human decision — a score to
                            # measure, never itself a label.
                            fix_skip: (.decisions.fix_skip.choice // null),
-                           fix_skip_p: (.decisions.fix_skip.skip_probability // null) } ] }' \
+                           fix_skip_p: (.decisions.fix_skip.skip_probability // null),
+                           fix_skip_conf: (.decisions.fix_skip.confidence // null) } ] }' \
     "$merged" > "$out"
   n_written=$((n_written + 1))
 done

@@ -72,6 +72,7 @@ write_decision_record() {
                         # against the measurement, not vanish from it.
                         fix_skip_asked: ((.decisions // {}) | has("fix_skip")),
                         fix_skip: (.decisions.fix_skip.choice // null),
-                        fix_skip_p: (.decisions.fix_skip.skip_probability // null) } ] }' > "$out"
+                        fix_skip_p: (.decisions.fix_skip.skip_probability // null),
+                        fix_skip_conf: (.decisions.fix_skip.confidence // null) } ] }' > "$out"
   rm -f "$empty"
 }

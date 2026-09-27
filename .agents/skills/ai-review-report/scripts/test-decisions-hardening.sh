@@ -620,6 +620,8 @@ jq '.findings[0].verified = true' "$TMP_DIR/rec_mc.json" > "$TMP_DIR/rec_mc2.jso
 write_decision_record "$TMP_DIR/rec_mc2.json" "$TMP_DIR/mc.json" 1 "" "" /dev/null "$TMP_DIR/records/MC-X.1.json" 2>/dev/null || true
 check "Test 8a: a measurement record carries fix_skip, its P(skip) and code_context" "fix 0.25" \
   "$(jq -r '.findings[0] | "\(.fix_skip) \(.fix_skip_p)"' "$TMP_DIR/records/MC-X.1.json")"
+check "Test 8a3: both record writers keep the answer's own confidence (fix_skip_conf)" "1|1" \
+  "$(grep -c 'fix_skip_conf: (.decisions.fix_skip.confidence // null)' "$SCRIPT_DIR/eval/lib/decision-record.sh")|$(grep -c 'fix_skip_conf: (.decisions.fix_skip.confidence // null)' "$HARVEST")"
 jq -n '{status:"complete", merged_chunks:[0], decisions_summary:{provider:"P", model:"M", scored:1},
   findings:[{"#":1, severity:"high", verified:true, title:"wrong claim", why_it_matters:"wrong",
     decisions:{supported:0.3, severity:{choice:"high"}, pre_existing:0.1, actionability:{score:1},
@@ -667,6 +669,13 @@ if command -v python3 >/dev/null 2>&1; then
   rep_ws="$(python3 "$REPORT_PY" "$TMP_DIR/records_ws" "T")"
   check "Test 8f: prediction errors and actual withholds are counted apart" "1|1" \
     "$(printf '%s\n' "$rep_ws" | grep -c 'predicted SKIP on one to fix   : 3/3   (prediction error, any severity)')|$(printf '%s\n' "$rep_ws" | grep -c 'of which filter@0.50 withholds: 1/3')"
+  # Review 5331577898 finding 2: an uncertain answer (confidence < 0.3) is
+  # never withheld by the consumer, so the eval's filter model must not count
+  # it either. Same three real fixes as 8f, the withheld Medium made uncertain.
+  jq '.findings[0].fix_skip_conf = 0.12' "$TMP_DIR/records_ws/REAL-MED.1.json" > "$TMP_DIR/rw.tmp" && mv "$TMP_DIR/rw.tmp" "$TMP_DIR/records_ws/REAL-MED.1.json"
+  rep_ws2="$(python3 "$REPORT_PY" "$TMP_DIR/records_ws" "T")"
+  check "Test 8g: an uncertain answer is not counted as withheld by filter@0.50" "1" \
+    "$(printf '%s\n' "$rep_ws2" | grep -c 'of which filter@0.50 withholds: 0/3')"
   rep_old="$(python3 "$REPORT_PY" "$SCRIPT_DIR/eval/corpus/real-findings" "T")"
   check "Test 8d: records from before fix_skip render no fix_skip section or policy" "0" \
     "$(printf '%s\n' "$rep_old" | grep -cE '1d\. |fixskip@' || true)"

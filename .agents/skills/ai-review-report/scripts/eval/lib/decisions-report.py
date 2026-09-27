@@ -219,15 +219,25 @@ SKIP_POLICIES = [
 ]
 
 
+# recommend-fix-skip.sh's FIX_SKIP_MIN_CONFIDENCE: below it an answer is
+# shown as uncertain and is never withheld. Keep the two in step.
+FIX_SKIP_MIN_CONFIDENCE = 0.3
+
+
 def fixskip_withholds(f, t):
     """What ai-analyse's `filter` mode would withhold (recommend-fix-skip.sh):
     a Medium/Low finding predicted SKIP, with a P(skip) at or above the
-    threshold, whose diff hunk was found. Anything else stays in scope."""
+    threshold, whose diff hunk was found, and whose answer is not uncertain
+    (its own confidence, when recorded, at or above FIX_SKIP_MIN_CONFIDENCE).
+    Anything else stays in scope. Records from before `fix_skip_conf` carry no
+    confidence and are judged as before."""
+    conf = f.get("fix_skip_conf")
     return (f.get("severity") in ("medium", "low")
             and f.get("fix_skip") not in (None, "fix")
             and f.get("fix_skip_p") is not None
             and f.get("diff_hunk_found") is not False
-            and f["fix_skip_p"] >= t)
+            and f["fix_skip_p"] >= t
+            and (conf is None or conf >= FIX_SKIP_MIN_CONFIDENCE))
 
 
 def fixskip_at(t):

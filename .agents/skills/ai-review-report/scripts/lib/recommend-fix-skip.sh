@@ -310,7 +310,7 @@ rm -f "$out_dir/base.json"
 # and needs no human override. A constant, not a Variable, until the eval
 # measures where the line belongs. A missing confidence (older answers) is not
 # treated as low.
-FIX_SKIP_MIN_CONFIDENCE=0.3
+FIX_SKIP_MIN_CONFIDENCE=0.3  # eval/lib/decisions-report.py mirrors it — keep the two in step
 jq -r --argjson min "$s_min" --argjson minconf "$FIX_SKIP_MIN_CONFIDENCE" '
   def pct: if . == null then "" else "\((. * 100) | round)" end;
   ["n","severity","recommendation","class","skip_probability","decision_score","unsupported",
