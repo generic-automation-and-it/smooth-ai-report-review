@@ -94,7 +94,10 @@ while IFS= read -r -d '' f; do
     # password, so the delimiter-based pass below must not see it first
     # (review 5331854745): take \"…\" whole, and fail closed to the end of the
     # line when the escaped quote never closes.
-    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)\\(["\x27])(?!<REDACTED>)(?:(?!\\\2).)*?\\\2/$1\\$2<REDACTED>\\$2/gi;
+    # Inside, a raw \\\" is the JSON form of a quote escaped within the value,
+    # \\\\ an escaped backslash and \\x any other JSON escape — all part of the
+    # value. Only a bare \" closes it (review 5331864763 finding 2).
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)\\(["\x27])(?!<REDACTED>)(?:\\\\\\\2|\\\\|\\[^"\x27\\\n]|[^\\\n])*\\\2/$1\\$2<REDACTED>\\$2/gi;
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)\\(["\x27])(?!<REDACTED>)[^\r\n]*/$1\\$2<REDACTED>/gi;
     # Fail-closed for an UNTERMINATED quoted value (a log line cut mid-value:
     # Password="abc123secret): the passes above need the closing quote, the one

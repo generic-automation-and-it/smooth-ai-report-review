@@ -153,6 +153,8 @@ printf '%s\n' \
 bash "$REDACT" "$UI" >/dev/null 2>&1; cp "$UI/u.txt" "$TMP_DIR/ui_once.txt"; bash "$REDACT" "$UI" >/dev/null 2>&1
 check "Test 5j: username-only and token-as-user URL credentials are redacted; plain URLs and e-mail stay" "0|1|1|1" \
   "$(grep -cE 'sometokenvalue42|TOKENasUSER|x-oauth-basic' "$UI/u.txt" || true)|$(grep -c '^b: https://<REDACTED>@api.example.com/v1$' "$UI/u.txt")|$(grep -c '^c: https://<REDACTED>@github.com/org/repo$' "$UI/u.txt")|$(grep -c '^e: keep https://github.com/org/repo and user@example.com$' "$UI/u.txt")"
+check "Test 5k: JSON escapes (an escaped quote, \\t, \\\\\\\\) stay inside the escaped-quoted value; idempotent" "0|3|same" \
+  "$(grep -cE 'cd-secret|tab|there|back|slash' "$UI/u.txt" || true)|$(grep -c 'Password=\\"<REDACTED>\\"' "$UI/u.txt")|$(cmp -s "$UI/u.txt" "$TMP_DIR/ui_once.txt" && echo same || echo changed)"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 
