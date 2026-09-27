@@ -100,6 +100,12 @@ check "Test 5a: connection strings from the environment are replaced whole" "1|1
   "$(grep -c '^env url: <REDACTED>$' "$C/log.txt")|$(grep -c '^env ado: <REDACTED>$' "$C/log.txt")"
 check "Test 5b: a URL's password and Password=/Pwd=/AccountKey= values go by shape" "1|1" \
   "$(grep -c '^shape: mysql://root:<REDACTED>@localhost/db$' "$C/log.txt")|$(grep -c '^pairs: Pwd=<REDACTED>; AccountKey=<REDACTED>; SharedAccessKey=<REDACTED>$' "$C/log.txt")"
+# Review 5331716081 finding 1: quoted values, both quote forms, spaces around =.
+Q="$TMP_DIR/quoted"; mkdir -p "$Q"
+printf 'a: Password="Quoted Secret 1";\nb: Pwd='"'"'single-q-secret'"'"';\nc: AccountKey = "abc/DEF+123==";\n' > "$Q/cfg.txt"
+bash "$REDACT" "$Q" >/dev/null 2>&1
+check "Test 5d: quoted Password=/Pwd=/AccountKey= values are redacted, quotes kept" "0|1|1|1" \
+  "$(grep -cE 'Quoted Secret|single-q-secret|abc/DEF' "$Q/cfg.txt" || true)|$(grep -c '^a: Password="<REDACTED>";$' "$Q/cfg.txt")|$(grep -c "^b: Pwd='<REDACTED>';$" "$Q/cfg.txt")|$(grep -c '^c: AccountKey = "<REDACTED>";$' "$Q/cfg.txt")"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 

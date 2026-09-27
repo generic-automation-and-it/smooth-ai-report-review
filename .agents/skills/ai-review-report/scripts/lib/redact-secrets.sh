@@ -73,7 +73,12 @@ while IFS= read -r -d '' f; do
     s/\bxox[abprs]-[A-Za-z0-9-]{10,}/<REDACTED>/g;
     s/(\b[Bb]earer\s+)[A-Za-z0-9._~+\/=-]{16,}/$1<REDACTED>/g;
     s{(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]+@}{$1<REDACTED>@}gi;
-    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)(?!<REDACTED>)[^;"\x27\s]+/$1<REDACTED>/gi;
+    # Quoted values first ("…" or \x27…\x27, spaces allowed inside): the
+    # unquoted form stops at a quote and never matched them (review 5331716081
+    # finding 1).
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)"(?!<REDACTED>")[^"\n]*"/$1"<REDACTED>"/gi;
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)\x27(?!<REDACTED>\x27)[^\x27\n]*\x27/$1\x27<REDACTED>\x27/gi;
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)(?![\x27"]|<REDACTED>)[^;"\x27\s]+/$1<REDACTED>/gi;
   ' "$f" || { echo "redact-secrets.sh: could not redact a file under ${dir}" >&2; exit 1; }
 done < "$list"
 
