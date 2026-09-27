@@ -10,6 +10,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | **The ai-analyse run artifact is redacted before upload.** New `lib/redact-secrets.sh` replaces the exact values of secret-named env vars and GitHub/`sk-`/AWS/Google/Slack/bearer/PEM credential shapes with `<REDACTED>` in every collected file; the Collect step uploads nothing when the lib is missing or fails. New `test-redact-secrets.sh` (11 checks) joins the blocking job. | LADR-098 |
 | 2026-09-27 | **Decision-score marker renamed `[UNSUPPORTED]` → `weak quoted evidence`** in the gate's label, the Coverage note, the `/ai-review --usedecisions` table and ai-analyse's advisory line — same place, still colon- and severity-free, so `score-review.sh` and `review-findings-to-json.sh` read it unchanged. Over three PR 179 reviews only 4 of 10 human-confirmed findings scored ≥ 50%. | LADR-098 |
 | 2026-09-27 | **Low-confidence fix/skip answers show as `uncertain — leans …`** (confidence < 0.3, constant `FIX_SKIP_MIN_CONFIDENCE`): TSV column 3 `UNCERTAIN`, confidence in new column 17, never withheld by `filter`, and ai-analyse's advisory line says `uncertain` instead of `recommends`. | LADR-098 |
 | 2026-09-27 | **The decision-score threshold is the gate's in every scope**: `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` is only the P(skip) withholding threshold; the analyse job now forwards `OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY`. A 57% score was supported in the gate's review and flagged in the analyse table. | LADR-098 |

@@ -184,6 +184,9 @@ jobs:
             # the diff as reviewed, the code context and its budget order, the
             # run-id marker and artifact, and the eval's fix_skip measurement.
             .agents/skills/ai-review-report/scripts/test-decisions-hardening.sh
+            # The ai-analyse run artifact is redacted to <REDACTED> before upload,
+            # and uploaded not at all when it cannot be (skill-secret-handling).
+            .agents/skills/ai-review-report/scripts/test-redact-secrets.sh
             # ai-analyse's own deterministic guards (LADR-045/056/057) and the
             # decision-model scope filter they sit beside. The job's scope
             # check already covers .agents/skills/ai-analyse/.

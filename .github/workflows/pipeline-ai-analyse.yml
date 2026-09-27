@@ -957,8 +957,20 @@ jobs:
       # snapshot does not have — the run ended before the gate, or the step was
       # skipped — are added from ci_temp without overwriting it (`cp -n`), and
       # the test-gate report, written after the suites, always comes from there.
+      #
+      # Then redacted to <REDACTED> (skill-secret-handling checklist: knowledge
+      # artefacts redact secrets). The files are model prompts, model output,
+      # recommendations and test logs — text derived from the PR that can repeat
+      # a credential quoted in a finding or echoed by a test (review 5331608121
+      # finding 1). The token and the analyse PAT are mapped here only so their
+      # exact values can be found and replaced; the provider keys come from the
+      # job env. If the redaction lib is missing (a PR branch older than it) or
+      # fails, the collected files are DELETED rather than uploaded unredacted.
       - name: Collect ai-analyse run artifacts
         if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_ANALYSE_GH_TOKEN: ${{ secrets.OPENCODE_ANALYSE_GH_TOKEN }}
         run: |
           run_dir="${RUNNER_TEMP}/ai-analyse-run"
           mkdir -p "$run_dir"
@@ -967,7 +979,13 @@ jobs:
             mkdir -p "$run_dir/$(dirname "$f")" && cp -Rn "ci_temp/$f" "$run_dir/$(dirname "$f")/" || true
           done
           cp -f ci_temp/test_gate/report.txt "$run_dir/test_gate/report.txt" 2>/dev/null || true
-          find "$run_dir" -type f | sed "s|^$run_dir/|  |" || true
+          redact="${REVIEW_SKILL_DIR:-}/scripts/lib/redact-secrets.sh"
+          if [ -n "${REVIEW_SKILL_DIR:-}" ] && [ -f "$redact" ] && bash "$redact" "$run_dir"; then
+            find "$run_dir" -type f | sed "s|^$run_dir/|  |" || true
+          else
+            echo "::warning::run artifact not redacted (redact-secrets.sh missing or failed) — uploading nothing"
+            rm -rf "$run_dir"
+          fi
 
       - name: Upload ai-analyse run artifacts
         if: always()
