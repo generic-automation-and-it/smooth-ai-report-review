@@ -106,6 +106,11 @@ printf 'a: Password="Quoted Secret 1";\nb: Pwd='"'"'single-q-secret'"'"';\nc: Ac
 bash "$REDACT" "$Q" >/dev/null 2>&1
 check "Test 5d: quoted Password=/Pwd=/AccountKey= values are redacted, quotes kept" "0|1|1|1" \
   "$(grep -cE 'Quoted Secret|single-q-secret|abc/DEF' "$Q/cfg.txt" || true)|$(grep -c '^a: Password="<REDACTED>";$' "$Q/cfg.txt")|$(grep -c "^b: Pwd='<REDACTED>';$" "$Q/cfg.txt")|$(grep -c '^c: AccountKey = "<REDACTED>";$' "$Q/cfg.txt")"
+# Review 5331790729: a doubled quote escapes a quote inside the value.
+printf 'e: Password="alpha""omega";\nf: Pwd='"'"'it'"''"'s-secret'"'"';\ng: Password="""lead""";\n' > "$Q/doubled.txt"
+bash "$REDACT" "$Q" >/dev/null 2>&1
+check "Test 5e: doubled quotes are part of the value — nothing of it survives" "0|1|1|1" \
+  "$(grep -cE 'alpha|omega|s-secret|lead' "$Q/doubled.txt" || true)|$(grep -c '^e: Password="<REDACTED>";$' "$Q/doubled.txt")|$(grep -c "^f: Pwd='<REDACTED>';$" "$Q/doubled.txt")|$(grep -c '^g: Password="<REDACTED>";$' "$Q/doubled.txt")"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 
