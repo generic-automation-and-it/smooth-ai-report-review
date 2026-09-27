@@ -118,7 +118,7 @@ case "$diff_revision" in
   reviewed) echo "ℹ️  PR ${pr} moved on since this review — findings are judged against the reviewed commit ${reviewed_sha:0:7}, not the current head." ;;
   unknown) echo "⚠️  could not tell which commit this review judged — findings are judged against the CURRENT PR diff, which may differ from what was reviewed." ;;
   *)
-    echo "⚠️  the diff at the reviewed commit ${reviewed_sha:0:7} could not be established for PR ${pr} (it moved on and the compare failed, or its head could not be read) — no decision-model recommendations (judging the current code would score lines the review never saw)."
+    echo "⚠️  the diff at the reviewed commit ${reviewed_sha:0:7} could not be established for PR ${pr} (it moved on and the compare failed, its head could not be read, or \`gh pr diff\` failed) — no decision-model recommendations (judging the current code would score lines the review never saw)."
     exit 0 ;;
 esac
 [ -s "$work/pr_diff.txt" ] || echo "⚠️  no PR diff available — findings are judged without their diff hunks."

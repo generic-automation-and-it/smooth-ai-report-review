@@ -117,7 +117,7 @@ case "$1 $2" in
       *headRefOid*) printf '{"headRefOid":"%s","baseRefName":"main"}' "${GH_HEAD:-}" ;;
       *) cat "${GH_PR_BODY:-/dev/null}" ;;
     esac ;;
-  "pr diff") cat "$GH_CURRENT_DIFF" ;;
+  "pr diff") [ -z "${GH_DIFF_FAIL:-}" ] || exit 1; cat "$GH_CURRENT_DIFF" ;;
   "run download")
     dir=""; while [ $# -gt 0 ]; do [ "$1" = "-D" ] && dir="$2"; shift; done
     [ -n "${GH_ARTIFACT_DIR:-}" ] || exit 1
@@ -394,6 +394,57 @@ reset_stub cnt
 check "Test 3a: an over-budget finding is skipped and not counted as having been sent rules" "1|1" \
   "$(grep -c 'finding 2: request is .* bytes even without its diff hunk — skipped' "$TMP_DIR/cnt.log")|$(jq -r '.decisions_summary.context.findings_with_rules' "$TMP_DIR/cnt.json")"
 
+# Rules are fitted per file, rule files first (PR 179 review 5331608121: a
+# byte prefix of chunk 8's 19 KB rules cut the checklist line a High finding
+# rested on). A 16 KB generic section comes first in the file; the real rule
+# after it must still reach the judge, whole, and the cut must be recorded.
+GENERIC="$(head -c 16000 /dev/zero | tr '\0' 'g')"
+{
+  printf '# Runtime review instructions (chunk 0)\n\nheader\n'
+  printf '\n---\nSource: `.agents/BIG_AGENTS.md`\n\n%s\n' "$GENERIC"
+  printf '\n---\nSource: `.github/instructions/skills/secret.instructions.md`\n\n- [ ] Knowledge artefacts redact to <REDACTED>.\n'
+} > "$TMP_DIR/sectioned_rules.md"
+merged_doc "$TMP_DIR/trim.json" "$F1"
+reset_stub trim
+(cd "$SB" && scorer "$TMP_DIR/trim.json" "$TMP_DIR/sectioned_rules.md" > "$TMP_DIR/trim.log" 2>&1)
+rules_sent="$(finding_reqs | jq -r '.state.project_rules // ""')"
+check "Test 3b: the rule file after a big generic section reaches the judge whole; the generic one is trimmed" "1|1|1" \
+  "$(printf '%s\n' "$rules_sent" | grep -c 'Knowledge artefacts redact to <REDACTED>')|$(printf '%s\n' "$rules_sent" | grep -c 'this file trimmed to fit')|$([ "$(printf '%s' "$rules_sent" | wc -c)" -le 12100 ] && echo 1 || echo 0)"
+check "Test 3c: rule files come first in what is sent" "1" \
+  "$(printf '%s\n' "$rules_sent" | awk '/^Source: /{print; exit}' | grep -c 'secret.instructions.md')"
+check "Test 3d: the cut is logged and recorded on the decision and in the summary" "1|true|1" \
+  "$(grep -c 'finding 1: project rules trimmed to fit the 12000-byte cap (.* bytes; files cut: .agents/BIG_AGENTS.md)' "$TMP_DIR/trim.log")|$(jq -r '.findings[0].decisions.rules_trimmed' "$TMP_DIR/trim.json")|$(jq -r '.decisions_summary.context.findings_with_rules_trimmed' "$TMP_DIR/trim.json")"
+check "Test 3e: rules that fit leave no trimmed mark" "null|null" \
+  "$(jq -r '.findings[0].decisions.rules_trimmed' "$TMP_DIR/cnt.json")|$(jq -r '.decisions_summary.context.findings_with_rules_trimmed' "$TMP_DIR/cnt.json")"
+
+# Review 5331716081 finding 2: the budget is UTF-8 bytes. Two non-ASCII rule
+# files (2 and 3 bytes per character) must both keep a marked share inside the
+# byte cap; a character budget let the later one vanish behind the final cut.
+WIDE="$(for _i in $(seq 1 2500); do printf 'ü€'; done)"
+{
+  printf '# Runtime review instructions (chunk 0)\n'
+  printf '\n---\nSource: `.agents/rules/a.md`\n\nRULE-A-HEAD %s\n' "$WIDE"
+  printf '\n---\nSource: `.agents/rules/z.md`\n\nRULE-Z-HEAD %s\n' "$WIDE"
+} > "$TMP_DIR/wide_rules.md"
+merged_doc "$TMP_DIR/wide.json" "$F1"
+reset_stub wide
+(cd "$SB" && scorer "$TMP_DIR/wide.json" "$TMP_DIR/wide_rules.md" > "$TMP_DIR/wide.log" 2>&1)
+wide_sent="$(finding_reqs | jq -r '.state.project_rules // ""')"
+check "Test 3j: non-ASCII rules are budgeted in bytes: both files kept and marked, within the cap" "1|1|2|1" \
+  "$(printf '%s\n' "$wide_sent" | grep -c 'RULE-A-HEAD')|$(printf '%s\n' "$wide_sent" | grep -c 'RULE-Z-HEAD')|$(printf '%s\n' "$wide_sent" | grep -c 'this file trimmed to fit')|$([ "$(printf '%s' "$wide_sent" | wc -c)" -le 12100 ] && echo 1 || echo 0)"
+RENDER="$SCRIPT_DIR/lib/render-findings-summary.sh"
+check "Test 3f: the review's Coverage note says the rules were trimmed" "1" \
+  "$(OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER" "$TMP_DIR/trim.json" 2>/dev/null | grep -c 'For 1 finding(s) the rules were trimmed to fit the request (rule files first)')"
+
+# Omission findings (PR 179 review 5331608121): the reviewer quotes the place
+# where the missing code must be, and the judge is told that is the evidence.
+check "Test 3g: the chunk prompt tells the reviewer how to quote an omission" "1" \
+  "$(grep -c 'quote the step, function or call \*\*where X must happen\*\*' "$SCRIPT_DIR/review-in-chunks.sh")"
+check "Test 3h: the supported question judges an omission by the place that lacks the code" "1|1|1" \
+  "$(jq -r '.per_finding.supported.instructions' "$SCRIPT_DIR/../assets/decisions-questions.json" | grep -c 'the demonstrating code is the place where it must be')|$(jq -r '.per_finding.supported.criteria.true' "$SCRIPT_DIR/../assets/decisions-questions.json" | grep -c 'For an omission')|$(jq -r '.per_finding.supported.criteria.false' "$SCRIPT_DIR/../assets/decisions-questions.json" | grep -c 'only mentions the topic')"
+check "Test 3i: the request still carries the supported question with its criteria" "true|true" \
+  "$(finding_reqs | head -1 | jq -r '(.questions.supported.criteria.true | test("omission")) and (.questions.supported.type == "noul")')|$(finding_reqs | head -1 | jq -r '.questions.supported.criteria.false | test("only mentions the topic")')"
+
 # --- 4. review-diff.sh ----------------------------------------------------------------
 echo ""
 echo "--- the diff as reviewed ---"
@@ -422,12 +473,18 @@ check "Test 4e: a known sha (artifact metadata) is preferred over the header" "c
   "$(KNOWN=dddddddddddddddddddddddddddddddddddddddd rd known GH_HEAD=dddddddddddddddddddddddddddddddddddddddd)"
 printf 'no header here\n' > "$TMP_DIR/hdr.md"
 check "Test 4f: no reviewed commit → unknown, current diff" "unknown||CURRENT DIFF" "$(rd nohdr GH_HEAD=fffffff000000000000000000000000000000000)"
+check "Test 4f4: no reviewed commit and gh pr diff fails → unavailable, empty diff" \
+  "unavailable||" "$(rd nohdr_fail GH_HEAD=fffffff000000000000000000000000000000000 GH_DIFF_FAIL=1)"
 printf '## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
 check "Test 4f2: a known reviewed commit but an unreadable PR head → unavailable with an EMPTY diff, never the current one" \
   "unavailable|abc1234|" "$(rd nohead GH_HEAD=)"
 set +e
 bash "$REVIEW_DIFF" x y z >/dev/null 2>&1; rc_u=$?
 set -e
+# Review 5331632755 finding 1: a failed `gh pr diff` is never reported as an
+# available diff.
+check "Test 4f3: the PR head is the reviewed commit but gh pr diff fails → unavailable, empty diff" \
+  "unavailable|abc1234ffffffffffffffffffffffffffffffffff|" "$(rd same_fail GH_HEAD=abc1234ffffffffffffffffffffffffffffffffff GH_DIFF_FAIL=1)"
 check "Test 4g: a non-numeric PR is a usage error" "64" "$rc_u"
 
 # --- 5. reuse of the gate's answers ------------------------------------------------------

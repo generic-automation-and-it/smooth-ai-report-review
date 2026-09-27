@@ -82,6 +82,97 @@ printf 'x %s-longer y\n' "$ENVKEY" > "$TMP_DIR/p.md"; mkdir -p "$TMP_DIR/p"; mv 
 env A_API_KEY="$ENVKEY" B_API_KEY="$ENVKEY-longer" bash "$REDACT" "$TMP_DIR/p" >/dev/null 2>&1
 check "Test 2: the longest matching value wins" "x <REDACTED> y" "$(cat "$TMP_DIR/p/p.md")"
 
+# Review 5331632755 finding 2: connection strings, from the environment and by
+# shape — without redacting plain URLs.
+C="$TMP_DIR/conn"; mkdir -p "$C"
+DBURL="postgres://app:Sup3rSecretPw@db:5432/orders"
+ADO="Server=db;User Id=sa;Password=Pa55w0rd-ado;"
+cat > "$C/log.txt" <<EOF
+env url: $DBURL
+env ado: $ADO
+shape: mysql://root:hunter2hunter@localhost/db
+pairs: Pwd=plainpwd99; AccountKey=abcDEF123+/==; SharedAccessKey=zzzz9999
+keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com
+EOF
+env DATABASE_URL="$DBURL" DB_CONNECTION_STRING="$ADO" GITHUB_SERVER_URL=https://github.com \
+  OPENCODE_REVIEW_REPORT_OPENAI_URL=https://gateway.example/v1 bash "$REDACT" "$C" >/dev/null 2>&1
+check "Test 5a: connection strings from the environment are replaced whole" "1|1" \
+  "$(grep -c '^env url: <REDACTED>$' "$C/log.txt")|$(grep -c '^env ado: <REDACTED>$' "$C/log.txt")"
+check "Test 5b: URL userinfo and Password=/Pwd=/AccountKey= values go by shape" "1|1" \
+  "$(grep -c '^shape: mysql://<REDACTED>@localhost/db$' "$C/log.txt")|$(grep -c '^pairs: Pwd=<REDACTED>; AccountKey=<REDACTED>; SharedAccessKey=<REDACTED>$' "$C/log.txt")"
+# Review 5331716081 finding 1: quoted values, both quote forms, spaces around =.
+Q="$TMP_DIR/quoted"; mkdir -p "$Q"
+printf 'a: Password="Quoted Secret 1";\nb: Pwd='"'"'single-q-secret'"'"';\nc: AccountKey = "abc/DEF+123==";\n' > "$Q/cfg.txt"
+bash "$REDACT" "$Q" >/dev/null 2>&1
+check "Test 5d: quoted Password=/Pwd=/AccountKey= values are redacted, quotes kept" "0|1|1|1" \
+  "$(grep -cE 'Quoted Secret|single-q-secret|abc/DEF' "$Q/cfg.txt" || true)|$(grep -c '^a: Password="<REDACTED>";$' "$Q/cfg.txt")|$(grep -c "^b: Pwd='<REDACTED>';$" "$Q/cfg.txt")|$(grep -c '^c: AccountKey = "<REDACTED>";$' "$Q/cfg.txt")"
+# Review 5331790729: a doubled quote escapes a quote inside the value.
+printf 'e: Password="alpha""omega";\nf: Pwd='"'"'it'"''"'s-secret'"'"';\ng: Password="""lead""";\n' > "$Q/doubled.txt"
+bash "$REDACT" "$Q" >/dev/null 2>&1
+check "Test 5e: doubled quotes are part of the value — nothing of it survives" "0|1|1|1" \
+  "$(grep -cE 'alpha|omega|s-secret|lead' "$Q/doubled.txt" || true)|$(grep -c '^e: Password="<REDACTED>";$' "$Q/doubled.txt")|$(grep -c "^f: Pwd='<REDACTED>';$" "$Q/doubled.txt")|$(grep -c '^g: Password="<REDACTED>";$' "$Q/doubled.txt")"
+# Review 5331802857: an unquoted value runs to the `;` delimiter (spaces
+# included), and escaped quotes stay inside a value — JSON-embedded or not.
+# Redacting twice changes nothing.
+W="$TMP_DIR/whole"; mkdir -p "$W"
+cat > "$W/cs.txt" <<'EOF'
+a: Server=db;Password=my secret pass;Timeout=5
+b: {"cs": "Server=db;Password=\"abc def\";"}
+c: Password="in\"side";
+d: Pwd='it\'s';
+EOF
+bash "$REDACT" "$W" >/dev/null 2>&1; cp "$W/cs.txt" "$TMP_DIR/once.txt"; bash "$REDACT" "$W" >/dev/null 2>&1
+check "Test 5f: spaces, delimiters and escaped quotes leave nothing visible; a second pass is a no-op" "0|4|same" \
+  "$(grep -cE 'secret pass|abc def|side|it.s' "$W/cs.txt" || true)|$(grep -c '<REDACTED>' "$W/cs.txt")|$(cmp -s "$W/cs.txt" "$TMP_DIR/once.txt" && echo same || echo changed)"
+check "Test 5g: the rest of the connection string is kept" "1|1" \
+  "$(grep -c '^a: Server=db;Password=<REDACTED>;Timeout=5$' "$W/cs.txt")|$(grep -c '^b: {"cs": "Server=db;Password=\\"<REDACTED>\\";"}$' "$W/cs.txt")"
+# Review 5331831530: an unterminated quoted value (a log line cut mid-value)
+# is redacted through the delimiter or the end of the line — fail closed.
+U2="$TMP_DIR/unterminated"; mkdir -p "$U2"
+printf 'a: Password="abc123secret\nb: Pwd='"'"'cut-off-value;Server=x\nc: Password="ok-quoted";\n' > "$U2/log.txt"
+bash "$REDACT" "$U2" >/dev/null 2>&1; cp "$U2/log.txt" "$TMP_DIR/u_once.txt"; bash "$REDACT" "$U2" >/dev/null 2>&1
+check "Test 5h: unterminated quoted credentials are redacted to the delimiter or line end; idempotent" "0|1|1|1|same" \
+  "$(grep -cE 'abc123secret|cut-off-value|ok-quoted' "$U2/log.txt" || true)|$(grep -c '^a: Password="<REDACTED>$' "$U2/log.txt")|$(grep -c "^b: Pwd='<REDACTED>;Server=x$" "$U2/log.txt")|$(grep -c '^c: Password="<REDACTED>";$' "$U2/log.txt")|$(cmp -s "$U2/log.txt" "$TMP_DIR/u_once.txt" && echo same || echo changed)"
+# Review 5331854745: JSON-escaped quotes with a `;` inside the password are
+# taken whole; an unterminated escaped quote fails closed to the line end.
+E="$TMP_DIR/escaped"; mkdir -p "$E"
+printf 'a: {"cs": "Server=db;Password=\\"alpha;omega\\";Timeout=5"}\nb: {"cs": "Password=\\"cut-off;still-secret\n' > "$E/j.txt"
+bash "$REDACT" "$E" >/dev/null 2>&1; cp "$E/j.txt" "$TMP_DIR/e_once.txt"; bash "$REDACT" "$E" >/dev/null 2>&1
+check "Test 5i: an escaped-quoted value with a ; inside is redacted whole, quotes and the rest kept; idempotent" "0|1|1|same" \
+  "$(grep -cE 'alpha|omega|cut-off|still-secret' "$E/j.txt" || true)|$(grep -c '^a: {"cs": "Server=db;Password=\\"<REDACTED>\\";Timeout=5"}$' "$E/j.txt")|$(grep -c '^b: {"cs": "Password=\\"<REDACTED>$' "$E/j.txt")|$(cmp -s "$E/j.txt" "$TMP_DIR/e_once.txt" && echo same || echo changed)"
+# Review 5331864763: URL userinfo is replaced whole — a token is often the
+# user part — and JSON escapes inside an escaped-quoted value stay inside it.
+UI="$TMP_DIR/userinfo"; mkdir -p "$UI"
+printf '%s\n' \
+  'b: https://sometokenvalue42@api.example.com/v1' \
+  'c: https://TOKENasUSER:x-oauth-basic@github.com/org/repo' \
+  'd: {"cs": "Server=db;Password=\"ab\\\"cd-secret\";Timeout=5"}' \
+  'd3: {"cs": "Password=\"tab\there\"; x=1"}' \
+  'd4: {"cs": "Password=\"back\\\\slash\"; x=1"}' \
+  'e: keep https://github.com/org/repo and user@example.com' > "$UI/u.txt"
+bash "$REDACT" "$UI" >/dev/null 2>&1; cp "$UI/u.txt" "$TMP_DIR/ui_once.txt"; bash "$REDACT" "$UI" >/dev/null 2>&1
+check "Test 5j: username-only and token-as-user URL credentials are redacted; plain URLs and e-mail stay" "0|1|1|1" \
+  "$(grep -cE 'sometokenvalue42|TOKENasUSER|x-oauth-basic' "$UI/u.txt" || true)|$(grep -c '^b: https://<REDACTED>@api.example.com/v1$' "$UI/u.txt")|$(grep -c '^c: https://<REDACTED>@github.com/org/repo$' "$UI/u.txt")|$(grep -c '^e: keep https://github.com/org/repo and user@example.com$' "$UI/u.txt")"
+check "Test 5k: JSON escapes (an escaped quote, \\t, \\\\\\\\) stay inside the escaped-quoted value; idempotent" "0|3|same" \
+  "$(grep -cE 'cd-secret|tab|there|back|slash' "$UI/u.txt" || true)|$(grep -c 'Password=\\"<REDACTED>\\"' "$UI/u.txt")|$(cmp -s "$UI/u.txt" "$TMP_DIR/ui_once.txt" && echo same || echo changed)"
+check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
+  "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
+
+# Review 5331632755 finding 3: when find cannot list every file (a traversal
+# error), redaction fails so the caller uploads nothing. A find shim that lists
+# one file and then exits non-zero stands in for an unreadable directory,
+# which not every sandbox can produce.
+U="$TMP_DIR/findfail"; mkdir -p "$U/bin" "$U/art"; printf 'ok\n' > "$U/art/a.txt"
+cat > "$U/bin/find" <<'SHIM'
+#!/bin/bash
+printf '%s\0' "$1/a.txt"
+echo "find: '$1/locked': Permission denied" >&2
+exit 1
+SHIM
+chmod +x "$U/bin/find"
+PATH="$U/bin:$PATH" bash "$REDACT" "$U/art" >/dev/null 2>&1; urc=$?
+check "Test 6: a find traversal error fails redaction (non-zero) instead of passing silently" "1" "$urc"
+
 bash "$REDACT" "$TMP_DIR/missing" >/dev/null 2>&1
 check "Test 3a: a missing directory exits 0" "0" "$?"
 bash "$REDACT" >/dev/null 2>&1

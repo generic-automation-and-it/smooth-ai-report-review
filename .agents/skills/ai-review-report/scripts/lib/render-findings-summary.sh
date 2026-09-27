@@ -125,6 +125,9 @@ jq -r '
                then " **Rule-allowed** = the probability that a project rule declares the flagged pattern acceptable"
                     + (if $c.project_rules == "chunk" then " (judged against the rules of the chunk each finding came from; \($c.findings_with_rules) of \(($ds.scored // 0) + ($ds.skipped // 0)) findings had any)" else "" end)
                     + "."
+                    + (if ($c.findings_with_rules_trimmed // 0) > 0
+                       then " For \($c.findings_with_rules_trimmed) finding(s) the rules were trimmed to fit the request (rule files first), so a rule may not have been seen in full."
+                       else "" end)
                else "" end)
             + (if $c.skip_areas == true
                then " **Previously skipped** = the probability that the finding re-raises an issue that the Skip Areas / Known Issues of this PR already record as a decision not to fix."
