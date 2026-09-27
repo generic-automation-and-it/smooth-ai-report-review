@@ -692,18 +692,18 @@ run_marker() { # run_marker <merged> <flag> <run_id> → what the block appends
   [ -n "$1" ] && cp "$1" "$d/ci_temp/findings.merged.json"
   awk '/^# LADR-093 label channel/{f=1} f{print} f && /^fi$/{exit}' "$AGG_SH" > "$d/block.sh"
   : > "$d/ci_temp/final_review.md"
-  (cd "$d" && OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS="$2" GITHUB_RUN_ID="$3" bash block.sh >/dev/null 2>&1)
+  (cd "$d" && OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS="$2" GITHUB_RUN_ID="$3" _REVIEW_RUN_ARTIFACT="${4:-1}" bash block.sh >/dev/null 2>&1)
   tr -d '\n' < "$d/ci_temp/final_review.md"
 }
 check "Test 11n: a scored run stamps its run id into the footer, invisibly" "<!-- ai-review-report run=36304944118 -->" \
   "$(run_marker "$TMP_DIR/t2.json" 1 36304944118)"
-check "Test 11o: no marker with the flag off, without scores, or for a non-numeric id" "||" \
-  "$(run_marker "$TMP_DIR/t2.json" 0 36304944118)|$(run_marker "$TMP_DIR/t1.json" 1 36304944118)|$(run_marker "$TMP_DIR/t2.json" 1 'x -->')"
+check "Test 11o: no marker with the flag off, without scores, for a non-numeric id, or without an uploaded artifact" "|||" \
+  "$(run_marker "$TMP_DIR/t2.json" 0 36304944118)|$(run_marker "$TMP_DIR/t1.json" 1 36304944118)|$(run_marker "$TMP_DIR/t2.json" 1 'x -->')|$(run_marker "$TMP_DIR/t2.json" 1 36304944118 0)"
 check "Test 11e: the run artifact metadata carries decisions_summary" "1" \
   "$(grep -c '"decisions_summary": ' "$RUN_REVIEW")"
 for f in .github/workflows/pipeline-code-review-report.yml .docs/examples/code-review-local.yml; do
   path="$SCRIPT_DIR/../../../../$f"
-  for v in ENABLE_DECISIONS DECISIONS_PROVIDER DECISIONS_MODEL DECISIONS_MODE DECISIONS_MIN_PROBABILITY DECISIONS_TIMEOUT; do
+  for v in ENABLE_DECISIONS DECISIONS_PROVIDER DECISIONS_MODEL DECISIONS_MODE DECISIONS_MIN_PROBABILITY DECISIONS_TIMEOUT DECISIONS_CODE_CONTEXT; do
     check "Test 11f: $f declares OPENCODE_REVIEW_REPORT_$v" "1" \
       "$(grep -cE "^ +OPENCODE_REVIEW_REPORT_${v}: " "$path")"
   done

@@ -40,6 +40,15 @@ measures all of them:
   skipped@t   drop non-critical findings with previously_skipped >= t
               (only when the PR had Skip Areas — real findings from the gate;
               the planted corpus has none)
+  fixskip@t   drop MEDIUM/LOW findings the fix_skip question recommends
+              skipping with P(skip) >= t and a found hunk — exactly what
+              ai-analyse's OPENCODE_ANALYSE_DECISIONS_MODE=filter would
+              withhold, since that fixer only ever sees Medium/Low
+              (LADR-097/098; only when fix_skip was asked)
+
+The fix_skip section also reports how many answers came back WITH a
+distribution (P(skip) needs `probabilities.fix`): it is the live check of the
+answer shape the consumers depend on, and records predate it with none.
 """
 
 from __future__ import annotations
@@ -190,6 +199,24 @@ SKIP_POLICIES = [
 ]
 
 
+def fixskip_at(t):
+    def apply(findings):
+        return [
+            f for f in findings
+            if f.get("severity") not in ("medium", "low")
+            or f.get("fix_skip") in (None, "fix")
+            or f.get("fix_skip_p") is None
+            or f.get("diff_hunk_found") is False
+            or f["fix_skip_p"] < t
+        ]
+    return apply
+
+
+FIXSKIP_POLICIES = [
+    ("fixskip@0.50", fixskip_at(0.50)),
+]
+
+
 def fixture_outcome(doc, findings):
     """(dr_reraised, caught) for one sample under one policy."""
     if doc["kind"] == "must-not-flag":
@@ -308,6 +335,43 @@ def main():
         print(f"    separation (AUC)      : {fmt(auc([1 - x for x in tp_k], [1 - x for x in fp_k]))}")
         print("")
 
+    # --- 1d. the fix/skip prediction (LADR-097/098) ----------------------------
+    all_f = [(d, f) for d in scored for f in d.get("findings", [])]
+    asked = [(d, f) for d, f in all_f if f.get("fix_skip") is not None]
+    has_fixskip = bool(asked)
+    if has_fixskip:
+        with_p = [(d, f) for d, f in asked if f.get("fix_skip_p") is not None]
+        fp_p = [f["fix_skip_p"] for d, f in with_p if is_false_positive(d, f)]
+        tp_p = [f["fix_skip_p"] for d, f in with_p if is_true_catch(d, f)]
+        print(" 1d. `fix_skip` (predicted human decision) by ground truth")
+        print(f"    answered with a distribution : {len(with_p)}/{len(asked)}"
+              + ("" if len(with_p) == len(asked) else
+                 "  — P(skip) is missing where the provider returned no `probabilities.fix`;"
+                 " consumers never act on those"))
+        print(f"    P(skip), known false positives : {summarise(fp_p)}")
+        print(f"    P(skip), true catches          : {summarise(tp_p)}")
+        # Higher P(skip) should mean MORE likely a false positive.
+        print(f"    separation (AUC)               : {fmt(auc([1 - x for x in tp_p], [1 - x for x in fp_p]))}")
+        fix_on_fp = sum(1 for d, f in asked if is_false_positive(d, f) and f["fix_skip"] == "fix")
+        skip_on_tp = sum(1 for d, f in asked if is_true_catch(d, f) and f["fix_skip"] != "fix")
+        n_fp = sum(1 for d, f in asked if is_false_positive(d, f))
+        n_tp = sum(1 for d, f in asked if is_true_catch(d, f))
+        print(f"    predicted FIX on a false positive : {fix_on_fp}/{n_fp}")
+        print(f"    predicted SKIP on a true catch    : {skip_on_tp}/{n_tp}   (a fix the autonomous filter would withhold)")
+        # Real findings carry the human's reason: does the predicted skip
+        # CLASS match it, not just the fix/skip side?
+        reasons = {}
+        for d, f in asked:
+            r = d.get("label_reason")
+            if r:
+                reasons.setdefault(r, {}).setdefault(f["fix_skip"], 0)
+                reasons[r][f["fix_skip"]] += 1
+        if reasons:
+            print("    human reason → predicted class:")
+            for r in sorted(reasons):
+                print(f"      {r:<12} " + ", ".join(f"{k} {v}" for k, v in sorted(reasons[r].items())))
+        print("")
+
     # --- 2. what would Jev's severity have said? ------------------------------
     fp_below = sum(1 for s in fp_sev if s in SEV_RANK and SEV_RANK[s] < FLAG_MIN)
     tp_ok = sum(1 for s, m in tp_sev
@@ -324,7 +388,8 @@ def main():
     print(f"    {'policy':<12} {'DR re-raised':>14} {'MC caught':>11}   verdict vs base")
     base_dr = base_mc = None
     for name, pol in (POLICIES + (RULE_POLICIES if has_rules else [])
-                      + (SKIP_POLICIES if has_skips else [])):
+                      + (SKIP_POLICIES if has_skips else [])
+                      + (FIXSKIP_POLICIES if has_fixskip else [])):
         dr_hits = sum(1 for d in dr if fixture_outcome(d, pol(d.get("findings", [])))[0])
         mc_hits = sum(1 for d in mc if fixture_outcome(d, pol(d.get("findings", [])))[1])
         if name == "base":

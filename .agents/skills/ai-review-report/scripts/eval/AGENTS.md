@@ -244,6 +244,25 @@ scripts/eval/
   the report adds section 1c and the `skipped@0.50` policy when present. Neither
   may act until the real set shows zero lost true positives (LADR-096 roadmap,
   phase 5).
+- **`fix_skip` is measured, and the eval scores what the gate scores (LADR-098).**
+  `calibrate-decisions.sh` and `run-evals.sh`'s `record_decisions` call the scorer
+  exactly as Step 17.6 does: `fix_skip` asked (optionally), the code context read
+  at the sandbox head, and — for the eval — the per-chunk rules in `ci_temp`
+  (before this the eval scored without them, unlike the gate). Records carry
+  `fix_skip`, `fix_skip_p` and `code_context`. `decisions-report.py` prints a
+  `1d.` section only when fix_skip was asked: P(skip) by ground truth with AUC,
+  predicted FIX on a known false positive, predicted SKIP on a true catch (a fix
+  the autonomous filter would withhold), the human `label_reason` against the
+  predicted class, and **how many answers came with a distribution** — the live
+  check that the provider returns `probabilities.fix`, without which consumers
+  never act. The `fixskip@0.50` policy row is what `ai-analyse`'s
+  `OPENCODE_ANALYSE_DECISIONS_MODE=filter` would have withheld. The harvester
+  keeps the full reviewed `head`, the base branch tip as `base_tip` (not the
+  merge base — a re-score resolves that itself, LADR-075) and the gate's `fix_skip`
+  prediction next to the human label (a score, never a label), so a record can
+  be re-scored later. The code context changes the evidence the judge sees, so
+  scores are not comparable with records from before it; run a calibration with
+  `OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT=0` for the hunk-only baseline.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -316,6 +335,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | `fix_skip` measured: calibration and the eval call the scorer as the gate does (fix_skip, code context; the eval also passes the chunk rules), records carry `fix_skip`/`fix_skip_p`/`code_context`, `decisions-report.py` adds section 1d and `fixskip@0.50`, and the harvester keeps the full reviewed head, the base tip (`base_tip`) and the gate prediction. | LADR-098 |
 | 2026-09-27 | `/ai-review execute` writes `ai-review-decisions` label blocks; `harvest-real-findings.sh --from-pr` / `--scan` harvest them (fix → tp, skip intentional/invalid → fp, deferred never); records and the report carry `previously_skipped` (section 1c, `skipped@0.50`). | LADR-096 |
 | 2026-09-27 | Real, human-labelled findings (`corpus/real-findings/`, `harvest-real-findings.sh`): the 12 accepted PR 169 findings scored mean 0.43, so filter/demote at 0.5 would hide 9 of 12 — planted catch-safety does not transfer. | LADR-093 |
 | 2026-09-27 | `stripped+rules` calibration variant and the scorer's optional rules file / `sanctioned` question: AUC 0.99, `either@0.50` removes 13/14 planted false positives with no catch lost; DR-013 is the only survivor. | LADR-093 |

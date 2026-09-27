@@ -114,6 +114,12 @@ calibrate_one() {
 
     rules_arg=""
     [ "$variant" = "stripped+rules" ] && rules_arg="$RULES"
+    # As the gate calls it (LADR-098): fix_skip is asked, so this run is also
+    # the live check that the provider returns a fix/skip distribution, and
+    # the judge gets the code around the planted line at the head commit.
+    # OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT=0 in the environment
+    # measures the hunk-only judge instead, for a with/without comparison.
+    _DECISIONS_ASK_FIX_SKIP=1 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" \
     OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
       bash "$SCORER" ci_temp/findings.merged.json ci_temp/reviews 1 ci_temp/pr_diff.txt ${rules_arg:+"$rules_arg"} \
       > ci_temp/score.log 2>&1 || true

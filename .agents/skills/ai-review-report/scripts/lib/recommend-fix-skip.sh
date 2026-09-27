@@ -6,6 +6,27 @@
 #   recommend-fix-skip.sh --scope review|analyse --review <body.md> --out-dir <dir>
 #                         [--diff <pr_diff>] [--skip-areas <file>] [--rules <file>]
 #                         [--artifact <findings.merged.json>] [--severities <list>]
+#                         [--rev <reviewed_sha>]
+#
+#   --artifact  the run artifact's findings.merged.json. Beyond quoted evidence
+#               (lib/review-findings-to-json.sh) its directory supplies, since
+#               LADR-098, the gate's own fix_skip answers, the Skip Areas the
+#               gate judged against (decision_skip_areas.md) and the per-chunk
+#               rules (rules/chunk_<n>/AGENTS.md).
+#   --rev       the commit the review judged (lib/review-diff.sh), so a
+#               re-score reads the enclosing code at that revision.
+#
+# Reuse before re-asking (LADR-098)
+# ---------------------------------
+# The gate asks fix_skip with the richest context there is: quoted evidence,
+# the chunk's own rules and the code graph. A finding whose gate answer is
+# present is therefore REUSED, not re-asked, when the answer is still valid:
+#   - the Skip Areas the gate saw equal the PR's current ones (a new skip
+#     bullet changes `previously skipped`, so it forces a re-score), and
+#   - the gate used the decision provider this scope asks for (and the same
+#     model, when one is set).
+# Everything else is re-scored with --purpose fix_skip, the artifact's per-chunk
+# rules when present, and the reviewed revision. The table says which is which.
 #
 #   --scope review   `/ai-review --usedecisions` (local, human decides). The
 #                    switch IS the opt-in, and the gate's own Variables are
@@ -18,8 +39,10 @@
 #
 # Outputs, in --out-dir:
 #   findings.json        the findings parsed from the body (+ artifact evidence)
-#   decisions.json       the same document after scoring (`decisions.fix_skip`)
-#   recommendations.tsv  one row per SCORED finding (header on line 1)
+#   decisions.json       the same document after scoring (`decisions.fix_skip`,
+#                        `decisions.decision_source`: gate | rescored)
+#   recommendations.tsv  one row per SCORED finding (header on line 1; the last
+#                        column is the source)
 #   recommendations.md   the human-facing table
 #   withhold.txt         analyse + filter only: finding numbers to withhold
 #   status               one word: off | no_findings | unavailable | scored
@@ -66,7 +89,7 @@ set -uo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-scope=""; review=""; out_dir=""; diff=""; skip_areas=""; rules=""; artifact=""; severities=""
+scope=""; review=""; out_dir=""; diff=""; skip_areas=""; rules=""; artifact=""; severities=""; rev=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --scope) scope="${2:-}"; shift 2 ;;
@@ -77,6 +100,7 @@ while [ $# -gt 0 ]; do
     --rules) rules="${2:-}"; shift 2 ;;
     --artifact) artifact="${2:-}"; shift 2 ;;
     --severities) severities="${2:-}"; shift 2 ;;
+    --rev) rev="${2:-}"; shift 2 ;;
     *) echo "recommend-fix-skip.sh: unknown argument '$1'" >&2; exit 64 ;;
   esac
 done
@@ -88,7 +112,7 @@ fi
 
 mkdir -p "$out_dir"
 rm -f "$out_dir/findings.json" "$out_dir/decisions.json" "$out_dir/recommendations.tsv" \
-      "$out_dir/recommendations.md" "$out_dir/withhold.txt"
+      "$out_dir/recommendations.md" "$out_dir/withhold.txt" "$out_dir/rescore.json" "$out_dir/base.json"
 status() { printf '%s\n' "$1" > "$out_dir/status"; }
 
 info() { echo "ℹ️  Decision model (LADR-097, ${scope}): $*"; }
@@ -160,33 +184,90 @@ enriched="$(jq '[.findings[] | select(.enriched_from_artifact == true)] | length
 info "${n} finding(s) to score; ${enriched} carry quoted evidence from the run artifact"
 [ -n "$diff" ] && [ -s "$diff" ] || warn "no PR diff available — every finding is judged without its diff hunk"
 
-# --- Score -------------------------------------------------------------------------
-cp "$out_dir/findings.json" "$out_dir/decisions.json"
+# --- Reuse the gate's answers (LADR-098) ---------------------------------------------
+art_dir=""
+[ -n "$artifact" ] && [ -s "$artifact" ] && art_dir="$(cd "$(dirname "$artifact")" && pwd)"
+# Whitespace-insensitive, so a re-wrapped description is not a new decision.
+norm() { [ -f "${1:-}" ] && tr -s '[:space:]' ' ' < "$1" | sed 's/^ //; s/ $//'; }
+reuse_note=""
+reuse=false
+if [ -n "$art_dir" ] && jq -e '[.findings[] | select(.gate_decisions.fix_skip.choice != null)] | length > 0' "$out_dir/findings.json" >/dev/null 2>&1; then
+  want_provider="$(printf '%s' "${d_provider:-OPENCODE-GO-DECISIONS}" | tr '[:lower:]' '[:upper:]')"
+  gate_provider="$(jq -r '[.findings[].gate_decisions.provider // empty] | first // ""' "$out_dir/findings.json")"
+  gate_model="$(jq -r '[.findings[].gate_decisions.model // empty] | first // ""' "$out_dir/findings.json")"
+  if [ ! -f "$art_dir/decision_skip_areas.md" ]; then
+    reuse_note="the run artifact does not record the Skip Areas the gate judged against"
+  elif [ "$(norm "$art_dir/decision_skip_areas.md")" != "$(norm "${skip_areas:-/dev/null}")" ]; then
+    reuse_note="the PR's Skip Areas changed since the gate scored"
+  elif [ "$gate_provider" != "$want_provider" ]; then
+    reuse_note="the gate used ${gate_provider:-another provider}, this scope asks for ${want_provider}"
+  elif [ -n "$d_model" ] && [ "$gate_model" != "$d_model" ]; then
+    reuse_note="the gate used model ${gate_model}, this scope asks for ${d_model}"
+  else
+    reuse=true
+  fi
+fi
+if [ "$reuse" = true ]; then
+  jq '.findings |= map(if .gate_decisions.fix_skip.choice != null
+                        then .decisions = .gate_decisions + { decision_source: "gate" } else . end)' \
+    "$out_dir/findings.json" > "$out_dir/base.json"
+else
+  cp "$out_dir/findings.json" "$out_dir/base.json"
+  [ -z "$reuse_note" ] || info "gate answers not reused — ${reuse_note}; re-scoring"
+fi
+n_reused="$(jq '[.findings[] | select(.decisions.decision_source == "gate")] | length' "$out_dir/base.json")"
+
+# --- Score what is left --------------------------------------------------------------
 # The scorer takes the gate's variable names; the mapping above decides what
 # they hold. MODE is always annotate there: this script owns what a
 # recommendation does, the scorer's `filter` acts on the gate's verdict.
-_DECISIONS_ASK_FIX_SKIP=1 \
-OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 \
-OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER="$d_provider" \
-OPENCODE_REVIEW_REPORT_DECISIONS_MODEL="$d_model" \
-OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
-OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY="$d_min" \
-OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT="$d_timeout" \
-  bash "$LIB_DIR/score-findings-decisions.sh" \
-    "$out_dir/decisions.json" "$out_dir/.no-reviews" "" "${diff:-/dev/null}" "$rules" "$skip_areas" || true
-
-if ! jq -e '.decisions_summary.purpose == "fix_skip"' "$out_dir/decisions.json" >/dev/null 2>&1; then
+jq '.findings |= map(select(.decisions == null) | del(.gate_decisions))' "$out_dir/base.json" > "$out_dir/rescore.json"
+n_rescore="$(jq '.findings | length' "$out_dir/rescore.json")"
+if [ "$n_rescore" -gt 0 ]; then
+  rules_arg="$rules"
+  [ -z "$rules_arg" ] && [ -n "$art_dir" ] && [ -d "$art_dir/rules" ] && rules_arg="$art_dir/rules"
+  _DECISIONS_PURPOSE=fix_skip \
+  _DECISIONS_SOURCE_REV="$rev" \
+  OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 \
+  OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER="$d_provider" \
+  OPENCODE_REVIEW_REPORT_DECISIONS_MODEL="$d_model" \
+  OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
+  OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY="$d_min" \
+  OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT="$d_timeout" \
+    bash "$LIB_DIR/score-findings-decisions.sh" \
+      "$out_dir/rescore.json" "$out_dir/.no-reviews" "" "${diff:-/dev/null}" "$rules_arg" "$skip_areas" || true
+fi
+if [ "$n_reused" -eq 0 ] && ! jq -e '.decisions_summary.purpose == "fix_skip"' "$out_dir/rescore.json" >/dev/null 2>&1; then
   warn "no recommendations (see the scorer's message above) — continuing without them"
   status unavailable
   exit 0
 fi
+
+# One document: every finding in body order, with the decisions it got and
+# where they came from. The summary is the re-score's when there was one.
+jq --slurpfile r "$out_dir/rescore.json" --argjson reused "$n_reused" '
+  ($r[0].findings // [] | map({ key: (.["#"] | tostring), value: .decisions }) | from_entries) as $new
+  | .findings |= map(del(.gate_decisions)
+      | if .decisions != null then .
+        elif $new[.["#"] | tostring] != null
+        then .decisions = $new[.["#"] | tostring] + { decision_source: "rescored" }
+        else . end)
+  | .decisions_summary = (($r[0].decisions_summary // { purpose: "fix_skip", scored: 0, skipped: 0 })
+      + { reused: $reused }
+      + (if ($r[0].decisions_summary // null) == null
+         then { provider: ([.findings[].decisions.provider // empty] | first),
+                model: ([.findings[].decisions.model // empty] | first) } else {} end))
+' "$out_dir/base.json" > "$out_dir/decisions.json"
+rm -f "$out_dir/base.json"
+[ "$n_reused" -eq 0 ] || info "${n_reused} of ${n} finding(s) reuse the gate's answer (given with the gate's full context); $((n - n_reused)) re-scored"
 
 # --- Recommendations ---------------------------------------------------------------
 # rec: FIX, or SKIP with the model's class; the P(skip) shown is 1 - P(fix).
 jq -r --argjson min "$d_min" '
   def pct: if . == null then "" else "\((. * 100) | round)" end;
   ["n","severity","recommendation","class","skip_probability","decision_score","unsupported",
-   "rule_allowed","previously_skipped","actionability","diff_hunk_found","file","line","title","skip_probability_raw"],
+   "rule_allowed","previously_skipped","actionability","diff_hunk_found","file","line","title","skip_probability_raw",
+   "source"],
   ( .findings[] | select(.decisions.fix_skip != null)
     | .decisions as $d
     | [ (.["#"] | tostring), .severity,
@@ -200,7 +281,8 @@ jq -r --argjson min "$d_min" '
         (if $d.actionability.score == null then "" else ($d.actionability.score * 10 | round / 10 | tostring) end),
         (if $d.diff_hunk_found == false then "no" else "yes" end),
          .file, (.line | tostring), (.title | gsub("[\t\n]"; " ")),
-         ($d.fix_skip.skip_probability // "") ] )
+         ($d.fix_skip.skip_probability // ""),
+         ($d.decision_source // "rescored") ] )
   | @tsv' "$out_dir/decisions.json" > "$out_dir/recommendations.tsv"
 
 if [ "$scope" = "analyse" ] && [ "$d_mode" = "filter" ]; then
@@ -212,12 +294,14 @@ fi
 
 # The table. `1.` not `#1` (LADR-067): GitHub autolinks # + digits.
 provider_model="$(jq -r '.decisions_summary | "\(.provider)/\(.model)"' "$out_dir/decisions.json")"
-scored="$(jq -r '.decisions_summary.scored' "$out_dir/decisions.json")"
+scored="$(( $(wc -l < "$out_dir/recommendations.tsv" | tr -d ' ') - 1 ))"
+n_rescored=$(( scored - n_reused ))
+n_unscored=$(( n - scored ))
 {
-  echo "**Decision model** \`${provider_model}\` — FIX/SKIP recommendations for ${scored} of ${n} finding(s) (${scope} scope, ${d_mode}). Advisory predictions of the human decision, never labels."
+  echo "**Decision model** \`${provider_model}\` — FIX/SKIP recommendations for ${scored} of ${n} finding(s) (${scope} scope, ${d_mode}; ${n_reused} from the gate's own scoring, ${n_rescored} re-scored$( [ "$n_unscored" -eq 0 ] || printf ', %s not scored — no row' "$n_unscored")). Advisory predictions of the human decision, never labels."
   echo ""
-  echo "| # | Priority | File | Decision model | P(skip) | Decision score | Rule-allowed | Previously skipped | Actionability (0-2) |"
-  echo "|---|----------|------|----------------|---------|----------------|--------------|--------------------|---------------------|"
+  echo "| # | Priority | File | Decision model | P(skip) | Decision score | Rule-allowed | Previously skipped | Actionability (0-2) | Source |"
+  echo "|---|----------|------|----------------|---------|----------------|--------------|--------------------|---------------------|--------|"
   awk -F '\t' '
     function p(v) { return (v == "") ? "—" : v "%" }
     NR > 1 {
@@ -225,7 +309,8 @@ scored="$(jq -r '.decisions_summary.scored' "$out_dir/decisions.json")"
       rec = ($3 == "FIX") ? "FIX" : "SKIP (" $4 ")"
       ds = p($6); if ($7 == "yes") ds = ds " [UNSUPPORTED]"
       if ($11 == "no") ds = ds " (no diff hunk)"
-      printf "| %s. | %s | `%s:%s` | %s | %s | %s | %s | %s | %s |\n", $1, sev, $12, $13, rec, p($5), ds, p($8), p($9), ($10 == "" ? "—" : $10)
+      src = ($16 == "gate") ? "gate" : "re-scored"
+      printf "| %s. | %s | `%s:%s` | %s | %s | %s | %s | %s | %s | %s |\n", $1, sev, $12, $13, rec, p($5), ds, p($8), p($9), ($10 == "" ? "—" : $10), src
     }' "$out_dir/recommendations.tsv"
   if [ -s "$out_dir/withhold.txt" ]; then
     echo ""

@@ -176,6 +176,16 @@ jobs:
             # one-directional withhold rules, the gate path left unchanged, and
             # pipeline-ai-analyse.yml's Variables / call order / guards.
             .agents/skills/ai-review-report/scripts/test-recommend-fix-skip.sh
+            # LADR-098 decisions hardening: fix_skip in the gate and its reuse,
+            # the diff as reviewed, the code context and its budget order, the
+            # run-id marker and artifact, and the eval's fix_skip measurement.
+            .agents/skills/ai-review-report/scripts/test-decisions-hardening.sh
+            # ai-analyse's own deterministic guards (LADR-045/056/057) and the
+            # decision-model scope filter they sit beside. The job's scope
+            # check already covers .agents/skills/ai-analyse/.
+            .agents/skills/ai-analyse/scripts/test-filter-failing-test-findings.sh
+            .agents/skills/ai-analyse/scripts/test-filter-test-self-fix.sh
+            .agents/skills/ai-analyse/scripts/test-run-test-gate.sh
             # Per-chunk context scope filtering. Both directions of error are
             # real and asymmetric, so this pins the fail-open contract as hard
             # as it pins the glob matching.

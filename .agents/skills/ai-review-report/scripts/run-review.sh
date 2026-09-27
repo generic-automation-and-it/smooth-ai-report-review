@@ -66,6 +66,9 @@
 #   OPENCODE_REVIEW_REPORT_DECISIONS_MODE  [annotate] — or filter (fenced softening)
 #   OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY  [0.5] — [UNSUPPORTED] / filter threshold
 #   OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT  [20] — seconds per decision request
+#   OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT  [1] — also give the judge the
+#                         enclosing code at head_sha and the hunks of other
+#                         files a finding names (LADR-098). Falsy → hunk only.
 #   REVIEW_SKILL_DIR  [auto-detected] — path to the skill tree containing
 #                         the review scripts and assets/opencode.json. When
 #                         unset, the script tries the in-repo path
@@ -180,12 +183,14 @@ OPENCODE_REVIEW_REPORT_DECISIONS_MODEL="${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL
 OPENCODE_REVIEW_REPORT_DECISIONS_MODE="${OPENCODE_REVIEW_REPORT_DECISIONS_MODE:-annotate}"
 OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY="${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY:-0.5}"
 OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT="${OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT:-20}"
+OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT="${OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT:-1}"
 export OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS
 export OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER
 export OPENCODE_REVIEW_REPORT_DECISIONS_MODEL
 export OPENCODE_REVIEW_REPORT_DECISIONS_MODE
 export OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY
 export OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT
+export OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT
 
 # Provider / models — non-secret defaults from the reusable workflow's
 # env: block. Override with repo/org Variables or job env.
@@ -467,6 +472,16 @@ assemble_run_artifacts() {
     cp -r "$WORK_DIR/reviews"/. "$dir/reviews/" 2>/dev/null
   fi
   [ -f "$WORK_DIR/findings.merged.json" ] && cp "$WORK_DIR/findings.merged.json" "$dir/findings.merged.json" 2>/dev/null
+  # LADR-098: the judge's own context, so /ai-review and ai-analyse can tell
+  # whether the gate's decisions are still valid (same Skip Areas) and, when
+  # they must re-score, judge with the same per-chunk rules the gate used.
+  [ -f "$WORK_DIR/decision_skip_areas.md" ] && cp "$WORK_DIR/decision_skip_areas.md" "$dir/decision_skip_areas.md" 2>/dev/null
+  local chunk_rules
+  for chunk_rules in "$WORK_DIR"/chunk_*/AGENTS.md; do
+    [ -s "$chunk_rules" ] || continue
+    mkdir -p "$dir/rules/$(basename "$(dirname "$chunk_rules")")" 2>/dev/null \
+      && cp "$chunk_rules" "$dir/rules/$(basename "$(dirname "$chunk_rules")")/AGENTS.md" 2>/dev/null
+  done
 
   # skip_reason is a JSON null when the run was not skipped — not the string
   # "null", which a consumer would have to special-case.
@@ -523,6 +538,11 @@ METADATA_EOF
   return 0
 }
 trap '_rc=$?; assemble_run_artifacts; exit $_rc' EXIT
+# Tells aggregate-reviews.sh that THIS entrypoint assembles ci_temp/run/ for
+# the workflow's upload step, so the run markers it writes (LADR-096/098)
+# promise an artifact that will exist. local-review.sh — which the npm-in-CI
+# path runs with GITHUB_RUN_ID set — never sets it and uploads nothing.
+export _REVIEW_RUN_ARTIFACT=1
 
 # --- Step 5: Provider / model resolution + opencode health probe --------------
 # Mirrors the reusable workflow's `Install Dependencies` step + the
@@ -683,7 +703,7 @@ echo "Primary review:   ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
 echo "Secondary review: ${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}"
 echo "Orchestrator:     ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR} (probing in background — a failed probe reroutes orchestrator calls to the resolved review model)"
 if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
-  echo "Decision model:   ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER}/${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL:-<provider default>} (${OPENCODE_REVIEW_REPORT_DECISIONS_MODE}, threshold ${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY}, ${OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT}s/request — LADR-093, raw HTTP, not an opencode target)"
+  echo "Decision model:   ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER}/${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL:-<provider default>} (${OPENCODE_REVIEW_REPORT_DECISIONS_MODE}, threshold ${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY}, ${OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT}s/request, code context ${OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT} — LADR-093/098, raw HTTP, not an opencode target)"
 else
   echo "Decision model:   off (OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS)"
 fi
@@ -1390,6 +1410,12 @@ if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE
         bash "$LIB_DIR/extract-review-notes.sh" --skip-areas \
           < "$WORK_DIR/pr_description.txt" > "$WORK_DIR/decision_skip_areas.md" 2>/dev/null || true
       fi
+      # LADR-098: also ask fix_skip (optional here), so /ai-review and
+      # ai-analyse reuse the answer given with this richest context, and give
+      # the judge the code around each finding at the reviewed revision.
+      _DECISIONS_ASK_FIX_SKIP=1 \
+      _DECISIONS_SOURCE_REV="${head_sha}" \
+      _DECISIONS_GRAPH_JSON="$WORK_DIR/graph_detect_changes.json" \
       bash "$LIB_DIR/score-findings-decisions.sh" \
         "$WORK_DIR/findings.merged.json" \
         "$WORK_DIR/reviews" \

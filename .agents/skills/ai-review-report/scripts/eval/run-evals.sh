@@ -186,9 +186,13 @@ record_decisions() {
     total="$(grep '^total_chunks=' ci_temp/github_output.txt 2>/dev/null | tail -1 | cut -d= -f2)"
     if bash "$SKILL_SCRIPTS_DIR/lib/merge-findings.sh" ci_temp/reviews ci_temp/findings.merged.json \
          > ci_temp/decisions_merge.log 2>&1; then
+      # The gate's Step 17.6 call, so the measurement scores what production
+      # scores (LADR-098): the per-chunk rules the reviewer was given, the
+      # optional fix_skip question, and the code context at the head commit.
+      _DECISIONS_ASK_FIX_SKIP=1 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD 2>/dev/null)" \
       OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
         bash "$SKILL_SCRIPTS_DIR/lib/score-findings-decisions.sh" ci_temp/findings.merged.json \
-          ci_temp/reviews "${total:-1}" ci_temp/pr_diff.txt > ci_temp/decisions_score.log 2>&1 || true
+          ci_temp/reviews "${total:-1}" ci_temp/pr_diff.txt ci_temp > ci_temp/decisions_score.log 2>&1 || true
     fi
     # One shared writer (lib/decision-record.sh) decides the sample status —
     # scored / partial / unavailable / partial_coverage — so a PR-level answer

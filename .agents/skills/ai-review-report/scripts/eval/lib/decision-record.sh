@@ -65,6 +65,9 @@ write_decision_record() {
                         jev_confidence: (.decisions.severity.confidence // null),
                         sanctioned: (.decisions.sanctioned // null),
                         previously_skipped: (.decisions.previously_skipped // null),
-                        diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' > "$out"
+                        diff_hunk_found: (.decisions.diff_hunk_found // null),
+                        code_context: (.decisions.code_context // null),
+                        fix_skip: (.decisions.fix_skip.choice // null),
+                        fix_skip_p: (.decisions.fix_skip.skip_probability // null) } ] }' > "$out"
   rm -f "$empty"
 }

@@ -66,16 +66,39 @@
 # chunk present in the merge's own `merged_chunks`. Outside that fence it
 # degrades to annotate and says so. It never suppresses `critical`.
 #
-# Fix/skip purpose (LADR-097)
-# ---------------------------
-# `_DECISIONS_ASK_FIX_SKIP=1` is an INTERNAL switch (leading underscore: not a
-# Variable, never set by the gate) used only by lib/recommend-fix-skip.sh, the
-# `/ai-review --usedecisions` and `ai-analyse` path. It adds the
-# `per_finding_fix_skip` question (a prediction of the LADR-096 label class),
-# requires its answer like the others, stores it as `decisions.fix_skip`, and
-# skips the PR-level request — nothing on those paths reads block_merge. The
-# caller owns what the answer does; here it forces annotate, because this
-# script's filter acts on `supported` and on the gate's verdict fence.
+# Fix/skip (LADR-097, LADR-098)
+# -----------------------------
+# Two INTERNAL switches (leading underscore: never Variables):
+#   _DECISIONS_ASK_FIX_SKIP=1   adds the `per_finding_fix_skip` question (a
+#       prediction of the LADR-096 label class) and stores the answer as
+#       `decisions.fix_skip`. The gate sets it (LADR-098) so `/ai-review` and
+#       `ai-analyse` can REUSE the gate's answer — asked with the richest
+#       context (quoted evidence, chunk rules) — instead of re-asking with less.
+#       Optional here: a missing or malformed fix_skip answer stores null and
+#       leaves the finding's other scores intact, so the gate's coverage never
+#       drops because of a question the gate itself does not act on.
+#   _DECISIONS_PURPOSE=fix_skip the consumer purpose (lib/recommend-fix-skip.sh):
+#       implies the question, makes its answer REQUIRED (a finding without it
+#       is unscored), skips the PR-level request (no reader of block_merge on
+#       those paths) and forces annotate — the caller owns what the answer does,
+#       and this script's filter acts on `supported` and the gate's verdict.
+#
+# Code context (LADR-098 — LADR-096 roadmap phase 4)
+# --------------------------------------------------
+# A real finding usually describes behaviour across code, which the one hunk
+# around its line cannot show: the 12 accepted findings of PR 169 scored
+# `supported` 0.43 on average. With OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT
+# on (default) each request also carries `code_context`: the enclosing function
+# at the reviewed revision (its range from the code graph's changed_functions
+# when available, else a window around the line), and the hunks of other
+# changed files the finding names. It needs the revision to read from:
+#   _DECISIONS_SOURCE_REV   commit the review judged (the gate passes head_sha);
+#                           unset → no source excerpt, named-file hunks only
+#   _DECISIONS_GRAPH_JSON   ci_temp/graph_detect_changes.json, optional
+# Budget order: when a request is over budget the code context is shortened,
+# then dropped, BEFORE the hunk is trimmed, so the pre-LADR-098 request is
+# always the fallback. Paths that look like secrets (.env*, keys, credential
+# files) never get a source excerpt or a named-file hunk (is_sensitive_path).
 set -uo pipefail
 
 merged="${1:-ci_temp/findings.merged.json}"
@@ -103,6 +126,15 @@ RULES_MAX_BYTES=12000
 # Cap on the optional Skip Areas bullets. Short by nature (one line per skipped
 # finding); the cap only has to hold with the rules cap inside the budget.
 SKIP_AREAS_MAX_BYTES=4000
+# Cap on the optional code context (LADR-098), split so neither half crowds
+# out the other: the source excerpt around the finding, and each named file's
+# hunk. Shrunk, then dropped, before the diff hunk is ever trimmed.
+CODE_CONTEXT_MAX_BYTES=6000
+# Half-width of the source window used when the code graph has no enclosing
+# function for the finding's line.
+CONTEXT_WINDOW=30
+# At most this many other changed files named by a finding get their hunk.
+MAX_NAMED_FILES=2
 # Concurrent per-finding requests. Plain batches, not `wait -n`: this script is
 # also reached from local-review.sh, which carries no Bash >= 4 guard.
 PARALLEL=4
@@ -113,8 +145,12 @@ MAX_FINDINGS=60
 # gateway), always inside the request's own timeout deadline.
 RETRY_DELAY="${_DECISIONS_RETRY_DELAY:-2}"
 case "$RETRY_DELAY" in ''|*[!0-9]*) RETRY_DELAY=2 ;; esac
+purpose_fix_skip=false
+[ "${_DECISIONS_PURPOSE:-}" = "fix_skip" ] && purpose_fix_skip=true
 ask_fix_skip=false
-[ "${_DECISIONS_ASK_FIX_SKIP:-0}" = "1" ] && ask_fix_skip=true
+{ [ "${_DECISIONS_ASK_FIX_SKIP:-0}" = "1" ] || [ "$purpose_fix_skip" = true ]; } && ask_fix_skip=true
+source_rev="${_DECISIONS_SOURCE_REV:-}"
+graph_json="${_DECISIONS_GRAPH_JSON:-}"
 
 info() { echo "ℹ️  Decision model (LADR-093): $*"; }
 warn() { echo "⚠️  Decision model (LADR-093): $*"; }
@@ -184,7 +220,7 @@ case "$mode_requested" in
 esac
 mode="$mode_requested"
 mode_note=""
-if [ "$ask_fix_skip" = true ] && [ "$mode" != "annotate" ]; then
+if [ "$purpose_fix_skip" = true ] && [ "$mode" != "annotate" ]; then
   mode="annotate"
   mode_note="fix/skip purpose: the caller owns filtering"
 fi
@@ -195,6 +231,15 @@ if ! [[ "$min_probability" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
   min_probability="0.5"
 fi
 case "$min_probability" in .*) min_probability="0${min_probability}" ;; esac
+
+code_context_on=false
+if is_truthy "${OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT:-1}"; then
+  code_context_on=true
+  if [ -n "$source_rev" ] && ! git rev-parse --verify --quiet "${source_rev}^{commit}" >/dev/null 2>&1; then
+    info "code context: revision '${source_rev}' is not available here — named-file hunks only, no source excerpt"
+    source_rev=""
+  fi
+fi
 
 timeout="${OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT:-20}"
 if ! [[ "$timeout" =~ ^[1-9][0-9]*$ ]]; then
@@ -388,15 +433,136 @@ hunk() {
   ' "$pr_diff"
 }
 
-# build_finding_request <index> <hunk_file> <out> — the finding's rules, if
-# any, are in $work/f_<index>.rules (see rules_for).
+# Every file the PR diff changes, once — the candidates a finding may name.
+diff_files() {
+  [ -s "$pr_diff" ] || return 0
+  sed -n 's#^diff --git a/.* b/\(.*\)$#\1#p' "$pr_diff" | awk '!seen[$0]++'
+}
+diff_files > "$work/diff_files.txt"
+
+# is_sensitive_path <path> — true for files whose content must never reach the
+# decision vendor as code context: a finding's path is model output that PR
+# content can steer, and the code context goes to a third party. The finding's
+# own diff hunk is unaffected (it always went, like the chunk review's diff).
+is_sensitive_path() {
+  case "${1##*/}" in
+    .env|.env.*|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfstate) return 0 ;;
+    id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|.npmrc|.pypirc|.netrc|.git-credentials|credentials|credentials.*) return 0 ;;
+  esac
+  return 1
+}
+
+# numbered_lines <src> <from> <to> — the file's own line numbers, so a line
+# reference in the finding can be checked against it.
+numbered_lines() {
+  awk -v s="$2" -v e="$3" 'NR >= s && NR <= e { printf "%6d | %s\n", NR, $0 }' "$1"
+}
+
+# code_context_for <index> <file> <line> <out> [max_bytes] — writes the
+# finding's code context (LADR-098) to <out>; returns 1 when there is none.
+# Every path comes from the finding (model output): it is only ever used after
+# `<rev>:` in a git object name and as a fixed-string needle, never as a
+# filesystem path.
+#
+# Two shares of max_bytes (default CODE_CONTEXT_MAX_BYTES), so neither half can
+# crowd out the other: two thirds for the source excerpt, a sixth for each
+# named file's hunk. The excerpt is always CENTRED on the finding's line: a long
+# enclosing function, or a tight budget, narrows the window around the line —
+# it is never cut from the top, which would lose the very line in question.
+# The budget loop calls this again with the room a request has left.
+code_context_for() {
+  local idx="$1" f="$2" L="$3" out="$4" src="$work/f_${1}.src" text="$work/f_${1}.text" part="$work/f_${1}.part"
+  local max="${5:-$CODE_CONTEXT_MAX_BYTES}" g start end fname risk istest label df dl named=0 lo hi w
+  local source_max=$(( ${5:-$CODE_CONTEXT_MAX_BYTES} * 2 / 3 )) named_max=$(( ${5:-$CODE_CONTEXT_MAX_BYTES} / 6 ))
+  [ "$code_context_on" = true ] || return 1
+  : > "$out.raw"
+  case "$L" in ''|*[!0-9]*) L=0 ;; esac
+  # 1. The code around the finding at the reviewed revision.
+  if [ -n "$source_rev" ] && [ -n "$f" ] && ! is_sensitive_path "$f" \
+     && git cat-file -e "${source_rev}:${f}" 2>/dev/null; then
+    git show "${source_rev}:${f}" > "$src" 2>/dev/null
+    [ "$L" -gt 0 ] || L=1
+    lo=1; hi=""; label=""
+    if [ -n "$graph_json" ] && [ -s "$graph_json" ]; then
+      # changed_functions carry ABSOLUTE file_path (detect-changes-graph.sh).
+      g="$(jq -r --arg f "$f" --argjson L "$L" '
+        [ (.changed_functions // [])[]
+          | select((.file_path // "") as $p | $p == $f or ($p | endswith("/" + $f)))
+          | select((.line_start // 0) <= $L and (.line_end // 0) >= $L) ]
+        | sort_by((.line_end // 0) - (.line_start // 0)) | first
+        | if . == null then empty
+          # "-" for a missing risk: tab is IFS whitespace, so an EMPTY field
+          # would collapse and shift is_test into risk on `read`.
+          else "\(.line_start)\t\(.line_end)\t\(.qualified_name // .name // "?")\t\(.risk_score // "-")\t\(.is_test // false)" end' \
+        "$graph_json" 2>/dev/null | head -n 1)"
+      if [ -n "$g" ]; then
+        IFS=$'\t' read -r start end fname risk istest <<< "$g"
+        [ "$risk" != "-" ] || risk=""
+        lo="$start"; hi="$end"
+        label="Enclosing function \`${fname}\` (lines ${start}-${end} of \`${f}\`${risk:+, code-graph risk ${risk}}$( [ "$istest" = true ] && printf ', a test'))"
+      fi
+    fi
+    # Widest first: the whole function, then a window around the line inside
+    # it, then a narrower one — the first that fits the source budget wins.
+    for w in all "$CONTEXT_WINDOW" 10 3 0; do
+      if [ "$w" = all ]; then
+        [ -n "$hi" ] || continue
+        start="$lo"; end="$hi"
+      else
+        start=$(( L - w > lo ? L - w : lo ))
+        end=$(( L + w ))
+        [ -z "$hi" ] || [ "$end" -le "$hi" ] || end="$hi"
+      fi
+      numbered_lines "$src" "$start" "$end" > "$part"
+      [ "$(wc -c < "$part" | tr -d ' ')" -gt "$source_max" ] || break
+    done
+    if [ -z "$label" ]; then
+      label="Lines ${start}-${end} of \`${f}\` around the finding"
+    elif [ "$w" != all ]; then
+      label="${label}, lines ${start}-${end} around the finding"
+    fi
+    printf '%s, as of the reviewed commit (numbers are the file line numbers):\n' "$label" >> "$out.raw"
+    cap_copy "$part" "$part.cut" "$source_max" "source excerpt"
+    cat "$part.cut" >> "$out.raw"
+  fi
+  # 2. Other changed files the finding names (a cross-file claim's other half).
+  jq -r --argjson i "$idx" '.findings[$i]
+    | [ .title, .why_it_matters, .first_evidence,
+        ((.evidence // []) | if type == "array" then join(" ") else tostring end) ]
+    | map(. // "") | join(" ")' "$merged" > "$text" 2>/dev/null || : > "$text"
+  while IFS= read -r df; do
+    [ -n "$df" ] && [ "$df" != "$f" ] || continue
+    is_sensitive_path "$df" && continue
+    grep -qF -- "$df" "$text" || continue
+    # ERE-escape the path; `/` is not special in ERE, and escaping it makes
+    # GNU grep >= 3.8 warn "stray \ before /" on every call.
+    dl="$(grep -oE -- "$(printf '%s' "$df" | sed 's/[][\.*^$+?(){}|]/\\&/g'):[0-9]+" "$text" | head -n 1 | sed 's/.*://')"
+    printf '\nHunk of `%s`, another changed file this finding names:\n' "$df" >> "$out.raw"
+    hunk "$df" "${dl:-0}" > "$part"
+    cap_copy "$part" "$part.cut" "$named_max" "hunk"
+    cat "$part.cut" >> "$out.raw"
+    named=$((named + 1))
+    [ "$named" -lt "$MAX_NAMED_FILES" ] || break
+  done < "$work/diff_files.txt"
+  rm -f "$part" "$part.cut"
+  [ -s "$out.raw" ] || { rm -f "$out.raw"; return 1; }
+  cap_copy "$out.raw" "$out" "$max" "code context"
+  rm -f "$out.raw"
+  return 0
+}
+
+# build_finding_request <index> <hunk_file> <out> — the finding's rules and
+# code context, if any, are in $work/f_<index>.rules / .ctx.
 build_finding_request() {
-  local rules_file="$work/f_${1}.rules" has_rules=false
+  local rules_file="$work/f_${1}.rules" has_rules=false ctx_file="$work/f_${1}.ctx" has_ctx=false
   [ -f "$rules_file" ] && has_rules=true
   [ -f "$rules_file" ] || rules_file="$work/empty.txt"
+  [ -f "$ctx_file" ] && has_ctx=true
+  [ -f "$ctx_file" ] || ctx_file="$work/empty.txt"
   jq -c --argjson i "$1" --rawfile hunk "$2" --slurpfile q "$QUESTIONS" --arg model "$model" \
      --rawfile rules "$rules_file" --argjson has_rules "$has_rules" \
      --rawfile skips "$work/skip_areas.txt" --argjson has_skips "$has_skip_areas" \
+     --rawfile ctx "$ctx_file" --argjson has_ctx "$has_ctx" \
      --argjson ask_fix_skip "$ask_fix_skip" '
     .findings[$i] as $f | $q[0] as $q
     | { model: $model,
@@ -411,6 +577,7 @@ build_finding_request() {
           diff_hunk: $hunk,
           review_rules: $q.review_rules
         }
+        + (if $has_ctx then { code_context: $ctx } else {} end)
         + (if $has_rules then { project_rules: $rules } else {} end)
         + (if $has_skips then { pr_skip_areas: $skips } else {} end)),
         questions: ($q.per_finding
@@ -433,6 +600,7 @@ while [ "$i" -lt "$to_score" ]; do
   line="$(jq -r --argjson i "$i" '.findings[$i].line // 0 | tostring | (capture("^(?<n>[0-9]+)").n // "0")' "$merged")"
   hunk "$file" "$line" > "$work/f_${i}.hunk"
   rules_for "$i" "$work/f_${i}.rules" || rm -f "$work/f_${i}.rules"
+  code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" || rm -f "$work/f_${i}.ctx"
   # No hunk is not evidence against the finding: most often the chunk model
   # wrote the path differently from the diff header (basename, "./" prefix).
   # An empty field read as "the quoted evidence is not in the change" and
@@ -450,6 +618,26 @@ while [ "$i" -lt "$to_score" ]; do
   fi
   build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
   size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
+  if [ "$size" -gt "$BUDGET_BYTES" ] && [ -f "$work/f_${i}.ctx" ]; then
+    # Code context gives way first — rebuilt for the room left (a narrower
+    # window, still centred on the finding's line), then dropped — so the
+    # pre-LADR-098 request is always the fallback and the diff hunk is never
+    # trimmed while context remains.
+    ctx_size="$(wc -c < "$work/f_${i}.ctx" | tr -d ' ')"
+    # 200 bytes of headroom for JSON escaping of the rebuilt text.
+    room=$(( BUDGET_BYTES - (size - ctx_size) - 200 ))
+    if [ "$room" -ge 600 ] && code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$room"; then
+      build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
+      size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
+      info "finding $((i + 1)): code context shortened to fit the ${BUDGET_BYTES}-byte request budget"
+    fi
+    if [ "$size" -gt "$BUDGET_BYTES" ]; then
+      rm -f "$work/f_${i}.ctx"
+      build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
+      size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
+      info "finding $((i + 1)): code context dropped to fit the ${BUDGET_BYTES}-byte request budget"
+    fi
+  fi
   if [ "$size" -gt "$BUDGET_BYTES" ]; then
     # Trim the hunk — the only unbounded field — to what the budget leaves.
     hunk_size="$(wc -c < "$work/f_${i}.hunk" | tr -d ' ')"
@@ -493,11 +681,15 @@ while [ "$i" -lt "$to_score" ]; do
     [ -f "$work/f_${i}.nohunk" ] && hunk_found=false
     has_rules=false
     [ -f "$work/f_${i}.rules" ] && has_rules=true
+    has_ctx=false
+    [ -f "$work/f_${i}.ctx" ] && has_ctx=true
     if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" \
         --argjson hunk_found "$hunk_found" --argjson has_rules "$has_rules" \
-        --argjson has_skips "$has_skip_areas" --argjson ask_fix_skip "$ask_fix_skip" '
+        --argjson has_skips "$has_skip_areas" --argjson ask_fix_skip "$ask_fix_skip" \
+        --argjson require_fix_skip "$purpose_fix_skip" --argjson has_ctx "$has_ctx" '
         .answers as $a
         | def prob: type == "number" and . >= 0 and . <= 1;
+          def valid_fix_skip: ((.choice // "") | IN("fix", "skip_intentional", "skip_invalid", "skip_deferred"));
           if ($a.supported.noul | prob)
              and (($a.severity.choice // "") | IN("critical", "high", "medium", "low"))
              and ($a.pre_existing.noul | prob)
@@ -507,8 +699,9 @@ while [ "$i" -lt "$to_score" ]; do
              # unscored (and counted as skipped), not silently become null.
              and (($has_rules | not) or ($a.sanctioned.noul | prob))
              and (($has_skips | not) or ($a.previously_skipped.noul | prob))
-             and (($ask_fix_skip | not)
-                  or (($a.fix_skip.choice // "") | IN("fix", "skip_intentional", "skip_invalid", "skip_deferred")))
+             # Required only for the consumer purpose; the gate asks it
+             # optionally (see the header) and stores null when unusable.
+             and (($require_fix_skip | not) or ($a.fix_skip | valid_fix_skip))
           then { key: ($i | tostring),
                  # The value is parenthesised because jq <= 1.7 (ubuntu-latest)
                  # rejects an unparenthesised `{…} + (…)` as an object value;
@@ -516,6 +709,7 @@ while [ "$i" -lt "$to_score" ]; do
                  value: ({ provider: $provider,
                           model: (.model // $model),
                           diff_hunk_found: $hunk_found,
+                          code_context: $has_ctx,
                           supported: $a.supported.noul,
                           severity: { choice: $a.severity.choice,
                                       probabilities: ($a.severity.probabilities // {}),
@@ -531,12 +725,13 @@ while [ "$i" -lt "$to_score" ]; do
                         # skip_probability is 1 - P(fix) when the provider
                         # returned a usable distribution, else null — a caller
                         # must never act on a probability it had to invent.
-                        + (if $ask_fix_skip then
+                        + (if $ask_fix_skip and ($a.fix_skip | valid_fix_skip) then
                              { fix_skip: { choice: $a.fix_skip.choice,
                                            probabilities: ($a.fix_skip.probabilities // {}),
                                            confidence: ($a.fix_skip.confidence // null),
                                            skip_probability: (($a.fix_skip.probabilities // {}).fix
                                                                | if prob then 1 - . else null end) } }
+                           elif $ask_fix_skip then { fix_skip: null }
                            else {} end)) }
           else error("malformed answer") end' "$work/f_${i}.resp" >> "$work/decisions.jsonl" 2>/dev/null; then
       :
@@ -575,7 +770,7 @@ build_pr_request() { # build_pr_request <jq-filter-for-findings> <out>
 
 pr_scope="all"
 build_pr_request 'true' "$work/pr.req"
-if [ "$ask_fix_skip" = true ]; then
+if [ "$purpose_fix_skip" = true ]; then
   # Fix/skip purpose (LADR-097): no reader of block_merge on those paths, so
   # the request would be a paid answer nobody sees.
   pr_scope="not_asked"
@@ -620,13 +815,25 @@ if [ "$scored" -eq 0 ] && [ "$(cat "$work/pr.json")" = "null" ]; then
 fi
 
 # --- Write back -------------------------------------------------------------------
-# How many findings were sent project rules — a directory source can cover only
-# some of them (a chunk with no scoped rules has no runtime AGENTS.md).
-with_rules="$(find "$work" -maxdepth 1 -name 'f_*.rules' 2>/dev/null | wc -l | tr -d ' ')"
+# How many findings were SENT project rules / code context — a directory source
+# covers only some (a chunk with no scoped rules has no runtime AGENTS.md).
+# Counted over the requests actually built: a finding dropped for the byte
+# budget still has a rules file on disk and must not be counted.
+with_rules=0
+with_ctx=0
+i=0
+while [ "$i" -lt "$to_score" ]; do
+  if [ -f "$work/f_${i}.req" ]; then
+    [ -f "$work/f_${i}.rules" ] && with_rules=$((with_rules + 1))
+    [ -f "$work/f_${i}.ctx" ] && with_ctx=$((with_ctx + 1))
+  fi
+  i=$((i + 1))
+done
 jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
    --arg provider "$provider" --arg model "$model" \
    --arg rules_source "$rules_source" --argjson with_rules "${with_rules:-0}" \
-   --argjson has_skips "$has_skip_areas" --argjson ask_fix_skip "$ask_fix_skip" \
+   --argjson has_skips "$has_skip_areas" --argjson purpose_fix_skip "$purpose_fix_skip" \
+   --argjson ask_fix_skip "$ask_fix_skip" --argjson with_ctx "$with_ctx" \
    --arg mode "$mode" --arg mode_requested "$mode_requested" --arg mode_note "$mode_note" \
    --argjson min "$min_probability" --arg pr_scope "$pr_scope" \
    --argjson scored "$scored" --argjson skipped "$skipped" '
@@ -651,13 +858,17 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
         pr_level_scope: $pr_scope,
         # What the judge was given besides the finding and its hunk, so a
         # reader can tell "no rule allows it" from "no rules were sent".
-        context: { project_rules: $rules_source, findings_with_rules: $with_rules,
-                   skip_areas: $has_skips },
+        context: ({ project_rules: $rules_source, findings_with_rules: $with_rules,
+                    skip_areas: $has_skips }
+                  # LADR-098 keys, present only when the feature ran, so a
+                  # document from before it keeps its exact shape.
+                  + (if $with_ctx > 0 then { findings_with_code_context: $with_ctx } else {} end)
+                  + (if $ask_fix_skip then { fix_skip_asked: true } else {} end)),
         suppressed: [ $drop[] | { number_before_filter: .["#"], title, severity, file, line,
                                   supported: .decisions.supported } ] }
       + ($pr[0] // { block_merge: null, dominant_risk: null, overall_risk: null })
-      # LADR-097: absent on the gate path, so its document is unchanged.
-      + (if $ask_fix_skip then { purpose: "fix_skip" } else {} end) )
+      # LADR-097: present only for the consumer purpose.
+      + (if $purpose_fix_skip then { purpose: "fix_skip" } else {} end) )
 ' "$merged" > "${merged}.decisions.tmp" 2>"$work/write.err"
 
 if ! jq -e '.status == "complete" and (.decisions_summary | type == "object")' "${merged}.decisions.tmp" >/dev/null 2>&1; then

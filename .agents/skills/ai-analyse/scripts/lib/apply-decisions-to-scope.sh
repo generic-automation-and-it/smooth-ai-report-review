@@ -59,7 +59,8 @@ printf '%s' "$input" | awk -F '\t' -v tsv="$tsv" -v wh="$withhold" -v rep="$with
       if (f[9] != "") { note = note sep "previously skipped " f[9] "%"; sep = " · " }
       if (f[10] != "") { note = note sep "actionability " f[10] " of 2"; sep = " · " }
       if (f[11] == "no") { note = note sep "no diff hunk found" }
-      ann[f[1]] = note " (advisory)"
+      # LADR-098: where the answer came from (column 16, absent before it).
+      ann[f[1]] = note ((f[16] == "gate") ? " (advisory, from gate scoring)" : " (advisory)")
     }
     while ((getline line < wh) > 0) { gsub(/[^0-9]/, "", line); if (line != "") drop[line] = 1 }
     FS = " "

@@ -1215,11 +1215,28 @@ fi
 # eval/harvest-real-findings.sh --from-pr joins the two into labelled records.
 # Only when the flag is on AND the merged findings were actually scored — an
 # unscored run has nothing to label — and only for a numeric run id.
+# Both markers need an artifact to point at: _REVIEW_RUN_ARTIFACT is exported
+# only by run-review.sh, whose EXIT trap assembles ci_temp/run/ for upload.
 if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
      | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+   && [ "${_REVIEW_RUN_ARTIFACT:-0}" = "1" ] \
    && [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] \
    && jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
   printf '\n<!-- ai-review-report run=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/final_review.md
+fi
+
+# LADR-098 run-id channel: an ALWAYS-ON invisible marker naming the run whose
+# artifact (LADR-062) holds this review's findings, evidence and judge context,
+# so /ai-review --usedecisions and ai-analyse can find it even when the review
+# was not scored. Deliberately a different key (`run-id=`) from the label
+# marker above: `/ai-review execute` writes decision labels only for `run=`,
+# which promises scores to join with. Only when a run artifact is uploaded:
+# artifacts on AND run-review.sh is the entrypoint (see _REVIEW_RUN_ARTIFACT).
+if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}" | tr '[:upper:]' '[:lower:]' \
+     | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+   && [ "${_REVIEW_RUN_ARTIFACT:-0}" = "1" ] \
+   && [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+  printf '<!-- ai-review-report run-id=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/final_review.md
 fi
 
 echo ""
