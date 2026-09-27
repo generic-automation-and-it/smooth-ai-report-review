@@ -90,7 +90,7 @@ Configuration — clones of the gate's six Variables: `OPENCODE_ANALYSE_ENABLE_D
 - Genuine bug or logic error in a low/medium finding: `FIX`
 - Real simplification with no trade-off: `FIX`
 - Speculative / "consider" language: `SKIP`
-- Decision model recommends SKIP (`🎯 Decision model:` line, when present) and you have no stronger evidence the finding is real and mechanically fixable: `SKIP`, citing it. A decision-model FIX alone is never sufficient for `FIX`.
+- A line explicitly saying `🎯 Decision model: recommends SKIP` may support a `SKIP` when there is no stronger evidence the finding is real and mechanically fixable; cite the recommendation. Never treat an `uncertain, leans …` line as a recommendation or cite it as a reason. A decision-model FIX alone is never sufficient for `FIX`.
 - A finding whose only viable fix would edit a test or the test framework, while `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` is off (the default): `SKIP` with reason "test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off)"
 - A finding whose basis is that a test is failing (regardless of `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX`): `SKIP` with reason "failing test is a signal — human decision required"
 - A Critical or High finding itself (its own priority is 🔴/🟠), even if included in suggested fixes: **omit entirely — no row, neither FIX nor SKIP**
