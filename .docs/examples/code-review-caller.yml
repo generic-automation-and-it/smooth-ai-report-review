@@ -54,7 +54,9 @@
 # Decision-model FIX/SKIP support (LADR-097, off by default): set
 # OPENCODE_ANALYSE_ENABLE_DECISIONS=1, optionally with
 # OPENCODE_ANALYSE_DECISIONS_{PROVIDER,MODEL,MODE,MIN_PROBABILITY,TIMEOUT}
-# (blank provider/model/timeout inherit the gate's OPENCODE_REVIEW_REPORT_DECISIONS_*).
+# (blank provider/timeout inherit the gate's values; a blank model inherits
+# the gate's model only when the provider is inherited too. An explicitly
+# selected provider with a blank model uses that provider's default.)
 # MODE=annotate advises the fixer; MODE=filter also withholds findings the
 # model recommends skipping. It never adds a finding to the fixer's scope.
 # Note: GITHUB_TOKEN cannot push to .github/workflows/**, so auto-fixes that touch

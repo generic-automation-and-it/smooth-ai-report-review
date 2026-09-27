@@ -64,20 +64,37 @@ printf '%s' "$input" | awk -F '\t' -v tsv="$tsv" -v wh="$withhold" -v rep="$with
     while ((getline line < wh) > 0) { gsub(/[^0-9]/, "", line); if (line != "") drop[line] = 1 }
     FS = " "
   }
-  {
-    if (match($0, /^[0-9]+\. /)) {
-      n = substr($0, 1, RLENGTH - 2)
-      dropping = (n in drop)
-      if (dropping) { print > rep; count++; next }
-      print
-      if (n in ann) print ann[n]
-      next
+  { lines[NR] = $0 }
+  END {
+    # CommonMark ignores numbers after the first item in an ordered list.
+    # Detect a gap among surviving items before printing any of them.
+    for (i = 1; i <= NR; i++) {
+      if (match(lines[i], /^[0-9]+\. /)) {
+        n = substr(lines[i], 1, RLENGTH - 2) + 0
+        if (!(n in drop)) {
+          if (seen && n != previous + 1) literal = 1
+          previous = n
+          seen = 1
+        }
+      }
     }
-    if (dropping && $0 ~ /^[[:space:]]+[^[:space:]]/) { print > rep; next }
-    dropping = 0
-    print
+    for (i = 1; i <= NR; i++) {
+      line = lines[i]
+      if (match(line, /^[0-9]+\. /)) {
+        n = substr(line, 1, RLENGTH - 2)
+        dropping = (n in drop)
+        if (dropping) { print line > rep; count++; continue }
+        if (literal) sub(/^[0-9]+\. /, "- **" n ".** ", line)
+        print line
+        if (n in ann) print ann[n]
+        continue
+      }
+      if (dropping && line ~ /^[[:space:]]+[^[:space:]]/) { print line > rep; continue }
+      dropping = 0
+      print line
+    }
+    printf "%d\n", count > (rep ".count")
   }
-  END { printf "%d\n", count > (rep ".count") }
 '
 
 if [ -n "$report_file" ]; then

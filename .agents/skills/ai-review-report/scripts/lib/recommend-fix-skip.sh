@@ -186,7 +186,7 @@ fi
 jq -r --argjson min "$d_min" '
   def pct: if . == null then "" else "\((. * 100) | round)" end;
   ["n","severity","recommendation","class","skip_probability","decision_score","unsupported",
-   "rule_allowed","previously_skipped","actionability","diff_hunk_found","file","line","title"],
+   "rule_allowed","previously_skipped","actionability","diff_hunk_found","file","line","title","skip_probability_raw"],
   ( .findings[] | select(.decisions.fix_skip != null)
     | .decisions as $d
     | [ (.["#"] | tostring), .severity,
@@ -199,14 +199,14 @@ jq -r --argjson min "$d_min" '
         ($d.previously_skipped | pct),
         (if $d.actionability.score == null then "" else ($d.actionability.score * 10 | round / 10 | tostring) end),
         (if $d.diff_hunk_found == false then "no" else "yes" end),
-        .file, (.line | tostring), (.title | gsub("[\t\n]"; " ")) ] )
+         .file, (.line | tostring), (.title | gsub("[\t\n]"; " ")),
+         ($d.fix_skip.skip_probability // "") ] )
   | @tsv' "$out_dir/decisions.json" > "$out_dir/recommendations.tsv"
 
 if [ "$scope" = "analyse" ] && [ "$d_mode" = "filter" ]; then
-  # Withhold = recommends a skip class AND P(skip) >= threshold AND the hunk
-  # was found. An empty skip_probability (no distribution returned) never
-  # qualifies — the caller must not act on an invented number.
-  awk -F '\t' -v min="$d_min" 'NR > 1 && $3 == "SKIP" && $5 != "" && ($5 / 100) >= min && $11 == "yes" { print $1 }' \
+  # Compare the raw probability; the rounded percentage is display-only.
+  # A missing distribution never qualifies for withholding.
+  awk -F '\t' -v min="$d_min" 'NR > 1 && $3 == "SKIP" && $15 != "" && $15 + 0 >= min && $11 == "yes" { print $1 }' \
     "$out_dir/recommendations.tsv" > "$out_dir/withhold.txt"
 fi
 
