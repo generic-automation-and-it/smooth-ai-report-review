@@ -113,6 +113,8 @@ case "$kind" in
               pre_existing: { type: "noul", noul: 0.08 },
               sanctioned: (if env.STUB_MODE == "no_sanctioned" then null
                            else { type: "noul", noul: (if ($f.title | test("weak")) then 0.93 else 0.04 end) } end),
+              previously_skipped: (if env.STUB_MODE == "no_prev_skip" then null
+                                   else { type: "noul", noul: (if ($f.title | test("overrated")) then 0.88 else 0.05 end) } end),
               actionability: { type: "score", score: 1.6, confidence: 0.6,
                                legend: { "0": "Advisory", "1": "Judgement", "2": "Mechanical" },
                                probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 } } },
@@ -197,7 +199,7 @@ run_scorer() {
     OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 \
     OPENCODE_GO_OPENAI_API_KEY=go-secret-key OPENCODE_OPENROUTER_API_KEY=or-secret-key \
     "$@" \
-    bash "$SCORER" "$merged" "$TMP_DIR/reviews_$name" "$total" "$DIFF" ${RULES_FILE:+"$RULES_FILE"} > "$TMP_DIR/$name.log" 2>&1
+    bash "$SCORER" "$merged" "$TMP_DIR/reviews_$name" "$total" "$DIFF" "${RULES_FILE:-}" "${SKIP_FILE:-}" > "$TMP_DIR/$name.log" 2>&1
 }
 calls() { ls "$STUB_DIR"/url_* 2>/dev/null | wc -l | tr -d ' '; }
 
@@ -541,6 +543,92 @@ check "Test 13i: with project rules the tag also shows rule-allowed" "1" \
 check "Test 13h: capped rules still fit the request budget" "true" \
   "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
 
+# --- Test 14: the gate's judge context — per-chunk rules and the PR's Skip Areas -----
+# run-review.sh passes its work dir as the rules source: each finding is judged
+# against chunk_<n>/AGENTS.md of the first chunk it came from that has one, and
+# every finding against the PR description's Skip Areas bullets. Display-only.
+T14="$TMP_DIR/t14work"
+mkdir -p "$T14/chunk_0" "$T14/chunk_1" "$T14/chunk_2"
+printf '# Runtime review instructions (chunk 0)\n\n## DR-901: weak claims are accepted here\n' > "$T14/chunk_0/AGENTS.md"
+printf '# Runtime review instructions (chunk 2)\n\n## DR-902: chunk two rule\n' > "$T14/chunk_2/AGENTS.md"
+printf '%s\n' '- **3.** src/b.sh:5 — overrated high claim — **skip reason:** intentional.' > "$TMP_DIR/t14.skips.md"
+write_merged "$TMP_DIR/t14.json"
+# finding 3 came from chunk 1 (no rules there) and chunk 2; finding 4 only from chunk 1.
+jq '.findings[2].chunks = [1, 2] | .findings[3].chunks = [1] | .merged_chunks = [0, 1, 2]' \
+  "$TMP_DIR/t14.json" > "$TMP_DIR/t14.tmp" && mv "$TMP_DIR/t14.tmp" "$TMP_DIR/t14.json"
+RULES_FILE="$T14" SKIP_FILE="$TMP_DIR/t14.skips.md" run_scorer t14 "$TMP_DIR/t14.json" 3
+check "Test 14a: a finding gets the rules of its own chunk" "DR-901/DR-901" \
+  "$(jq -rs '[.[] | select((.state.finding.title // "") | test("weak")) | .state.project_rules | capture("(?<d>DR-9[0-9]+)").d] | join("/")' "$STUB_DIR"/req_*.json)"
+check "Test 14b: the first chunk WITH rules is used, not merely the first chunk" "DR-902" \
+  "$(jq -rs '.[] | select(.state.finding.title? == "overrated high claim") | .state.project_rules | capture("(?<d>DR-9[0-9]+)").d' "$STUB_DIR"/req_*.json)"
+check "Test 14c: a finding from a chunk without rules gets neither rules nor sanctioned" "0/0" \
+  "$(jq -rs '[.[] | select(.state.finding.title? == "solid medium claim")][0] | "\(.state | has("project_rules") | if . then 1 else 0 end)/\(.questions | has("sanctioned") | if . then 1 else 0 end)"' "$STUB_DIR"/req_*.json)"
+check "Test 14d: ...and is still scored, with sanctioned null (not asked, not guessed)" "4/null" \
+  "$(jq -r '"\(.decisions_summary.scored)/\(.findings[3].decisions.sanctioned)"' "$TMP_DIR/t14.json")"
+check "Test 14e: every finding request carries the Skip Areas and asks previously_skipped" "4/4" \
+  "$(jq -rs '[.[] | select(.state.finding?)] | "\([.[] | select(.state.pr_skip_areas | test("overrated high claim"))] | length)/\([.[] | select(.questions.previously_skipped?)] | length)"' "$STUB_DIR"/req_*.json)"
+check "Test 14f: previously_skipped is recorded per finding" "0.05/0.88" \
+  "$(jq -r '"\(.findings[0].decisions.previously_skipped)/\(.findings[2].decisions.previously_skipped)"' "$TMP_DIR/t14.json")"
+check "Test 14g: decisions_summary records what the judge was given" '{"project_rules":"chunk","findings_with_rules":3,"skip_areas":true}' \
+  "$(jq -c '.decisions_summary.context' "$TMP_DIR/t14.json")"
+check "Test 14h: the requests still fit the budget" "true" \
+  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
+OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t14.json" > "$TMP_DIR/t14.md" 2>/dev/null
+check "Test 14i: both context scores sit in the tag next to the priority" "1" \
+  "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority (decision score 91% · rule-allowed 4% · previously skipped 88%): overrated high claim' "$TMP_DIR/t14.md")"
+check "Test 14j: a finding without rules shows previously skipped but no rule-allowed" "1" \
+  "$(grep -c '^4\. 🟡 \[VERIFIED\] Medium Priority (decision score 91% · previously skipped 5%): solid medium claim' "$TMP_DIR/t14.md")"
+check "Test 14k: the Coverage line explains both scores and the rules coverage" "1/1/1" \
+  "$(printf '%s/%s/%s' "$(grep -c '\*\*Rule-allowed\*\* = .* 3 of 4 findings had any' "$TMP_DIR/t14.md")" \
+     "$(grep -c '\*\*Previously skipped\*\* = ' "$TMP_DIR/t14.md")" \
+     "$(grep -c 'Both are informational; neither changes a finding or the verdict\.' "$TMP_DIR/t14.md")")"
+# Word-bounded like score-review.sh itself: "rule-allowed" contains "low" as a
+# substring, which that parser rightly does not count.
+check "Test 14l: the label still holds exactly one severity word" "0" \
+  "$(grep -E '^[0-9]+\. ' "$TMP_DIR/t14.md" | cut -d: -f1 | grep -ciE '(^|[^a-z])(critical|high|medium|low)([^a-z]|$).*(^|[^a-z])(critical|high|medium|low)([^a-z]|$)' || true)"
+if [ -f "$SCORE_SH" ]; then
+  check "Test 14m: score-review.sh reads the same flags with the context scores" \
+    "$(bash "$SCORE_SH" "$TMP_DIR/t9.plain.md" | tr '\n' ',')" \
+    "$(bash "$SCORE_SH" "$TMP_DIR/t14.md" | tr '\n' ',')"
+fi
+check "Test 14n: no autolinking #<digits> with the context scores" "0" \
+  "$(grep -coE '#[0-9]' "$TMP_DIR/t14.md" || true)"
+# Display-only: filter acts on `supported` alone. A well-supported finding the
+# judge thinks was already skipped, or rule-allowed, is never suppressed.
+write_merged "$TMP_DIR/t14f.json"
+jq '.merged_chunks = [0, 1]' "$TMP_DIR/t14f.json" > "$TMP_DIR/t14f.tmp" && mv "$TMP_DIR/t14f.tmp" "$TMP_DIR/t14f.json"
+RULES_FILE="$T14" SKIP_FILE="$TMP_DIR/t14.skips.md" run_scorer t14f "$TMP_DIR/t14f.json" 2 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=filter
+check "Test 14o: filter never acts on previously_skipped or sanctioned" "weak high claim" \
+  "$(jq -r '[.decisions_summary.suppressed[].title] | join(",")' "$TMP_DIR/t14f.json")"
+# Empty or whitespace-only Skip Areas → the request is exactly the rules-only one.
+printf '  \n\n' > "$TMP_DIR/t14.blank.md"
+write_merged "$TMP_DIR/t14b.json"
+SKIP_FILE="$TMP_DIR/t14.blank.md" run_scorer t14b "$TMP_DIR/t14b.json" 2
+check "Test 14p: blank Skip Areas → no pr_skip_areas, no question, null answer" "0/0/null/false" \
+  "$(printf '%s/%s/%s/%s' "$(jq -s '[.[] | select(.state.pr_skip_areas?)] | length' "$STUB_DIR"/req_*.json)" \
+     "$(jq -s '[.[] | select(.questions.previously_skipped?)] | length' "$STUB_DIR"/req_*.json)" \
+     "$(jq -r '.findings[2].decisions.previously_skipped' "$TMP_DIR/t14b.json")" \
+     "$(jq -r '.decisions_summary.context.skip_areas' "$TMP_DIR/t14b.json")")"
+write_merged "$TMP_DIR/t14c.json"
+STUB_MODE=no_prev_skip SKIP_FILE="$TMP_DIR/t14.skips.md" run_scorer t14c "$TMP_DIR/t14c.json" 2
+check "Test 14q: Skip Areas given but previously_skipped unanswered → finding unscored" "0/4" \
+  "$(jq -r '"\(.decisions_summary.scored)/\(.decisions_summary.skipped)"' "$TMP_DIR/t14c.json")"
+check "Test 14r: without either input the request is the pre-context shape" "0/0" \
+  "$(jq -s '[.[] | select(.state.pr_skip_areas? or .state.project_rules?)] | length' "$TMP_DIR"/stub_t2/req_*.json)/$(jq -s '[.[] | select(.questions.previously_skipped? or .questions.sanctioned?)] | length' "$TMP_DIR"/stub_t2/req_*.json)"
+# The verdict line names a BLOCKING finding that likely re-raises a Skip Areas
+# item — t14: finding 3 (high, previously_skipped 0.88). Finding 4 (medium)
+# never appears, and neither does a blocking finding scored below threshold.
+printf '## 🎯 Recommendation\n\n**Decision:** REQUEST_CHANGES\n' > "$TMP_DIR/t14.rec.md"
+OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$SCRIPT_DIR/lib/render-decision-verdict.sh" "$TMP_DIR/t14.json" "$TMP_DIR/t14.rec.md" >/dev/null
+check "Test 14t: the verdict line names a blocking likely re-raise with its score" "1" \
+  "$(grep -c '^\*\*Decision model:\*\* block-merge probability 83% · .*· finding 3 likely re-raises a Skip Areas item (88%) · ' "$TMP_DIR/t14.rec.md")"
+check "Test 14u: a blocking finding a project rule likely allows is named too" "1" \
+  "$(grep -c ' · findings 1, 2 likely allowed by project rules (93%, 93%) — ' "$TMP_DIR/t14.rec.md")"
+check "Test 14v: the verdict line still carries no verdict word and no #<digits>" "0/0" \
+  "$(grep '^\*\*Decision model:' "$TMP_DIR/t14.rec.md" | grep -ciE 'approve|request.changes' || true)/$(grep '^\*\*Decision model:' "$TMP_DIR/t14.rec.md" | grep -coE '#[0-9]' || true)"
+check "Test 14s: a rules FILE keeps the file source in the summary" "file/4" \
+  "$(jq -r '"\(.decisions_summary.context.project_rules)/\(.decisions_summary.context.findings_with_rules)"' "$TMP_DIR/t13.json")"
+
 # --- Test 12: enriched findings validate against the schema ---------------------------
 # Optional: needs the jsonschema package, which ubuntu-latest does not promise.
 SCHEMA="$SCRIPT_DIR/../assets/findings-schema.json"
@@ -592,6 +680,25 @@ check "Test 11k2: flag OFF — decisions in the document never reach the prompt"
   "$(PROMPT_FLAG=0 prompt_block "$TMP_DIR/t2.json")"
 check "Test 11k3: metadata.json takes decisions_summary only with the flag on" "1" \
   "$(awk '/local decisions_json=.null./{f=1} f && /OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS/{print 1; exit}' "$RUN_REVIEW")"
+check "Test 11l: run-review.sh gives the judge the per-chunk rules and the Skip Areas" "1/1" \
+  "$(awk '/bash .*score-findings-decisions\.sh"/{f=1} f && /"\$WORK_DIR" \\$/{r=1} f && /decision_skip_areas\.md" \|\| true$/{s=1; exit} END{print r+0 "/" s+0}' "$RUN_REVIEW")"
+check "Test 11m: local-review.sh gives the judge the per-chunk rules and the Skip Areas" "1/1" \
+  "$(awk '/bash .*score-findings-decisions\.sh"/{f=1} f && /"ci_temp" \\$/{r=1} f && /decision_skip_areas\.md" \|\| true$/{s=1; exit} END{print r+0 "/" s+0}' "$LOCAL_REVIEW")"
+# The invisible run marker in the posted footer — the join key between a
+# review and the human decisions /ai-review execute records against it.
+run_marker() { # run_marker <merged> <flag> <run_id> → what the block appends
+  local d="$TMP_DIR/mk_$RANDOM"
+  mkdir -p "$d/ci_temp"
+  [ -n "$1" ] && cp "$1" "$d/ci_temp/findings.merged.json"
+  awk '/^# LADR-093 label channel/{f=1} f{print} f && /^fi$/{exit}' "$AGG_SH" > "$d/block.sh"
+  : > "$d/ci_temp/final_review.md"
+  (cd "$d" && OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS="$2" GITHUB_RUN_ID="$3" bash block.sh >/dev/null 2>&1)
+  tr -d '\n' < "$d/ci_temp/final_review.md"
+}
+check "Test 11n: a scored run stamps its run id into the footer, invisibly" "<!-- ai-review-report run=36304944118 -->" \
+  "$(run_marker "$TMP_DIR/t2.json" 1 36304944118)"
+check "Test 11o: no marker with the flag off, without scores, or for a non-numeric id" "||" \
+  "$(run_marker "$TMP_DIR/t2.json" 0 36304944118)|$(run_marker "$TMP_DIR/t1.json" 1 36304944118)|$(run_marker "$TMP_DIR/t2.json" 1 'x -->')"
 check "Test 11e: the run artifact metadata carries decisions_summary" "1" \
   "$(grep -c '"decisions_summary": ' "$RUN_REVIEW")"
 for f in .github/workflows/pipeline-code-review-report.yml .docs/examples/code-review-local.yml; do

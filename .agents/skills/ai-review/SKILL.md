@@ -164,6 +164,17 @@ The detected review source decides where the fix/skip summary table and analysis
 Do **all** of the following, in order:
 
 1. **Append the fix/skip summary table + responses block** to the PR description's **AI Review Notes** section (preserve existing content — append, never overwrite).
+   - **Decision labels (only when the processed review's body contains `<!-- ai-review-report run=<digits> -->`).** That invisible marker is written by the gate only when its decision model scored the findings (LADR-093). Directly after the table, append one invisible block recording the human's decision on every **numbered finding** (`1.`, `2.`, …) processed in this run — never `R`/`T`/`P`/`H` items, which the scores do not cover:
+     ```
+     <!-- ai-review-decisions
+     run: <the digits from the marker>
+     1: fix
+     2: skip intentional
+     3: skip invalid
+     4: skip deferred
+     -->
+     ```
+     `fix` for a fix; for a skip, the reason class: `intentional` — the code does this on purpose (a project rule, design decision or known pattern), so the finding should not have been raised; `invalid` — the finding is wrong (hallucinated, not shown by the code, misread); `deferred` — a real issue deliberately left for later. **If a skip fits neither `intentional` nor `invalid` clearly, write `deferred`**: deferred is never harvested, so a doubtful skip costs a label instead of becoming a wrong one. `eval/harvest-real-findings.sh --from-pr <pr>` joins these decisions with the run's scores into the decision model's real-findings corpus (fix → true positive, intentional/invalid → false positive). Keep the block exactly in this shape: the opening line alone, `-->` alone on the last line — the gate strips a comment from its prompts only when it ends on a line of its own. Without the marker, write no block.
 2. **MANDATORY — update the "Skip Areas / Known Issues" bullets in the PR description.** For **every** `skip` decision, add (or merge into) a bullet in that section so the next review round sees it:
    - Fetch the current PR description body: `gh pr view <pr> --json body -q .body`
    - Locate the section. Accept any of these headings (case-insensitive): `Skip Areas / Known Issues`, `Skip Areas`, `Known Issues`, `Known Skip Areas`, `Areas to Skip`. If none exists, **create** the section with heading `## Skip Areas / Known Issues` immediately above `## AI Review Notes` (or append at the end if that section is also missing).
@@ -187,4 +198,5 @@ Do **all** of the following, in order:
 - **Copilot flow:** reply to and resolve only the threads for issues actually processed in this execute run; never resolve unrelated or human-authored threads
 - **Non-Copilot flow:** preserve existing PR AI Review Notes content (append, never overwrite)
 - **⛔ Non-Copilot flow — skip-bullets obligation:** appending the fix/skip summary table is **not sufficient**. Every skipped finding **must also** appear as a bullet in the PR description's **"Skip Areas / Known Issues"** section, and the skill **must verify** the bullets are present in the live PR body before reporting completion. The next review round reads those bullets, not the table; a skip without a bullet causes the same Critical/High finding to be re-raised on the next run. If any skipped item is missing from that section after the `gh pr edit`, the run is a failure — retry the edit rather than declaring success.
+- **Decision labels are human decisions only.** The `ai-review-decisions` block records what the user chose in *this* execute run. Never write one from analyse mode, never invent a decision the user did not give, and never copy one from an autonomous `ai-analyse` run — model-made decisions would teach the decision model to agree with a model.
 - Only suggest review-process improvements, don't apply them

@@ -925,6 +925,38 @@ The LADRs are the **decisions an AI coder would plausibly re-litigate if they di
 - **Consequences**: Both rejected answers from run 36247697720 pass the predicate unchanged (verified against the artifact), so the chunk would have completed on the first ask, about 2.5 minutes in, and the four Low findings would have posted. When a rejection does happen, the re-asked model is told which rule it broke, so the second attempt is not a coin flip with the same odds as the first. Accepted cost: a `Files:` heading followed by a list that names a file the model then never reviewed is now counted as named — the same trust already extended to names on the heading line, and the per-section check still requires a result under that heading. `test-opencode-with-fallback-targets.sh` pins eight inventory shapes (four accepted, four rejected) and the re-ask's stdin, chain reset, `OPENCODE_RUN_CWD` resolution and temp-file cleanup.
 - **See also**: LADR-087 (the inventory stage this widens), LADR-091 (the prompt states the enforced layout — extended with the list form), LADR-094 (the re-ask this makes informative), LADR-082/084 (the sweep that rescued the run, unchanged), LADR-077 (narration rejection — still the reason lists under other headings do not count).
 
+### LADR-096: The decision model judges each finding with the context a human would check, and human fix/skip decisions become its labels
+
+- **Date**: 2026-09-27
+- **Status**: Accepted (additive to LADR-093; everything is behind `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` and display-only — no score acts)
+- **Context**: The LADR-093 measurement (PR 169) left two facts. **Planted findings:** given the project rules, `sanctioned` separated the known false positives from the true catches perfectly (AUC 1.00), and "unsupported OR rule-allowed" removed 13 of 14 without losing a catch. **Real findings:** the 12 accepted gate findings scored `supported` mean 0.43, so `filter`/`demote@0.50` would have hidden 9 of them. They describe behaviour across code that one hunk cannot show. So the lever that worked on planted data (rules) never ran in the gate, and the real corpus had no false positives at all: every harvested label was a `tp`, because labelling was a manual `harvest-real-findings.sh <run> 1=tp …` nobody runs. Meanwhile the gate's best-known false-positive class sat unmeasured: a finding the author already skipped, with a reason in the PR's Skip Areas, raised again on the next round.
+- **Decision**: Two halves.
+  - **(1) Judge context in the gate.** Step 17.6 / Step 5c pass the work dir and the PR description's Skip Areas to the scorer:
+    - **Per-chunk rules.** A directory 5th argument selects each finding's rules per finding: `chunk_<n>/AGENTS.md` of the first chunk it came from that has one. That is the LADR-089/090 scoped set the chunk reviewer itself was given, capped at 12,000 bytes with a visible cut. A finding from a chunk with no rules is asked no `sanctioned` question.
+    - **Skip Areas.** `lib/extract-review-notes.sh --skip-areas` extracts the bullets as a 6th argument (capped at 4,000 bytes). They go to every finding, with a new `previously_skipped` question in `assets/decisions-questions.json` (`per_finding_skip_areas`). It is a separate question from `sanctioned` because a PR-local decision is not a standing rule.
+    - **Rendering.** Both answers render inside the finding tag next to the priority (`(decision score 91% · rule-allowed 4% · previously skipped 88%)`), for every finding they were asked about, low values included. The Coverage line explains both and how many findings had rules. The verdict line names any blocking finding at or above the threshold on either.
+    - **Unchanged.** Filter still acts on `supported` alone, and `decisions_summary.context` records what was sent.
+  - **(2) Human labels.**
+    - **Run marker.** When the merged findings were scored, the posted review ends with an invisible `<!-- ai-review-report run=<id> -->`.
+    - **Label block.** `/ai-review execute` (Non-Copilot flow) copies that id into an invisible `ai-review-decisions` block after its fix/skip table, one line per numbered finding: `fix`, `skip intentional`, `skip invalid`, `skip deferred`.
+    - **Harvest.** `eval/harvest-real-findings.sh --from-pr N` / `--scan` joins those decisions with the run artifact's live scores into `corpus/real-findings/`, keeping `label_reason`: fix → tp, intentional/invalid → fp.
+    - **The latest decision per finding wins, deferred included.** A later `skip deferred` removes an earlier record, and a corrected decision refreshes it. If the artifact has expired, the superseded record is removed rather than kept.
+    - **Deferred and doubtful skips are never harvested.** A real issue left for later is no false positive, and a wrong `fp` label is the dangerous direction: it makes a suppressing policy look safe.
+    - **Out of prompts.** The block is a multi-line HTML comment, so `extract-review-notes.sh` strips it from every prompt, and the human's choices cannot steer the next review.
+- **Consequences**:
+  - **Live reviews show the two scores** that matter most for trusting a blocking finding: is it allowed by a rule, and was it already skipped here.
+  - **Every `/ai-review execute` on a scored run produces labels**, including the false positives the real corpus lacked.
+  - **Cost.** Each request carries up to 16 KB more context inside the unchanged 24,000-byte budget, so a large hunk is trimmed sooner (always with a visible cut).
+  - **Coverage gaps.** Only the runtime `AGENTS.md` is sent, not the consumer's exact `AGENTS.md` chain that opencode loads natively. A project whose rules live only there shows no `rule-allowed`.
+  - **Bias.** Labels come from the author, who has a stake. That is accepted because the alternative is no false-positive labels at all, and `deferred` absorbs doubt.
+  - **Artifact lifetime.** Artifacts expire, so `--scan` has to run within the retention window. It is idempotent, and it reports and skips expired runs.
+- **Roadmap** (each phase flag-gated, and each score shown next to what it qualifies):
+  1. **Phase 4: make `supported` work on real findings.** Give the judge the code a cross-cutting finding is about: other named files and functions, callers from the code graph, and the chunk model's own reasoning. Re-score the labelled real set, which needs the base/head commits recorded per record.
+  2. **Phase 5: let a score act only if the labelled real set shows zero lost true positives.** The first candidate is showing a blocking finding with high `previously_skipped` or `sanctioned` as `[SPECULATIVE]`. It is never hidden, never applied to Critical, and only inside the full-coverage fence, with its own mode Variable.
+  3. **Phase 6: decision support for `/ai-review` analyse and `ai-analyse`.** When `OPENCODE_ANALYSE_ENABLE_DECISIONS` is present and truthy, a Jev-like decision model helps recommend fix/skip, locally and in the autonomous `ai-analyse` workflow. To be investigated when reached. It must never write labels (a model agreeing with a model), and any autonomous use needs its own fence.
+  - **Parked:** severity reconciliation, which no data supports so far.
+- **See also**: LADR-093 (the scorer this extends), LADR-083 (the Skip Areas channel and `extract-review-notes.sh`), LADR-089/090 (the scoped runtime rules reused as judge context), LADR-062 (the run artifact the harvester reads), LADR-067/068 (identifiers; the tags stay colon-free and severity-word-free).
+
 ## Key Behaviors
 
 These are the "I would have gotten this wrong" warnings — the things an AI coder editing this skill must know to avoid breaking the gate. They are the editing-time counterpart to SKILL.md's runtime Key Behaviors.

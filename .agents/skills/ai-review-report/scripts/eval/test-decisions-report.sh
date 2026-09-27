@@ -200,7 +200,8 @@ case "$1 $2" in
   "run download") d=""; while [ $# -gt 0 ]; do [ "$1" = "-D" ] && d="$2"; shift; done
                   mkdir -p "$d/review-run-1"; cp "$HARVEST_FIXTURE" "$d/review-run-1/findings.merged.json" ;;
   "run view") case "$*" in *headSha*) echo "abc1234" ;; *) echo "feat/x" ;; esac ;;
-  "pr list") echo "42" ;;
+  "pr list") case "$*" in *number,body*) cat "$HARVEST_PRS" ;; *) echo "42" ;; esac ;;
+  "pr view") cat "$HARVEST_BODY" ;;
   "repo view") echo "o/r" ;;
 esac
 GH
@@ -228,6 +229,103 @@ check "2u: a label for a finding that does not exist is refused" "fail" \
   "$(PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix.json" bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HOUT" 777 9=tp >/dev/null 2>&1 && echo ok || echo fail)"
 check "2v: with both labels present the analyzer computes separation (fixture is inverted: 0.00)" "1" \
   "$(python3 "$REPORT" "$HOUT" | grep -c 'separation (AUC, 1.0 = perfect, 0.5 = chance): 0.00')"
+
+# --- 2w. labels from /ai-review execute (--from-pr / --scan) -----------------------
+# The block the skill writes into the PR description, twice for run 777 (a
+# second execute round corrects finding 2) plus a deferred skip that must NOT
+# become a label, and an unrelated comment that must be ignored.
+cat > "$TMP/prbody.md" <<'BODY'
+## Summary
+
+<!-- template: describe the change -->
+
+## AI Review Notes
+
+| # | Decision |
+|---|---|
+| 1. | FIX |
+
+<!-- ai-review-decisions
+run: 777
+1: fix
+2: skip invalid
+3: skip deferred
+-->
+
+<!-- ai-review-decisions
+run: 777
+2: skip intentional
+-->
+BODY
+HP="$TMP/harvest-pr"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/prbody.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HP" --from-pr 42 > "$TMP/hp.log" 2>&1
+check "2w: --from-pr harvests fix as tp and the corrected skip as fp, with reasons" "tp/fix|fp/intentional" \
+  "$(jq -r '"\(.label)/\(.label_reason)"' "$HP/pr42-run777-f1.json")|$(jq -r '"\(.label)/\(.label_reason)"' "$HP/pr42-run777-f2.json")"
+check "2x: a deferred skip is never harvested (a real issue left for later is no false positive)" "false" \
+  "$([ -f "$HP/pr42-run777-f3.json" ] && echo true || echo false)"
+check "2y: a second --from-pr does not download again" "1" \
+  "$(PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_BODY="$TMP/prbody.md" \
+      bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HP" --from-pr 42 2>&1 | grep -c 'run 777: already harvested')"
+# Last decision wins, deferred included (review of PR 171, finding 1.): a later
+# `skip deferred` must supersede an earlier harvestable label, and remove a
+# record already written for it.
+labels_body() { # labels_body <out> <decision for finding 1> [<later decision for finding 1>]
+  { printf '<!-- ai-review-decisions\nrun: 777\n1: %s\n-->\n' "$2"
+    [ -z "${3:-}" ] || printf '\n<!-- ai-review-decisions\nrun: 777\n1: %s\n-->\n' "$3"; } > "$1"
+}
+HD="$TMP/harvest-deferred"
+labels_body "$TMP/b-deferred.md" "skip invalid" "skip deferred"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-deferred.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HD" --from-pr 42 >/dev/null 2>&1
+check "2y2: a later deferred supersedes an earlier false-positive label" "false" \
+  "$([ -f "$HD/pr42-run777-f1.json" ] && echo true || echo false)"
+labels_body "$TMP/b-invalid.md" "skip invalid"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-invalid.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HD" --from-pr 42 >/dev/null 2>&1
+check "2y3: ...and removes a record harvested before the correction" "fp/invalid|false|1" \
+  "$(jq -r '"\(.label)/\(.label_reason)"' "$HD/pr42-run777-f1.json")|$(PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_BODY="$TMP/b-deferred.md" \
+      bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HD" --from-pr 42 > "$TMP/hd.log" 2>&1; [ -f "$HD/pr42-run777-f1.json" ] && echo true || echo false)|$(grep -c 'finding 1: latest decision is deferred — earlier label removed' "$TMP/hd.log")"
+# A corrected decision refreshes the stored record instead of counting as
+# "already harvested" (review of PR 171, finding 2.).
+HC="$TMP/harvest-corrected"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-invalid.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HC" --from-pr 42 >/dev/null 2>&1
+labels_body "$TMP/b-fix.md" "fix"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_BODY="$TMP/b-fix.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HC" --from-pr 42 > "$TMP/hc.log" 2>&1
+check "2y4: a corrected decision re-harvests the record with the new label" "tp/fix|0" \
+  "$(jq -r '"\(.label)/\(.label_reason)"' "$HC/pr42-run777-f1.json")|$(grep -c 'already harvested' "$TMP/hc.log")"
+# A correction whose artifact has expired cannot be recorded; the superseded
+# label must not survive it.
+labels_body "$TMP/b-intentional.md" "skip intentional"
+PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_BODY="$TMP/b-intentional.md" \
+  bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HC" --from-pr 42 > "$TMP/hc2.log" 2>&1
+check "2y5: an unrefreshable correction removes the superseded record, loudly" "false|1" \
+  "$([ -f "$HC/pr42-run777-f1.json" ] && echo true || echo false)|$(grep -c 'finding 1: superseded label removed — the corrected decision (fp:intentional) could not be harvested' "$TMP/hc2.log")"
+jq -n --rawfile b "$TMP/prbody.md" '[{number: 42, body: $b}, {number: 43, body: "## Summary\nno labels"}]' > "$TMP/prs.json"
+HS="$TMP/harvest-scan"
+check "2z: --scan visits only PRs that carry labels, and writes their records" "1/2" \
+  "$(PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" HARVEST_PRS="$TMP/prs.json" \
+      bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HS" --scan 2>&1 | grep -c 'scanned o/r: 1 labelled PR')/$(ls "$HS" | wc -l | tr -d ' ')"
+check "2z2: an expired artifact is reported and the scan still exits 0" "0/1" \
+  "$(PATH="$HB:$PATH" HARVEST_FIXTURE=/nonexistent HARVEST_PRS="$TMP/prs.json" \
+      bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$TMP/harvest-gone" --scan > "$TMP/gone.log" 2>&1; echo $?)/$(grep -c 'PR 42 run 777: not harvested' "$TMP/gone.log")"
+check "2z3: a bad reason is refused in the explicit form" "fail" \
+  "$(PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix.json" bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HOUT" 777 1=fp:deferred >/dev/null 2>&1 && echo ok || echo fail)"
+# The report measures the re-raise question when records carry it.
+RK="$TMP/records-skips"; mkdir -p "$RK"
+fk() { # fk <severity> <title> <supported> <previously_skipped>
+  printf '{"severity":"%s","verified":true,"confidence":100,"title":"%s","why_it_matters":"w","supported":%s,"previously_skipped":%s,"jev_severity":"high","jev_confidence":0.5,"diff_hunk_found":true}' "$@"
+}
+printf '{"fixture":"R-1","kind":"must-not-flag","sample":1,"variant":"real","min_severity":"HIGH","forbidden_claim":"","status":"scored","findings":[%s]}' \
+  "$(fk high 'Re-raised skip' 0.8 0.9)" > "$RK/R-1.1.json"
+printf '{"fixture":"R-2","kind":"must-catch","sample":1,"variant":"real","min_severity":"HIGH","forbidden_claim":"","status":"scored","findings":[%s]}' \
+  "$(fk high 'Real bug' 0.4 0.1)" > "$RK/R-2.1.json"
+outk="$(python3 "$REPORT" "$RK")"
+check "2z4: the previously_skipped section and policy appear when records carry it" "1/1" \
+  "$(printf '%s\n' "$outk" | grep -c '1c. `previously_skipped`')/$(printf '%s\n' "$outk" | grep -cE '^ +skipped@0.50 +0/1 +1/1 ')"
+check "2z5: ...and not otherwise" "0" "$(printf '%s\n' "$out" | grep -cE 'previously_skipped|skipped@')"
 
 # --- 3. the measurement can never move the gate ------------------------------------
 check "3a: recording happens only when EVAL_DECISIONS is on" "1" \

@@ -2,18 +2,30 @@
 # score-findings-decisions.sh — score the merged findings with a structured
 # decision model and write its typed verdicts back into the document (LADR-093).
 #
-# Usage: score-findings-decisions.sh <merged_json> [reviews_dir] [total_chunks] [pr_diff] [rules_file]
+# Usage: score-findings-decisions.sh <merged_json> [reviews_dir] [total_chunks] [pr_diff] [rules] [skip_areas]
 #   merged_json  : ci_temp/findings.merged.json, rewritten in place (tmp + mv)
 #   reviews_dir  : ci_temp/reviews — read for chunk_<n>.failed flags (filter fence)
 #   total_chunks : chunk count of this run — the filter fence needs it
 #   pr_diff      : ci_temp/pr_diff.txt — source of the per-finding diff hunk
-#   rules_file   : OPTIONAL project review standards. When given, each finding
-#                  request also carries `project_rules` and asks `sanctioned`
-#                  (does a project rule declare this pattern acceptable?) —
-#                  policy, kept separate from `supported` (evidence). Not wired
-#                  into run-review.sh yet: it is measured first by
-#                  eval/calibrate-decisions.sh. Without it the request is
-#                  exactly what it was.
+#   rules        : OPTIONAL project review standards, either
+#                    a FILE — one rule set for every finding (the eval's
+#                             calibrate-decisions.sh passes the corpus DRs), or
+#                    a DIRECTORY — the gate's work dir, holding the per-chunk
+#                             runtime instructions chunk_<n>/AGENTS.md
+#                             (LADR-090). Each finding gets the rules of the
+#                             first chunk it came from that has any: the same
+#                             scoped set the chunk reviewer was given.
+#                  A finding with rules also carries `project_rules` and is
+#                  asked `sanctioned` (does a project rule declare this pattern
+#                  acceptable?) — policy, kept separate from `supported`
+#                  (evidence). A finding without rules gets neither.
+#   skip_areas   : OPTIONAL file holding the PR description's Skip Areas /
+#                  Known Issues bullets (lib/extract-review-notes.sh
+#                  --skip-areas). When non-empty, every finding request carries
+#                  `pr_skip_areas` and asks `previously_skipped`: is this a
+#                  re-raise of an issue a human already decided not to fix?
+#                  Without either optional input the request is exactly what
+#                  it was before them.
 #
 # Always exits 0. This is enrichment, exactly like the graph analysis, RTK and
 # check-versions: a preflight or configuration failure logs one ⚠️ line and
@@ -36,8 +48,12 @@
 # What it writes
 # --------------
 # Per finding in `.findings`, an optional `decisions` object (supported,
-# severity, pre_existing, actionability). At top level, `decisions_summary`
-# (the PR-level block_merge / dominant_risk / overall_risk answers plus counts).
+# severity, pre_existing, actionability, and — only when the matching optional
+# input was given — sanctioned and previously_skipped; null otherwise). At top
+# level, `decisions_summary` (the PR-level block_merge / dominant_risk /
+# overall_risk answers, counts, and `context`: what rules / Skip Areas were sent).
+# sanctioned and previously_skipped are DISPLAY-ONLY: nothing, not even filter
+# mode, acts on them until real labelled reviews show they are safe to.
 # The chunk model's own `severity`, `confidence` and `verified` are NEVER
 # rewritten. In `filter` mode a non-critical finding whose `supported`
 # probability is below the threshold is moved out of `.findings` into
@@ -55,7 +71,8 @@ merged="${1:-ci_temp/findings.merged.json}"
 reviews_dir="${2:-ci_temp/reviews}"
 total_chunks="${3:-}"
 pr_diff="${4:-ci_temp/pr_diff.txt}"
-rules_file="${5:-}"
+rules_src="${5:-}"
+skip_areas_file="${6:-}"
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$LIB_DIR/../.." && pwd)"
@@ -72,6 +89,9 @@ HUNK_MAX_BYTES=24000
 # Cap on the optional project rules. The budget trim below only ever shortens
 # the hunk, so the rules must fit on their own with room for the evidence.
 RULES_MAX_BYTES=12000
+# Cap on the optional Skip Areas bullets. Short by nature (one line per skipped
+# finding); the cap only has to hold with the rules cap inside the budget.
+SKIP_AREAS_MAX_BYTES=4000
 # Concurrent per-finding requests. Plain batches, not `wait -n`: this script is
 # also reached from local-review.sh, which carries no Bash >= 4 guard.
 PARALLEL=4
@@ -198,18 +218,52 @@ trap 'rm -rf "$work" "${merged}.decisions.tmp"' EXIT
 ( umask 077; printf 'Authorization: Bearer %s\n' "$OPENCODE_DECISIONS_API_KEY" > "$work/auth.hdr" )
 unset OPENCODE_DECISIONS_API_KEY
 
-# Optional project rules (5th argument), capped with a visible marker for the
-# same reason a cut hunk is marked: an unmarked cut reads as "there are no more
-# rules". An empty file means "no rules", and the request stays unchanged.
-: > "$work/rules.txt"
-has_rules=false
-if [ -n "$rules_file" ] && [ -s "$rules_file" ]; then
-  if [ "$(wc -c < "$rules_file" | tr -d ' ')" -gt "$RULES_MAX_BYTES" ]; then
-    { head -c "$RULES_MAX_BYTES" "$rules_file"; printf '\n[... project rules truncated to fit the decision model context budget]\n'; } > "$work/rules.txt"
+# cap_copy <src> <dst> <max_bytes> <what> — copy, cut with a visible marker
+# for the same reason a cut hunk is marked: an unmarked cut reads as "there is
+# no more of it".
+cap_copy() {
+  if [ "$(wc -c < "$1" | tr -d ' ')" -gt "$3" ]; then
+    { head -c "$3" "$1"; printf '\n[... %s truncated to fit the decision model context budget]\n' "$4"; } > "$2"
   else
-    cp "$rules_file" "$work/rules.txt"
+    cp "$1" "$2"
   fi
-  has_rules=true
+}
+
+# Optional project rules (5th argument). A file applies to every finding; a
+# directory is resolved per finding below. An empty file means "no rules", and
+# the request stays unchanged.
+rules_source="none"
+if [ -n "$rules_src" ] && [ -d "$rules_src" ]; then
+  rules_source="chunk"
+elif [ -n "$rules_src" ] && [ -s "$rules_src" ]; then
+  rules_source="file"
+  cap_copy "$rules_src" "$work/rules.txt" "$RULES_MAX_BYTES" "project rules"
+fi
+
+# rules_for <index> <out> — writes the finding's capped rules to <out> and
+# returns 0, or returns 1 when the finding has none.
+rules_for() {
+  local c
+  case "$rules_source" in
+    file) cp "$work/rules.txt" "$2" ;;
+    chunk)
+      for c in $(jq -r --argjson i "$1" '.findings[$i].chunks // [] | .[] | tostring | select(test("^[0-9]+$"))' "$merged"); do
+        if [ -s "$rules_src/chunk_${c}/AGENTS.md" ]; then
+          cap_copy "$rules_src/chunk_${c}/AGENTS.md" "$2" "$RULES_MAX_BYTES" "project rules"
+          return 0
+        fi
+      done
+      return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Optional Skip Areas bullets (6th argument): one set for the whole PR.
+has_skip_areas=false
+: > "$work/skip_areas.txt"
+if [ -n "$skip_areas_file" ] && [ -f "$skip_areas_file" ] && grep -q '[^[:space:]]' "$skip_areas_file" 2>/dev/null; then
+  cap_copy "$skip_areas_file" "$work/skip_areas.txt" "$SKIP_AREAS_MAX_BYTES" "Skip Areas"
+  has_skip_areas=true
 fi
 
 # post <request> <response> — prints the HTTP status (000 on timeout/network).
@@ -313,10 +367,15 @@ hunk() {
   ' "$pr_diff"
 }
 
-# build_finding_request <index> <hunk_file> <out>
+# build_finding_request <index> <hunk_file> <out> — the finding's rules, if
+# any, are in $work/f_<index>.rules (see rules_for).
 build_finding_request() {
+  local rules_file="$work/f_${1}.rules" has_rules=false
+  [ -f "$rules_file" ] && has_rules=true
+  [ -f "$rules_file" ] || rules_file="$work/empty.txt"
   jq -c --argjson i "$1" --rawfile hunk "$2" --slurpfile q "$QUESTIONS" --arg model "$model" \
-     --rawfile rules "$work/rules.txt" --argjson has_rules "$has_rules" '
+     --rawfile rules "$rules_file" --argjson has_rules "$has_rules" \
+     --rawfile skips "$work/skip_areas.txt" --argjson has_skips "$has_skip_areas" '
     .findings[$i] as $f | $q[0] as $q
     | { model: $model,
         state: ({
@@ -330,10 +389,13 @@ build_finding_request() {
           diff_hunk: $hunk,
           review_rules: $q.review_rules
         }
-        + (if $has_rules then { project_rules: $rules } else {} end)),
+        + (if $has_rules then { project_rules: $rules } else {} end)
+        + (if $has_skips then { pr_skip_areas: $skips } else {} end)),
         questions: ($q.per_finding
-                    + (if $has_rules then ($q.per_finding_rules | del(."$comment")) else {} end)) }' "$merged" > "$3"
+                    + (if $has_rules then ($q.per_finding_rules | del(."$comment")) else {} end)
+                    + (if $has_skips then ($q.per_finding_skip_areas | del(."$comment")) else {} end)) }' "$merged" > "$3"
 }
+: > "$work/empty.txt"
 
 # --- Per-finding requests -------------------------------------------------------
 to_score="$n_findings"
@@ -347,6 +409,7 @@ while [ "$i" -lt "$to_score" ]; do
   file="$(jq -r --argjson i "$i" '.findings[$i].file // ""' "$merged")"
   line="$(jq -r --argjson i "$i" '.findings[$i].line // 0 | tostring | (capture("^(?<n>[0-9]+)").n // "0")' "$merged")"
   hunk "$file" "$line" > "$work/f_${i}.hunk"
+  rules_for "$i" "$work/f_${i}.rules" || rm -f "$work/f_${i}.rules"
   # No hunk is not evidence against the finding: most often the chunk model
   # wrote the path differently from the diff header (basename, "./" prefix).
   # An empty field read as "the quoted evidence is not in the change" and
@@ -405,8 +468,11 @@ while [ "$i" -lt "$to_score" ]; do
     code="$(cat "$work/f_${i}.code")"
     hunk_found=true
     [ -f "$work/f_${i}.nohunk" ] && hunk_found=false
+    has_rules=false
+    [ -f "$work/f_${i}.rules" ] && has_rules=true
     if [ "$code" = "200" ] && jq -c --argjson i "$i" --arg provider "$provider" --arg model "$model" \
-        --argjson hunk_found "$hunk_found" --argjson has_rules "$has_rules" '
+        --argjson hunk_found "$hunk_found" --argjson has_rules "$has_rules" \
+        --argjson has_skips "$has_skip_areas" '
         .answers as $a
         | def prob: type == "number" and . >= 0 and . <= 1;
           if ($a.supported.noul | prob)
@@ -417,6 +483,7 @@ while [ "$i" -lt "$to_score" ]; do
              # required like the others: a missing one must leave the finding
              # unscored (and counted as skipped), not silently become null.
              and (($has_rules | not) or ($a.sanctioned.noul | prob))
+             and (($has_skips | not) or ($a.previously_skipped.noul | prob))
           then { key: ($i | tostring),
                  value: { provider: $provider,
                           model: (.model // $model),
@@ -429,6 +496,7 @@ while [ "$i" -lt "$to_score" ]; do
                           # Only an answer to a question we asked: without rules
                           # `sanctioned` was never put to the provider.
                           sanctioned: (if $has_rules and ($a.sanctioned.noul | prob) then $a.sanctioned.noul else null end),
+                          previously_skipped: (if $has_skips and ($a.previously_skipped.noul | prob) then $a.previously_skipped.noul else null end),
                           actionability: { score: $a.actionability.score,
                                            confidence: ($a.actionability.confidence // null) } } }
           else error("malformed answer") end' "$work/f_${i}.resp" >> "$work/decisions.jsonl" 2>/dev/null; then
@@ -509,8 +577,13 @@ if [ "$scored" -eq 0 ] && [ "$(cat "$work/pr.json")" = "null" ]; then
 fi
 
 # --- Write back -------------------------------------------------------------------
+# How many findings were sent project rules — a directory source can cover only
+# some of them (a chunk with no scoped rules has no runtime AGENTS.md).
+with_rules="$(find "$work" -maxdepth 1 -name 'f_*.rules' 2>/dev/null | wc -l | tr -d ' ')"
 jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
    --arg provider "$provider" --arg model "$model" \
+   --arg rules_source "$rules_source" --argjson with_rules "${with_rules:-0}" \
+   --argjson has_skips "$has_skip_areas" \
    --arg mode "$mode" --arg mode_requested "$mode_requested" --arg mode_note "$mode_note" \
    --argjson min "$min_probability" --arg pr_scope "$pr_scope" \
    --argjson scored "$scored" --argjson skipped "$skipped" '
@@ -533,6 +606,10 @@ jq --slurpfile d "$work/decisions.json" --slurpfile pr "$work/pr.json" \
         scored: $scored,
         skipped: $skipped,
         pr_level_scope: $pr_scope,
+        # What the judge was given besides the finding and its hunk, so a
+        # reader can tell "no rule allows it" from "no rules were sent".
+        context: { project_rules: $rules_source, findings_with_rules: $with_rules,
+                   skip_areas: $has_skips },
         suppressed: [ $drop[] | { number_before_filter: .["#"], title, severity, file, line,
                                   supported: .decisions.supported } ] }
       + ($pr[0] // { block_merge: null, dominant_risk: null, overall_risk: null }) )

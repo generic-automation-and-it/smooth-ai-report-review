@@ -13,6 +13,14 @@
 #   (2.4 of 4) · dominant risk correctness (66%) — informational; the decision
 #   above follows the review policy.
 #
+# When a BLOCKING finding (critical or high) was judged a likely re-raise of the
+# PR's own Skip Areas, or likely allowed by a project rule (probability at or
+# above the decision threshold), that is named here too — it is the case where
+# a reader most needs to question the verdict above:
+#
+#   … · finding 3 likely re-raises a Skip Areas item (88%) · finding 2 likely
+#   allowed by a project rule (93%) — informational; …
+#
 # Informational only: it never edits the decision, the counts or
 # MACHINE_READABLE_ACTION, and it deliberately contains none of the words the
 # fallback text parser in aggregate-reviews.sh looks for ("approve",
@@ -35,8 +43,22 @@ grep -q '^\*\*Decision model:\*\*' "$summary" && exit 0
 
 line="$(jq -r '
   def pct: "\((. * 100) | round)%";
-  .decisions_summary // empty
-  | select(.block_merge != null or .overall_risk != null or .dominant_risk != null)
+  # context_note(key; one; many): blocking findings whose answer to <key> is at
+  # or above the threshold, as one phrase ("finding 3 … (88%)" or "findings 3,
+  # 5 … (88%, 71%)"), or empty.
+  def context_note($f; $min; key; $one; $many):
+    [ $f[] | select(.severity == "critical" or .severity == "high")
+      | select(((.decisions // {}) | key // null) != null and ((.decisions | key) >= $min))
+      | { n: .["#"], p: (.decisions | key) } ]
+    | if length == 0 then empty
+      elif length == 1 then "finding \(.[0].n) \($one) (\(.[0].p | pct))"
+      else "findings \(map(.n | tostring) | join(", ")) \($many) (\(map(.p | pct) | join(", ")))" end;
+  (.findings // []) as $f
+  | .decisions_summary // empty
+  | (.min_probability // 0.5) as $min
+  | [ context_note($f; $min; .previously_skipped; "likely re-raises a Skip Areas item"; "likely re-raise Skip Areas items"),
+      context_note($f; $min; .sanctioned; "likely allowed by a project rule"; "likely allowed by project rules") ] as $ctx
+  | select(.block_merge != null or .overall_risk != null or .dominant_risk != null or ($ctx | length) > 0)
   | [ ( if .block_merge != null then "block-merge probability \(.block_merge | pct)" else empty end ),
       ( if .overall_risk != null then
           ((.overall_risk.legend // {})[(.overall_risk.score | round | tostring)] // "" | split(":")[0]) as $lvl
@@ -46,7 +68,8 @@ line="$(jq -r '
       ( if .dominant_risk != null then
           "dominant risk \(.dominant_risk.choice)"
           + (if .dominant_risk.confidence != null then " (\(.dominant_risk.confidence | pct))" else "" end)
-        else empty end ) ]
+        else empty end ),
+      $ctx[] ]
   | select(length > 0)
   | "**Decision model:** " + join(" · ")
     + " — informational; the decision above follows the review policy."

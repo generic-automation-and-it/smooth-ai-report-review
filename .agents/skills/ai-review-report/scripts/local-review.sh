@@ -626,11 +626,20 @@ if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|tr
   if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
     if [ -s "ci_temp/findings.merged.json" ] && [ -f "$SCRIPT_DIR/lib/score-findings-decisions.sh" ]; then
       xargs -0 git diff "${FROM_SHA}..${TO_SHA}" -- < ci_temp/changed_files.txt > ci_temp/pr_diff.txt 2>/dev/null || true
+      # Same judge context as the gate: per-chunk rules from ci_temp, and the
+      # PR's Skip Areas when a PR description was fetched.
+      : > "ci_temp/decision_skip_areas.md"
+      if [ -f "$WORK_DIR/pr_description.txt" ]; then
+        bash "$SCRIPT_DIR/lib/extract-review-notes.sh" --skip-areas \
+          < "$WORK_DIR/pr_description.txt" > "ci_temp/decision_skip_areas.md" 2>/dev/null || true
+      fi
       bash "$SCRIPT_DIR/lib/score-findings-decisions.sh" \
         "ci_temp/findings.merged.json" \
         "ci_temp/reviews" \
         "$TOTAL_CHUNKS" \
-        "ci_temp/pr_diff.txt" || true
+        "ci_temp/pr_diff.txt" \
+        "ci_temp" \
+        "ci_temp/decision_skip_areas.md" || true
     else
       echo "ℹ️  Decision model (LADR-093): no merged findings document — step skipped"
     fi

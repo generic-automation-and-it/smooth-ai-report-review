@@ -170,6 +170,49 @@ if printf '%s\n' "$OUT_BARE" | grep -q 'bar.py:2'; then
 else
   fail "13. bare '## Skip Areas' heading not matched"
 fi
+# 13b-13e — --skip-areas (LADR-093 judge context): the Skip Areas body alone.
+OUT_SKIPS="$(printf '%s\n' "$BODY_FULL" | bash "$LIB" --skip-areas)"
+if [ "$(printf '%s\n' "$OUT_SKIPS" | grep -c '\*\*skip reason:\*\*')" -eq 2 ]; then
+  pass "13b. --skip-areas prints every Skip Areas bullet"
+else
+  fail "13b. --skip-areas lost a Skip Areas bullet"
+fi
+if printf '%s\n' "$OUT_SKIPS" | grep -qE 'Focus Areas|AI Review Response|Skip Areas'; then
+  fail "13c. --skip-areas leaked the notes section or a heading"
+else
+  pass "13c. --skip-areas prints no notes and no heading"
+fi
+if [ -z "$(printf '%s\n' "$BODY_NO_SKIPS" | bash "$LIB" --skip-areas)" ]; then
+  pass "13d. --skip-areas prints nothing when there is no Skip Areas section"
+else
+  fail "13d. --skip-areas printed text for a body without Skip Areas"
+fi
+if [ "$(printf '%s\n' "$BODY_FULL" | bash "$LIB")" = "$OUT_FULL" ]; then
+  pass "13e. the default output is unchanged by the option"
+else
+  fail "13e. the default output changed"
+fi
+# 13f — the LADR-093 label block /ai-review execute appends after its table is
+# data for the eval harvester, never prompt text: the human's fix/skip choices
+# must not steer the next review. The table itself must survive.
+BODY_LABELS="$BODY_FULL
+
+<!-- ai-review-decisions
+run: 777
+1: skip intentional
+-->
+
+- trailing note survives."
+OUT_LABELS="$(printf '%s\n' "$BODY_LABELS" | bash "$LIB")"
+if printf '%s\n' "$OUT_LABELS" | grep -qE 'ai-review-decisions|run: 777|skip intentional'; then
+  fail "13f. the ai-review-decisions label block leaked into the extracted notes"
+# `AI Review Response` only occurs in the table heading: `middleware ordering`
+# is also in a Skip Areas bullet, so it could not prove the table survived.
+elif printf '%s\n' "$OUT_LABELS" | grep -q 'AI Review Response' && printf '%s\n' "$OUT_LABELS" | grep -q 'trailing note survives'; then
+  pass "13f. the label block is stripped; the table and the text after it survive"
+else
+  fail "13f. text around the label block was lost"
+fi
 
 echo ""
 echo "── Part 2: call sites cannot drift back ──"

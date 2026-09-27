@@ -73,6 +73,17 @@
       }
     }
   },
+  "per_finding_skip_areas": {
+    "$comment": "Asked only when the scorer is given the PR description's Skip Areas / Known Issues bullets (6th argument). Those bullets are what `/ai-review execute` writes for every finding a human chose not to fix, so this measures whether a finding is a RE-RAISE of a decision already taken on this pull request — a different signal from `sanctioned` (a standing project rule) and from `supported` (evidence).",
+    "previously_skipped": {
+      "type": "noul",
+      "instructions": "`pr_skip_areas` lists decisions the author of this pull request recorded after an earlier review round: issues they examined and chose not to fix, each with its location and reason. Does an entry in `pr_skip_areas` cover the same issue that `finding` raises — the same concern at the same location or area, not merely the same topic?",
+      "criteria": {
+        "true": "An entry names this concern at this file, line range or area and records a decision not to act on it.",
+        "false": "No entry covers this concern, or an entry covers the same file or topic but a different concern."
+      }
+    }
+  },
   "pr_level": {
     "block_merge": {
       "type": "noul",
