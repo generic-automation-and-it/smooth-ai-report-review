@@ -324,6 +324,18 @@ BODY="$BODY_SAVE"
 check "Test 5e: the threshold compares the raw P(skip) — 0.495 shows as 50% but is not withheld at 0.5" "50|" \
   "$(awk -F '\t' 'NR == 2 { printf "%s", $5 }' "$TMP_DIR/out_edge/recommendations.tsv")|$(cat "$TMP_DIR/out_edge/withhold.txt")"
 
+# PR 179 review 5331521317: the decision-score threshold is the gate's in every
+# scope; the analyse MIN_PROBABILITY is only the P(skip) filter threshold.
+REC_EXTRA="--severities medium,low"
+run_rec thr_analyse analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.95
+check "Test 5f: a high analyse P(skip) threshold does not mark a 90% decision score [UNSUPPORTED]" "0|1" \
+  "$(grep -c '| 2\. .*90% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)|$(grep -c '| 3\. .*20% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)"
+run_rec thr_gate analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY=0.95
+check "Test 5g: the gate's decision-score threshold decides [UNSUPPORTED] in the analyse table" "1" \
+  "$(grep -c '| 2\. .*90% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_gate/recommendations.md" || true)"
+check "Test 5h: the analyse job forwards the gate's decision-score threshold" "1" \
+  "$(grep -c "OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}" "$ANALYSE_WF" || true)"
+
 # --- 6. review scope ---------------------------------------------------------------------
 echo ""
 echo "--- review scope (/ai-review --usedecisions) ---"

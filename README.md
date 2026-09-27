@@ -648,7 +648,7 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_ANALYSE_DECISIONS_PROVIDER` | _(gate's provider)_ | Like `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`; blank inherits the gate's provider **and** model. |
 | `OPENCODE_ANALYSE_DECISIONS_MODEL` | _(see description)_ | Blank → the gate's model when the provider is inherited, else the analyse provider's default (the two surfaces spell the model differently). |
 | `OPENCODE_ANALYSE_DECISIONS_MODE` | `annotate` | `annotate` adds an advisory line per finding; `filter` also withholds findings the model recommends skipping. Never adds a finding to the fixer's scope. |
-| `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` | `0.5` | `P(skip)` at or above which `filter` withholds a finding. |
+| `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` | `0.5` | `P(skip)` at or above which `filter` withholds a finding. Only that: the decision-score threshold behind the tables' low-evidence marker is always the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY`, which the analyse job forwards. |
 | `OPENCODE_ANALYSE_DECISIONS_TIMEOUT` | _(gate's, else `20`)_ | Seconds per decision request. |
 | `OPENCODE_REVIEW_REPORT_MAX_PARALLEL` | `7` | Maximum chunk reviews run concurrently. Raising it trades provider rate-limit risk for wall-clock; lower it if the gateway throttles. |
 | `OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX` | `1200` | Upper clamp (seconds) for the per-chunk budget, which is split across the review model chain. Bounds `OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT` so a retune cannot set an unbounded budget. |

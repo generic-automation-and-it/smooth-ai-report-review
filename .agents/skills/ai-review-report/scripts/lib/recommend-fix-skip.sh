@@ -65,6 +65,8 @@
 #       because `filter` means something different here (below)
 #   OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY [0.5] own: the P(skip) at or
 #       above which `filter` withholds a finding
+#       — and nothing else: the decision-score threshold ([UNSUPPORTED]) is
+#       always the gate's OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY
 #   OPENCODE_ANALYSE_DECISIONS_TIMEOUT         → else the gate's → 20
 #
 # What the modes mean for ai-analyse — and the fence
@@ -165,6 +167,17 @@ if ! [[ "$d_min" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
   d_min="0.5"
 fi
 case "$d_min" in .*) d_min="0${d_min}" ;; esac
+# The decision-score threshold ([UNSUPPORTED] in the tables) is the GATE's in
+# every scope. OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY means one thing only:
+# the P(skip) at which analyse's `filter` withholds a finding. Sharing it made
+# the same 57% score read as supported in the gate's review and [UNSUPPORTED]
+# in the analyse table (PR 179, review 5331521317 finding 4).
+s_min="${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY:-0.5}"
+if ! [[ "$s_min" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
+  [ "$scope" = "analyse" ] && warn "invalid OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY='${s_min}' (expected 0-1) — using 0.5"
+  s_min="0.5"
+fi
+case "$s_min" in .*) s_min="0${s_min}" ;; esac
 
 if ! command -v jq >/dev/null 2>&1; then
   warn "jq unavailable — no recommendations"
@@ -258,7 +271,7 @@ if [ "$n_rescore" -gt 0 ]; then
   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER="$d_provider" \
   OPENCODE_REVIEW_REPORT_DECISIONS_MODEL="$d_model" \
   OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
-  OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY="$d_min" \
+  OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY="$s_min" \
   OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT="$d_timeout" \
     bash "$LIB_DIR/score-findings-decisions.sh" \
       "$out_dir/rescore.json" "$out_dir/.no-reviews" "" "${diff:-/dev/null}" "$rules_arg" "$skip_areas" || true
@@ -289,7 +302,7 @@ rm -f "$out_dir/base.json"
 
 # --- Recommendations ---------------------------------------------------------------
 # rec: FIX, or SKIP with the model's class; the P(skip) shown is 1 - P(fix).
-jq -r --argjson min "$d_min" '
+jq -r --argjson min "$s_min" '
   def pct: if . == null then "" else "\((. * 100) | round)" end;
   ["n","severity","recommendation","class","skip_probability","decision_score","unsupported",
    "rule_allowed","previously_skipped","actionability","diff_hunk_found","file","line","title","skip_probability_raw",

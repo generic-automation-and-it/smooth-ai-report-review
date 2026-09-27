@@ -299,6 +299,10 @@ jobs:
       OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || '' }}
       OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
       OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '' }}
+      # The gate's decision-score threshold, so an analyse table marks a score
+      # [UNSUPPORTED] exactly where the gate's review does. The analyse
+      # MIN_PROBABILITY above is only the P(skip) at which `filter` withholds.
+      OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}
       # LADR-098: shared with the gate, not cloned — it only adds context to a
       # re-scored finding (the enclosing code at the reviewed commit).
       OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT || '1' }}
