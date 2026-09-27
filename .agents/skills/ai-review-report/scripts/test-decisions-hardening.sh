@@ -611,9 +611,14 @@ check "Test 9d: the analyse run uploads its artifact, always" "1|1" \
   "$(grep -c 'name: ai-analyse-run-\${{ github.run_id }}' "$ANALYSE_WF")|$(awk '/- name: Upload ai-analyse run artifacts/{getline; print}' "$ANALYSE_WF" | grep -c 'if: always()')"
 # Review 5331170285 finding 3: named files only — never the whole decisions
 # directory, which also holds the raw PR diff and body and the gate's artifact.
-upload_paths="$(awk '/- name: Upload ai-analyse run artifacts/{f=1} f && /path: \|/{p=1; next} p && /^ *[a-z-]+:/{exit} p' "$ANALYSE_WF")"
-check "Test 9d2: the upload names its files: scorer output yes; the decisions dir, PR diff, PR body and gate artifact no" "1|0|0|0" \
-  "$(printf '%s\n' "$upload_paths" | grep -c 'ci_temp/decisions/out/$')|$(printf '%s\n' "$upload_paths" | grep -cE 'ci_temp/decisions/?$' || true)|$(printf '%s\n' "$upload_paths" | grep -cE 'pr_diff|pr_body|decisions/artifact' || true)|$(printf '%s\n' "$upload_paths" | grep -c '^ *!' || true)"
+run_files="$(grep -m1 '^      ANALYSE_RUN_FILES: ' "$ANALYSE_WF" | sed 's/^      ANALYSE_RUN_FILES: //')"
+check "Test 9d2: the run files are named: scorer output yes; the decisions dir, PR diff, PR body and gate artifact no" "1|0|0" \
+  "$(printf '%s\n' $run_files | grep -c '^decisions/out$')|$(printf '%s\n' $run_files | grep -cE '^decisions/?$' || true)|$(printf '%s\n' $run_files | grep -cE 'pr_diff|pr_body|artifact' || true)"
+# Finding 6: a suite may clean ci_temp/, so the files are snapshotted outside
+# the checkout BEFORE the test gate, collected without overwriting that
+# snapshot, and uploaded from there.
+check "Test 9d3: snapshot before the test gate, no-clobber collection, upload from runner.temp" "1|1|1|1" \
+  "$(awk '/for f in \$ANALYSE_RUN_FILES; do/{s=NR} /scripts\/lib\/run-test-gate.sh/{print (s && s < NR) ? 1 : 0; exit}' "$ANALYSE_WF")|$(awk '/- name: Collect ai-analyse run artifacts/{f=1} f && /if: always\(\)/{print 1; exit}' "$ANALYSE_WF")|$(grep -c 'cp -Rn "ci_temp/\$f"' "$ANALYSE_WF")|$(grep -c 'path: \${{ runner.temp }}/ai-analyse-run/' "$ANALYSE_WF")"
 check "Test 9e: the analyse job forwards the code-context Variable" "1" \
   "$(grep -c "OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT || '1' }}" "$ANALYSE_WF")"
 for t in test-decisions-hardening.sh ../../ai-analyse/scripts/test-filter-failing-test-findings.sh \
