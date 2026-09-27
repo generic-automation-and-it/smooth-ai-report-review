@@ -125,7 +125,7 @@ bash "$REDACT" "$W" >/dev/null 2>&1; cp "$W/cs.txt" "$TMP_DIR/once.txt"; bash "$
 check "Test 5f: spaces, delimiters and escaped quotes leave nothing visible; a second pass is a no-op" "0|4|same" \
   "$(grep -cE 'secret pass|abc def|side|it.s' "$W/cs.txt" || true)|$(grep -c '<REDACTED>' "$W/cs.txt")|$(cmp -s "$W/cs.txt" "$TMP_DIR/once.txt" && echo same || echo changed)"
 check "Test 5g: the rest of the connection string is kept" "1|1" \
-  "$(grep -c '^a: Server=db;Password=<REDACTED>;Timeout=5$' "$W/cs.txt")|$(grep -c '^b: {"cs": "Server=db;Password=<REDACTED>;"}$' "$W/cs.txt")"
+  "$(grep -c '^a: Server=db;Password=<REDACTED>;Timeout=5$' "$W/cs.txt")|$(grep -c '^b: {"cs": "Server=db;Password=\\"<REDACTED>\\";"}$' "$W/cs.txt")"
 # Review 5331831530: an unterminated quoted value (a log line cut mid-value)
 # is redacted through the delimiter or the end of the line — fail closed.
 U2="$TMP_DIR/unterminated"; mkdir -p "$U2"
@@ -133,6 +133,13 @@ printf 'a: Password="abc123secret\nb: Pwd='"'"'cut-off-value;Server=x\nc: Passwo
 bash "$REDACT" "$U2" >/dev/null 2>&1; cp "$U2/log.txt" "$TMP_DIR/u_once.txt"; bash "$REDACT" "$U2" >/dev/null 2>&1
 check "Test 5h: unterminated quoted credentials are redacted to the delimiter or line end; idempotent" "0|1|1|1|same" \
   "$(grep -cE 'abc123secret|cut-off-value|ok-quoted' "$U2/log.txt" || true)|$(grep -c '^a: Password="<REDACTED>$' "$U2/log.txt")|$(grep -c "^b: Pwd='<REDACTED>;Server=x$" "$U2/log.txt")|$(grep -c '^c: Password="<REDACTED>";$' "$U2/log.txt")|$(cmp -s "$U2/log.txt" "$TMP_DIR/u_once.txt" && echo same || echo changed)"
+# Review 5331854745: JSON-escaped quotes with a `;` inside the password are
+# taken whole; an unterminated escaped quote fails closed to the line end.
+E="$TMP_DIR/escaped"; mkdir -p "$E"
+printf 'a: {"cs": "Server=db;Password=\\"alpha;omega\\";Timeout=5"}\nb: {"cs": "Password=\\"cut-off;still-secret\n' > "$E/j.txt"
+bash "$REDACT" "$E" >/dev/null 2>&1; cp "$E/j.txt" "$TMP_DIR/e_once.txt"; bash "$REDACT" "$E" >/dev/null 2>&1
+check "Test 5i: an escaped-quoted value with a ; inside is redacted whole, quotes and the rest kept; idempotent" "0|1|1|same" \
+  "$(grep -cE 'alpha|omega|cut-off|still-secret' "$E/j.txt" || true)|$(grep -c '^a: {"cs": "Server=db;Password=\\"<REDACTED>\\";Timeout=5"}$' "$E/j.txt")|$(grep -c '^b: {"cs": "Password=\\"<REDACTED>$' "$E/j.txt")|$(cmp -s "$E/j.txt" "$TMP_DIR/e_once.txt" && echo same || echo changed)"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 

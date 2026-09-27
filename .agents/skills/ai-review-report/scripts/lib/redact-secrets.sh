@@ -86,6 +86,13 @@ while IFS= read -r -d '' f; do
     # a quote or is already <REDACTED>.
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)"(?!<REDACTED>")(?:\\.|""|[^"\\\n])*"/$1"<REDACTED>"/gi;
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)\x27(?!<REDACTED>\x27)(?:\\.|\x27\x27|[^\x27\\\n])*\x27/$1\x27<REDACTED>\x27/gi;
+    # Backslash-escaped quotes around the value (a connection string embedded
+    # in JSON: Password=\"alpha;omega\"). A `;` inside is part of the
+    # password, so the delimiter-based pass below must not see it first
+    # (review 5331854745): take \"…\" whole, and fail closed to the end of the
+    # line when the escaped quote never closes.
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)\\(["\x27])(?!<REDACTED>)(?:(?!\\\2).)*?\\\2/$1\\$2<REDACTED>\\$2/gi;
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)\\(["\x27])(?!<REDACTED>)[^\r\n]*/$1\\$2<REDACTED>/gi;
     # Fail-closed for an UNTERMINATED quoted value (a log line cut mid-value:
     # Password="abc123secret): the passes above need the closing quote, the one
     # below skips a value starting with a quote, so neither matched and the
@@ -95,7 +102,7 @@ while IFS= read -r -d '' f; do
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)(["\x27])(?!<REDACTED>)[^;\r\n]*/$1$2<REDACTED>/gi;
     # `\s*+` is possessive: the spaces after `=` cannot be given back, so a
     # space never becomes "the value" in front of an already-redacted one.
-    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)(?![\x27"]|<REDACTED>)(?:\\.|[^;"\x27\\\r\n])+/$1<REDACTED>/gi;
+    s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*+)(?![\x27"]|<REDACTED>|\\["\x27]<REDACTED>)(?:\\.|[^;"\x27\\\r\n])+/$1<REDACTED>/gi;
   ' "$f" || { echo "redact-secrets.sh: could not redact a file under ${dir}" >&2; exit 1; }
 done < "$list"
 
