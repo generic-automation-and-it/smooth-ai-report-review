@@ -95,6 +95,10 @@ case "$kind" in
                elif ($t | test("nodist")) then { fix_skip: { choice: "skip_deferred" } }
                else { fix_skip: { choice: "fix", probabilities: { fix: 0.8, skip_intentional: 0.1, skip_invalid: 0.05, skip_deferred: 0.05 } } } end)) }' "$data" > "$out" ;;
 esac
+# STUB_FS_CONF: the model's own confidence on every fix/skip answer.
+if [ -n "${STUB_FS_CONF:-}" ] && [ "$kind" = "finding" ]; then
+  jq -c --argjson c "$STUB_FS_CONF" 'if .answers.fix_skip then .answers.fix_skip.confidence = $c else . end' "$out" > "$out.t" && mv "$out.t" "$out"
+fi
 printf '200'
 SHIM
 chmod +x "$BIN/curl"
@@ -335,6 +339,23 @@ check "Test 5g: the gate's decision-score threshold decides [UNSUPPORTED] in the
   "$(grep -c '| 2\. .*90% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_gate/recommendations.md" || true)"
 check "Test 5h: the analyse job forwards the gate's decision-score threshold" "1" \
   "$(grep -c "OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}" "$ANALYSE_WF" || true)"
+
+# A fix/skip answer below the confidence floor is shown as uncertain, never
+# withheld, and leans the way the model leaned (PR 179: the answers a human
+# overturned came at confidence 0.12 and 0.14).
+run_rec unsure analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MODE=filter \
+  OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.5 STUB_FS_CONF=0.12
+check "Test 5i: a low-confidence answer is UNCERTAIN in the TSV and is never withheld" "UNCERTAIN UNCERTAIN|" \
+  "$(awk -F '\t' '$1 == 2 || $1 == 3 { printf "%s%s", s, $3; s = " " }' "$TMP_DIR/out_unsure/recommendations.tsv")|$(cat "$TMP_DIR/out_unsure/withhold.txt" 2>/dev/null)"
+check "Test 5j: the table says which way it leans and how confident it was" "1" \
+  "$(grep -c '| 3\. .*| uncertain — leans SKIP (invalid), confidence 12% |' "$TMP_DIR/out_unsure/recommendations.md" || true)"
+section3="$(awk '/^### 🟡 Medium/{f=1} /^### 🔵/{f=0} f' "$BODY")"
+check "Test 5k: ai-analyse's advisory line says uncertain, not recommends" "1|0" \
+  "$(printf '%s' "$section3" | bash "$APPLY" "$TMP_DIR/out_unsure/recommendations.tsv" "" "$TMP_DIR/rep_unsure" | grep -c 'Decision model: uncertain, leans SKIP (invalid) (confidence 12%)')|$(printf '%s' "$section3" | bash "$APPLY" "$TMP_DIR/out_unsure/recommendations.tsv" "" "$TMP_DIR/rep_unsure2" | grep -c 'recommends SKIP (invalid)' || true)"
+run_rec sure analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MODE=filter \
+  OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.5 STUB_FS_CONF=0.3
+check "Test 5l: at the floor (0.3) the answer counts, and filter withholds as before" "2 3" \
+  "$(paste -sd ' ' - < "$TMP_DIR/out_sure/withhold.txt")"
 
 # --- 6. review scope ---------------------------------------------------------------------
 echo ""

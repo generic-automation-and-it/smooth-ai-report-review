@@ -50,8 +50,11 @@ printf '%s' "$input" | awk -F '\t' -v tsv="$tsv" -v wh="$withhold" -v rep="$with
     while ((getline line < tsv) > 0) {
       if (++r == 1) continue
       split(line, f, "\t")
-      rec = (f[3] == "FIX") ? "FIX" : "SKIP (" f[4] ")"
-      note = "   - 🎯 Decision model: recommends " rec
+      # UNCERTAIN (column 17 holds the confidence): the model leans one way
+      # but its own confidence is too low to call it a recommendation.
+      lean = (f[4] == "fix") ? "FIX" : "SKIP (" f[4] ")"
+      if (f[3] == "UNCERTAIN") note = "   - 🎯 Decision model: uncertain, leans " lean " (confidence " f[17] "%)"
+      else note = "   - 🎯 Decision model: recommends " ((f[3] == "FIX") ? "FIX" : "SKIP (" f[4] ")")
       sep = " — "
       if (f[5] != "") { note = note sep "P(skip) " f[5] "%"; sep = " · " }
       if (f[6] != "") { note = note sep "decision score " f[6] "%" (f[7] == "yes" ? " [UNSUPPORTED]" : ""); sep = " · " }

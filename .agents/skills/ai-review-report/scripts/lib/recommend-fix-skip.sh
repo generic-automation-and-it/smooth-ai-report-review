@@ -41,8 +41,9 @@
 #   findings.json        the findings parsed from the body (+ artifact evidence)
 #   decisions.json       the same document after scoring (`decisions.fix_skip`,
 #                        `decisions.decision_source`: gate | rescored)
-#   recommendations.tsv  one row per SCORED finding (header on line 1; the last
-#                        column is the source)
+#   recommendations.tsv  one row per SCORED finding (header on line 1; column 3
+#                        is FIX | SKIP | UNCERTAIN, 16 the source, 17 the
+#                        model's own fix/skip confidence)
 #   recommendations.md   the human-facing table
 #   withhold.txt         analyse + filter only: finding numbers to withhold
 #   status               one word: off | no_findings | unavailable | scored
@@ -302,15 +303,24 @@ rm -f "$out_dir/base.json"
 
 # --- Recommendations ---------------------------------------------------------------
 # rec: FIX, or SKIP with the model's class; the P(skip) shown is 1 - P(fix).
-jq -r --argjson min "$s_min" '
+# UNCERTAIN when the model's own confidence in the fix/skip answer is below
+# FIX_SKIP_MIN_CONFIDENCE: on PR 179 the two answers a human overturned came at
+# confidence 0.12 and 0.14, next to "FIX" beside a 61% P(skip). An uncertain
+# answer shows which way it leans, is never withheld (filter matches SKIP only)
+# and needs no human override. A constant, not a Variable, until the eval
+# measures where the line belongs. A missing confidence (older answers) is not
+# treated as low.
+FIX_SKIP_MIN_CONFIDENCE=0.3
+jq -r --argjson min "$s_min" --argjson minconf "$FIX_SKIP_MIN_CONFIDENCE" '
   def pct: if . == null then "" else "\((. * 100) | round)" end;
   ["n","severity","recommendation","class","skip_probability","decision_score","unsupported",
    "rule_allowed","previously_skipped","actionability","diff_hunk_found","file","line","title","skip_probability_raw",
-   "source"],
+   "source","fix_skip_confidence"],
   ( .findings[] | select(.decisions.fix_skip != null)
     | .decisions as $d
     | [ (.["#"] | tostring), .severity,
-        (if $d.fix_skip.choice == "fix" then "FIX" else "SKIP" end),
+        (if ($d.fix_skip.confidence | type) == "number" and $d.fix_skip.confidence < $minconf then "UNCERTAIN"
+         elif $d.fix_skip.choice == "fix" then "FIX" else "SKIP" end),
         ($d.fix_skip.choice | sub("^skip_"; "")),
         ($d.fix_skip.skip_probability | pct),
         ($d.supported | pct),
@@ -321,7 +331,8 @@ jq -r --argjson min "$s_min" '
         (if $d.diff_hunk_found == false then "no" else "yes" end),
          .file, (.line | tostring), (.title | gsub("[\t\n]"; " ")),
          ($d.fix_skip.skip_probability // ""),
-         ($d.decision_source // "rescored") ] )
+         ($d.decision_source // "rescored"),
+         ($d.fix_skip.confidence | pct) ] )
   | @tsv' "$out_dir/decisions.json" > "$out_dir/recommendations.tsv"
 
 if [ "$scope" = "analyse" ] && [ "$d_mode" = "filter" ]; then
@@ -345,7 +356,8 @@ n_unscored=$(( n - scored ))
     function p(v) { return (v == "") ? "—" : v "%" }
     NR > 1 {
       sev = ($2 == "critical") ? "🔴 Critical" : ($2 == "high") ? "🟠 High" : ($2 == "medium") ? "🟡 Medium" : "🔵 Low"
-      rec = ($3 == "FIX") ? "FIX" : "SKIP (" $4 ")"
+      lean = ($4 == "fix") ? "FIX" : "SKIP (" $4 ")"
+      rec = ($3 == "FIX") ? "FIX" : ($3 == "UNCERTAIN") ? "uncertain — leans " lean ", confidence " $17 "%" : "SKIP (" $4 ")"
       ds = p($6); if ($7 == "yes") ds = ds " [UNSUPPORTED]"
       if ($11 == "no") ds = ds " (no diff hunk)"
       src = ($16 == "gate") ? "gate" : "re-scored"
