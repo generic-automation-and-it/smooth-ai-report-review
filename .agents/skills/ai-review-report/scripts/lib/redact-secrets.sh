@@ -38,6 +38,17 @@ dir="${1:-}"
 [ -d "$dir" ] || exit 0
 command -v perl >/dev/null 2>&1 || { echo "redact-secrets.sh: perl unavailable — cannot redact" >&2; exit 1; }
 
+# Materialise the file list and check find's own status: inside a process
+# substitution a traversal error (an unreadable directory) is invisible, and the
+# loop would report success over files it never saw (review 5331632755
+# finding 3). A list that cannot be built fails the whole run.
+list="$(mktemp 2>/dev/null)" || { echo "redact-secrets.sh: cannot create a temp file" >&2; exit 1; }
+trap 'rm -f "$list"' EXIT
+if ! find "$dir" -type f -print0 > "$list"; then
+  echo "redact-secrets.sh: could not list every file under ${dir}" >&2
+  exit 1
+fi
+
 files=0
 while IFS= read -r -d '' f; do
   files=$((files + 1))
@@ -64,7 +75,7 @@ while IFS= read -r -d '' f; do
     s{(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]+@}{$1<REDACTED>@}gi;
     s/(\b(?:password|pwd|accountkey|sharedaccesskey)\s*=\s*)(?!<REDACTED>)[^;"\x27\s]+/$1<REDACTED>/gi;
   ' "$f" || { echo "redact-secrets.sh: could not redact a file under ${dir}" >&2; exit 1; }
-done < <(find "$dir" -type f -print0)
+done < "$list"
 
 echo "redact-secrets.sh: ${files} file(s) redacted under ${dir}"
 exit 0

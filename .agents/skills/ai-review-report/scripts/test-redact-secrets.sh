@@ -103,6 +103,21 @@ check "Test 5b: a URL's password and Password=/Pwd=/AccountKey= values go by sha
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 
+# Review 5331632755 finding 3: when find cannot list every file (a traversal
+# error), redaction fails so the caller uploads nothing. A find shim that lists
+# one file and then exits non-zero stands in for an unreadable directory,
+# which not every sandbox can produce.
+U="$TMP_DIR/findfail"; mkdir -p "$U/bin" "$U/art"; printf 'ok\n' > "$U/art/a.txt"
+cat > "$U/bin/find" <<'SHIM'
+#!/bin/bash
+printf '%s\0' "$1/a.txt"
+echo "find: '$1/locked': Permission denied" >&2
+exit 1
+SHIM
+chmod +x "$U/bin/find"
+PATH="$U/bin:$PATH" bash "$REDACT" "$U/art" >/dev/null 2>&1; urc=$?
+check "Test 6: a find traversal error fails redaction (non-zero) instead of passing silently" "1" "$urc"
+
 bash "$REDACT" "$TMP_DIR/missing" >/dev/null 2>&1
 check "Test 3a: a missing directory exits 0" "0" "$?"
 bash "$REDACT" >/dev/null 2>&1
