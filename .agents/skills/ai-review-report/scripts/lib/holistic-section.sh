@@ -142,11 +142,7 @@ case "$cmd" in
     [ -n "$main" ] && [ -f "$main" ] || exit 0
     [ -n "$hol" ] && [ -s "$hol" ] || exit 0
     tmp="$(mktemp 2>/dev/null)" || exit 0
-    if grep -q '^## 🔍 Issues Summary' "$main"; then target="after_issues"
-    elif grep -q '^## 🎯 Recommendation' "$main"; then target="before_rec"
-    else target="append"
-    fi
-    awk -v hol="$hol" -v target="$target" '
+    awk -v hol="$hol" '
       # Fence tracking as in CommonMark (and aggregate-reviews.sh): a closer
       # must use the opener character, be at least as long, and carry nothing
       # else. A bare toggle let a three-backtick line inside a four-backtick
@@ -176,20 +172,32 @@ case "$cmd" in
         print ""
         done = 1
       }
-      BEGIN { open = 0; state = 0; done = 0 }
+      BEGIN { open = 0; state = 0; done = 0; has_issues = 0; has_rec = 0; nlines = 0 }
       {
+        lines[++nlines] = $0
         fence_step($0)
-        if (!open && !done) {
-          if (target == "after_issues") {
-            if (state == 0 && $0 ~ /^## 🔍 Issues Summary/) { state = 1; print; next }
-            if (state == 1 && $0 ~ /^## /) emit()
-          } else if (target == "before_rec" && $0 ~ /^## 🎯 Recommendation/) {
-            emit()
-          }
+        if (!open) {
+          if ($0 ~ /^## 🔍 Issues Summary/) has_issues = 1
+          if ($0 ~ /^## 🎯 Recommendation/) has_rec = 1
         }
-        print
       }
       END {
+        # Pick the insertion target using the same fence rules as placement.
+        target = has_issues ? "after_issues" : (has_rec ? "before_rec" : "append")
+        open = 0
+        for (i = 1; i <= nlines; i++) {
+          line = lines[i]
+          fence_step(line)
+          if (!open && !done) {
+            if (target == "after_issues") {
+              if (state == 0 && line ~ /^## 🔍 Issues Summary/) { state = 1; print line; continue }
+              if (state == 1 && line ~ /^## /) emit()
+            } else if (target == "before_rec" && line ~ /^## 🎯 Recommendation/) {
+              emit()
+            }
+          }
+          print line
+        }
         if (!done) { print ""; while ((getline l < hol) > 0) print l; close(hol) }
       }
     ' "$main" > "$tmp" 2>/dev/null || { rm -f "$tmp"; exit 0; }
