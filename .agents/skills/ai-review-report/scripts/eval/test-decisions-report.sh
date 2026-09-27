@@ -215,6 +215,15 @@ check "2s: harvester writes tp as must-catch at its own severity, fp as must-not
   "$(jq -r '"\(.kind)/\(.min_severity)/\(.label)"' "$HOUT/pr42-run777-f1.json")|$(jq -r '"\(.kind)/\(.min_severity)/\(.label)"' "$HOUT/pr42-run777-f2.json")"
 check "2t: harvested records keep the live score and the source run" "0.3/777/abc1234" \
   "$(jq -r '"\(.findings[0].supported)/\(.source.run)/\(.source.commit)"' "$HOUT/pr42-run777-f1.json")"
+# A finding the scorer skipped has no `supported`: it must be harvested as
+# unavailable (excluded and named by the report), never as a measured catch.
+jq '.findings += [{"#":3,title:"c",severity:"high",verified:true}] | .decisions_summary.skipped = 1' "$TMP/hfix.json" > "$TMP/hfix3.json"
+PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix3.json" bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HOUT" 777 3=tp >/dev/null
+check "2t2: an unscored finding is harvested as unavailable, with a note" "unavailable|finding 3. was not scored by the decision model in run 777" \
+  "$(jq -r '"\(.status)|\(.note)"' "$HOUT/pr42-run777-f3.json")"
+check "2t3: ...and the report excludes it by name instead of counting it as kept" "1/0" \
+  "$(python3 "$REPORT" "$HOUT" | grep -c 'PR42-abc1234-F3 sample 1 (real): unavailable')/$(python3 "$REPORT" "$HOUT" | grep -cE '^ +base +[0-9]+/[0-9]+ +2/2 ')"
+check "2t4: scored findings stay scored" "scored" "$(jq -r .status "$HOUT/pr42-run777-f1.json")"
 check "2u: a label for a finding that does not exist is refused" "fail" \
   "$(PATH="$HB:$PATH" HARVEST_FIXTURE="$TMP/hfix.json" bash "$SCRIPT_DIR/harvest-real-findings.sh" --repo o/r --out "$HOUT" 777 9=tp >/dev/null 2>&1 && echo ok || echo fail)"
 check "2v: with both labels present the analyzer computes separation (fixture is inverted: 0.00)" "1" \

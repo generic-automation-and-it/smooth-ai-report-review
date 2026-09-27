@@ -72,7 +72,13 @@ for spec in "$@"; do
         sample: 1, variant: "real",
         min_severity: (if $label == "tp" then ($f.severity | ascii_upcase) else "HIGH" end),
         forbidden_claim: "",
-        status: "scored", note: "",
+        # Status from the answer to THIS finding, like lib/decision-record.sh does
+        # for a whole sample: a finding the scorer skipped (failed request,
+        # malformed answer, over the cap) has no `supported`, and recording it
+        # as scored would make every policy look like it kept a real catch.
+        status: (if ($f.decisions.supported // null) == null then "unavailable" else "scored" end),
+        note: (if ($f.decisions.supported // null) == null
+               then "finding \($n). was not scored by the decision model in run \($run)" else "" end),
         label: $label, source: { run: ($run | tonumber), commit: $sha, pr: $pr, number: $n },
         provider: $ds.provider, model: $ds.model,
         findings: [ $f | { severity, verified: (.verified == true), confidence, title, why_it_matters,
