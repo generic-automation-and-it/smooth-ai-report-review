@@ -64,7 +64,7 @@ Run this when **authoring or reviewing** a skill that touches a secret or launch
 
 ## Current Status
 
-**Every skill in this repo that launches a model handles real secrets:** `ai-review-report` (the gate, and `local-review.sh`) and `ai-analyse` both run opencode with an `OPENCODE_<PROVIDER>_API_KEY` resolved from `{env:…}` placeholders, and both call `gh` with `GITHUB_TOKEN`/`GH_TOKEN` from the environment; the optional decision scorer (LADR-093) is the header-file reference above. `ai-review` and `git-commit-review-push` read no secret of their own and rely on the developer's `gh`/`git` authentication. No value appears in committed text or prompts; the only credential-shaped literal in the tree is the deliberately planted fake key in the eval fixture `scripts/eval/corpus/must-catch/MC-005-hardcoded-secret/`, which the gate must flag.
+**Every skill in this repo that launches a model handles real secrets:** `ai-review-report` (the gate, and `local-review.sh`) and `ai-analyse` both run opencode with an `OPENCODE_<PROVIDER>_API_KEY` resolved from `{env:…}` placeholders, and both call `gh` with `GITHUB_TOKEN`/`GH_TOKEN` from the environment; the optional decision scorer (LADR-093) is the header-file reference above. Its FIX/SKIP consumers (LADR-097) reuse it unchanged: `ai-analyse`'s decision step and `ai-review`'s `--usedecisions` helper (`scripts/review-decisions.sh`) pass the selected decision provider's key (`OPENCODE_GO_OPENAI_API_KEY` or `OPENCODE_OPENROUTER_API_KEY`) only by environment inheritance to `score-findings-decisions.sh`, which alone turns it into the curl header file; no other process receives it, and the `ai-analyse` step that runs it launches no model. Apart from that opt-in key, `ai-review` and `git-commit-review-push` read no secret of their own and rely on the developer's `gh`/`git` authentication. No value appears in committed text or prompts; the only credential-shaped literal in the tree is the deliberately planted fake key in the eval fixture `scripts/eval/corpus/must-catch/MC-005-hardcoded-secret/`, which the gate must flag.
 
 The checklist's **model-process** and **CI wiring** items are only partly met. The 2026-09-27 security scan recorded these open gaps:
 
@@ -86,6 +86,7 @@ Close them against this checklist before adding another secret consumer.
 
 | Date | Change |
 |:-----|:-------|
+| 2026-09-27 | Current Status: the LADR-097 FIX/SKIP consumers (`ai-analyse` decision step, `/ai-review --usedecisions`) read the decision provider key and route it only through the scorer's header-file pattern. |
 | 2026-09-27 | Synced into `smooth-ai-report-review` from `smooth-devex-template` (template PR 85). Rule and Checklist verbatim; Reference Pattern, the SkillSpector pre-PR item and Current Status rewritten for this repo. |
 | 2026-09-27 | (template) Added the authoring/review **Checklist** (value location, script usage, model-process reach, CI wiring, pre-PR). |
 | 2026-09-13 | (template) Moved into the new `skills/` rule category (with `skillspector-pre-pr`); cross-references updated. |

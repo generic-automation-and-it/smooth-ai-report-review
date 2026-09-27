@@ -59,7 +59,7 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 ## Environment Variables
 
-`review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in.
+`review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in. The key is never read by the helper itself: it is inherited by ai-review-report's `score-findings-decisions.sh`, the only process that uses it, which hands it to curl through a 0600 header file (`.github/instructions/skills/skill-secret-handling.instructions.md`). `gh` uses the developer's own authentication.
 
 ## Script Layout
 
