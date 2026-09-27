@@ -774,13 +774,16 @@ NARRATION='Let me check the remaining files before writing the review, then I wi
 # rejected answer), `clean` (accepted), `err` (provider error), `empty`.
 cat > "${l94}/bin/opencode" <<STUB
 #!/bin/bash
-cat >/dev/null
+# Each call's stdin is kept as <calls-file>.in<n> so LADR-095 can assert what
+# the re-ask actually sent.
+stdin_tmp="\$(mktemp)"; cat > "\$stdin_tmp"
 agent=""; model=""
 while [ "\$#" -gt 0 ]; do
   case "\$1" in --agent) agent="\$2"; shift 2;; --model) model="\$2"; shift 2;; *) shift;; esac
 done
 printf '%s %s\n' "\$model" "\$agent" >> "\$L94_CALLS"
 n=\$(wc -l < "\$L94_CALLS" | tr -d ' ')
+mv "\$stdin_tmp" "\$L94_CALLS.in\$n"
 mode="\$(sed -n "\${n}p" "\$L94_MODES")"
 case "\$mode" in
   narr)  printf '%s' "$NARRATION" ;;
@@ -849,6 +852,77 @@ l94_run keptclean clean >/dev/null
 [ ! -s "$OPENCODE_REJECTED_OUTPUT_FILE" ] || { echo "FAIL: an accepted answer must not be written to the rejected-output file" >&2; exit 1; }
 unset OPENCODE_REJECTED_OUTPUT_FILE OPENCODE_SHAPE_REJECT_RETRIES
 echo "✓ LADR-094: rejected answers are kept, headed by model, size and reason"
+
+# --- LADR-095: the re-ask names the broken rule; a file list under a Files: -
+# --- heading is structure ---------------------------------------------------
+# Consumer run 36247697720 (PR 108): a 15-file docs chunk was answered
+# completely, with the 13 clean files as a bullet list under one
+# `### 📄 Files:` heading — the literal reading of the prompt's "list every
+# filename". The inventory counted only the heading LINE, rejected it, re-asked
+# the same model with the identical prompt, got the identical shape back, and
+# the sweep's retry (names inline on the heading) passed 11 minutes later.
+export OPENCODE_SHAPE_REJECT_RETRIES=1
+l94_run reask narr clean >/dev/null
+[ "$(l94_calls reask)" = "openai/m1 openai/m1" ] || { echo "FAIL: LADR-095 fixture drifted (calls: $(l94_calls reask))" >&2; exit 1; }
+# The first ask is the caller's prompt, byte-for-byte.
+cmp -s "${l94}/reask.calls.in1" "$prompt" || {
+  echo "FAIL: the first ask must send the caller's prompt unchanged" >&2; exit 1; }
+# The re-ask is the caller's prompt, then the correction block quoting the
+# predicate's reason (without the script-name prefix).
+head -c "$(wc -c < "$prompt" | tr -d ' ')" "${l94}/reask.calls.in2" | cmp -s - "$prompt" || {
+  echo "FAIL: the re-ask must start with the caller's prompt unchanged" >&2; exit 1; }
+grep -q '^\*\*Format correction — ' "${l94}/reask.calls.in2" \
+  && grep -q '^> section 1 of 1 (' "${l94}/reask.calls.in2" \
+  && ! grep -q 'review-has-shape.sh: rejected' "${l94}/reask.calls.in2" || {
+  echo "FAIL: the re-ask must append a Format correction block quoting the predicate's reason" >&2
+  tail -n 8 "${l94}/reask.calls.in2" >&2; exit 1; }
+grep -q '^opencode-with-fallback.sh: re-asking openai/m1 after a shape rejection (0 retries left), with the rejection reason appended to the prompt$' "${l94}/reask.err" || {
+  echo "FAIL: the re-ask line must say the reason was appended" >&2; cat "${l94}/reask.err" >&2; exit 1; }
+# The next model in the chain starts from the caller's prompt, not from a
+# correction written for another model's answer; its own re-ask gets its own.
+l94_run reaskchain narr narr narr clean >/dev/null
+[ "$(l94_calls reaskchain)" = "openai/m1 openai/m1 openai/m2 openai/m2" ] || { echo "FAIL: LADR-095 chain fixture drifted" >&2; exit 1; }
+cmp -s "${l94}/reaskchain.calls.in3" "$prompt" && grep -q '^\*\*Format correction — ' "${l94}/reaskchain.calls.in4" || {
+  echo "FAIL: a fresh model must get the original prompt; only its own re-ask carries a correction" >&2; exit 1; }
+# Under OPENCODE_RUN_CWD the re-ask prompt must still resolve after the cd,
+# and no temp prompt may be left behind.
+mkdir -p "${l94}/tmp" "${l94}/cwd"
+TMPDIR="${l94}/tmp" OPENCODE_RUN_CWD="${l94}/cwd" l94_run reaskcwd narr clean >/dev/null
+grep -q '^\*\*Format correction — ' "${l94}/reaskcwd.calls.in2" && grep -q 'FtpHelper.cs' "${l94}/reaskcwd.out" || {
+  echo "FAIL: the re-ask prompt must resolve under OPENCODE_RUN_CWD" >&2; cat "${l94}/reaskcwd.err" >&2; exit 1; }
+[ -z "$(ls -A "${l94}/tmp")" ] || { echo "FAIL: the re-ask prompt temp file must be removed on exit: $(ls -A "${l94}/tmp")" >&2; exit 1; }
+unset OPENCODE_SHAPE_REJECT_RETRIES
+echo "✓ LADR-095: the re-ask appends the rejection reason; fresh models get the original prompt; no temp file survives"
+
+# The inventory: a file named in the list directly under a `File(s):` heading
+# is named in structure. Inline names on the heading line keep working; a list
+# under any other heading is still narration; a list with a file missing still
+# names the missing one; and a heading + list with nothing under it is still
+# incomplete (the per-section check, not the inventory, rejects it).
+export OPENCODE_EXPECTED_CHUNK_FILES=$'docs/a.md\ndocs/b.md\nsrc/c.cs'
+_c_section='### 📄 File: `src/c.cs`\n\n**Issues Found:**\n- 🔴 [VERIFIED] Critical: None found\n- 🟠 [VERIFIED] High Priority: None found\n- 🟡 [VERIFIED] Medium Priority: None found\n- 🔵 [VERIFIED] Low Priority: None found\n\n'
+_clean_tiers='**Issues Found:**\n- 🔴 Critical: None found\n- 🟠 High Priority: None found\n- 🟡 Medium Priority: None found\n- 🔵 Low Priority: None found\n'
+predicate_case accept "grouped files as a bullet list under a Files: heading (blank line between)" \
+  "${_c_section}### 📄 Files:\n\n- \`docs/a.md\`\n- \`docs/b.md\`\n\n${_clean_tiers}"
+predicate_case accept "grouped files as a bullet list under a Files: heading (no blank line)" \
+  "${_c_section}### 📄 Files:\n- \`docs/a.md\`\n- \`docs/b.md\`\n\n${_clean_tiers}"
+predicate_case accept "grouped files as a numbered list under a Files: heading" \
+  "${_c_section}### 📄 Files:\n1. docs/a.md\n2. docs/b.md\n\n${_clean_tiers}"
+predicate_case accept "grouped files inline on the Files: heading line (unchanged)" \
+  "${_c_section}### 📄 Files: \`docs/a.md\`, \`docs/b.md\`\n\n${_clean_tiers}"
+predicate_case reject "a file list under a heading that is not a File(s): heading is narration" \
+  "## Plan\n- docs/a.md\n- docs/b.md\n\n${_c_section}"
+predicate_case reject "a Files: list that omits one chunk file" \
+  "${_c_section}### 📄 Files:\n- \`docs/a.md\`\n\n${_clean_tiers}"
+predicate_case reject "a Files: heading and its list, cut off before any result" \
+  "${_c_section}### 📄 Files:\n- \`docs/a.md\`\n- \`docs/b.md\`\n"
+predicate_case reject "a Files: list followed by prose that names the rest, no result" \
+  "${_c_section}### 📄 Files:\n- \`docs/a.md\`\nAlso looked at docs/b.md, all fine so far and"
+_why_err="$(printf '%b' "${_c_section}### 📄 Files:\n- \`docs/a.md\`\n\n${_clean_tiers}" | bash "$SHAPE" 2>&1 >/dev/null)" || true
+printf '%s' "$_why_err" | grep -q 'never named.*docs/b.md' && ! printf '%s' "$_why_err" | grep -q 'docs/a.md' || {
+  echo "FAIL: the omitted file, and only it, must be named (got '${_why_err}')" >&2; exit 1; }
+unset OPENCODE_EXPECTED_CHUNK_FILES
+echo "✓ LADR-095: a file list directly under a File(s): heading satisfies the inventory; other lists stay narration"
 
 # Both chunk-review stages hand over the retry count and the rejected-output
 # file (and nothing else changed about which agent they run).

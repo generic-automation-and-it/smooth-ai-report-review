@@ -1147,7 +1147,7 @@ For each file, use this structure:
 - 🔵 [VERIFIED|SPECULATIVE] Low Priority: [description] or "None found"
 
 **Format rules the gate reads mechanically — breaking one it enforces gets a review discarded as incomplete, even when its content is right:**
-- **One `### 📄 File:` heading per changed file, each naming the file.** Never collapse files into a range (`NFR-01.md` … `NFR-07.md`) — a file your headings never name counts as unreviewed. To group several clean files, use `### 📄 Files:` and list **every** filename.
+- **One `### 📄 File:` heading per changed file, each naming the file.** Never collapse files into a range (`NFR-01.md` … `NFR-07.md`) — a file your headings never name counts as unreviewed. To group several clean files, use one `### 📄 Files:` heading and name **every** file, either comma-separated on the heading line or as a bullet list directly beneath it (one file per line, nothing between the heading and the list), then write the **Issues Found:** block once for the group.
 - **Write all four severity lines for every file**, in the order above, even when only one of them has a finding. Of the four, the gate enforces only the Low line — it is how the gate knows you reached the end of the file — so never omit it; write the other three anyway so a reader sees each tier was checked.
 - **Cite every finding as `filename:line` from the file under its heading** (e.g. `Handler.cs:42`), not only as "(line 42)" or a location in another file.
 - **End a clean line at "None found".** Put any justification on its own line below it, never after "None found" on the same line — text after it reads as a review cut off mid-sentence.
