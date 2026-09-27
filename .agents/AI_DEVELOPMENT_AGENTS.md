@@ -29,6 +29,7 @@ This is a unified AI development experience folder that centralizes skills and c
 | `.agents/skills/ai-review/` | Analyze and execute AI PR review decisions |
 | `.agents/skills/ai-review-report/` | Chunked AI PR review pipeline (CI gate + local runner) |
 | `.agents/skills/git-commit-review-push/` | Commit (with `/ai-review` trigger on the final commit) and push to remote |
+| `.github/instructions/skills/` | Skill-authoring rules synced from `smooth-devex-template` (currently `skill-secret-handling`) — see LADR-006 |
 | `.claude` → `.agents` | Symbolic link for Claude Code compatibility |
 | `.codex` → `.agents` | Symbolic link for OpenAI Codex compatibility |
 | `CLAUDE.md` → `AGENTS.md` | Symbolic link alias for Claude-compatible root context discovery |
@@ -83,7 +84,7 @@ This is a unified AI development experience folder that centralizes skills and c
 ### LADR-004: Rule Files Physically Located in `.github/instructions` (Symlink Inversion)
 
 - **Date**: 2026-06-06
-- **Status**: ~~Accepted~~ **Retired 2026-06-10** — the rule system was removed entirely in the devex cleanup (#34): `.github/instructions/` and the `.agents/rules` symlink no longer exist. Retained for history only.
+- **Status**: ~~Accepted~~ **Retired 2026-06-10** — the rule system was removed entirely in the devex cleanup (#34): `.github/instructions/` and the `.agents/rules` symlink no longer exist. Retained for history only. `.github/instructions/skills/` was later reintroduced for synced skill rules only (LADR-006); the symlink inversion is not restored.
 - **Context**: GitHub Copilot's Coding Agent / Code Review runs on github.com against a server-side checkout and did not reliably traverse a symlinked rules directory, so the rule files were inverted to physically live in `.github/instructions/` with `.agents/rules` as a symlink back to it.
 - **Outcome**: Superseded by removal. Copilot guidance now comes solely from `.github/copilot-instructions.md` + root `AGENTS.md`. Note: `ai-review-report`'s gate still warn-and-skips `MANDATORY_CONTEXT_FILES` rule paths that exist only in *consuming* repos — that cross-repo contract is unaffected by this repo dropping its own rule tree.
 
@@ -96,6 +97,16 @@ This is a unified AI development experience folder that centralizes skills and c
 - **Consequences**:
   - `.agents/` now contains only the review-pipeline skills, `settings.json`, an empty `hooks.json`, and the symlink setup scripts.
   - The LLM eval harness now carries its retired DR-standards snapshot under `scripts/eval/corpus/context/` and assembles it into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox; it no longer depends on the deleted `.github/instructions/` tree.
+
+### LADR-006: Synced Skill Rules in `.github/instructions/skills/`
+
+- **Date**: 2026-09-27
+- **Status**: Accepted
+- **Context**: `smooth-devex-template` PR 85 added a secret-handling rule and checklist for skills. This repo's skills run models that hold every provider key and a write-scoped `GITHUB_TOKEN`, so the rule applies here too, but LADR-005 had removed the whole rule tree.
+- **Decision**: Bring back `.github/instructions/skills/` for rules synced from the template only (#174). The Rule and Checklist sections stay verbatim so later syncs are a straight diff; Reference Pattern and Current Status are rewritten for this repo. No `.agents/rules` symlink and no other rule categories return.
+- **Consequences**:
+  - The review gate loads the rule through its explicit context channel (LADR-087/089/090), which enumerates `.github/instructions/**`; the rule's `applyTo` keeps it to chunks that touch `.agents/skills/**`.
+  - Current Status is the record of the open checklist gaps (found by the 2026-09-27 security scan). Update it as those gaps close.
 
 ## 📊 Setup Instructions
 
@@ -125,3 +136,4 @@ ls -la | grep -E '(\.claude|\.codex)'
 | 2026-05-30 | Initial version. | |
 | 2026-06-10 | Devex cleanup: removed rules/hooks/templates/auxiliary skills; kept only the review-pipeline skills; retired LADR-004; added LADR-005. | #34 |
 | 2026-06-10 | Dropped Cursor and Gemini support: `.cursor` and `GEMINI.md` symlinks removed (also from the setup scripts). | #34 |
+| 2026-09-27 | Reintroduced `.github/instructions/skills/` for the synced `skill-secret-handling` rule; added LADR-006 and noted it on LADR-004. | #174 |
