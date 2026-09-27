@@ -370,15 +370,17 @@ for p in .env config/.env.local/db.yml .env/settings.json deploy/.ssh/config hom
          infra/prod.tfvars.json infra/x.auto.tfvars.json infra/state.tfstate.backup \
          secrets/production.json config/secrets.yml .secrets/token deploy/app-secrets.yaml k8s/db-secret.yaml .envrc \
          .kube/config deploy/.kube/prod.yaml ops/kubeconfig ops/prod.kubeconfig .azure/accessTokens.json \
-         .config/gcloud/credentials.db .docker/config.json; do
+         .config/gcloud/credentials.db .docker/config.json \
+         config/secrets-prod.yml config/secret_key.txt deploy/credentials/db.json ops/credentials-staging.json \
+         docs/secrets-management.md; do
   is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
 done
 for p in src/env.sh docs/environment.md src/.envrc_notes/readme.md infra/main.tf app/ssh/client.go \
-         docs/secrets-management.md src/secretary.py \
+         docs/secretary-guide.md src/secretary.py \
          .docker/Dockerfile docs/kubernetes.md src/kube/client.go; do
   is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
 done
-check "Test 2o: sensitive directories, secret-named files, cluster/cloud credentials and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyyyyyyyyyyyyyyynnnnnnnnnn" "$sens"
+check "Test 2o: sensitive directories, secret-named files, cluster/cloud credentials and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyyyyyyyyyyyyyyyyyyyynnnnnnnnnn" "$sens"
 
 
 # --- 3. findings_with_rules counts only requests actually sent -------------------------

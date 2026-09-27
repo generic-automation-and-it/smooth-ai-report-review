@@ -459,12 +459,17 @@ diff_files > "$work/diff_files.txt"
 is_sensitive_path() {
   case "/$1/" in
     */.env/*|*/.env.*/*|*/.ssh/*|*/.aws/*|*/.gnupg/*|*/secrets/*|*/.secrets/*|*/secret/*) return 0 ;;
+    */credentials/*|*/.credentials/*) return 0 ;;
     # Cluster and cloud CLI credentials (review 5331424628 finding 1).
     */.kube/*|*/.azure/*|*/.config/gcloud/*|*/.docker/config.json/) return 0 ;;
   esac
   case "${1##*/}" in
     kubeconfig|kubeconfig.*|*.kubeconfig|*-kubeconfig|*_kubeconfig) return 0 ;;
     secrets|.secrets|secrets.*|secret.*|*[-_.]secrets.*|*[-_.]secret.*|*[-_.]secrets|*[-_.]secret) return 0 ;;
+    # The word leading a compound name too: secrets-prod.yml, secret_key.txt,
+    # credentials-staging.json (review 5331577898 finding 1). This also drops
+    # docs such as secrets-management.md — a lost excerpt, the safe direction.
+    secrets[-_]*|secret[-_]*|credentials[-_]*|*[-_.]credentials.*|*[-_.]credentials) return 0 ;;
     .env|.env.*|.envrc|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.*|*.tfstate|*.tfstate.*) return 0 ;;
     id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|.npmrc|.pypirc|.netrc|.git-credentials|credentials|credentials.*) return 0 ;;
   esac
