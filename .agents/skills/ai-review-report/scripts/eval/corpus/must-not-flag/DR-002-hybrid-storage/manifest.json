@@ -9,6 +9,6 @@
     "severity": "medium",
     "file": "src/Project.Application/Features/OperationalLogs/RecordOperationalLogHandler.cs",
     "evidence_line": "await _objectStore.PutAsync(entry.Id, entry.Payload, ct);",
-    "why_it_matters": "Every log payload is persisted twice, doubling write latency and storage cost, and the two copies diverge when the second write fails after the first succeeded. Remove the object-store write or make one store the single source of truth."
+    "why_it_matters": "Every log payload is persisted twice, doubling write latency and storage cost for data that already lives in the database. Remove the redundant object-store write and keep the database as the single store."
   }
 }

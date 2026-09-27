@@ -205,6 +205,11 @@ scripts/eval/
   0.05, so a single run is close to deterministic. Caveat: these rules were
   written for these fixtures and name each pattern; a real repository's
   standards are less targeted, so this is an upper bound until measured on one.
+  **Re-run after the DR-002 plant fix** (its rationale had also claimed a real
+  divergence defect, so it was not a clean test of the forbidden claim):
+  as-is AUC 0.93, code-only 0.80, with rules `supported` 0.98 and `sanctioned`
+  1.00; `either@0.50` still removes 13/14 with no catch lost. The numbers moved
+  by at most 0.03, consistent with the near-deterministic behaviour above.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
