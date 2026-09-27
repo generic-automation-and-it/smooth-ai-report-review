@@ -75,7 +75,7 @@ on:
         required: false
         type: string
       decisions:
-        description: "Measure decisions (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only; adds a paid request per sample finding plus 40 calibration requests (20 planted findings in two variants), increasing cost and runtime."
+        description: "Measure decisions (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only; adds a paid decision request per sample finding, plus a calibration of 20 planted findings in three variants (about 180 small decision-provider requests; no chat model)."
         required: false
         type: string
 
