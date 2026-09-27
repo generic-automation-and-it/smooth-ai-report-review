@@ -396,7 +396,7 @@ DIFF_SAVE="$DIFF"; DIFF="$BIG_DIFF"
 run_scorer t8 "$TMP_DIR/t8.json" 2
 DIFF="$DIFF_SAVE"
 max_req="$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1)"
-check "Test 8a: no request exceeds the 24000-byte budget" "true" "$([ "$max_req" -le 24000 ] && echo true || echo "false ($max_req)")"
+check "Test 8a: no request exceeds the 40000-byte budget" "true" "$([ "$max_req" -le 40000 ] && echo true || echo "false ($max_req)")"
 check "Test 8b: an oversized hunk is truncated, and says so" "true" \
   "$(jq -s '[.[] | select(.state.finding.file? == "src/a.sh")][0].state.diff_hunk | test("truncated to fit")' "$STUB_DIR"/req_*.json)"
 
@@ -541,7 +541,7 @@ OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t13.json" 
 check "Test 13i: with project rules the tag also shows rule-allowed" "1" \
   "$(grep -c '(decision score 12% \[UNSUPPORTED\] · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
 check "Test 13h: capped rules still fit the request budget" "true" \
-  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
+  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 40000 ] && echo true || echo "false ($m)")"
 
 # --- Test 14: the gate's judge context — per-chunk rules and the PR's Skip Areas -----
 # run-review.sh passes its work dir as the rules source: each finding is judged
@@ -572,7 +572,7 @@ check "Test 14f: previously_skipped is recorded per finding" "0.05/0.88" \
 check "Test 14g: decisions_summary records what the judge was given" '{"project_rules":"chunk","findings_with_rules":3,"skip_areas":true}' \
   "$(jq -c '.decisions_summary.context' "$TMP_DIR/t14.json")"
 check "Test 14h: the requests still fit the budget" "true" \
-  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 24000 ] && echo true || echo "false ($m)")"
+  "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 40000 ] && echo true || echo "false ($m)")"
 OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t14.json" > "$TMP_DIR/t14.md" 2>/dev/null
 check "Test 14i: both context scores sit in the tag next to the priority" "1" \
   "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority (decision score 91% · rule-allowed 4% · previously skipped 88%): overrated high claim' "$TMP_DIR/t14.md")"

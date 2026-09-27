@@ -244,19 +244,24 @@ merged_doc "$TMP_DIR/ctx_n.json" "$F2"
 (cd "$SB" && scorer "$TMP_DIR/ctx_n.json" >/dev/null 2>&1)
 check "Test 2h: no revision and no named file → no code_context key at all" "<none>" "$(ctx_of "badfs gate")"
 
-# Budget order: context is dropped before the hunk is trimmed.
+# Budget order: context gives way before the hunk is trimmed. The fixtures are
+# sized against the scorer's budget (40,000 bytes): ~22 KB of hunk plus 10 KB of
+# rules fits on its own, and does not with a full code context.
+make_big() { # make_big <dir> <lines> <diff_out>
+  mkdir -p "$1/src"
+  (
+    cd "$1"
+    git init -q && git config user.email t@t && git config user.name t
+    : > src/c.sh
+    git add -A && git commit -qm base
+    for i in $(seq 1 "$2"); do printf 'added line %03d %s\n' "$i" "$(printf 'x%.0s' $(seq 1 150))"; done > src/c.sh
+    git add -A && git commit -qm head
+    git diff HEAD~1..HEAD > "$3"
+  )
+}
 BIG="$TMP_DIR/big"
-mkdir -p "$BIG/src"
-(
-  cd "$BIG"
-  git init -q && git config user.email t@t && git config user.name t
-  : > src/c.sh
-  git add -A && git commit -qm base
-  for i in $(seq 1 70); do printf 'added line %03d %s\n' "$i" "$(printf 'x%.0s' $(seq 1 150))"; done > src/c.sh
-  git add -A && git commit -qm head
-  git diff HEAD~1..HEAD > "$TMP_DIR/big_diff.txt"
-)
-head -c 5000 /dev/zero | tr '\0' 'r' > "$TMP_DIR/big_rules.md"
+make_big "$BIG" 130 "$TMP_DIR/big_diff.txt"
+head -c 10000 /dev/zero | tr '\0' 'r' > "$TMP_DIR/big_rules.md"
 merged_doc "$TMP_DIR/big.json" '{"#":1,"title":"big","severity":"medium","file":"src/c.sh","line":45,"why_it_matters":"w","verified":true,"chunks":[0]}'
 reset_stub big
 (cd "$BIG" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
@@ -265,23 +270,25 @@ reset_stub big
 check "Test 2i: over budget, the context is rebuilt narrower but still centred on the finding — and the hunk is untouched" "1|1|1|0" \
   "$(grep -c 'code context shortened to fit' "$TMP_DIR/big.log")|$(ctx_of big | grep -cE 'Lines (3[0-9]|4[0-5])-(4[5-9]|5[0-9]) of `src/c.sh` around the finding')|$(ctx_of big | grep -c '^    45 | added line 045')|$(grep -c 'diff hunk truncated' "$TMP_DIR/big.log" || true)"
 check "Test 2j: …and the finding request fits the budget" "yes" \
-  "$(s="$(finding_reqs | head -n 1 | wc -c | tr -d ' ')"; [ "$s" -le 24000 ] && echo yes || echo "no ($s)")"
+  "$(s="$(finding_reqs | head -n 1 | wc -c | tr -d ' ')"; [ "$s" -le 40000 ] && echo yes || echo "no ($s)")"
 # A long enclosing function from the graph: narrowed around the line, label kept.
-printf '{"changed_functions":[{"name":"huge","file_path":"%s/src/c.sh","line_start":1,"line_end":70,"risk_score":0.5}]}\n' "$BIG" > "$TMP_DIR/graph_big.json"
+printf '{"changed_functions":[{"name":"huge","file_path":"%s/src/c.sh","line_start":1,"line_end":130,"risk_score":0.5}]}\n' "$BIG" > "$TMP_DIR/graph_big.json"
 reset_stub big_fn
 merged_doc "$TMP_DIR/big_fn.json" '{"#":1,"title":"big","severity":"medium","file":"src/c.sh","line":60,"why_it_matters":"w","verified":true,"chunks":[0]}'
 (cd "$BIG" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
   _DECISIONS_RETRY_DELAY=0 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph_big.json" \
   bash "$SCORER" "$TMP_DIR/big_fn.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big_diff.txt" > /dev/null 2>&1)
 check "Test 2k: a function too long for the source budget keeps its name and shows the lines around the finding" "1|1|0" \
-  "$(ctx_of big | grep -c 'Enclosing function `huge` (lines 1-70 of `src/c.sh`, code-graph risk 0.5), lines 50-70 around the finding')|$(ctx_of big | grep -c '^    60 | ')|$(ctx_of big | grep -c '^     1 | ')"
+  "$(ctx_of big | grep -c 'Enclosing function `huge` (lines 1-130 of `src/c.sh`, code-graph risk 0.5), lines 50-70 around the finding')|$(ctx_of big | grep -c '^    60 | ')|$(ctx_of big | grep -c '^     1 | ')"
 # No room at all (rules at their cap): the context is dropped, THEN the hunk trimmed.
 head -c 13000 /dev/zero | tr '\0' 'r' > "$TMP_DIR/cap_rules.md"
+BIG2="$TMP_DIR/big2"
+make_big "$BIG2" 200 "$TMP_DIR/big2_diff.txt"
 reset_stub big_drop
 merged_doc "$TMP_DIR/big_d.json" '{"#":1,"title":"big","severity":"medium","file":"src/c.sh","line":45,"why_it_matters":"w","verified":true,"chunks":[0]}'
-(cd "$BIG" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
+(cd "$BIG2" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
   _DECISIONS_RETRY_DELAY=0 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" \
-  bash "$SCORER" "$TMP_DIR/big_d.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big_diff.txt" "$TMP_DIR/cap_rules.md" > "$TMP_DIR/big_d.log" 2>&1)
+  bash "$SCORER" "$TMP_DIR/big_d.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big2_diff.txt" "$TMP_DIR/cap_rules.md" > "$TMP_DIR/big_d.log" 2>&1)
 check "Test 2l: no room → context dropped before the hunk is trimmed, in that order" "dropped,truncated|<none>|false" \
   "$(grep -oE 'code context dropped|diff hunk truncated' "$TMP_DIR/big_d.log" | sed 's/code context //; s/diff hunk //' | paste -sd, -)|$(ctx_of big)|$(jq -r '.findings[0].decisions.code_context' "$TMP_DIR/big_d.json")"
 # Secret-looking paths never reach the vendor as code context.
@@ -311,7 +318,7 @@ check "Test 2n: a path named with a slash is looked up without a stray-backslash
 # --- 3. findings_with_rules counts only requests actually sent -------------------------
 echo ""
 echo "--- rules count ---"
-HUGE="$(head -c 30000 /dev/zero | tr '\0' 'w')"
+HUGE="$(head -c 45000 /dev/zero | tr '\0' 'w')"
 merged_doc "$TMP_DIR/cnt.json" "$F1" "{\"#\":2,\"title\":\"huge\",\"severity\":\"low\",\"file\":\"src/a.sh\",\"line\":3,\"why_it_matters\":\"$HUGE\",\"verified\":true}"
 printf 'Rule: be nice.\n' > "$TMP_DIR/rules.md"
 reset_stub cnt

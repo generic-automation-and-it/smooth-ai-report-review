@@ -113,11 +113,16 @@ SKILL_ROOT="$(cd "$LIB_DIR/../.." && pwd)"
 QUESTIONS="$SKILL_ROOT/assets/decisions-questions.json"
 RESOLVER="$LIB_DIR/resolve-provider.sh"
 
-# Request budget. Jev's hard limit is 32,000 tokens per request. A token cannot
-# represent less than one input byte, so capping the complete serialized request
-# at 24,000 bytes gives a hard upper bound of 24,000 input tokens and
-# leaves headroom for provider-side framing and the answer.
-BUDGET_BYTES=24000
+# Request budget: 40,000 bytes for the complete serialized request. Jev's hard
+# limit is 32,000 tokens. The original 24,000 was a HARD bound (a token is at
+# least one byte), but code and English run about 3-4 bytes per token, so it
+# used roughly a quarter of the model's capacity and squeezed out the evidence:
+# on PR 179's live gate run, 12 KB of chunk rules plus the fixed questions left
+# room for code context on 1 finding of 6, and three diff hunks were cut.
+# 40,000 bytes is ~10-13 K tokens for such text; only a request that were
+# almost entirely one-byte tokens could pass 32 K, and then the provider
+# rejects that one request, which leaves that finding unscored (fail open).
+BUDGET_BYTES=40000
 # Initial cap on one finding's diff hunk, before the budget check trims further.
 HUNK_MAX_BYTES=24000
 # Cap on the optional project rules. The budget trim below only ever shortens
