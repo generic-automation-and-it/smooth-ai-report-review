@@ -6,10 +6,7 @@ allowed-tools:
   - Bash(git commit:*)
   - Bash(git log:*)
   - Bash(git push:*)
-models:
-  claude: sonnet      # medium-complexity; branch rename logic and upstream tracking require broader reasoning
-  copilot: auto
-  codex: gpt-5.4
+effort: low           # mechanical git plumbing; see "Low effort, not low care" — still asks and double-checks
 ---
 
 # Git Commit, Review-Trigger, and Push
@@ -94,6 +91,13 @@ Commit current changes using conventional commits format, embed the `/ai-review`
 7. Push to remote repository using `git push` (use `git push --set-upstream origin <new-branch>` if the branch was renamed)
 
 **Note**: This command ONLY commits and pushes. It does not create or update PRs.
+
+## Low effort, not low care
+
+This skill runs at `effort: low` because the steps are mechanical — not because they may be skipped. A push is outward-facing and hard to take back, so:
+
+- **Ask, don't guess.** Stop and ask the user when the chunk grouping is unclear, when a conforming commit type or subject cannot be determined, when the diff contains files that look unintended (secrets, `.env`, `ci_temp/`, build output, large binaries), or when the `--issue` branch type/slug is ambiguous.
+- **Double-check before pushing.** Before step 7, re-confirm all of: the working tree is clean (`git status --porcelain` is empty — nothing left behind); `git log @{u}..HEAD` (or the whole branch when there is no upstream) lists exactly the commits you intend to push; every message is a conforming Conventional Commit; only the final commit carries `/ai-review` (step 4's check passes on HEAD); and the target branch/upstream is the one you expect. If any check fails, fix it or ask — do not push.
 
 ## Branch Rename (when `--issue <number>` is passed)
 

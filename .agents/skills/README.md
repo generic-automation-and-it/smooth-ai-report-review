@@ -34,21 +34,24 @@ Consumes a posted review. Detects the review source — for a GitHub Copilot age
 |-------|---------|-------|
 | **git-commit-review-push** | Commit with conventional format (logical chunks), append the `/ai-review` full-review trigger to the final commit, and push to remote | `/git-commit-review-push` |
 
-## Model Selection
+## Effort Selection
 
-Each SKILL.md carries a `models` frontmatter block with the recommended model per tool. When a skill is invoked as a sub-agent, use the model from its `models` block.
+Skills do not pin a model, and do not switch model per tool or provider — the model is whatever the harness session is running. Each SKILL.md instead carries an `effort` frontmatter field on the standard AI-harness reasoning-effort scale: `low` → `medium` → `high` → `xhigh` → `max`. It is the effort to run the skill at (Claude Code applies it while the skill is active; other harnesses should treat it as the recommended setting).
 
-| Skill | Complexity | Rationale |
-|-------|-----------|-----------|
-| **ai-review** | medium | Review analysis + multi-file code fixes |
-| **git-commit-review-push** | medium | Chunked commits + branch rename logic + upstream tracking |
+| Skill | Effort | Rationale |
+|-------|--------|-----------|
+| **ai-review-report** | high | Pipeline maintenance across workflow YAML, shell libs, prompts and LADRs |
+| **ai-review** | high | Review analysis, fix/skip judgment + multi-file code fixes |
+| **ai-analyse** | xhigh | Unattended: per-finding fix/skip judgment + edits with no human in the loop |
+| **git-commit-review-push** | low | Mechanical git plumbing — but it still asks when unclear and double-checks before pushing |
 
-`ai-review-report` pins its own model chain per provider via the gate's GitHub Variables (`OPENCODE_REVIEW_REPORT_MODEL_*`), not the `models` frontmatter.
+`effort` governs the agent that *drives* a skill. The models the review gate itself calls are unrelated: they are chosen per provider by the gate's GitHub Variables (`OPENCODE_REVIEW_REPORT_MODEL_*`) or `--model`.
 
 ## About Skills
 
 Each skill is a directory containing:
-- **SKILL.md** — The skill definition with workflow steps and `models` frontmatter
+- **SKILL.md** — The skill definition with workflow steps and frontmatter: `name`, `description`, optional `switches`, `allowed-tools`, and `effort` (`low` / `medium` / `high` / `xhigh` / `max`, with a rationale comment)
+- **agents/openai.yaml** — Codex interface metadata (`display_name`, `short_description`, `default_prompt`); no model pin
 - **scripts/** — Helper scripts (if applicable)
 - **assets/** — Runtime config (if applicable)
 - **references/** — Reference documentation (if applicable)

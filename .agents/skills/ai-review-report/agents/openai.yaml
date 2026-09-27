@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Review Report"
+  short_description: "Run or maintain the chunked AI PR review gate"
+  default_prompt: "Run a local chunked AI review of the current branch vs main with scripts/local-review.sh, or maintain the pipeline-code-review-report gate following the skill's SKILL.md and AGENTS.md."

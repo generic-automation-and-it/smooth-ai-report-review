@@ -73,4 +73,5 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 ## Changelog
 
+- **2026-09-27:** Replaced the per-tool `models` frontmatter block with `effort: high` and dropped `model:` from `agents/openai.yaml`: skills no longer switch model per tool or provider.
 - **2026-08-14:** Added AGENTS.md with copilot-review.sh EXIT-trap scope bug fix documentation (false failure + temp-file leak resolved via script-scoped registry + by-name assignment helper).

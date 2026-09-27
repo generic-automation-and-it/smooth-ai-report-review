@@ -18,10 +18,7 @@ allowed-tools:
   - Bash(git add:*)
   - Bash(git commit:*)
   - Bash(git push:*)
-models:
-  claude: sonnet
-  copilot: auto
-  codex: gpt-5.4
+effort: xhigh         # unattended: per-finding fix/skip judgment + edits with no human in the loop
 ---
 
 # AI Analyse
