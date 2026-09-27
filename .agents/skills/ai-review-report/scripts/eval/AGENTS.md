@@ -227,6 +227,20 @@ scripts/eval/
   the rules-based `sanctioned` question is the more promising lever. Label every
   skipped gate finding as `fp` when processing reviews, so the precision side
   gets real data.
+- **Labels now come from `/ai-review execute` itself (LADR-096).** On a scored
+  run the posted review carries `<!-- ai-review-report run=<id> -->`; execute
+  writes an invisible `ai-review-decisions` block (`N: fix` / `skip intentional`
+  / `skip invalid` / `skip deferred`) into the PR description, and
+  `harvest-real-findings.sh --from-pr N` or `--scan [--limit N]` turns it into
+  records with `label_reason`. **`deferred` and anything unrecognised are never
+  harvested**: a mislabelled `fp` is the dangerous direction, because it makes a
+  suppressing policy look safe. Harvesting is idempotent, and it reports and
+  skips expired artifacts, so a periodic `--scan` of each consumer repo inside the
+  retention window is the whole procedure. Live gate records now also carry
+  `sanctioned` (per-chunk rules) and `previously_skipped` (the PR's Skip Areas);
+  the report adds section 1c and the `skipped@0.50` policy when present. Neither
+  may act until the real set shows zero lost true positives (LADR-096 roadmap,
+  phase 5).
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -299,6 +313,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | `/ai-review execute` writes `ai-review-decisions` label blocks; `harvest-real-findings.sh --from-pr` / `--scan` harvest them (fix → tp, skip intentional/invalid → fp, deferred never); records and the report carry `previously_skipped` (section 1c, `skipped@0.50`). | LADR-096 |
 | 2026-09-27 | Real, human-labelled findings (`corpus/real-findings/`, `harvest-real-findings.sh`): the 12 accepted PR 169 findings scored mean 0.43, so filter/demote at 0.5 would hide 9 of 12 — planted catch-safety does not transfer. | LADR-093 |
 | 2026-09-27 | `stripped+rules` calibration variant and the scorer's optional rules file / `sanctioned` question: AUC 0.99, `either@0.50` removes 13/14 planted false positives with no catch lost; DR-013 is the only survivor. | LADR-093 |
 | 2026-09-27 | Planted findings: `known_false_positive` / `known_true_positive` in every manifest and `calibrate-decisions.sh` (as-is + stripped variants), run with the measurement. First result recorded above: catch-safe at 0.5, AUC 0.93 as-is / 0.77 code-only, severity reconciliation not supported. | LADR-093 |
