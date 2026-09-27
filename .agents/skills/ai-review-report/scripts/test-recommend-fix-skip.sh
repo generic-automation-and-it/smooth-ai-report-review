@@ -438,6 +438,13 @@ order="$(grep -nE 'bash "\$\{(ANALYSE|REVIEW)_SKILL_DIR\}/scripts/lib/(filter-fa
   | sed -E 's/.*(filter-failing-test-findings|recommend-fix-skip|apply-decisions-to-scope|analyse_prompt).*/\1/' | uniq | paste -sd ' ' -)"
 check "Test 11c: failing-test filter → decision scoring → scope filter → prompt" \
   "filter-failing-test-findings recommend-fix-skip apply-decisions-to-scope analyse_prompt" "$order"
+HARNESS_WF="$REPO_ROOT/.github/workflows/llm-eval-harness.yml"
+scope_re="$(awk '/id: v2_scope/{f=1} f && /grep -qE/{print; exit}' "$HARNESS_WF" | sed -E "s/.*grep -qE '([^']*)'.*/\1/")"
+for p in .agents/skills/ai-analyse/scripts/lib/apply-decisions-to-scope.sh .agents/skills/ai-review/scripts/review-decisions.sh \
+         .agents/skills/ai-review-report/scripts/lib/recommend-fix-skip.sh; do
+  check "Test 11e: a PR touching only ${p##*/} runs the blocking regression job" "1" \
+    "$(printf '%s\n' "$p" | grep -cE "$scope_re" || true)"
+done
 check "Test 11d: the new libs are guarded, so a PR branch that predates them still analyses" "2" \
   "$(grep -cE '\[ -f "\$\{(REVIEW|ANALYSE)_SKILL_DIR\}/scripts/lib/(recommend-fix-skip|apply-decisions-to-scope)\.sh" \]' "$ANALYSE_WF" || true)"
 
