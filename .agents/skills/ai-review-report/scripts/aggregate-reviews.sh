@@ -1219,7 +1219,9 @@ fi
 # only by run-review.sh, whose EXIT trap assembles ci_temp/run/ for upload.
 if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
      | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
-   && [ "${_REVIEW_RUN_ARTIFACT:-0}" = "1" ] \
+    && printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS:-1}" | tr '[:upper:]' '[:lower:]' \
+       | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+    && [ "${_REVIEW_RUN_ARTIFACT:-0}" = "1" ] \
    && [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] \
    && jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
   printf '\n<!-- ai-review-report run=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/final_review.md

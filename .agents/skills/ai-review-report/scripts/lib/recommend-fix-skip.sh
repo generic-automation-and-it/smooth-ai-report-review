@@ -197,7 +197,9 @@ if [ -n "$art_dir" ] && jq -e '[.findings[] | select(.gate_decisions.fix_skip.ch
   gate_model="$(jq -r '[.findings[].gate_decisions.model // empty] | first // ""' "$out_dir/findings.json")"
   if [ ! -f "$art_dir/decision_skip_areas.md" ]; then
     reuse_note="the run artifact does not record the Skip Areas the gate judged against"
-  elif [ "$(norm "$art_dir/decision_skip_areas.md")" != "$(norm "${skip_areas:-/dev/null}")" ]; then
+  elif [ -z "$skip_areas" ] || [ ! -f "$skip_areas" ] || [ ! -r "$skip_areas" ]; then
+    reuse_note="the PR's current Skip Areas could not be verified"
+  elif [ "$(norm "$art_dir/decision_skip_areas.md")" != "$(norm "$skip_areas")" ]; then
     reuse_note="the PR's Skip Areas changed since the gate scored"
   elif [ "$gate_provider" != "$want_provider" ]; then
     reuse_note="the gate used ${gate_provider:-another provider}, this scope asks for ${want_provider}"

@@ -122,8 +122,13 @@ case "$diff_revision" in
     exit 0 ;;
 esac
 [ -s "$work/pr_diff.txt" ] || echo "⚠️  no PR diff available — findings are judged without their diff hunks."
-gh pr view "$pr" --json body -q .body 2>/dev/null \
-  | bash "$LIB/extract-review-notes.sh" --skip-areas > "$work/skip_areas.md" 2>/dev/null || : > "$work/skip_areas.md"
+if gh pr view "$pr" --json body -q .body > "$work/pr_body.md" 2>/dev/null && \
+   bash "$LIB/extract-review-notes.sh" --skip-areas < "$work/pr_body.md" > "$work/skip_areas.md" 2>/dev/null; then
+  : # A successful read may legitimately have no Skip Areas.
+else
+  rm -f "$work/skip_areas.md"
+  echo "⚠️  could not verify the PR's current Skip Areas — gate predictions will be re-scored."
+fi
 
 bash "$LIB/recommend-fix-skip.sh" --scope review \
   --review "$work/review.md" --out-dir "$work/out" \

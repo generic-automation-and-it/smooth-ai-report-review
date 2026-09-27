@@ -474,9 +474,14 @@ jobs:
               echo "### 🔵 Low Priority / Nitpicks"
               printf '%s\n' "${filtered_low}"
             } > ci_temp/decisions/scope.md
-            { gh pr view "${PR_NUMBER}" --json body -q .body 2>/dev/null || true; } \
-              | bash "${REVIEW_SKILL_DIR}/scripts/lib/extract-review-notes.sh" --skip-areas > ci_temp/decisions/skip_areas.md 2>/dev/null \
-              || : > ci_temp/decisions/skip_areas.md
+            if gh pr view "${PR_NUMBER}" --json body -q .body > ci_temp/decisions/pr_body.md 2>/dev/null && \
+               bash "${REVIEW_SKILL_DIR}/scripts/lib/extract-review-notes.sh" --skip-areas \
+                 < ci_temp/decisions/pr_body.md > ci_temp/decisions/skip_areas.md 2>/dev/null; then
+              : # An empty section is valid when the live body was read successfully.
+            else
+              rm -f ci_temp/decisions/skip_areas.md
+              echo "::warning::could not verify the PR's current Skip Areas — gate predictions will be re-scored"
+            fi
             # The gate's run artifact (LADR-062) holds the quoted evidence, the
             # judge context and — LADR-098 — the gate's own fix_skip answers,
             # which the lib reuses when the Skip Areas are unchanged. The lib
