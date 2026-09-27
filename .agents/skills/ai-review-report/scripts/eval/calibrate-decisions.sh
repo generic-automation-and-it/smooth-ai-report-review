@@ -49,6 +49,10 @@ command -v git >/dev/null 2>&1 || { echo "❌ git is required" >&2; exit 2; }
 
 OUT="${1:-$(mktemp -d "${TMPDIR:-/tmp}/jev-calibration.XXXXXX")}"
 mkdir -p "$OUT/as-is" "$OUT/stripped" "$OUT/stripped+rules" "$OUT/work"
+# Absolute, because every worker `cd`s into its fixture sandbox before writing
+# its record and reading the rules file: a relative out_dir would resolve
+# inside the sandbox and the report would come back empty, exit 0.
+OUT="$(cd "$OUT" && pwd)"
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/lib/decision-record.sh"
 # The project standards the chunk reviewer reads (run-evals.sh assembles the

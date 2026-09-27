@@ -222,6 +222,10 @@ check "4i: only the rules variant sends project rules (the DR standards)" "0/20"
   "$(cat "$CAL"/work/stripped-*/ci_temp/score.log >/dev/null 2>&1; jq -s '[.[] | select(.findings[0].sanctioned != null)] | length' "$CAL"/stripped/*.json)/$(jq -s '[.[] | select(.findings[0].sanctioned != null)] | length' "$CAL"/stripped+rules/*.json)"
 check "4j: the rules report adds the sanctioned section and the rule policies" "1/1/1" \
   "$(grep -c '1b. `sanctioned`' "$TMP/cal.log")/$(grep -cE '^ +rules@0.50 ' "$TMP/cal.log")/$(grep -cE '^ +either@0.50 ' "$TMP/cal.log")"
+( cd "$TMP" && export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0 \
+  && bash "$SCRIPT_DIR/calibrate-decisions.sh" rel-out > "$TMP/cal-rel.log" 2>&1 )
+check "4k: a RELATIVE out_dir still collects every record (workers cd into sandboxes)" "60" \
+  "$(ls "$TMP"/rel-out/as-is "$TMP"/rel-out/stripped "$TMP"/rel-out/stripped+rules 2>/dev/null | grep -c '\.json$')"
 check "4h: run-evals runs the calibration only with the measurement, and it cannot abort" "1" \
   "$(grep -c 'calibrate-decisions.sh" "\${EVAL_ARTIFACT_DIR:+\$EVAL_ARTIFACT_DIR/calibration}" || true' "$RUN_EVALS")"
 
