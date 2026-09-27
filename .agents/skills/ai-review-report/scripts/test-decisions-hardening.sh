@@ -417,6 +417,21 @@ check "Test 3d: the cut is logged and recorded on the decision and in the summar
 check "Test 3e: rules that fit leave no trimmed mark" "null|null" \
   "$(jq -r '.findings[0].decisions.rules_trimmed' "$TMP_DIR/cnt.json")|$(jq -r '.decisions_summary.context.findings_with_rules_trimmed' "$TMP_DIR/cnt.json")"
 
+# Review 5331716081 finding 2: the budget is UTF-8 bytes. Two non-ASCII rule
+# files (2 and 3 bytes per character) must both keep a marked share inside the
+# byte cap; a character budget let the later one vanish behind the final cut.
+WIDE="$(for _i in $(seq 1 2500); do printf 'ü€'; done)"
+{
+  printf '# Runtime review instructions (chunk 0)\n'
+  printf '\n---\nSource: `.agents/rules/a.md`\n\nRULE-A-HEAD %s\n' "$WIDE"
+  printf '\n---\nSource: `.agents/rules/z.md`\n\nRULE-Z-HEAD %s\n' "$WIDE"
+} > "$TMP_DIR/wide_rules.md"
+merged_doc "$TMP_DIR/wide.json" "$F1"
+reset_stub wide
+(cd "$SB" && scorer "$TMP_DIR/wide.json" "$TMP_DIR/wide_rules.md" > "$TMP_DIR/wide.log" 2>&1)
+wide_sent="$(finding_reqs | jq -r '.state.project_rules // ""')"
+check "Test 3j: non-ASCII rules are budgeted in bytes: both files kept and marked, within the cap" "1|1|2|1" \
+  "$(printf '%s\n' "$wide_sent" | grep -c 'RULE-A-HEAD')|$(printf '%s\n' "$wide_sent" | grep -c 'RULE-Z-HEAD')|$(printf '%s\n' "$wide_sent" | grep -c 'this file trimmed to fit')|$([ "$(printf '%s' "$wide_sent" | wc -c)" -le 12100 ] && echo 1 || echo 0)"
 RENDER="$SCRIPT_DIR/lib/render-findings-summary.sh"
 check "Test 3f: the review's Coverage note says the rules were trimmed" "1" \
   "$(OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER" "$TMP_DIR/trim.json" 2>/dev/null | grep -c 'For 1 finding(s) the rules were trimmed to fit the request (rule files first)')"

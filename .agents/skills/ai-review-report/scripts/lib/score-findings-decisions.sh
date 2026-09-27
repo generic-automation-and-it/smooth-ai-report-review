@@ -364,7 +364,10 @@ cap_rules() {
            | fill($rules; $budget) as $r
            | fill($other; ($budget - ([ $r[].used ] | add // 0))) as $o
            | { text: ($head + ([ ($r + $o)[].body ] | join(""))),
-               before: ($head | utf8bytelength) + ([ $secs[] | (header(.path) + .content) | utf8bytelength ] | add // 0),
+               # Parenthesised: jq <= 1.7 (ubuntu-latest) rejects an unparenthesised
+               # `(a) + (b)` object value; jq 1.8 accepts it, so a local run
+               # cannot catch the break (review 5331716081 finding 2).
+               before: (($head | utf8bytelength) + ([ $secs[] | (header(.path) + .content) | utf8bytelength ] | add // 0)),
                cut: [ ($r + $o)[] | select(.cut) | .path ] }
            | if (.text | utf8bytelength) > $max then error("rules exceed byte budget") else . end' "$src" 2>/dev/null)"; then
     cap_copy "$src" "$dst" "$max" "project rules"
