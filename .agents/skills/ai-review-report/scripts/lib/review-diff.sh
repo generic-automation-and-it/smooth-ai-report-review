@@ -46,13 +46,15 @@ pr_json="$(gh pr view "$pr" --json headRefOid,baseRefName 2>/dev/null || echo '{
 head="$(printf '%s' "$pr_json" | jq -r '.headRefOid // ""' 2>/dev/null)"
 base="$(printf '%s' "$pr_json" | jq -r '.baseRefName // ""' 2>/dev/null)"
 
-current_diff() { gh pr diff "$pr" > "$out" 2>/dev/null || : > "$out"; }
+# Fails, leaving <out_diff> empty, when `gh pr diff` does: a current or
+# unknown revision with no diff behind it is `unavailable`, never a success
+# status over an empty file (review 5331632755 finding 1).
+current_diff() { gh pr diff "$pr" > "$out" 2>/dev/null && return 0; : > "$out"; return 1; }
 
 # No reviewed commit: nothing to pin to, so the current diff is the only
 # option — and the caller says the revision was not verified.
 if [ -z "$reviewed" ]; then
-  current_diff
-  printf 'unknown\n\n'
+  if current_diff; then printf 'unknown\n\n'; else printf 'unavailable\n\n'; fi
   exit 0
 fi
 # A known reviewed commit but an unreadable PR head: the PR may have moved on,
@@ -64,7 +66,9 @@ if [ -z "$head" ]; then
 fi
 # The header carries an abbreviated sha; the PR head is always full.
 case "$head" in
-  "$reviewed"*) current_diff; printf 'current\n%s\n' "$head"; exit 0 ;;
+  "$reviewed"*)
+    if current_diff; then printf 'current\n%s\n' "$head"; else printf 'unavailable\n%s\n' "$head"; fi
+    exit 0 ;;
 esac
 
 # The compare API resolves an abbreviated sha, and three-dot semantics diff

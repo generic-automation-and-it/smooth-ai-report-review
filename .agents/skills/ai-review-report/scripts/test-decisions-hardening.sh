@@ -117,7 +117,7 @@ case "$1 $2" in
       *headRefOid*) printf '{"headRefOid":"%s","baseRefName":"main"}' "${GH_HEAD:-}" ;;
       *) cat "${GH_PR_BODY:-/dev/null}" ;;
     esac ;;
-  "pr diff") cat "$GH_CURRENT_DIFF" ;;
+  "pr diff") [ -z "${GH_DIFF_FAIL:-}" ] || exit 1; cat "$GH_CURRENT_DIFF" ;;
   "run download")
     dir=""; while [ $# -gt 0 ]; do [ "$1" = "-D" ] && dir="$2"; shift; done
     [ -n "${GH_ARTIFACT_DIR:-}" ] || exit 1
@@ -428,6 +428,12 @@ check "Test 4f2: a known reviewed commit but an unreadable PR head → unavailab
 set +e
 bash "$REVIEW_DIFF" x y z >/dev/null 2>&1; rc_u=$?
 set -e
+# Review 5331632755 finding 1: a failed `gh pr diff` is never reported as an
+# available diff.
+check "Test 4f3: the PR head is the reviewed commit but gh pr diff fails → unavailable, empty diff" \
+  "unavailable|abc1234ffffffffffffffffffffffffffffffffff|" "$(rd same_fail GH_HEAD=abc1234ffffffffffffffffffffffffffffffffff GH_DIFF_FAIL=1)"
+check "Test 4f4: no reviewed commit and gh pr diff fails → unavailable, empty diff" \
+  "unavailable||" "$(rd nohdr_fail GH_HEAD=fffffff000000000000000000000000000000000 GH_DIFF_FAIL=1)"
 check "Test 4g: a non-numeric PR is a usage error" "64" "$rc_u"
 
 # --- 5. reuse of the gate's answers ------------------------------------------------------
