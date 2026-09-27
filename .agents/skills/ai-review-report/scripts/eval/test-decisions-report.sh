@@ -1,0 +1,150 @@
+#!/bin/bash
+# Offline tests for the decision-model measurement leg of the eval harness
+# (LADR-093 follow-up): lib/decisions-report.py and run-evals.sh's
+# record_decisions. No model, no network — curl is a PATH shim.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORT="$SCRIPT_DIR/lib/decisions-report.py"
+RUN_EVALS="$SCRIPT_DIR/run-evals.sh"
+SKILL_SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+pass=0; fail=0
+check() { # check <name> <expected> <actual>
+  if [ "$3" = "$2" ]; then echo "✅ $1"; pass=$((pass + 1))
+  else echo "❌ $1"; echo "   expected: $2"; echo "   actual:   $3"; fail=$((fail + 1)); fi
+}
+
+if ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  echo "⏭️  python3 or jq unavailable — skipping decision-measurement tests"
+  exit 0
+fi
+
+echo "=========================================="
+echo "Testing the decision-model measurement (eval)"
+echo "=========================================="
+
+# --- 1. the analyzer, on records with known ground truth ----------------------------
+R="$TMP/records"; mkdir -p "$R"
+f() { # f <severity> <verified> <title> <supported> <jev_severity> <jev_conf>
+  printf '{"severity":"%s","verified":%s,"confidence":100,"title":"%s","why_it_matters":"w","supported":%s,"jev_severity":"%s","jev_confidence":%s,"diff_hunk_found":true}' "$@"
+}
+# DR fixture that RE-RAISED its false positive; Jev doubts it (0.10) and rates it low.
+printf '{"fixture":"DR-900","kind":"must-not-flag","sample":1,"min_severity":"HIGH","forbidden_claim":"redundant( [[:alnum:]-]+){0,2} storage","status":"scored","provider":"P","model":"M","findings":[%s,%s]}' \
+  "$(f high true 'Redundant hybrid storage layer' 0.10 low 0.9)" \
+  "$(f medium true 'Unrelated naming nit' 0.70 low 0.5)" > "$R/DR-900.1.json"
+# DR fixture that stayed clean.
+printf '{"fixture":"DR-901","kind":"must-not-flag","sample":1,"min_severity":"HIGH","forbidden_claim":"langversion","status":"no_findings","provider":null,"model":null,"findings":[]}' > "$R/DR-901.1.json"
+# MC fixtures: two real catches Jev supports; one it doubts (a recall risk for filter).
+printf '{"fixture":"MC-900","kind":"must-catch","sample":1,"min_severity":"HIGH","forbidden_claim":"","status":"scored","provider":"P","model":"M","findings":[%s]}' \
+  "$(f high true 'SQL injection' 0.95 critical 0.9)" > "$R/MC-900.1.json"
+printf '{"fixture":"MC-901","kind":"must-catch","sample":1,"min_severity":"MEDIUM","forbidden_claim":"","status":"scored","provider":"P","model":"M","findings":[%s]}' \
+  "$(f medium true 'Guard deleted' 0.40 medium 0.7)" > "$R/MC-901.1.json"
+# A sample whose decisions failed must be excluded, not counted as clean.
+printf '{"fixture":"MC-902","kind":"must-catch","sample":1,"min_severity":"HIGH","forbidden_claim":"","status":"unavailable","note":"⚠️ HTTP 401","findings":[]}' > "$R/MC-902.1.json"
+
+out="$(python3 "$REPORT" "$R")"; rc=$?
+check "1a: report exits 0" "0" "$rc"
+check "1b: POSIX class in forbidden_claim is honoured (DR-002 shape)" "1" \
+  "$(printf '%s\n' "$out" | grep -c 'known false positives (DR re-raises) : n=1 ')"
+check "1c: true catches measured" "1" "$(printf '%s\n' "$out" | grep -c 'true catches (seeded defects)        : n=2 ')"
+check "1d: separation — both catches outscore the false positive" "1" \
+  "$(printf '%s\n' "$out" | grep -c 'separation (AUC, 1.0 = perfect, 0.5 = chance): 1.00')"
+check "1e: an unavailable sample is excluded, and says so" "1" "$(printf '%s\n' "$out" | grep -c 'Excluded       : 1 sample')"
+check "1f: base — 1 DR re-raise, 2 of 3 catches (MC-902 excluded)" "1" \
+  "$(printf '%s\n' "$out" | grep -cE '^ +base +1/2 +2/2 ')"
+check "1g: filter@0.50 removes the re-raise AND loses the doubted catch" "1" \
+  "$(printf '%s\n' "$out" | grep -cE '^ +filter@0.50 +0/2 +1/2 .*precision \+1, RECALL -1')"
+check "1h: filter@0.25 removes the re-raise with no recall loss" "1" \
+  "$(printf '%s\n' "$out" | grep -cE '^ +filter@0.25 +0/2 +2/2 .*precision \+1$')"
+check "1i: sev@0.80 downgrades the false positive out of flag range" "1" \
+  "$(printf '%s\n' "$out" | grep -cE '^ +sev@0.80 +0/2 +2/2 ')"
+check "1j: Jev severity — false positive rated below Medium" "1" \
+  "$(printf '%s\n' "$out" | grep -c 'false positives Jev would rate below Medium : 1/1')"
+check "1k: no records → says so, exit 0" "0/1" \
+  "$(mkdir -p "$TMP/empty"; o="$(python3 "$REPORT" "$TMP/empty")"; echo "$?/$(printf '%s' "$o" | grep -c 'did not run')")"
+
+# --- 2. record_decisions, end to end on a fake fixture sandbox ----------------------
+# The function is cut out of run-evals.sh, so this exercises the real code, not
+# a copy. It drives the REAL merge-findings.sh and score-findings-decisions.sh.
+awk '/^record_decisions\(\) \{/{p=1} p{print} p && /^}$/{exit}' "$RUN_EVALS" > "$TMP/record.sh"
+check "2a: record_decisions found in run-evals.sh" "1" "$(grep -c '^record_decisions() {' "$TMP/record.sh")"
+
+SB="$TMP/sandbox"; mkdir -p "$SB/src" && cd "$SB" || exit 1
+git init -q && git config user.email t@t && git config user.name t
+git commit -q --allow-empty -m base
+printf 'one\ntwo\n' > src/a.cs && git add -A && git commit -q -m head
+mkdir -p ci_temp/reviews
+echo "total_chunks=1" > ci_temp/github_output.txt
+cat > ci_temp/reviews/chunk_0.findings.json <<'J'
+{"chunk":0,"findings":[{"title":"Redundant storage copy","severity":"high","file":"src/a.cs","line":2,
+ "why_it_matters":"w","confidence":100,"verified":true,"first_evidence":"src/a.cs:2 -- two",
+ "pre_existing":false,"autofix_class":"manual","owner":"human"}],"residual_risks":[],"testing_gaps":[]}
+J
+cat > "$TMP/manifest.json" <<'J'
+{"id":"DR-777","kind":"must-not-flag","label":"DR-777","forbidden_claim":"redundant storage"}
+J
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/curl" <<'SHIM'
+#!/bin/bash
+out=""; data=""
+while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; -w|--max-time|-H) shift 2;; --data-binary) data="${2#@}"; shift 2;; -*) shift;; *) shift;; esac; done
+if jq -e '.questions.preflight' "$data" >/dev/null 2>&1; then
+  printf '{"model":"jev-1.13","answers":{"preflight":{"type":"noul","noul":0.9}}}' > "$out"
+elif jq -e '.questions.block_merge' "$data" >/dev/null 2>&1; then
+  printf '{"model":"jev-1.13","answers":{"block_merge":{"type":"noul","noul":0.2},"dominant_risk":{"type":"choice","choice":"maintainability","confidence":0.5},"overall_risk":{"type":"score","score":1.0,"confidence":0.5}}}' > "$out"
+else
+  printf '{"model":"jev-1.13","answers":{"supported":{"type":"noul","noul":0.07},"severity":{"type":"choice","choice":"low","probabilities":{},"confidence":0.88},"pre_existing":{"type":"noul","noul":0.1},"actionability":{"type":"score","score":0.4,"confidence":0.6}}}' > "$out"
+fi
+printf '200'
+SHIM
+chmod +x "$TMP/bin/curl"
+mkdir -p "$TMP/decisions"
+(
+  export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0
+  # Read by the sourced record_decisions, not by this subshell directly.
+  # shellcheck disable=SC2034
+  DECISIONS_DIR="$TMP/decisions" SKILL_SCRIPTS_DIR="$SKILL_SCRIPTS_DIR" SELFTEST_SAMPLE=2
+  # shellcheck disable=SC1091
+  . "$TMP/record.sh"
+  record_decisions "$TMP/manifest.json" "$SB"
+)
+rec="$TMP/decisions/DR-777.2.json"
+check "2b: one record per fixture-sample" "true" "$([ -s "$rec" ] && echo true || echo false)"
+check "2c: status scored, provider recorded" "scored/OPENCODE-GO-DECISIONS" "$(jq -r '"\(.status)/\(.provider)"' "$rec")"
+check "2d: finding carries Jev's answers and the chunk's own tag" "0.07/low/0.88/true/high" \
+  "$(jq -r '.findings[0] | "\(.supported)/\(.jev_severity)/\(.jev_confidence)/\(.verified)/\(.severity)"' "$rec")"
+check "2e: manifest ground truth copied into the record" "must-not-flag/redundant storage/2" \
+  "$(jq -r '"\(.kind)/\(.forbidden_claim)/\(.sample)"' "$rec")"
+check "2f: annotate mode — the measured document lost nothing" "1" \
+  "$(jq '.findings | length' "$SB/ci_temp/findings.merged.json")"
+check "2g: the analyzer reads the real record" "1" \
+  "$(python3 "$REPORT" "$TMP/decisions" | grep -c 'known false positives (DR re-raises) : n=1 ')"
+
+# Provider failure → a record with a status and a note, never a crash.
+rm -f "$SB/ci_temp/findings.merged.json" "$TMP/decisions"/*
+(
+  export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=
+  # Read by the sourced record_decisions, not by this subshell directly.
+  # shellcheck disable=SC2034
+  DECISIONS_DIR="$TMP/decisions" SKILL_SCRIPTS_DIR="$SKILL_SCRIPTS_DIR" SELFTEST_SAMPLE=1
+  # shellcheck disable=SC1091
+  . "$TMP/record.sh"
+  record_decisions "$TMP/manifest.json" "$SB"
+)
+check "2h: a missing key records status unavailable with the reason" "unavailable/1" \
+  "$(jq -r '"\(.status)/\(.note | test("OPENCODE_GO_OPENAI_API_KEY") | if . then 1 else 0 end)"' "$TMP/decisions/DR-777.1.json")"
+
+# --- 3. the measurement can never move the gate ------------------------------------
+check "3a: recording happens only when EVAL_DECISIONS is on" "1" \
+  "$(grep -c '\[ "\$DECISIONS_ON" = 1 \] && record_decisions' "$RUN_EVALS")"
+check "3b: the report is printed after the verdict and never assigns fail" "0" \
+  "$(awk '/Decision-model measurement: printed AFTER the verdict/{p=1} p' "$RUN_EVALS" | grep -cE '(^|[^_])fail=')"
+check "3c: the report cannot abort the run" "1" \
+  "$(grep -c 'decisions-report.py" "\$DECISIONS_DIR" || true' "$RUN_EVALS")"
+
+echo ""
+echo "Results: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]

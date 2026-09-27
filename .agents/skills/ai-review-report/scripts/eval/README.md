@@ -46,6 +46,7 @@ Reuses the exact CI provider/transport resolution: `lib/resolve-provider.sh` +
 | `EVAL_SAMPLES` | `1` | runs per fixture (>1 = precision worst-case, recall majority) |
 | `EVAL_CORPUS_DIR` | `./corpus` | corpus root override |
 | `EVAL_FILTER` | (unset) | only run fixtures whose id contains this substring |
+| `EVAL_DECISIONS` | `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS`, else `0` | also measure the LADR-093 decision model per sample (report-only; uses the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` settings and key) |
 
 ## Add a fixture
 
@@ -86,10 +87,10 @@ Evals for the **orchestrator-tier** calls (semantic grouping, aggregation
 summary — LADR-022) are not covered: they are classification/cosmetic, not
 blocking. Possible follow-up.
 
-**Decision-model scoring (LADR-093) is not measured yet.** This harness scores
-chunk markdown before the merge, and the decision model runs after it, so
-`OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` has no effect on an eval run. The
-measurement that must precede `filter` mode ever defaulting on — per fixture,
-merge the sidecars, score them in `annotate`, render, and compare which
-must-not-flag hits and which must-catch hits `filter` would have suppressed —
-is issue #156's "PR C"; see `AGENTS.md` for the procedure.
+**Decision-model scoring (LADR-093) is measured, not gated.** With
+`EVAL_DECISIONS=1` (or the gate's `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS`),
+every sample also runs the production merge + Jev (annotate) path, and after the
+verdict the run prints how well Jev's `supported` score separates the corpus's
+known false positives from its true catches, plus what filter / tag-demotion /
+severity policies would have done to precision and recall. It never changes the
+exit code. Records land in `$EVAL_ARTIFACT_DIR/decisions/`; see `AGENTS.md`.

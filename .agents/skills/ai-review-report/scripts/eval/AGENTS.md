@@ -130,22 +130,31 @@ scripts/eval/
 
 ## Key Behaviors
 
-- **Decision-model scoring (LADR-093) is invisible to this harness — setting
-  `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1` here changes nothing.** The
-  harness scores each fixture's chunk markdown straight out of
-  `review-in-chunks.sh`; the decision model runs after `merge-findings.sh`, on
-  the merged document, and only the rendered Issues Summary carries its output.
-  Measuring it (issue #156, "PR C" — the precondition for `filter` ever
-  defaulting on) needs a post-merge leg per fixture: merge the sandbox's
-  `ci_temp/reviews/chunk_*.findings.json`, run
-  `lib/score-findings-decisions.sh` in `annotate`, render with
-  `lib/render-findings-summary.sh`, and record for every must-NOT-flag hit the
-  `supported` probability of the offending finding (would `filter` have
-  suppressed it?) and for every must-catch hit whether `filter` would have
-  suppressed the catch. Score the rendered summary with the unchanged
-  `lib/score-review.sh` — the decision suffix sits after the label, so the flag
-  count is comparable. Report the delta; do not gate on it until it has been
-  run on the whole corpus more than once.
+- **Decision-model scoring (LADR-093) is MEASURED here, never gated on.** The
+  gate verdict comes from pre-merge chunk markdown and stays exactly as it was;
+  with `EVAL_DECISIONS` on (default: the gate's own
+  `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS`), `run-evals.sh`'s
+  `record_decisions` additionally runs the production post-merge path on each
+  sample's real sidecars — `merge-findings.sh`, then
+  `score-findings-decisions.sh` in **annotate** — and writes one record per
+  fixture-sample. `lib/decisions-report.py` then prints, after the verdict:
+  (1) Jev's `supported` distribution for **known false positives** (a DR
+  fixture's `[VERIFIED]` Critical/High/Medium matching its `forbidden_claim`)
+  versus **true catches** (a must-catch fixture's `[VERIFIED]` finding at or
+  above `min_severity`), with an AUC; (2) how Jev's severity lands on each; (3)
+  what `filter@t`, `demote@t` (VERIFIED→SPECULATIVE) and `sev@c` (adopt Jev's
+  severity above a confidence) would have done to DR re-raises and catches.
+  Policies are applied **offline** to the annotate answers, so one paid run
+  measures all of them and the measured document is never altered. Four rules:
+  it must never assign `fail` or abort the run (`test-decisions-report.sh`
+  greps for both); a sample whose decisions failed is **excluded** and named,
+  never counted as clean; a sample with no findings **is** counted (a clean DR
+  fixture and a missed catch are real outcomes); and the ground truth is the
+  corpus, matched on the structured title + rationale — the harness matches the
+  markdown line, and the structured set is post-confidence-gate, so both
+  baselines are reported rather than assumed equal. Treat any single run as a
+  hint: act on a policy only when it removes DR re-raises **without** losing a
+  catch across several runs (`EVAL_SAMPLES` > 1).
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -218,6 +227,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | Decision-model scoring is now measured: `EVAL_DECISIONS` runs `record_decisions` (real merge + scorer in annotate) per sample and `lib/decisions-report.py` reports separation (AUC) and what filter/demote/severity policies would have done, after the verdict and without ever changing it. `test-decisions-report.sh` covers it offline. | LADR-093 |
 | 2026-09-24 | Recorded that LADR-093 decision-model scoring is invisible to this harness (it scores pre-merge chunk markdown) and what the post-merge measurement leg for issue #156 PR C must do. | LADR-093 |
 | 2026-06-08 | Initial eval-dir AGENTS.md: fixture hygiene, `EVAL_ARTIFACT_DIR` triage archive, post-merge canary trigger, strict precision bar, and safe `test-evals.sh` path. | — |
 | 2026-07-30 | Move the retired `.github/instructions` DR standards into the eval corpus and assemble them into `.agents/skills/code-review-standards/SKILL.md` inside each fixture sandbox. | — |

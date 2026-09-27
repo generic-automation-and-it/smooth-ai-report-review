@@ -48,6 +48,11 @@
 #                           sample, recall passes if caught in a MAJORITY (default 1)
 #   EVAL_CORPUS_DIR         corpus root override                  (default ./corpus)
 #   EVAL_FILTER             only run fixtures whose id matches this substring
+#   EVAL_DECISIONS          measure the LADR-093 decision model on every sample
+#                           (default: OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS,
+#                           else 0). REPORT-ONLY — never changes the exit code.
+#                           Uses the OPENCODE_REVIEW_REPORT_DECISIONS_* settings
+#                           and key the gate uses; see lib/decisions-report.py.
 #
 # Exit: 0 if precision is perfect AND recall >= threshold; non-zero otherwise.
 
@@ -76,6 +81,14 @@ DR_STANDARDS_DEST=".agents/skills/code-review-standards/SKILL.md"
 EVAL_RECALL_THRESHOLD="${EVAL_RECALL_THRESHOLD:-80}"
 EVAL_SAMPLES="${EVAL_SAMPLES:-1}"
 EVAL_FILTER="${EVAL_FILTER:-}"
+# Decision-model measurement (LADR-093, issue #156 follow-up). It answers the
+# question LADR-093 left open — does Jev separate the findings the corpus KNOWS
+# are wrong from the ones it knows are right — and it must never change what
+# this harness gates on, so it only writes records and prints a report.
+EVAL_DECISIONS="${EVAL_DECISIONS:-${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}}"
+DECISIONS_ON=0
+printf '%s' "$EVAL_DECISIONS" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' \
+  | grep -qxE '1|true|yes|on' && DECISIONS_ON=1
 # Optional triage archive: when set, each fixture's concatenated review markdown
 # is copied to "$EVAL_ARTIFACT_DIR/<id>.review.md" (and infra-fail run logs to
 # "<fixture>.lastlog"). The per-fixture sandbox + WORK_ROOT are wiped on exit, so
@@ -146,10 +159,70 @@ echo "Model    : ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-(selftest)} (fallback: 
 echo "Corpus   : $CORPUS_DIR"
 echo "Samples  : $EVAL_SAMPLES | Recall threshold: ${EVAL_RECALL_THRESHOLD}%"
 [ -n "$EVAL_FILTER" ] && echo "Filter   : $EVAL_FILTER"
+if [ "$DECISIONS_ON" = 1 ] && [ "$SELFTEST" != "1" ]; then
+  echo "Decisions: measured (report-only) — ${OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER:-OPENCODE-GO-DECISIONS}/${OPENCODE_REVIEW_REPORT_DECISIONS_MODEL:-<provider default>}"
+fi
 echo ""
 
 WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/llm-evals.XXXXXX")"
 trap 'rm -rf "$WORK_ROOT"' EXIT
+DECISIONS_DIR="$WORK_ROOT/decisions"
+mkdir -p "$DECISIONS_DIR"
+
+# record_decisions <manifest> <sandbox>
+# Runs the production post-merge path on this sample's real chunk sidecars —
+# merge-findings.sh, then score-findings-decisions.sh in ANNOTATE mode (it never
+# removes anything; every policy is applied offline by decisions-report.py) — and
+# writes one JSON record per sample to $DECISIONS_DIR. Best-effort by design: any
+# failure becomes a record with a status and a note, never a harness failure.
+record_decisions() {
+  local manifest="$1" sb="$2" id sample
+  id="$(jq -r '.id' "$manifest")"
+  sample="${SELFTEST_SAMPLE:-1}"
+  (
+    cd "$sb" || exit 0
+    # Exactly two commits (base, head) — the diff the chunk review saw.
+    git diff HEAD~1..HEAD > ci_temp/pr_diff.txt 2>/dev/null || true
+    status="no_merged"
+    note=""
+    if bash "$SKILL_SCRIPTS_DIR/lib/merge-findings.sh" ci_temp/reviews ci_temp/findings.merged.json \
+         > ci_temp/decisions_merge.log 2>&1; then
+      total="$(grep '^total_chunks=' ci_temp/github_output.txt 2>/dev/null | tail -1 | cut -d= -f2)"
+      OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
+        bash "$SKILL_SCRIPTS_DIR/lib/score-findings-decisions.sh" ci_temp/findings.merged.json \
+          ci_temp/reviews "${total:-1}" ci_temp/pr_diff.txt > ci_temp/decisions_score.log 2>&1 || true
+      if jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
+        status="scored"
+      elif jq -e '(.findings // []) | length == 0' ci_temp/findings.merged.json >/dev/null 2>&1; then
+        status="no_findings"
+      else
+        status="unavailable"
+        note="$(grep -m1 '⚠️' ci_temp/decisions_score.log 2>/dev/null | cut -c1-240)"
+      fi
+    else
+      note="$(tail -n 1 ci_temp/decisions_merge.log 2>/dev/null | cut -c1-240)"
+    fi
+    # A temp file, not `<(...)`: process substitution needs /dev/fd (same reason
+    # as lib/merge-findings.sh).
+    merged="ci_temp/findings.merged.json"
+    [ -s "$merged" ] || { echo '{}' > ci_temp/decisions_empty.json; merged="ci_temp/decisions_empty.json"; }
+    jq -n --slurpfile m "$merged" \
+      --slurpfile man "$manifest" --arg sample "$sample" --arg status "$status" --arg note "$note" '
+      ($m[0] // {}) as $d | $man[0] as $f
+      | { fixture: $f.id, kind: $f.kind, sample: ($sample | tonumber),
+          min_severity: ($f.min_severity // "HIGH"), forbidden_claim: ($f.forbidden_claim // ""),
+          status: $status, note: $note,
+          provider: ($d.decisions_summary.provider // null), model: ($d.decisions_summary.model // null),
+          findings: [ ($d.findings // [])[]
+                      | { severity, verified: (.verified == true), confidence, title, why_it_matters,
+                          supported: (.decisions.supported // null),
+                          jev_severity: (.decisions.severity.choice // null),
+                          jev_confidence: (.decisions.severity.confidence // null),
+                          diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' \
+      > "$DECISIONS_DIR/${id}.${sample}.json" 2>/dev/null || true
+  )
+  return 0
+}
 
 # ---------------------------------------------------------------------------
 # run_fixture <manifest-path>
@@ -270,6 +343,9 @@ run_fixture() {
   fi
 
   local sevs; sevs="$(bash "$SCORE_SCRIPT" "$review_md" | paste -sd, -)"
+  # Measurement only (EVAL_DECISIONS): after the verdict inputs are fixed, so it
+  # cannot influence them. Output goes to files, never to this function's stdout.
+  [ "$DECISIONS_ON" = 1 ] && record_decisions "$manifest" "$sandbox" >/dev/null 2>&1
   # Keep the review around for the caller to optionally archive on failure.
   echo "$review_md|$sevs"
   return 0
@@ -659,5 +735,20 @@ if [ "$fail" -eq 0 ]; then
   echo "✅ EVAL PASSED — no precision regressions, recall above threshold."
 else
   echo "🛑 EVAL FAILED."
+fi
+
+# Decision-model measurement: printed AFTER the verdict and never allowed to
+# alter `fail` — it is evidence for a future decision, not a gate.
+if [ "$DECISIONS_ON" = 1 ] && [ "$SELFTEST" != "1" ]; then
+  echo ""
+  if [ -n "$EVAL_ARTIFACT_DIR" ]; then
+    mkdir -p "$EVAL_ARTIFACT_DIR/decisions" 2>/dev/null \
+      && cp "$DECISIONS_DIR"/*.json "$EVAL_ARTIFACT_DIR/decisions/" 2>/dev/null || true
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$SCRIPT_DIR/lib/decisions-report.py" "$DECISIONS_DIR" || true
+  else
+    echo "ℹ️  Decision records written, but no python3 to summarise them."
+  fi
 fi
 exit "$fail"
