@@ -159,6 +159,27 @@ rm -f "$SB/ci_temp/findings.merged.json" "$TMP/decisions"/*
 check "2h: a missing key records status unavailable with the reason" "unavailable/1" \
   "$(jq -r '"\(.status)/\(.note | test("OPENCODE_GO_OPENAI_API_KEY") | if . then 1 else 0 end)"' "$TMP/decisions/DR-777.1.json")"
 
+# --- 2i. the shared record writer says what was actually measured -------------------
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/decision-record.sh"
+W="$TMP/writer"; mkdir -p "$W"
+mk() { # mk <out> <scored> <merged_chunks-json> [summary=yes|no] — a 2-finding merged doc
+  jq -n --argjson scored "$2" --argjson mc "$3" --arg sum "${4:-yes}" '
+    { status: "complete", merged_chunks: $mc,
+      findings: [ {title:"a",severity:"high",verified:true,decisions:{supported:0.9}},
+                  {title:"b",severity:"high",verified:true} ] }
+    + (if $sum == "yes" then { decisions_summary: { provider: "P", model: "M", scored: $scored, skipped: (2 - $scored) } } else {} end)' > "$1"
+}
+st() { write_decision_record "$1" "$TMP/manifest.json" 1 "" "$2" /dev/null "$W/out.json"; jq -r '"\(.status)|\(.note)"' "$W/out.json"; }
+mk "$W/full.json" 2 '[0]';          check "2i: every finding scored → scored" "scored|" "$(st "$W/full.json" 1)"
+mk "$W/part.json" 1 '[0]';          check "2j: some findings unscored → partial, excluded" "partial|scored 1 of 2 findings" "$(st "$W/part.json" 1)"
+mk "$W/pronly.json" 0 '[0]';        check "2k: only the PR-level answer succeeded → unavailable" "unavailable|no finding was scored" "$(st "$W/pronly.json" 1)"
+mk "$W/cov.json" 2 '[0]';           check "2l: sidecars from fewer chunks than reviewed → partial_coverage" "partial_coverage|sidecars from 1 of 2 chunks" "$(st "$W/cov.json" 2)"
+mk "$W/nosum.json" 0 '[0]' no;      check "2m: findings but no decisions at all → unavailable" "unavailable|no finding was scored" "$(st "$W/nosum.json" 1)"
+check "2n: no merged document → no_merged" "no_merged|the merge produced no document" "$(st "$W/missing.json" 1)"
+check "2p: run-evals and calibrate both use the one writer" "2" \
+  "$(grep -l 'write_decision_record' "$RUN_EVALS" "$SCRIPT_DIR/calibrate-decisions.sh" | wc -l | tr -d ' ')"
+
 # --- 3. the measurement can never move the gate ------------------------------------
 check "3a: recording happens only when EVAL_DECISIONS is on" "1" \
   "$(grep -c '\[ "\$DECISIONS_ON" = 1 \] && record_decisions' "$RUN_EVALS")"

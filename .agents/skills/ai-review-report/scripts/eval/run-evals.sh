@@ -183,44 +183,21 @@ record_decisions() {
     cd "$sb" || exit 0
     # Exactly two commits (base, head) — the diff the chunk review saw.
     git diff HEAD~1..HEAD > ci_temp/pr_diff.txt 2>/dev/null || true
-    status="no_merged"
-    note=""
+    total="$(grep '^total_chunks=' ci_temp/github_output.txt 2>/dev/null | tail -1 | cut -d= -f2)"
     if bash "$SKILL_SCRIPTS_DIR/lib/merge-findings.sh" ci_temp/reviews ci_temp/findings.merged.json \
          > ci_temp/decisions_merge.log 2>&1; then
-      total="$(grep '^total_chunks=' ci_temp/github_output.txt 2>/dev/null | tail -1 | cut -d= -f2)"
       OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MODE=annotate \
         bash "$SKILL_SCRIPTS_DIR/lib/score-findings-decisions.sh" ci_temp/findings.merged.json \
           ci_temp/reviews "${total:-1}" ci_temp/pr_diff.txt > ci_temp/decisions_score.log 2>&1 || true
-      if jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
-        status="scored"
-      elif jq -e '(.findings // []) | length == 0' ci_temp/findings.merged.json >/dev/null 2>&1; then
-        status="no_findings"
-      else
-        status="unavailable"
-        note="$(grep -m1 '⚠️' ci_temp/decisions_score.log 2>/dev/null | cut -c1-240)"
-      fi
-    else
-      note="$(tail -n 1 ci_temp/decisions_merge.log 2>/dev/null | cut -c1-240)"
     fi
-    # A temp file, not `<(...)`: process substitution needs /dev/fd (same reason
-    # as lib/merge-findings.sh).
-    merged="ci_temp/findings.merged.json"
-    [ -s "$merged" ] || { echo '{}' > ci_temp/decisions_empty.json; merged="ci_temp/decisions_empty.json"; }
-    jq -n --slurpfile m "$merged" \
-      --slurpfile man "$manifest" --arg sample "$sample" --arg status "$status" --arg note "$note" '
-      ($m[0] // {}) as $d | $man[0] as $f
-      | { fixture: $f.id, kind: $f.kind, sample: ($sample | tonumber),
-          min_severity: ($f.min_severity // "HIGH"), forbidden_claim: ($f.forbidden_claim // ""),
-          status: $status, note: $note,
-          provider: ($d.decisions_summary.provider // null), model: ($d.decisions_summary.model // null),
-          findings: [ ($d.findings // [])[]
-                      | { severity, verified: (.verified == true), confidence, title, why_it_matters,
-                          supported: (.decisions.supported // null),
-                          jev_severity: (.decisions.severity.choice // null),
-                          jev_confidence: (.decisions.severity.confidence // null),
-                          sanctioned: (.decisions.sanctioned // null),
-                          diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' \
-      > "$DECISIONS_DIR/${id}.${sample}.json" 2>/dev/null || true
+    # One shared writer (lib/decision-record.sh) decides the sample status —
+    # scored / partial / unavailable / partial_coverage — so a PR-level answer
+    # can never make unscored findings, or a chunk whose sidecar was lost,
+    # count as measured.
+    # shellcheck disable=SC1091
+    . "$SKILL_SCRIPTS_DIR/eval/lib/decision-record.sh"
+    write_decision_record ci_temp/findings.merged.json "$manifest" "$sample" "" "${total:-}" \
+      ci_temp/decisions_score.log "$DECISIONS_DIR/${id}.${sample}.json" 2>/dev/null || true
   )
   return 0
 }

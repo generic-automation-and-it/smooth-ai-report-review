@@ -49,6 +49,8 @@ command -v git >/dev/null 2>&1 || { echo "❌ git is required" >&2; exit 2; }
 
 OUT="${1:-$(mktemp -d "${TMPDIR:-/tmp}/jev-calibration.XXXXXX")}"
 mkdir -p "$OUT/as-is" "$OUT/stripped" "$OUT/stripped+rules" "$OUT/work"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/decision-record.sh"
 # The project standards the chunk reviewer reads (run-evals.sh assembles the
 # same two files into the fixture sandbox).
 RULES="$OUT/work/project-rules.md"
@@ -112,29 +114,11 @@ calibrate_one() {
       bash "$SCORER" ci_temp/findings.merged.json ci_temp/reviews 1 ci_temp/pr_diff.txt ${rules_arg:+"$rules_arg"} \
       > ci_temp/score.log 2>&1 || true
 
-    status="unavailable"; note=""
-    if jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
-      status="scored"
-    else
-      note="$(grep -m1 '⚠️' ci_temp/score.log 2>/dev/null | cut -c1-240)"
-    fi
-    # Same record shape as run-evals.sh record_decisions, so decisions-report.py
-    # reads both without knowing which produced them.
-    jq -n --slurpfile d ci_temp/findings.merged.json --slurpfile man "$manifest" \
-      --arg status "$status" --arg note "$note" --arg variant "$variant" '
-      $d[0] as $d | $man[0] as $f
-      | { fixture: $f.id, kind: $f.kind, sample: 1, variant: $variant,
-          min_severity: ($f.min_severity // "HIGH"), forbidden_claim: ($f.forbidden_claim // ""),
-          status: $status, note: $note,
-          provider: ($d.decisions_summary.provider // null), model: ($d.decisions_summary.model // null),
-          findings: [ ($d.findings // [])[]
-                      | { severity, verified: (.verified == true), confidence, title, why_it_matters,
-                          supported: (.decisions.supported // null),
-                          jev_severity: (.decisions.severity.choice // null),
-                          jev_confidence: (.decisions.severity.confidence // null),
-                          sanctioned: (.decisions.sanctioned // null),
-                          diff_hunk_found: (.decisions.diff_hunk_found // null) } ] }' \
-      > "$OUT/$variant/$id.1.json"
+    # The shared writer (lib/decision-record.sh), so a calibration record and
+    # an eval record mean the same thing: a finding whose answer was missing or
+    # malformed makes the sample `unavailable`, never silently "scored".
+    write_decision_record ci_temp/findings.merged.json "$manifest" 1 "$variant" 1 \
+      ci_temp/score.log "$OUT/$variant/$id.1.json"
   )
   return 0
 }
