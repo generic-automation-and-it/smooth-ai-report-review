@@ -357,6 +357,9 @@ run_rec sure analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISI
 check "Test 5l: at the floor (0.3) the answer counts, and filter withholds as before" "2 3" \
   "$(paste -sd ' ' - < "$TMP_DIR/out_sure/withhold.txt")"
 
+check "Test 5m: only a recommends-SKIP line is a reason to skip, in the skill and in the CI prompt (review 5331577898 finding 3)" "1|1" \
+  "$(grep -c 'Never treat an `uncertain, leans …` line as a recommendation' "$REPO_ROOT/.agents/skills/ai-analyse/SKILL.md")|$(grep -c 'is no recommendation in either direction, so decide that finding on its own' "$ANALYSE_WF")"
+
 # --- 6. review scope ---------------------------------------------------------------------
 echo ""
 echo "--- review scope (/ai-review --usedecisions) ---"
