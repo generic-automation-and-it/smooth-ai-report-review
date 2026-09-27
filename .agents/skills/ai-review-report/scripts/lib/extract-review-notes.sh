@@ -46,8 +46,10 @@
 
 set -uo pipefail
 
-NOTES_HEADING_RE='^## AI Review Notes'
-SKIP_HEADING_RE='^## Skip Areas'
+NOTES_HEADING_RE='^## ai review notes'
+# Keep this in sync with the headings accepted by ai-review/SKILL.md when it
+# writes skip bullets. Match full heading words, not e.g. "Known Issues Archive".
+SKIP_HEADING_RE='^##[[:space:]]*(skip areas|known issues|known skip areas|areas to skip)([[:space:]]*/[[:space:]]*known issues)?[[:space:]]*$'
 
 _only_skips=false
 [ "${1:-}" = "--skip-areas" ] && _only_skips=true
@@ -58,7 +60,7 @@ _body="$(cat)"
 # EOF). `next` on the match is what drops the heading; the caller re-adds one for
 # Skip Areas below.
 _section() {
-  awk -v re="$1" '$0 ~ re {flag=1; next} /^## /{flag=0} flag'
+  awk -v re="$1" 'tolower($0) ~ re {flag=1; next} /^## /{flag=0} flag'
 }
 
 # Comment stripping and blank-line squeezing are carried over verbatim from the
@@ -69,12 +71,12 @@ _clean() {
 }
 
 _notes=""
-if printf '%s\n' "$_body" | grep -q "$NOTES_HEADING_RE"; then
+if printf '%s\n' "$_body" | grep -qi "$NOTES_HEADING_RE"; then
   _notes="$(printf '%s\n' "$_body" | _section "$NOTES_HEADING_RE" | _clean)"
 fi
 
 _skips=""
-if printf '%s\n' "$_body" | grep -q "$SKIP_HEADING_RE"; then
+if printf '%s\n' "$_body" | grep -qiE "$SKIP_HEADING_RE"; then
   _skips="$(printf '%s\n' "$_body" | _section "$SKIP_HEADING_RE" | _clean)"
 fi
 
