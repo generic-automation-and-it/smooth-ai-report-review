@@ -456,7 +456,7 @@ is_sensitive_path() {
     */.env/*|*/.env.*/*|*/.ssh/*|*/.aws/*|*/.gnupg/*) return 0 ;;
   esac
   case "${1##*/}" in
-    .env|.env.*|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.json|*.tfstate|*.tfstate.*) return 0 ;;
+    .env|.env.*|.envrc|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.json|*.tfstate|*.tfstate.*) return 0 ;;
     id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|.npmrc|.pypirc|.netrc|.git-credentials|credentials|credentials.*) return 0 ;;
   esac
   return 1
