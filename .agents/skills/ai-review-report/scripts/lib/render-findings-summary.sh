@@ -85,8 +85,11 @@ jq -r '
   # eval/lib/score-review.sh takes the label as the text before the first
   # colon and counts it by [VERIFIED] plus a severity keyword, so a colon here
   # would move the boundary and a second severity word would double-count the
-  # finding. [UNSUPPORTED] does not contain VERIFIED, and rule-allowed appears
-  # only when the scorer was given project rules.
+  # finding. [UNSUPPORTED] does not contain VERIFIED; rule-allowed appears only
+  # when the finding was judged against project rules, and previously skipped
+  # only when the PR description had Skip Areas bullets. Both are shown for
+  # every finding they were asked about, low values included, because a
+  # percentage that only appears when high cannot be calibrated by a reader.
   #
   # decision_suffix stays at the END of the line and carries only the decision
   # model severity when it disagrees, because that text IS a severity word.
@@ -97,6 +100,7 @@ jq -r '
       " (decision score \(.decisions.supported | pct)"
       + (if .decisions.supported < ($ds.min_probability // 0.5) then " [UNSUPPORTED]" else "" end)
       + (if (.decisions.sanctioned // null) != null then " · rule-allowed \(.decisions.sanctioned | pct)" else "" end)
+      + (if (.decisions.previously_skipped // null) != null then " · previously skipped \(.decisions.previously_skipped | pct)" else "" end)
       + ")"
     end;
   def decision_suffix($ds):
@@ -115,7 +119,18 @@ jq -r '
     else
       "- **Decision model:** `\($ds.provider)/\($ds.model)` (\($ds.mode)) — scored \($ds.scored), skipped \($ds.skipped)"
         + (if $ds.mode == "filter" then ", suppressed \($ds.suppressed | length)" else "" end)
-        + ". **Decision score** = the probability that the quoted evidence demonstrates the finding; below \($ds.min_probability | pct) it is marked [UNSUPPORTED].",
+        + ". **Decision score** = the probability that the quoted evidence demonstrates the finding; below \($ds.min_probability | pct) it is marked [UNSUPPORTED]."
+        + ( ($ds.context // {}) as $c
+            | (if ($c.project_rules // "none") != "none" and ($c.findings_with_rules // 0) > 0
+               then " **Rule-allowed** = the probability that a project rule declares the flagged pattern acceptable"
+                    + (if $c.project_rules == "chunk" then " (judged against the rules of the chunk each finding came from; \($c.findings_with_rules) of \(($ds.scored // 0) + ($ds.skipped // 0)) findings had any)" else "" end)
+                    + "."
+               else "" end)
+            + (if $c.skip_areas == true
+               then " **Previously skipped** = the probability that the finding re-raises an issue that the Skip Areas / Known Issues of this PR already record as a decision not to fix."
+               else "" end)
+            + (if ($c.project_rules // "none") != "none" or $c.skip_areas == true
+               then " Both are informational; neither changes a finding or the verdict." else "" end) ),
       ( if ($ds.mode_note // "") != "" then "  - \($ds.mode_note | clean)" else empty end ),
       ( ($ds.suppressed // []) | .[0:10][]
         | "  - suppressed: \(.severity | sev_emoji) \(.severity | sev_label) (decision score \(.supported | pct)): \(.title | clean) — `\(.file):\(.line)`" ),

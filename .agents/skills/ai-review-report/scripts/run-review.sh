@@ -1376,13 +1376,27 @@ if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE
   # merge above it is best-effort — it always exits 0, leaves the document
   # untouched on any failure, and never writes a chunk_<n>.failed flag. The
   # `|| true` is belt-and-braces for that contract, not a substitute for it.
+  #
+  # The judge also gets the context a human would check a finding against, so
+  # the posted review can show `rule-allowed NN%` and `previously skipped NN%`:
+  # each finding's chunk rules (the per-chunk runtime AGENTS.md, LADR-090 —
+  # passing $WORK_DIR selects them per finding) and the PR description's Skip
+  # Areas bullets, the decisions `/ai-review execute` records. Display-only:
+  # nothing acts on either answer.
   if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
     if [ -s "$WORK_DIR/findings.merged.json" ] && [ -f "$LIB_DIR/score-findings-decisions.sh" ]; then
+      : > "$WORK_DIR/decision_skip_areas.md"
+      if [ -f "$WORK_DIR/pr_description.txt" ]; then
+        bash "$LIB_DIR/extract-review-notes.sh" --skip-areas \
+          < "$WORK_DIR/pr_description.txt" > "$WORK_DIR/decision_skip_areas.md" 2>/dev/null || true
+      fi
       bash "$LIB_DIR/score-findings-decisions.sh" \
         "$WORK_DIR/findings.merged.json" \
         "$WORK_DIR/reviews" \
         "${TOTAL_CHUNKS}" \
-        "$WORK_DIR/pr_diff.txt" || true
+        "$WORK_DIR/pr_diff.txt" \
+        "$WORK_DIR" \
+        "$WORK_DIR/decision_skip_areas.md" || true
     else
       echo "ℹ️  Decision model (LADR-093): no merged findings document — step skipped"
     fi

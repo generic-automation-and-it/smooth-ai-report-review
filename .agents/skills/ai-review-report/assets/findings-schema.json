@@ -133,7 +133,8 @@
                 }
               },
               "pre_existing": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the defect predates this diff. Informational only." },
-              "sanctioned": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Probability that a project rule declares the flagged pattern intentional or acceptable. Present only when the scorer was given project rules (5th argument); null otherwise. Policy, kept separate from `supported` (evidence)." },
+              "sanctioned": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Probability that a project rule declares the flagged pattern intentional or acceptable. Present only when the finding was judged against project rules (5th argument: a rules file, or the per-chunk runtime AGENTS.md in the gate); null otherwise. Policy, kept separate from `supported` (evidence). Display-only." },
+              "previously_skipped": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Probability that the finding re-raises an issue the PR description's Skip Areas / Known Issues bullets already record as a decision not to fix. Present only when the scorer was given non-empty Skip Areas (6th argument); null otherwise. Display-only." },
               "actionability": {
                 "type": "object",
                 "required": ["score"],
@@ -160,7 +161,7 @@
     },
     "decisions_summary": {
       "type": "object",
-      "description": "POST-MERGE ONLY — present on findings.merged.json, never on a chunk document (LADR-093). The run-level record of the decision model: provider, model, mode (annotate | filter, plus mode_requested and mode_note when filter degraded outside the full-coverage fence), min_probability, scored / skipped counts, pr_level_scope (all | critical_high | skipped | failed), `suppressed` (findings filter mode removed, each with number_before_filter, title, severity, file, line, supported), and the PR-level answers block_merge (0-1), dominant_risk ({choice, probabilities, confidence}) and overall_risk ({score, legend, probabilities, confidence}), each null when unanswered. Copied into the run artifact metadata.json and stated to the orchestrator as facts; it never changes the deterministic verdict path."
+      "description": "POST-MERGE ONLY — present on findings.merged.json, never on a chunk document (LADR-093). The run-level record of the decision model: provider, model, mode (annotate | filter, plus mode_requested and mode_note when filter degraded outside the full-coverage fence), min_probability, scored / skipped counts, pr_level_scope (all | critical_high | skipped | failed), `context` ({project_rules: none | file | chunk, findings_with_rules, skip_areas} — what the judge was given besides each finding and its hunk), `suppressed` (findings filter mode removed, each with number_before_filter, title, severity, file, line, supported), and the PR-level answers block_merge (0-1), dominant_risk ({choice, probabilities, confidence}) and overall_risk ({score, legend, probabilities, confidence}), each null when unanswered. Copied into the run artifact metadata.json and stated to the orchestrator as facts; it never changes the deterministic verdict path."
     }
   }
 }

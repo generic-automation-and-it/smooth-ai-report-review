@@ -1209,6 +1209,19 @@ if [ -n "$OPENCODE_VERSION_FOOTER" ]; then
   echo "$OPENCODE_VERSION_FOOTER" >> ci_temp/final_review.md
 fi
 
+# LADR-093 label channel: an invisible marker naming the run whose artifact
+# holds this review's decision scores. `/ai-review execute` copies it into the
+# PR description next to the human's fix/skip decisions, and
+# eval/harvest-real-findings.sh --from-pr joins the two into labelled records.
+# Only when the flag is on AND the merged findings were actually scored — an
+# unscored run has nothing to label — and only for a numeric run id.
+if printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
+     | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' \
+   && [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] \
+   && jq -e '.decisions_summary | type == "object"' ci_temp/findings.merged.json >/dev/null 2>&1; then
+  printf '\n<!-- ai-review-report run=%s -->\n' "$GITHUB_RUN_ID" >> ci_temp/final_review.md
+fi
+
 echo ""
 echo "✅ Final review comment prepared"
 

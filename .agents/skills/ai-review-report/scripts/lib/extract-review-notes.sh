@@ -2,6 +2,11 @@
 # extract-review-notes.sh — pull the PR author's review guidance out of a PR body.
 #
 # Usage:  AI_REVIEW_NOTES="$(printf '%s' "$PR_DESCRIPTION" | bash lib/extract-review-notes.sh)"
+#         SKIPS="$(printf '%s' "$PR_DESCRIPTION" | bash lib/extract-review-notes.sh --skip-areas)"
+#
+# --skip-areas prints ONLY the Skip Areas section body (no heading, no notes):
+# the decision model's `previously_skipped` input (LADR-093). The default output
+# is unchanged by the option's existence.
 #
 # Pure stdin -> stdout, no filesystem, always exit 0. Empty output means neither
 # section was present, which is the caller's cue to omit the prompt block.
@@ -44,6 +49,9 @@ set -uo pipefail
 NOTES_HEADING_RE='^## AI Review Notes'
 SKIP_HEADING_RE='^## Skip Areas'
 
+_only_skips=false
+[ "${1:-}" = "--skip-areas" ] && _only_skips=true
+
 _body="$(cat)"
 
 # Section body, heading line excluded, terminated by the next `## ` heading (or
@@ -68,6 +76,11 @@ fi
 _skips=""
 if printf '%s\n' "$_body" | grep -q "$SKIP_HEADING_RE"; then
   _skips="$(printf '%s\n' "$_body" | _section "$SKIP_HEADING_RE" | _clean)"
+fi
+
+if [ "$_only_skips" = true ]; then
+  [ -z "$_skips" ] || printf '%s\n' "$_skips"
+  exit 0
 fi
 
 if [ -n "$_notes" ]; then
