@@ -510,7 +510,10 @@ while [ "$i" -lt "$to_score" ]; do
              and (($ask_fix_skip | not)
                   or (($a.fix_skip.choice // "") | IN("fix", "skip_intentional", "skip_invalid", "skip_deferred")))
           then { key: ($i | tostring),
-                 value: { provider: $provider,
+                 # The value is parenthesised because jq <= 1.7 (ubuntu-latest)
+                 # rejects an unparenthesised `{…} + (…)` as an object value;
+                 # jq 1.8 accepts it, so a local run cannot catch the break.
+                 value: ({ provider: $provider,
                           model: (.model // $model),
                           diff_hunk_found: $hunk_found,
                           supported: $a.supported.noul,
@@ -534,7 +537,7 @@ while [ "$i" -lt "$to_score" ]; do
                                            confidence: ($a.fix_skip.confidence // null),
                                            skip_probability: (($a.fix_skip.probabilities // {}).fix
                                                               | if prob then ((1 - .) * 1000 | round / 1000) else null end) } }
-                           else {} end) }
+                           else {} end)) }
           else error("malformed answer") end' "$work/f_${i}.resp" >> "$work/decisions.jsonl" 2>/dev/null; then
       :
     elif [ -z "$first_failure" ]; then
