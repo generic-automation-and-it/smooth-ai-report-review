@@ -328,35 +328,50 @@ cap_rules() {
      || ! res="$(jq -Rs --argjson max "$max" '
           def isrule: test("^\\.github/instructions/|^\\.agents/rules(-scoped)?/|\\.instructions\\.md$");
           def marker: "\n[... this file trimmed to fit the decision model context budget]\n";
-          # fill($secs; $budget): an even share per section, smallest first.
-          def fill($secs; $budget):
-            ($secs | to_entries | sort_by(.value.body | length)) as $order
-            | reduce $order[] as $e ({ b: $budget, n: ($secs | length), take: {} };
-                ((.b / .n) | floor) as $share
-                | ([($e.value.body | length), (if $share < 0 then 0 else $share end)] | min) as $t
-                | .take[$e.key | tostring] = $t | .b -= $t | .n -= 1)
-            | .take as $take
-            | [ $secs | to_entries[] | .value as $v | $take[.key | tostring] as $t
-                | if $t >= ($v.body | length) then $v + { cut: false }
-                  elif $t < 160 then $v + { cut: true, body: ("\n---\nSource: `" + $v.path + "`\n" + marker) }
-                  else $v + { cut: true, body: ($v.body[: ($t - (marker | length))] + marker) } end ];
-          split("\n---\nSource: `") as $p
-          | $p[0] as $head
-          | [ $p[1:][] | (index("`") // 0) as $k | { path: .[:$k], body: ("\n---\nSource: `" + .) } ] as $secs
-          | ($max - ($head | length) - 400) as $budget
-          | [ $secs[] | select(.path | isrule) ] as $rules
-          | [ $secs[] | select(.path | isrule | not) ] as $other
-          | fill($rules; $budget) as $r
-          | fill($other; ($budget - ([ $r[].body | length ] | add // 0))) as $o
-          | { text: ($head + ([ ($r + $o)[].body ] | join(""))),
-              before: ([ $head, $secs[].body ] | map(utf8bytelength) | add),
-              cut: [ ($r + $o)[] | select(.cut) | .path ] }' "$src" 2>/dev/null)"; then
+           def header($p): "\n---\nSource: `" + $p + "`\n";
+           # jq slices by characters: binary-search for a whole-character
+           # prefix within the allocated UTF-8 byte count.
+           def byte_prefix($text; $bytes):
+             ($text | length) as $len
+             | { lo: 0, hi: $len }
+             | until(.lo >= .hi;
+                 ((.lo + .hi + 1) / 2 | floor) as $mid
+                 | if ($text[:$mid] | utf8bytelength) <= $bytes
+                   then .lo = $mid else .hi = ($mid - 1) end)
+             | $text[:.lo];
+           # Header and marker space is reserved for EVERY section first, so a
+           # later file cannot disappear behind an unmarked final byte cut.
+           def fill($secs; $budget):
+             ($secs | to_entries | sort_by(.value.content | utf8bytelength)) as $order
+             | reduce $order[] as $e ({ b: $budget, n: ($secs | length), take: {} };
+                 ((.b / .n) | floor) as $share
+                 | ([($e.value.content | utf8bytelength), (if $share < 0 then 0 else $share end)] | min) as $t
+                 | .take[$e.key | tostring] = $t | .b -= $t | .n -= 1)
+             | .take as $take
+             | [ $secs | to_entries[] | .value as $v | $take[.key | tostring] as $t
+                 | if $t >= ($v.content | utf8bytelength)
+                   then $v + { cut: false, used: $t, body: (header($v.path) + $v.content) }
+                   else $v + { cut: true, used: $t, body: (header($v.path) + byte_prefix($v.content; $t) + marker) }
+                   end ];
+           split("\n---\nSource: `") as $p
+           | $p[0] as $head
+           | [ $p[1:][] | (index("`") // 0) as $k | { path: .[:$k], content: .[($k + 2):] } ] as $secs
+           | ($max - ($head | utf8bytelength) - 400
+              - ([ $secs[] | (header(.path) + marker) | utf8bytelength ] | add // 0)) as $budget
+           | if $budget < 0 then error("rule headers exceed byte budget") else . end
+           | [ $secs[] | select(.path | isrule) ] as $rules
+           | [ $secs[] | select(.path | isrule | not) ] as $other
+           | fill($rules; $budget) as $r
+           | fill($other; ($budget - ([ $r[].used ] | add // 0))) as $o
+           | { text: ($head + ([ ($r + $o)[].body ] | join(""))),
+               before: ($head | utf8bytelength) + ([ $secs[] | (header(.path) + .content) | utf8bytelength ] | add // 0),
+               cut: [ ($r + $o)[] | select(.cut) | .path ] }
+           | if (.text | utf8bytelength) > $max then error("rules exceed byte budget") else . end' "$src" 2>/dev/null)"; then
     cap_copy "$src" "$dst" "$max" "project rules"
     printf '%s -\n' "$(wc -c < "$src" | tr -d ' ')" > "${dst}.trimmed"
     return 0
   fi
-  # head -c is only a guard: the text was sized in characters, the cap is bytes.
-  printf '%s' "$res" | jq -r '.text' | head -c "$max" > "$dst"
+   printf '%s' "$res" | jq -rj '.text' > "$dst"
   printf '%s' "$res" | jq -r '"\(.before) \(.cut | join(","))"' > "${dst}.trimmed"
 }
 
