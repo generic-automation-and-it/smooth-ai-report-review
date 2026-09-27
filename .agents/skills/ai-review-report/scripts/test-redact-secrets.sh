@@ -98,8 +98,8 @@ env DATABASE_URL="$DBURL" DB_CONNECTION_STRING="$ADO" GITHUB_SERVER_URL=https://
   OPENCODE_REVIEW_REPORT_OPENAI_URL=https://gateway.example/v1 bash "$REDACT" "$C" >/dev/null 2>&1
 check "Test 5a: connection strings from the environment are replaced whole" "1|1" \
   "$(grep -c '^env url: <REDACTED>$' "$C/log.txt")|$(grep -c '^env ado: <REDACTED>$' "$C/log.txt")"
-check "Test 5b: a URL's password and Password=/Pwd=/AccountKey= values go by shape" "1|1" \
-  "$(grep -c '^shape: mysql://root:<REDACTED>@localhost/db$' "$C/log.txt")|$(grep -c '^pairs: Pwd=<REDACTED>; AccountKey=<REDACTED>; SharedAccessKey=<REDACTED>$' "$C/log.txt")"
+check "Test 5b: URL userinfo and Password=/Pwd=/AccountKey= values go by shape" "1|1" \
+  "$(grep -c '^shape: mysql://<REDACTED>@localhost/db$' "$C/log.txt")|$(grep -c '^pairs: Pwd=<REDACTED>; AccountKey=<REDACTED>; SharedAccessKey=<REDACTED>$' "$C/log.txt")"
 # Review 5331716081 finding 1: quoted values, both quote forms, spaces around =.
 Q="$TMP_DIR/quoted"; mkdir -p "$Q"
 printf 'a: Password="Quoted Secret 1";\nb: Pwd='"'"'single-q-secret'"'"';\nc: AccountKey = "abc/DEF+123==";\n' > "$Q/cfg.txt"
@@ -140,6 +140,19 @@ printf 'a: {"cs": "Server=db;Password=\\"alpha;omega\\";Timeout=5"}\nb: {"cs": "
 bash "$REDACT" "$E" >/dev/null 2>&1; cp "$E/j.txt" "$TMP_DIR/e_once.txt"; bash "$REDACT" "$E" >/dev/null 2>&1
 check "Test 5i: an escaped-quoted value with a ; inside is redacted whole, quotes and the rest kept; idempotent" "0|1|1|same" \
   "$(grep -cE 'alpha|omega|cut-off|still-secret' "$E/j.txt" || true)|$(grep -c '^a: {"cs": "Server=db;Password=\\"<REDACTED>\\";Timeout=5"}$' "$E/j.txt")|$(grep -c '^b: {"cs": "Password=\\"<REDACTED>$' "$E/j.txt")|$(cmp -s "$E/j.txt" "$TMP_DIR/e_once.txt" && echo same || echo changed)"
+# Review 5331864763: URL userinfo is replaced whole — a token is often the
+# user part — and JSON escapes inside an escaped-quoted value stay inside it.
+UI="$TMP_DIR/userinfo"; mkdir -p "$UI"
+printf '%s\n' \
+  'b: https://sometokenvalue42@api.example.com/v1' \
+  'c: https://TOKENasUSER:x-oauth-basic@github.com/org/repo' \
+  'd: {"cs": "Server=db;Password=\"ab\\\"cd-secret\";Timeout=5"}' \
+  'd3: {"cs": "Password=\"tab\there\"; x=1"}' \
+  'd4: {"cs": "Password=\"back\\\\slash\"; x=1"}' \
+  'e: keep https://github.com/org/repo and user@example.com' > "$UI/u.txt"
+bash "$REDACT" "$UI" >/dev/null 2>&1; cp "$UI/u.txt" "$TMP_DIR/ui_once.txt"; bash "$REDACT" "$UI" >/dev/null 2>&1
+check "Test 5j: username-only and token-as-user URL credentials are redacted; plain URLs and e-mail stay" "0|1|1|1" \
+  "$(grep -cE 'sometokenvalue42|TOKENasUSER|x-oauth-basic' "$UI/u.txt" || true)|$(grep -c '^b: https://<REDACTED>@api.example.com/v1$' "$UI/u.txt")|$(grep -c '^c: https://<REDACTED>@github.com/org/repo$' "$UI/u.txt")|$(grep -c '^e: keep https://github.com/org/repo and user@example.com$' "$UI/u.txt")"
 check "Test 5c: plain URLs (even from *_URL variables) and e-mail addresses stay" "1" \
   "$(grep -c '^keep: https://github.com/org/repo and https://gateway.example/v1 and user@example.com$' "$C/log.txt")"
 

@@ -54,7 +54,7 @@ while IFS= read -r -d '' f; do
   files=$((files + 1))
   perl -0777 -i -pe '
     BEGIN {
-      $cred = qr{://[^/\s@:]*:[^/\s@]+@|(?:password|pwd|accountkey|sharedaccesskey)\s*=}i;
+      $cred = qr{://[^/\s@]+@|(?:password|pwd|accountkey|sharedaccesskey)\s*=}i;
       @vals = sort { length($b) <=> length($a) }
               grep { length($_) >= 8 }
               ( ( map { $ENV{$_} }
@@ -72,7 +72,10 @@ while IFS= read -r -d '' f; do
     s/\bAIza[0-9A-Za-z_-]{35}\b/<REDACTED>/g;
     s/\bxox[abprs]-[A-Za-z0-9-]{10,}/<REDACTED>/g;
     s/(\b[Bb]earer\s+)[A-Za-z0-9._~+\/=-]{16,}/$1<REDACTED>/g;
-    s{(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]+@}{$1<REDACTED>@}gi;
+    # URL userinfo is replaced WHOLE, user and password: a token is often the
+    # user part (https://TOKEN@host, https://TOKEN:x-oauth-basic@host), which
+    # a password-only pass left visible (review 5331864763 finding 1).
+    s{(\b[a-z][a-z0-9+.-]*://)(?!<REDACTED>@)[^\s/@"\x27<>]+@}{$1<REDACTED>@}gi;
     # Connection-string credential values (Password= / Pwd= / AccountKey= /
     # SharedAccessKey=). Three reviews on PR 183 each found a way to leave part
     # of one visible, so the value is taken in whole:
