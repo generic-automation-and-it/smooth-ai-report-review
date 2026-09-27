@@ -167,6 +167,11 @@ jobs:
             # decisions scope, are pinned alongside it.
             .agents/skills/ai-review-report/scripts/test-score-findings-decisions.sh
             .agents/skills/ai-review-report/scripts/test-resolve-provider-scope.sh
+            # LADR-097 FIX/SKIP recommendations for /ai-review --usedecisions
+            # and ai-analyse: body parsing, the analyse namespace, the
+            # one-directional withhold rules, the gate path left unchanged, and
+            # pipeline-ai-analyse.yml's Variables / call order / guards.
+            .agents/skills/ai-review-report/scripts/test-recommend-fix-skip.sh
             # Per-chunk context scope filtering. Both directions of error are
             # real and asymmetric, so this pins the fail-open contract as hard
             # as it pins the glob matching.

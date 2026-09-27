@@ -6,10 +6,13 @@ switches:
   - "`N=fix` / `N=skip` - per-issue execute decisions, for example `1=fix 2=skip`; presence auto-selects execute mode."
   - "`--source=copilot` - force GitHub Copilot agent review parsing and thread reply/resolve behavior."
   - "`--source=other` - force non-Copilot review routing through PR description AI review notes."
+  - "`--usedecisions` - analyse mode: add decision-model (TypeSafe Jev) FIX/SKIP recommendations to the table, using the CI gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` env vars. Advisory only; never written as a label."
 description: Analyze and execute AI PR review feedback with fix/skip decisions. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description **and (MANDATORY) writes every skipped finding into the PR description's "Skip Areas / Known Issues" bullets** so the next review round does not re-raise them.
 allowed-tools:
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)
   - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh:*)
+  - Bash(.agents/skills/ai-review/scripts/review-decisions.sh:*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/review-decisions.sh:*)
   # Execute mode also runs deterministic GitHub/git plumbing outside the helper script:
   # fetch the review (`gh api`), route non-Copilot results to the PR description
   # (`gh pr edit`), and commit/push applied fixes. Mirrors the ai-analyse allowlist;
@@ -68,7 +71,22 @@ Examples:
 /ai-review analyse 48 --source=copilot         # force Copilot-review parsing
 /ai-review execute 48 1=fix 2=skip             # execute, source auto-detected
 /ai-review execute 48 1=fix --source=other     # force non-Copilot result routing
+/ai-review 48 --usedecisions                   # analyse + decision-model FIX/SKIP column
 ```
+
+**Decision-model recommendations (`--usedecisions`, analyse mode, ai-review-report LADR-097):**
+
+With `--usedecisions`, analyse also asks the gate's structured decision model (TypeSafe Jev) to predict the fix/skip decision for every **numbered finding** (`1.`, `2.`, …) of an **OpenCode Review Report** — the same four classes execute records: `fix`, `skip intentional`, `skip invalid`, `skip deferred`. Run the helper after fetching the review body (step 3), passing the body you fetched:
+
+```bash
+.agents/skills/ai-review/scripts/review-decisions.sh <pr> <review-body-file>   # body file optional: omitted → latest gate review
+```
+
+- **Same configuration as CI — nothing new to set.** It reads `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER` (default `OPENCODE-GO-DECISIONS`), `_MODEL`, `_MIN_PROBABILITY` and `_TIMEOUT`, and that provider's existing key (`OPENCODE_GO_OPENAI_API_KEY` or `OPENCODE_OPENROUTER_API_KEY`) from the shell. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is **not** required — the switch is the opt-in. `_MODE` is ignored (a human flow has nothing to filter).
+- **What the judge sees:** each finding, its hunk from `gh pr diff`, the PR's Skip Areas bullets, and — when the review carries `<!-- ai-review-report run=<id> -->` and `gh run download` can still fetch that run's artifact — the finding's quoted evidence.
+- **Output:** a markdown table (`Decision model` = `FIX` or `SKIP (<class>)`, `P(skip)`, decision score with `[UNSUPPORTED]` below the threshold, rule-allowed, previously skipped, actionability) plus the path of the scored JSON. Add a **Decision model** column to the analyse table with `FIX` / `SKIP (<class>) NN%` per row (`—` for a row it did not score: `R`/`T`/`P`/`H` items, Copilot reviews, or any failure).
+- **Advisory, and never a label.** Form your own *AI Coder Recommendation* first, then weigh the model's. Where they disagree, say so in the reasoning. Never downgrade a 🔴 Critical / 🟠 High `fix` to `skip` on the model's word alone. The execute `ai-review-decisions` block records only the decisions the **user** gives — never copy a decision-model recommendation into it.
+- **Best-effort.** The helper always exits 0: if the ai-review-report skill is not installed next to this one (set `AI_REVIEW_REPORT_DIR` to point at it), a key is missing, the endpoint fails, or the review has no gate-numbered findings, it prints why — continue the analyse without the column.
 
 ## Two Modes: `analyse` and `execute`
 
@@ -99,6 +117,8 @@ Examples:
 
 | # | File | AI PR Review Recommendation | Priority | AI Coder Recommendation | AI Reviewer Reasoning |
 |---|------|----------------------------|----------|------------------------|-----------------------|
+
+   With `--usedecisions`, insert a **Decision model** column after *AI Coder Recommendation* (see [Decision-model recommendations](#invocation)) and print the helper's own table below yours.
 
    The `#` column reuses the review's own identifier verbatim when the item has one — `1.`, `2.`, … for findings (rendered as an ordered list, LADR-068), and `T1)` / `R1)` / `P1)` / `H1)` for testing gaps, residual risks, pre-existing items and holistic cross-chunk items (LADR-063). Those are five independent sequences: `R1)` is not finding `1.`, and renumbering them into one list breaks the match with the skip bullets the next review round reads. Number rows yourself only for items the review left unnumbered.
 
@@ -198,5 +218,6 @@ Do **all** of the following, in order:
 - **Copilot flow:** reply to and resolve only the threads for issues actually processed in this execute run; never resolve unrelated or human-authored threads
 - **Non-Copilot flow:** preserve existing PR AI Review Notes content (append, never overwrite)
 - **⛔ Non-Copilot flow — skip-bullets obligation:** appending the fix/skip summary table is **not sufficient**. Every skipped finding **must also** appear as a bullet in the PR description's **"Skip Areas / Known Issues"** section, and the skill **must verify** the bullets are present in the live PR body before reporting completion. The next review round reads those bullets, not the table; a skip without a bullet causes the same Critical/High finding to be re-raised on the next run. If any skipped item is missing from that section after the `gh pr edit`, the run is a failure — retry the edit rather than declaring success.
+- **`--usedecisions` recommendations are advisory model output.** They never pre-select an execute decision, never replace the user's `N=fix|skip`, and are never written into the `ai-review-decisions` block.
 - **Decision labels are human decisions only.** The `ai-review-decisions` block records what the user chose in *this* execute run. Never write one from analyse mode, never invent a decision the user did not give, and never copy one from an autonomous `ai-analyse` run — model-made decisions would teach the decision model to agree with a model.
 - Only suggest review-process improvements, don't apply them
