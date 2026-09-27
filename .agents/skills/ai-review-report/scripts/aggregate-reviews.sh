@@ -345,6 +345,8 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 2. Perform a HOLISTIC analysis looking for cross-cutting concerns, architectural issues, and patterns across the whole PR
 3. Surface issues that become apparent when viewing all changes together (for multi-chunk PRs this includes issues that span chunks)
 
+**The holistic section is for what the chunk reviews could NOT see (MANDATORY):** list there only issues that need more than one file or chunk to notice. A finding a chunk review already reported belongs in the Issues Summary and nowhere in the holistic section — do not restate it, even in other words. If nothing spans chunks, the holistic subsections say "None found". The holistic section is posted directly under the Issues Summary, so a restatement reads as a second, differently-numbered copy of the same finding.
+
 **Confidence Tag Handling:**
 - Individual chunk reviews tag findings as `[VERIFIED]` (reviewer saw the code) or `[SPECULATIVE]` (inferred from partial context).
 - **Preserve confidence tags** when aggregating issues into the summary. Copy the tag from the chunk review.
@@ -366,12 +368,14 @@ cat >> ci_temp/summary_prompt.txt << 'EOF'
 - Do not finish until your report contains all four of `## 📋 Overall Summary`, `## 🔍 Issues Summary`, `## 📝 Suggested Fixes`, and `## 🎯 Recommendation`.
 - **Never replace the actionable list with a count.** Writing "3 issues found" in place of the three issues is a failure, not a summary. Every issue you counted in the Recommendation must be listed in full in the Issues Summary.
 - A section with nothing in it gets the literal placeholder "None found" — never an omitted heading.
+- After the Recommendation, emit the three lines `---`, `DETAILED_SECTION_MARKER`, `---` exactly as shown in the format below, then the `## 🔄 Holistic Cross-Chunk Analysis` section. The marker is how the script finds the holistic section.
 - Re-read your report against these four points before you finish, and re-render anything that fails.
 
 **Formatting Rules (MANDATORY):**
 - Use ASCII-safe characters in finding text: no box-drawing characters, no per-item horizontal rules, no Unicode arrows or middots. Write `->` instead of an arrow character.
 - **The severity emoji grammar is exempt and mandatory.** 🔴 🟠 🟡 🔵 🗂️ and the section headings below are parsed by downstream tooling — always emit them exactly as shown. The ASCII rule applies only to decorative characters inside the text of a finding.
-- Reuse one stable `1)` identifier per finding across every section it appears in. Never re-derive numbering per severity block, and never write `#` before a number (LADR-067): GFM autolinks `#`+digits to an issue/PR in the repo under review.
+- Reuse one stable `1)` identifier per finding across the Issues Summary, Suggested Fixes and Recommendation. Never re-derive numbering per severity block, and never write `#` before a number (LADR-067): GFM autolinks `#`+digits to an issue/PR in the repo under review.
+- Do NOT number the holistic items and do NOT cite Issues Summary numbers in the holistic section: the script numbers holistic items `H1)`, `H2)`, … itself, and renumbers the Issues Summary after you write it, so a number you cite there would point at a different finding. Refer to a finding by its `file:line` instead (LADR-099).
 
 **Required Output Format:**
 
@@ -652,7 +656,7 @@ fi
 # opencode can exit 0 while producing empty/tiny output (silent provider failure).
 # Without this, an empty pr_summary.md slips past the success branch and the posted
 # review loses its Overall Summary / Issues Summary / Recommendation entirely
-# (only "No holistic analysis section found" remains). Treat empty as failure so the
+# (at most a holistic section remains). Treat empty as failure so the
 # conservative REQUEST_CHANGES fallback below is installed instead of a blank
 # overview. LADR-085 allows complete chunk + sidecar evidence to replace that
 # temporary action later; incomplete coverage keeps it fail-closed.
@@ -685,19 +689,17 @@ Please review the detailed chunk reviews below.
 EOF
 fi
 
-# Split the summary into main section and detailed section
-if grep -q "DETAILED_SECTION_MARKER" ci_temp/pr_summary.md; then
-  # Extract main summary (before marker)
-  sed '/DETAILED_SECTION_MARKER/,$d' ci_temp/pr_summary.md > ci_temp/pr_summary_main.md
-
-  # Extract detailed holistic analysis (after marker)
-  sed -n '/DETAILED_SECTION_MARKER/,$p' ci_temp/pr_summary.md | sed '1,3d' > ci_temp/pr_summary_detailed.md
-else
-  # Fallback if marker not found (backward compatibility)
-  cp ci_temp/pr_summary.md ci_temp/pr_summary_main.md
-  echo "## 🔄 Holistic Cross-Chunk Analysis" > ci_temp/pr_summary_detailed.md
-  echo "No holistic analysis section found." >> ci_temp/pr_summary_detailed.md
-fi
+# Split the summary into the main body and the holistic section (LADR-099).
+# The marker is the primary anchor, the `## 🔄 Holistic Cross-Chunk Analysis`
+# heading the second: models drop the marker (21 of 22 reviews on this repo),
+# and the old marker-only split then posted the holistic section inside the main
+# body AND handed the Recommendation sync a "not found" placeholder, so a
+# holistic Critical/High could not block. No anchor at all → no holistic
+# section (empty file), never a placeholder heading.
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/holistic-section.sh" split \
+  ci_temp/pr_summary.md ci_temp/pr_summary_main.md ci_temp/pr_summary_detailed.md || true
+[ -f ci_temp/pr_summary_main.md ] || cp ci_temp/pr_summary.md ci_temp/pr_summary_main.md
+[ -f ci_temp/pr_summary_detailed.md ] || : > ci_temp/pr_summary_detailed.md
 
 # An open fence at the end of the main summary swallows the <details> tag that
 # is appended right after it; one at the end of the detailed section swallows
@@ -1108,27 +1110,16 @@ fi
 # (checked inside), informational only, and a no-op without PR-level answers.
 bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-decision-verdict.sh" \
   ci_temp/findings.merged.json ci_temp/pr_summary_main.md || true
-cat ci_temp/pr_summary_main.md >> ci_temp/final_review.md
 
-# Add collapsible detailed section
-cat >> ci_temp/final_review.md << EOF
-
----
-
-<details>
-<summary><b>📂 View Detailed Reviews</b> (click to expand)</summary>
-
-EOF
-
-# Add holistic analysis with header.
+# LADR-099: the holistic section is part of the overview — items only visible
+# across chunks — so it goes directly under the Issues Summary, not into the
+# collapsed details. Placed last so no edit above (splice, sync, renumbering,
+# verdict line) has to step around it.
 #
 # LADR-063: when the numbering pass actually assigned identifiers, say what they
-# mean right here rather than only in the Issues Summary legend — that legend is
-# rendered by render-findings-summary.sh, which runs ONLY on full sidecar
-# coverage, so on the fallback path a reader would meet `H3)` with nothing
-# anywhere explaining it. Emitted conditionally so a section that was left
-# unnumbered (no anchor, degraded run) does not carry a legend for numbers it
-# does not have.
+# mean at the top of the section. The legend is conditional so a section that
+# was left unnumbered (no anchor, degraded run) does not carry a legend for
+# numbers it does not have.
 if grep -qE '\*\*H[0-9]+\)' ci_temp/pr_summary_detailed.md 2>/dev/null; then
   # LADR-068: on the primary structured-findings path the Issues Summary above
   # renders findings as a `1.` ordered list; on the fallback path (structured
@@ -1142,14 +1133,27 @@ if grep -qE '\*\*H[0-9]+\)' ci_temp/pr_summary_detailed.md 2>/dev/null; then
   else
     _findings_shape='`1)`'
   fi
-  echo "> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the ${_findings_shape} findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)." >> ci_temp/final_review.md
-  echo "" >> ci_temp/final_review.md
+  _legend="> Cross-chunk items below are numbered \`H1)\`, \`H2)\`, … — a sequence of their own, separate from the ${_findings_shape} findings in the Issues Summary. Quote the identifier when you fix or skip one. Never write \`#\` before a number (LADR-067)."
+  awk -v legend="$_legend" 'NR == 1 { print; print ""; print legend; next } { print }' \
+    ci_temp/pr_summary_detailed.md > ci_temp/pr_summary_detailed.legend.md \
+    && [ -s ci_temp/pr_summary_detailed.legend.md ] \
+    && mv ci_temp/pr_summary_detailed.legend.md ci_temp/pr_summary_detailed.md
+  rm -f ci_temp/pr_summary_detailed.legend.md
+  unset _legend _findings_shape
 fi
-cat ci_temp/pr_summary_detailed.md >> ci_temp/final_review.md
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/holistic-section.sh" place \
+  ci_temp/pr_summary_main.md ci_temp/pr_summary_detailed.md || true
+cat ci_temp/pr_summary_main.md >> ci_temp/final_review.md
 
-echo "" >> ci_temp/final_review.md
-echo "---" >> ci_temp/final_review.md
-echo "" >> ci_temp/final_review.md
+# Add collapsible detailed section
+cat >> ci_temp/final_review.md << EOF
+
+---
+
+<details>
+<summary><b>📂 View Detailed Reviews</b> (click to expand)</summary>
+
+EOF
 
 # Add individual chunk reviews with header
 cat >> ci_temp/final_review.md << EOF

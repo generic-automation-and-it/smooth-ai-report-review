@@ -164,6 +164,12 @@ jobs:
             # asserts its own call sites in aggregate-reviews.sh, so a refactor
             # that drops one is caught here rather than in a posted review.
             .agents/skills/ai-review-report/scripts/test-merge-findings.sh
+            # LADR-063/099 holistic section: split on the marker or, when the
+            # model drops it, the heading (so the Recommendation sync still sees
+            # holistic blockers), placement under the Issues Summary, and H
+            # numbering that replaces the model's own numbers.
+            .agents/skills/ai-review-report/scripts/test-holistic-section.sh
+            .agents/skills/ai-review-report/scripts/test-holistic-numbering.sh
             # LADR-093 decision-model scorer: annotate/filter, the filter
             # fence, every best-effort failure path (the merged document must
             # stay byte-identical) and the rendered suffix — offline, curl is

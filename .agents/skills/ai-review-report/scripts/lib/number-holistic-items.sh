@@ -31,6 +31,9 @@
 #     accepts the pre-LADR-067 `**#H1**` shape too, so a re-run over a review
 #     rendered by an older gate does not double-number it.
 #
+# A number the model wrote itself at the head of an item (`**2) [VERIFIED]**`,
+# `**2)**`, `2)`) is removed and replaced by the H number (LADR-099).
+#
 # The `H` prefix keeps this sequence separate from the findings' bare `N)`
 # (assigned by merge-findings.py) and from the renderer's `R`/`T`/`P`, so
 # adding an item to one class never renumbers another.
@@ -71,8 +74,19 @@ awk '
     payload = substr($0, 3)
 
     # Already numbered (idempotent re-run). Matches the current `**H1)**` shape
-    # and the pre-LADR-067 `**#H1**` one.
-    if (payload ~ /^\*\*#/ || payload ~ /^\*\*[A-Z]?[0-9]+\)\*\*/) { print; next }
+    # and the pre-LADR-067 `**#H1**` one. Only the H class counts: a bare
+    # `**2)**` is a model number, handled below.
+    if (payload ~ /^\*\*#H[0-9]/ || payload ~ /^\*\*H[0-9]+\)\*\*/) { print; next }
+
+    # LADR-099: drop a number the MODEL put at the head of the item. The prompt
+    # used to ask for one stable `1)` per finding in every section, so the
+    # model wrote `- **2) [VERIFIED]** …` here, citing the Issues Summary IT
+    # wrote. That summary is replaced by the merged one, numbered differently,
+    # so the model number pointed at a different finding (review 5330810275:
+    # holistic `2)` was merged finding 1). The H number replaces it.
+    if (payload ~ /^\*\*#?[0-9]+[.)]?\*\*[[:space:]]*/) sub(/^\*\*#?[0-9]+[.)]?\*\*[[:space:]]*/, "", payload)
+    else if (payload ~ /^\*\*#?[0-9]+[.)][[:space:]]+/) sub(/^\*\*#?[0-9]+[.)][[:space:]]+/, "**", payload)
+    else if (payload ~ /^#?[0-9]+[.)][[:space:]]+/) sub(/^#?[0-9]+[.)][[:space:]]+/, "", payload)
 
     # Placeholder / not-applicable markers. Compare on a stripped, lowercased
     # copy so "**None found**", "_N/A_" and "None found." all match.

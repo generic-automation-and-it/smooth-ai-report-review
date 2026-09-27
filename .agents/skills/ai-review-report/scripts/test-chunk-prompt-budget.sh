@@ -39,6 +39,9 @@ SOURCE_SHAPE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/revie
 # silently tests the fallback-template path instead of the stubbed summary.
 SOURCE_SPLIT_CHAIN_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
 SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+# LADR-099: aggregation splits and places the holistic section through these.
+SOURCE_HOLISTIC_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/holistic-section.sh"
+SOURCE_NUMBER_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/number-holistic-items.sh"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -61,6 +64,8 @@ setup_repo() {
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
   cp "${SOURCE_SPLIT_CHAIN_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+  cp "${SOURCE_HOLISTIC_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/holistic-section.sh"
+  cp "${SOURCE_NUMBER_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/number-holistic-items.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
@@ -100,6 +105,11 @@ DETAILED_SECTION_MARKER
 ---
 
 ## 🔄 Holistic Cross-Chunk Analysis
+**Cross-Chunk Issues Found:**
+
+🟡 **Medium Priority Issues**
+- **1)** The two stub chunks name the same setting differently.
+
 **Overall Assessment:** No significant cross-chunk concerns identified.
 SUMMARY
     ;;
@@ -262,6 +272,18 @@ run_aggregation_case() {
     pass "${label}: the stubbed summary call succeeded (sandbox carries the summary chain)"
   else
     fail "${label}: summary call failed in the sandbox — a lib is missing from setup_repo (see ${run_log})"
+  fi
+
+  # LADR-099: the holistic section sits under the Issues Summary, outside the
+  # collapsed details, numbered H1) in place of the model's own number.
+  local hol_line details_line
+  hol_line="$(grep -n '^## 🔄 Holistic Cross-Chunk Analysis' ci_temp/final_review.md | head -1 | cut -d: -f1)"
+  details_line="$(grep -n 'View Detailed Reviews' ci_temp/final_review.md | head -1 | cut -d: -f1)"
+  if [ -n "${hol_line}" ] && [ -n "${details_line}" ] && [ "${hol_line}" -lt "${details_line}" ] \
+     && grep -q '^- \*\*H1)\*\* The two stub chunks' ci_temp/final_review.md; then
+    pass "${label}: holistic section posted above the details, numbered H1)"
+  else
+    fail "${label}: holistic section missing, inside the details, or unnumbered (see ci_temp/final_review.md)"
   fi
 
   local action

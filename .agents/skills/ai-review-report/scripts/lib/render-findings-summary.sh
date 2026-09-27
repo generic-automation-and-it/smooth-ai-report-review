@@ -267,7 +267,7 @@ jq -r '
   | (.decisions_summary // null) as $ds
   | "## 🔍 Issues Summary",
   "",
-  "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the detailed section below. Quote the number when you accept, fix or skip an item.",
+  "**Note:** Findings are deduplicated across chunks and numbered stably (`1.`, `2.`, … running unbroken across the severity sections); the chunk reference on each one names the section to open under [📂 View detailed reviews below](#-view-detailed-reviews-click-to-expand) for that reviewer’s full reasoning. Every other item carries a number too, in its own sequence so one class never renumbers another: `R1)` residual risks, `T1)` testing gaps, `P1)` pre-existing, `H1)` holistic cross-chunk items in the Holistic Cross-Chunk Analysis below. Quote the number when you accept, fix or skip an item.",
   "",
   section("critical"; "🔴 Critical Issues"; $ds),
   section("high"; "🟠 High Priority Issues"; $ds),

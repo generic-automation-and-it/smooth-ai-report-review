@@ -924,8 +924,12 @@ check "Test 22a: the conditional legend block is present and extractable" "1" \
 if [ -n "$_shape_first" ] && [ -n "$_shape_last" ] && [ "$_shape_last" -gt "$_shape_first" ]; then
   # Start one line above the first assignment to capture the `if` itself, and
   # strip the redirect so the echo lands on stdout.
-  sed -n "$((_shape_first - 1)),${_shape_last}p" "$AGG_SH" \
-    | sed 's| >> ci_temp/final_review.md||' > "$TMP_DIR/legend_block.sh"
+  # LADR-099 builds the legend into `_legend` (it is inserted under the
+  # holistic heading rather than echoed into the body), so print it.
+  { sed -n "$((_shape_first - 1)),${_shape_last}p" "$AGG_SH" \
+      | sed 's| >> ci_temp/final_review.md||'
+    printf '%s\n' '[ -n "${_legend:-}" ] && printf "%s\n" "$_legend"'
+  } > "$TMP_DIR/legend_block.sh"
 
   legend_true="$(FINDINGS_SUMMARY_APPLIED=true  bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
   legend_false="$(FINDINGS_SUMMARY_APPLIED=false bash "$TMP_DIR/legend_block.sh" 2>/dev/null)"
