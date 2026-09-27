@@ -431,14 +431,14 @@ if [ -x "$RENDER_SH" ]; then
   render_on "$TMP_DIR/t9.json" > "$TMP_DIR/t9.dec.md"
   check "Test 9a: the decision score sits next to the priority" "1" \
     "$(grep -c '^4\. 🟡 \[VERIFIED\] Medium Priority (decision score 91%): solid medium claim — `src/b.sh:7` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
-  check "Test 9b: [UNSUPPORTED] below the threshold, inside the same tag" "1" \
-    "$(grep -c '^2\. 🟠 \[VERIFIED\] High Priority (decision score 12% \[UNSUPPORTED\]): weak high claim — `src/a.sh:20` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
+  check "Test 9b: weak quoted evidence below the threshold, inside the same tag" "1" \
+    "$(grep -c '^2\. 🟠 \[VERIFIED\] High Priority (decision score 12%, weak quoted evidence): weak high claim — `src/a.sh:20` (chunk 0)$' "$TMP_DIR/t9.dec.md")"
   check "Test 9c: severity disagreement stays at the end of the line, severity unchanged" "1" \
     "$(grep -c '^3\. 🟠 \[VERIFIED\] High Priority (decision score 91%): overrated high claim — .* · decision model rates it Medium Priority$' "$TMP_DIR/t9.dec.md")"
   check "Test 9c2: the label (text before the first colon) holds exactly one severity word" "0" \
     "$(grep -E '^[0-9]+\. ' "$TMP_DIR/t9.dec.md" | cut -d: -f1 | grep -ciE '(critical|high|medium|low).*(critical|high|medium|low)' || true)"
   check "Test 9d: the Coverage block says the decision model ran and what the score means" "1" \
-    "$(grep -c '^- \*\*Decision model:\*\* `OPENCODE-GO-DECISIONS/jev-1.13` (annotate) — scored 4, skipped 0\. \*\*Decision score\*\* = the probability that the quoted evidence demonstrates the finding; below 50% it is marked \[UNSUPPORTED\]\.$' "$TMP_DIR/t9.dec.md")"
+    "$(grep -c '^- \*\*Decision model:\*\* `OPENCODE-GO-DECISIONS/jev-1.13` (annotate) — scored 4, skipped 0\. \*\*Decision score\*\* = the probability that the quoted evidence demonstrates the finding; below 50% it is marked \*weak quoted evidence\*\.$' "$TMP_DIR/t9.dec.md")"
   check "Test 9e: without decisions the render is unchanged by this feature" "0" \
     "$(grep -ci 'decision' "$TMP_DIR/t9.plain.md" || true)"
   check "Test 9e2: flag OFF — a document that carries decisions renders none of them" "0" \
@@ -539,7 +539,7 @@ check "Test 13k: ...and the malformed answer is warned about" "1" \
   "$(grep -c 'first failure: finding 1: malformed answer' "$TMP_DIR/t13c.log")"
 OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 bash "$RENDER_SH" "$TMP_DIR/t13.json" > "$TMP_DIR/t13.md" 2>/dev/null
 check "Test 13i: with project rules the tag also shows rule-allowed" "1" \
-  "$(grep -c '(decision score 12% \[UNSUPPORTED\] · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
+  "$(grep -c '(decision score 12%, weak quoted evidence · rule-allowed 93%): weak high claim' "$TMP_DIR/t13.md")"
 check "Test 13h: capped rules still fit the request budget" "true" \
   "$(m=$(wc -c "$STUB_DIR"/req_*.json | grep -v total | awk '{print $1}' | sort -n | tail -1); [ "$m" -le 40000 ] && echo true || echo "false ($m)")"
 

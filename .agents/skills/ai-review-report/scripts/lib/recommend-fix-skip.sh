@@ -66,7 +66,7 @@
 #       because `filter` means something different here (below)
 #   OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY [0.5] own: the P(skip) at or
 #       above which `filter` withholds a finding
-#       — and nothing else: the decision-score threshold ([UNSUPPORTED]) is
+#       — and nothing else: the decision-score threshold (weak quoted evidence) is
 #       always the gate's OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY
 #   OPENCODE_ANALYSE_DECISIONS_TIMEOUT         → else the gate's → 20
 #
@@ -168,10 +168,10 @@ if ! [[ "$d_min" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
   d_min="0.5"
 fi
 case "$d_min" in .*) d_min="0${d_min}" ;; esac
-# The decision-score threshold ([UNSUPPORTED] in the tables) is the GATE's in
+# The decision-score threshold (weak quoted evidence in the tables) is the GATE's in
 # every scope. OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY means one thing only:
 # the P(skip) at which analyse's `filter` withholds a finding. Sharing it made
-# the same 57% score read as supported in the gate's review and [UNSUPPORTED]
+# the same 57% score read as supported in the gate's review and weak quoted evidence
 # in the analyse table (PR 179, review 5331521317 finding 4).
 s_min="${OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY:-0.5}"
 if ! [[ "$s_min" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
@@ -358,7 +358,7 @@ n_unscored=$(( n - scored ))
       sev = ($2 == "critical") ? "🔴 Critical" : ($2 == "high") ? "🟠 High" : ($2 == "medium") ? "🟡 Medium" : "🔵 Low"
       lean = ($4 == "fix") ? "FIX" : "SKIP (" $4 ")"
       rec = ($3 == "FIX") ? "FIX" : ($3 == "UNCERTAIN") ? "uncertain — leans " lean ", confidence " $17 "%" : "SKIP (" $4 ")"
-      ds = p($6); if ($7 == "yes") ds = ds " [UNSUPPORTED]"
+      ds = p($6); if ($7 == "yes") ds = ds ", weak quoted evidence"
       if ($11 == "no") ds = ds " (no diff hunk)"
       src = ($16 == "gate") ? "gate" : "re-scored"
       printf "| %s. | %s | `%s:%s` | %s | %s | %s | %s | %s | %s | %s |\n", $1, sev, $12, $13, rec, p($5), ds, p($8), p($9), ($10 == "" ? "—" : $10), src

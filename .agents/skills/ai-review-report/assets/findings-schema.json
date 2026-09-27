@@ -132,7 +132,7 @@
                   "skip_probability": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "1 - P(fix), unrounded; null when no distribution was returned, so nothing acts on an invented number." }
                 }
               },
-              "supported": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the quoted evidence demonstrates the described defect. Rendered as `decision: supported 0.91`; below min_probability it renders [UNSUPPORTED] and, in filter mode, suppresses a non-critical finding." },
+              "supported": { "type": "number", "minimum": 0, "maximum": 1, "description": "Probability that the quoted evidence demonstrates the described defect. Rendered next to the priority as `(decision score 91%)`; below min_probability as `(decision score 38%, weak quoted evidence)`, and in filter mode it suppresses a non-critical finding." },
               "severity": {
                 "type": "object",
                 "required": ["choice"],

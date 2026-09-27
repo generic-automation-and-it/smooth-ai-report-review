@@ -57,7 +57,7 @@ printf '%s' "$input" | awk -F '\t' -v tsv="$tsv" -v wh="$withhold" -v rep="$with
       else note = "   - 🎯 Decision model: recommends " ((f[3] == "FIX") ? "FIX" : "SKIP (" f[4] ")")
       sep = " — "
       if (f[5] != "") { note = note sep "P(skip) " f[5] "%"; sep = " · " }
-      if (f[6] != "") { note = note sep "decision score " f[6] "%" (f[7] == "yes" ? " [UNSUPPORTED]" : ""); sep = " · " }
+      if (f[6] != "") { note = note sep "decision score " f[6] "%" (f[7] == "yes" ? ", weak quoted evidence" : ""); sep = " · " }
       if (f[8] != "") { note = note sep "rule-allowed " f[8] "%"; sep = " · " }
       if (f[9] != "") { note = note sep "previously skipped " f[9] "%"; sep = " · " }
       if (f[10] != "") { note = note sep "actionability " f[10] " of 2"; sep = " · " }

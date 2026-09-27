@@ -316,7 +316,7 @@ if [ -s ci_temp/findings.merged.json ] \
             "- Findings scored: \(.scored)"
             + (if .mode == "filter"
                then "; \((.suppressed // []) | length) non-critical finding(s) whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) were removed from the Issues Summary"
-               else "; findings whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) are tagged [UNSUPPORTED] in the Issues Summary" end)
+               else "; findings whose quoted evidence it judged unsupported (probability below \($ds.min_probability | p2)) are marked as having weak quoted evidence in the Issues Summary" end)
           else empty end ) ]
     | select(length > 0)
     | "An independent structured decision model (`\($ds.provider)/\($ds.model)`) scored the merged findings after the chunk reviews:", "", .[]

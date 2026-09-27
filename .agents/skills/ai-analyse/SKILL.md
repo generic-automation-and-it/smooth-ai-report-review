@@ -68,7 +68,7 @@ When the repository sets `OPENCODE_ANALYSE_ENABLE_DECISIONS` truthy, the workflo
 
 ```
 3. 🟡 [VERIFIED] Medium Priority: … — `src/a.sh:3` (chunk 1)
-   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20% [UNSUPPORTED] · previously skipped 83% · actionability 1.6 of 2 (advisory)
+   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20%, weak quoted evidence · previously skipped 83% · actionability 1.6 of 2 (advisory)
 ```
 
 `P(skip)` is 1 − the probability of `fix`; the class is one of `intentional` / `invalid` / `deferred` (the human label classes of LADR-096); `decision score` is the probability that the quoted evidence demonstrates the finding; `rule-allowed` / `previously skipped` say whether a project rule or the PR's Skip Areas already sanction it; `actionability` 2 means mechanically fixable. The line is **not** review text — never quote it as the finding.

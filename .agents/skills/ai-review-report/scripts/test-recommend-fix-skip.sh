@@ -279,8 +279,8 @@ check "Test 3g: recommendation, class and P(skip) = 1 - P(fix)" "SKIP intentiona
   "$(awk -F '\t' 'NR > 1 { printf "%s%s %s %s", s, $3, $4, $5; s = "|" }' "$tsv")"
 check "Test 3h: annotate writes no withhold list" "no" "$([ -e "$TMP_DIR/out_ann/withhold.txt" ] && echo yes || echo no)"
 check "Test 3i: the table carries no # + digit (LADR-067)" "0" "$(grep -cE '#[0-9]' "$TMP_DIR/out_ann/recommendations.md" || true)"
-check "Test 3j: the decision score below the threshold is marked [UNSUPPORTED]" "1" \
-  "$(grep -c '| 3\. .*20% \[UNSUPPORTED\]' "$TMP_DIR/out_ann/recommendations.md" || true)"
+check "Test 3j: the decision score below the threshold is marked weak quoted evidence" "1" \
+  "$(grep -c '| 3\. .*20%, weak quoted evidence' "$TMP_DIR/out_ann/recommendations.md" || true)"
 check "Test 3k: a finding with no diff hunk says so" "1" "$(grep -c '| 5\. .*(no diff hunk)' "$TMP_DIR/out_ann/recommendations.md" || true)"
 check "Test 3l: the document records the fix/skip purpose and no PR-level scope" "fix_skip not_asked" \
   "$(jq -r '.decisions_summary | "\(.purpose) \(.pr_level_scope)"' "$TMP_DIR/out_ann/decisions.json")"
@@ -332,11 +332,11 @@ check "Test 5e: the threshold compares the raw P(skip) — 0.495 shows as 50% bu
 # scope; the analyse MIN_PROBABILITY is only the P(skip) filter threshold.
 REC_EXTRA="--severities medium,low"
 run_rec thr_analyse analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY=0.95
-check "Test 5f: a high analyse P(skip) threshold does not mark a 90% decision score [UNSUPPORTED]" "0|1" \
-  "$(grep -c '| 2\. .*90% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)|$(grep -c '| 3\. .*20% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)"
+check "Test 5f: a high analyse P(skip) threshold does not mark a 90% decision score weak quoted evidence" "0|1" \
+  "$(grep -c '| 2\. .*90%, weak quoted evidence' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)|$(grep -c '| 3\. .*20%, weak quoted evidence' "$TMP_DIR/out_thr_analyse/recommendations.md" || true)"
 run_rec thr_gate analyse OPENCODE_ANALYSE_ENABLE_DECISIONS=1 OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY=0.95
-check "Test 5g: the gate's decision-score threshold decides [UNSUPPORTED] in the analyse table" "1" \
-  "$(grep -c '| 2\. .*90% \[UNSUPPORTED\]' "$TMP_DIR/out_thr_gate/recommendations.md" || true)"
+check "Test 5g: the gate's decision-score threshold decides weak quoted evidence in the analyse table" "1" \
+  "$(grep -c '| 2\. .*90%, weak quoted evidence' "$TMP_DIR/out_thr_gate/recommendations.md" || true)"
 check "Test 5h: the analyse job forwards the gate's decision-score threshold" "1" \
   "$(grep -c "OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY || '0.5' }}" "$ANALYSE_WF" || true)"
 
@@ -404,7 +404,7 @@ echo "--- ai-analyse scope filter ---"
 section="$(awk '/^### 🟡 Medium/{f=1; next} /^### /{f=0} f' "$BODY")"
 out="$(printf '%s' "$section" | bash "$APPLY" "$tsv" "" "$TMP_DIR/rep_ann")"
 check "Test 9a: annotate inserts one advisory line directly under a scored finding" \
-  "   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20% [UNSUPPORTED] · previously skipped 83% · actionability 1.6 of 2 (advisory)" \
+  "   - 🎯 Decision model: recommends SKIP (invalid) — P(skip) 90% · decision score 20%, weak quoted evidence · previously skipped 83% · actionability 1.6 of 2 (advisory)" \
   "$(printf '%s\n' "$out" | awk '/^3\. /{getline; print}')"
 check "Test 9b: …and keeps every original line" "$(printf '%s\n' "$section" | grep -c .)" \
   "$(printf '%s\n' "$out" | grep -v '🎯 Decision model' | grep -c .)"

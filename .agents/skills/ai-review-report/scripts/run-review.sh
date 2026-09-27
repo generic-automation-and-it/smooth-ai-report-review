@@ -64,7 +64,7 @@
 #                         OPENROUTER-DECISIONS. Reuses that vendor's existing key.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_MODEL  [per provider] — jev-1.13 / typesafe/jev-1.13
 #   OPENCODE_REVIEW_REPORT_DECISIONS_MODE  [annotate] — or filter (fenced softening)
-#   OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY  [0.5] — [UNSUPPORTED] / filter threshold
+#   OPENCODE_REVIEW_REPORT_DECISIONS_MIN_PROBABILITY  [0.5] — weak quoted evidence / filter threshold
 #   OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT  [20] — seconds per decision request
 #   OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT  [1] — also give the judge the
 #                         enclosing code at head_sha and the hunks of other

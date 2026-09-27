@@ -500,7 +500,7 @@ jobs:
       # new Secret: the provider reuses its vendor's existing key
       # (OPENCODE-GO-DECISIONS → OPENCODE_GO_OPENAI_API_KEY,
       # OPENROUTER-DECISIONS → OPENCODE_OPENROUTER_API_KEY). `annotate` adds
-      # probabilities and an [UNSUPPORTED] tag; `filter` may also suppress
+      # probabilities and a weak quoted evidence note; `filter` may also suppress
       # non-critical findings below the threshold, but only on full sidecar
       # coverage. Best-effort: a failure leaves the review exactly as it was.
       OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS || '0' }}
