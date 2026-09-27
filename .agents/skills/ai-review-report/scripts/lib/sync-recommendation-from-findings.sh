@@ -113,7 +113,32 @@ holistic_blocking=0
 if [ -n "$holistic" ] && [ -s "$holistic" ]; then
   holistic_blocking=$(
     awk '
-      BEGIN { sec = ""; n = 0 }
+      # A fenced example is not content: a bullet with a severity marker inside
+      # a code block must not count as a holistic blocker (review 5331393801
+      # finding 1). Fences are tracked as in CommonMark and
+      # lib/holistic-section.sh: a closer uses the opener character, is at
+      # least as long, and carries nothing else.
+      function fence_run(s, ch,   k) {
+        k = 0
+        while (substr(s, k + 1, 1) == ch) k++
+        return k
+      }
+      function fence_step(line,   pos, s, c, k, info) {
+        pos = match(line, /[^ ]/)
+        if (pos < 1 || pos > 4) return
+        s = substr(line, pos)
+        c = substr(s, 1, 1)
+        if (c != "`" && c != "~") return
+        k = fence_run(s, c)
+        if (!open) {
+          info = substr(s, k + 1)
+          if (k >= 3 && !(c == "`" && info ~ /`/)) { open = 1; fchar = c; flen = k }
+        } else if (c == fchar && k >= flen && substr(s, k + 1) ~ /^[ \t]*$/) {
+          open = 0
+        }
+      }
+      BEGIN { sec = ""; n = 0; open = 0 }
+      { was = open; fence_step($0); if (was || open) next }
       /^\*\*Cross-Chunk Issues Found:\*\*/ { started = 1; next }
       !started { next }
       /^[[:space:]]*[-*][[:space:]]/ {

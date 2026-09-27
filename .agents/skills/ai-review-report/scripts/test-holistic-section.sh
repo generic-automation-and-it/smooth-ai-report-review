@@ -164,6 +164,28 @@ check "Test 5c: the holistic High after a nested fence still blocks through the 
   "$(bash "$SYNC_SH" "$TMP_DIR/medium.json" "$TMP_DIR/rec.md" "$TMP_DIR/h5b.md" 2>/dev/null)"
 check "Test 5d: the bullet inside the nested fence is not numbered; the real ones are" "0|2" \
   "$(grep -c 'H[0-9]*)\*\* example bullet' "$TMP_DIR/h5b.md" || true)|$(grep -cE '^- \*\*H[0-9]+\)\*\*' "$TMP_DIR/h5b.md")"
+# Review 5331393801 finding 1: the sync must not count a High that exists only
+# in a fenced example — a markerless review now reaches it through the heading.
+cat > "$TMP_DIR/fenced_only.md" <<'FENCED'
+## 🔄 Holistic Cross-Chunk Analysis
+
+**Cross-Chunk Issues Found:**
+
+🟠 **High Priority Issues**
+None found
+
+🟡 **Medium Priority Issues**
+- The docs show the output shape:
+
+```markdown
+🟠 **High Priority Issues**
+- 🟠 High: an example blocker, not a finding.
+```
+
+**Overall Assessment:** No blockers.
+FENCED
+check "Test 5f: a High that exists only in a fenced example does not block" "approve" \
+  "$(bash "$SYNC_SH" "$TMP_DIR/medium.json" "$TMP_DIR/rec.md" "$TMP_DIR/fenced_only.md" 2>/dev/null)"
 printf '## 🔍 Issues Summary\n````markdown\n```\n## not a heading\n```\n````\n\n## 🎯 Recommendation\nok\n' > "$TMP_DIR/p6.md"
 bash "$HS" place "$TMP_DIR/p6.md" "$TMP_DIR/h1.md"
 check "Test 5e: placement skips a heading inside a nested fence" "1" \
