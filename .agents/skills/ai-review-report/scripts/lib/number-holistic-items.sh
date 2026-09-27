@@ -59,11 +59,35 @@ grep -q '^\*\*Cross-Chunk Issues Found:\*\*' "$target" || exit 0
 tmp="$(mktemp 2>/dev/null)" || exit 0
 
 awk '
-  BEGIN { started = 0; fence = 0; n = 0 }
+  # Fence tracking as in CommonMark (and aggregate-reviews.sh): a closer
+  # must use the opener character, be at least as long, and carry nothing
+  # else. A bare toggle let a three-backtick line inside a four-backtick
+  # example end the fence early, so an example heading counted as real.
+  function fence_run(s, ch,   n) {
+    n = 0
+    while (substr(s, n + 1, 1) == ch) n++
+    return n
+  }
+  function fence_step(line,   pos, s, c, n, info) {
+    pos = match(line, /[^ ]/)
+    if (pos < 1 || pos > 4) return
+    s = substr(line, pos)
+    c = substr(s, 1, 1)
+    if (c != "`" && c != "~") return
+    n = fence_run(s, c)
+    if (!open) {
+      info = substr(s, n + 1)
+      if (n >= 3 && !(c == "`" && info ~ /`/)) { open = 1; fchar = c; flen = n }
+    } else if (c == fchar && n >= flen && substr(s, n + 1) ~ /^[ \t]*$/) {
+      open = 0
+    }
+  }
 
-  # Track fenced blocks so a bullet inside an example block is left alone.
-  /^[[:space:]]*(```|~~~)/ { fence = !fence; print; next }
-  fence { print; next }
+  BEGIN { started = 0; open = 0; n = 0 }
+
+  # Track fenced blocks so a bullet inside an example block is left alone. A
+  # fence line itself, and every line inside one, is printed as is.
+  { was = open; fence_step($0); if (was || open) { print; next } }
 
   /^\*\*Cross-Chunk Issues Found:\*\*/ { started = 1; print; next }
   !started { print; next }

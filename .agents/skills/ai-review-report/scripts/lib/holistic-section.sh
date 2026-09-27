@@ -51,6 +51,29 @@ case "$cmd" in
       exit 0
     fi
     if ! awk -v heading="$HEADING" -v main_out="$main_out" -v hol_out="$hol_out" '
+      # Fence tracking as in CommonMark (and aggregate-reviews.sh): a closer
+      # must use the opener character, be at least as long, and carry nothing
+      # else. A bare toggle let a three-backtick line inside a four-backtick
+      # example end the fence early, so an example heading counted as real.
+      function fence_run(s, ch,   n) {
+        n = 0
+        while (substr(s, n + 1, 1) == ch) n++
+        return n
+      }
+      function fence_step(line,   pos, s, c, n, info) {
+        pos = match(line, /[^ ]/)
+        if (pos < 1 || pos > 4) return
+        s = substr(line, pos)
+        c = substr(s, 1, 1)
+        if (c != "`" && c != "~") return
+        n = fence_run(s, c)
+        if (!open) {
+          info = substr(s, n + 1)
+          if (n >= 3 && !(c == "`" && info ~ /`/)) { open = 1; fchar = c; flen = n }
+        } else if (c == fchar && n >= flen && substr(s, n + 1) ~ /^[ \t]*$/) {
+          open = 0
+        }
+      }
       function is_main_heading(s) {
         return s ~ /^## 📋 Overall Summary/ || s ~ /^## ✅ Positive Highlights/ ||
                s ~ /^## 🔍 Issues Summary/  || s ~ /^## 📝 Suggested Fixes/ ||
@@ -60,11 +83,11 @@ case "$cmd" in
         # Drop the `---` rule(s) and blank lines that led up to the marker.
         while (mn > 0 && (main[mn] ~ /^[[:space:]]*$/ || main[mn] ~ /^[[:space:]]*---+[[:space:]]*$/)) mn--
       }
-      BEGIN { fence = 0; mode = "main"; mn = 0; hn = 0; lead = 0; saw_heading = 0 }
+      BEGIN { open = 0; mode = "main"; mn = 0; hn = 0; lead = 0; saw_heading = 0 }
       {
         line = $0
-        if (line ~ /^[[:space:]]*(```|~~~)/) fence = !fence
-        if (!fence) {
+        fence_step(line)
+        if (!open) {
           if (line ~ /^[[:space:]]*DETAILED_SECTION_MARKER[[:space:]]*$/) {
             flush_main_trailing_rules()
             mode = "hol"; lead = 1
@@ -124,16 +147,39 @@ case "$cmd" in
     else target="append"
     fi
     awk -v hol="$hol" -v target="$target" '
+      # Fence tracking as in CommonMark (and aggregate-reviews.sh): a closer
+      # must use the opener character, be at least as long, and carry nothing
+      # else. A bare toggle let a three-backtick line inside a four-backtick
+      # example end the fence early, so an example heading counted as real.
+      function fence_run(s, ch,   n) {
+        n = 0
+        while (substr(s, n + 1, 1) == ch) n++
+        return n
+      }
+      function fence_step(line,   pos, s, c, n, info) {
+        pos = match(line, /[^ ]/)
+        if (pos < 1 || pos > 4) return
+        s = substr(line, pos)
+        c = substr(s, 1, 1)
+        if (c != "`" && c != "~") return
+        n = fence_run(s, c)
+        if (!open) {
+          info = substr(s, n + 1)
+          if (n >= 3 && !(c == "`" && info ~ /`/)) { open = 1; fchar = c; flen = n }
+        } else if (c == fchar && n >= flen && substr(s, n + 1) ~ /^[ \t]*$/) {
+          open = 0
+        }
+      }
       function emit(   l) {
         while ((getline l < hol) > 0) print l
         close(hol)
         print ""
         done = 1
       }
-      BEGIN { fence = 0; state = 0; done = 0 }
+      BEGIN { open = 0; state = 0; done = 0 }
       {
-        if ($0 ~ /^[[:space:]]*(```|~~~)/) fence = !fence
-        if (!fence && !done) {
+        fence_step($0)
+        if (!open && !done) {
           if (target == "after_issues") {
             if (state == 0 && $0 ~ /^## 🔍 Issues Summary/) { state = 1; print; next }
             if (state == 1 && $0 ~ /^## /) emit()
