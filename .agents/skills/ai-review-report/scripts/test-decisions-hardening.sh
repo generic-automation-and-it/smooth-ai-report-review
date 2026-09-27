@@ -422,6 +422,8 @@ check "Test 4e: a known sha (artifact metadata) is preferred over the header" "c
   "$(KNOWN=dddddddddddddddddddddddddddddddddddddddd rd known GH_HEAD=dddddddddddddddddddddddddddddddddddddddd)"
 printf 'no header here\n' > "$TMP_DIR/hdr.md"
 check "Test 4f: no reviewed commit → unknown, current diff" "unknown||CURRENT DIFF" "$(rd nohdr GH_HEAD=fffffff000000000000000000000000000000000)"
+check "Test 4f4: no reviewed commit and gh pr diff fails → unavailable, empty diff" \
+  "unavailable||" "$(rd nohdr_fail GH_HEAD=fffffff000000000000000000000000000000000 GH_DIFF_FAIL=1)"
 printf '## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
 check "Test 4f2: a known reviewed commit but an unreadable PR head → unavailable with an EMPTY diff, never the current one" \
   "unavailable|abc1234|" "$(rd nohead GH_HEAD=)"
@@ -432,8 +434,6 @@ set -e
 # available diff.
 check "Test 4f3: the PR head is the reviewed commit but gh pr diff fails → unavailable, empty diff" \
   "unavailable|abc1234ffffffffffffffffffffffffffffffffff|" "$(rd same_fail GH_HEAD=abc1234ffffffffffffffffffffffffffffffffff GH_DIFF_FAIL=1)"
-check "Test 4f4: no reviewed commit and gh pr diff fails → unavailable, empty diff" \
-  "unavailable||" "$(rd nohdr_fail GH_HEAD=fffffff000000000000000000000000000000000 GH_DIFF_FAIL=1)"
 check "Test 4g: a non-numeric PR is a usage error" "64" "$rc_u"
 
 # --- 5. reuse of the gate's answers ------------------------------------------------------
