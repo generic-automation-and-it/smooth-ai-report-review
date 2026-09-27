@@ -94,3 +94,16 @@ verdict the run prints how well Jev's `supported` score separates the corpus's
 known false positives from its true catches, plus what filter / tag-demotion /
 severity policies would have done to precision and recall. It never changes the
 exit code. Records land in `$EVAL_ARTIFACT_DIR/decisions/`; see `AGENTS.md`.
+
+Because a good reviewer raises few known false positives, the measurement is
+followed by a **calibration on planted findings**: every fixture manifest carries
+a `known_false_positive` or `known_true_positive`, and
+`calibrate-decisions.sh` scores each one directly (with and without the
+fixtures' code comments). It needs only the decision provider's key and runs in
+seconds, so it can also be run on its own:
+
+```bash
+OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER=OPENROUTER-DECISIONS \
+OPENCODE_OPENROUTER_API_KEY=… \
+  bash .agents/skills/ai-review-report/scripts/eval/calibrate-decisions.sh
+```

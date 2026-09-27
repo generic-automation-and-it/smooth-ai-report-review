@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-008",
   "note": "Modern .NET SDK auto-enables the latest C# version; omitting LangVersion from a net10.0 csproj is correct and reviewer must NOT flag it as missing.",
-  "forbidden_claim": "langversion"
+  "forbidden_claim": "langversion",
+  "known_false_positive": {
+    "title": "Missing LangVersion in Project.Domain.csproj",
+    "severity": "medium",
+    "file": "src/Project.Domain/Project.Domain.csproj",
+    "evidence_line": "<TargetFramework>net10.0</TargetFramework>",
+    "why_it_matters": "Without an explicit LangVersion the C# language version floats with the installed SDK, so upgrading the SDK can silently change compiler behaviour. Pin LangVersion in the project file."
+  }
 }

@@ -3,5 +3,12 @@
   "kind": "must-catch",
   "label": "MC-004",
   "min_severity": "HIGH",
-  "note": "SQL injection via string interpolation passed to FromSqlRaw: untrusted caller-supplied name is embedded directly in the SQL string instead of using a parameterized overload or FromSqlInterpolated, allowing arbitrary SQL execution. Bar is HIGH, not CRITICAL: High already blocks the PR (Critical/High -> request-changes), and MC-005 grades a comparable security defect (hardcoded secret) at HIGH -- a lone CRITICAL here made this fixture the only one in the corpus that demanded the top tier for a blocking-either-way finding."
+  "note": "SQL injection via string interpolation passed to FromSqlRaw: untrusted caller-supplied name is embedded directly in the SQL string instead of using a parameterized overload or FromSqlInterpolated, allowing arbitrary SQL execution. Bar is HIGH, not CRITICAL: High already blocks the PR (Critical/High -> request-changes), and MC-005 grades a comparable security defect (hardcoded secret) at HIGH -- a lone CRITICAL here made this fixture the only one in the corpus that demanded the top tier for a blocking-either-way finding.",
+  "known_true_positive": {
+    "title": "SQL injection: caller-supplied name interpolated into FromSqlRaw",
+    "severity": "high",
+    "file": "src/Project.Infrastructure/Repositories/UserSearchRepository.cs",
+    "evidence_line": "var sql = $\"SELECT * FROM Users WHERE DisplayName = '{name}'\";",
+    "why_it_matters": "The name parameter is interpolated into the SQL string before FromSqlRaw sees it, so it is not parameterized. A value such as ' OR '1'='1 returns every user, and crafted input can run arbitrary statements."
+  }
 }

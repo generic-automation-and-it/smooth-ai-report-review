@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-001",
   "note": "Static factory methods with a private constructor are the preferred domain-model construction pattern; reviewer must NOT suggest DI factories, a public constructor, or a factory interface.",
-  "forbidden_claim": "public constructor|factory interface|(dependency.?injection|DI) factory|inject .{0,20}factory"
+  "forbidden_claim": "public constructor|factory interface|(dependency.?injection|DI) factory|inject .{0,20}factory",
+  "known_false_positive": {
+    "title": "Private constructor blocks DI; expose a public constructor or a factory interface",
+    "severity": "high",
+    "file": "src/Project.Domain/Documents/DocumentReference.cs",
+    "evidence_line": "private DocumentReference() { }",
+    "why_it_matters": "DocumentReference can only be created through the static Create method, so the dependency-injection container cannot construct it and tests cannot substitute it. Add a public constructor, or an IDocumentReferenceFactory interface injected wherever references are created."
+  }
 }

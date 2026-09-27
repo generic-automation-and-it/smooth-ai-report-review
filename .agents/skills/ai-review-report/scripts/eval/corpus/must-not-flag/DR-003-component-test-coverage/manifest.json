@@ -3,5 +3,12 @@
   "kind": "must-not-flag",
   "label": "DR-003",
   "note": "Simple domain models are covered through the component-test layer rather than isolated unit tests; the absence of a dedicated unit-test file is intentional and reviewer must NOT flag it as missing unit tests.",
-  "forbidden_claim": "(missing|no|lacks?|absent|add|without).{0,40}unit test"
+  "forbidden_claim": "(missing|no|lacks?|absent|add|without).{0,40}unit test",
+  "known_false_positive": {
+    "title": "Missing unit tests for WaypointSequence",
+    "severity": "medium",
+    "file": "src/Project.Domain/Voyages/WaypointSequence.cs",
+    "evidence_line": "public static WaypointSequence Create(IEnumerable<Waypoint> waypoints)",
+    "why_it_matters": "The new ordering and empty-sequence validation in Create has no unit test in this change, so a regression in the waypoint ordering would ship unnoticed. Add a WaypointSequenceTests class covering ordering and the empty case."
+  }
 }

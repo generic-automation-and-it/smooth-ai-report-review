@@ -155,6 +155,37 @@ scripts/eval/
   baselines are reported rather than assumed equal. Treat any single run as a
   hint: act on a policy only when it removes DR re-raises **without** losing a
   catch across several runs (`EVAL_SAMPLES` > 1).
+- **Planted findings calibrate the decision model where the reviewer cannot.**
+  A good chunk model raises almost no known false positives, so the measurement
+  above had nothing to judge on the precision side (run 36303910662: 0
+  re-raises, AUC n/a). Every must-not-flag manifest therefore carries
+  `known_false_positive` — the exact wrong claim the fixture forbids, phrased to
+  match its own `forbidden_claim` — and every must-catch manifest carries
+  `known_true_positive`, both quoting a real line (`evidence_line`).
+  `calibrate-decisions.sh` scores each one alone through the production scorer
+  against the fixture's real diff, in two variants: **as-is** and **stripped**
+  (code comments removed — the fixtures explain themselves in comments such as
+  "DO NOT flag … intentional", which would hand the judge the answer key). It
+  calls only the decision provider, runs after the measurement when
+  `EVAL_DECISIONS` is on, and never changes `fail`. Keep the planted text honest:
+  a wrong claim must read the way a reviewer would actually write it, and its
+  title + rationale must match the fixture's `forbidden_claim` —
+  `test-decisions-report.sh` 4e fails otherwise.
+  **First result (2026-09-27, `jev-1.13`, one sample):** true catches scored
+  0.58–0.97, so no policy lost a catch at 0.25 or 0.5 in either variant.
+  Separation: AUC **0.93** as-is, **0.77** stripped. Jev rejects false
+  positives the code itself contradicts (invalid action ref 0.11, SDK mismatch
+  0.16, missing write key 0.16, tenant discriminator 0.25) and accepts those that
+  are true of the code but exempt by project policy (no max length 0.84,
+  throwing getter 0.85, sequential queries 0.88, no LangVersion 0.77, removed
+  rethrow 0.86) — `supported` judges evidence, and the project's standards are
+  not in its state. It also reads comments: DR-012 moved 0.11 → 0.60 and DR-015
+  0.26 → 0.80 when they were removed, so `review_rules.untrusted_content` does
+  not neutralise in-diff argument. Severity is a weak lever: only 1/14 planted
+  false positives drops below Medium on code alone, and Jev escalates one
+  (removed rethrow) to Critical. Read as: tag demotion / filter at 0.5 is a
+  plausible, catch-safe candidate on this corpus; severity reconciliation is
+  not; and the policy-exempt class needs project rules in the judge's state.
 - **The two axes are NOT symmetric.** Precision is **zero-tolerance** (any
   re-raise = run fail) because every DR is a confirmed false positive with a
   real PR reference. Recall is **threshold-gated** (default 80% catch rate)
@@ -227,6 +258,7 @@ scripts/eval/
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-09-27 | Planted findings: `known_false_positive` / `known_true_positive` in every manifest and `calibrate-decisions.sh` (as-is + stripped variants), run with the measurement. First result recorded above: catch-safe at 0.5, AUC 0.93 as-is / 0.77 code-only, severity reconciliation not supported. | LADR-093 |
 | 2026-09-27 | Decision-model scoring is now measured: `EVAL_DECISIONS` runs `record_decisions` (real merge + scorer in annotate) per sample and `lib/decisions-report.py` reports separation (AUC) and what filter/demote/severity policies would have done, after the verdict and without ever changing it. `test-decisions-report.sh` covers it offline. | LADR-093 |
 | 2026-09-24 | Recorded that LADR-093 decision-model scoring is invisible to this harness (it scores pre-merge chunk markdown) and what the post-merge measurement leg for issue #156 PR C must do. | LADR-093 |
 | 2026-06-08 | Initial eval-dir AGENTS.md: fixture hygiene, `EVAL_ARTIFACT_DIR` triage archive, post-merge canary trigger, strict precision bar, and safe `test-evals.sh` path. | — |

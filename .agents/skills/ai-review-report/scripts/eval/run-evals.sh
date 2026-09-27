@@ -750,5 +750,11 @@ if [ "$DECISIONS_ON" = 1 ] && [ "$SELFTEST" != "1" ]; then
   else
     echo "ℹ️  Decision records written, but no python3 to summarise them."
   fi
+  # Planted findings with known truth (calibrate-decisions.sh). The measurement
+  # above only sees what the chunk model raised, and a good reviewer raises
+  # almost no known false positives, so the precision side needs these. Only
+  # decision-provider calls, no chat model; same never-changes-fail rule.
+  echo ""
+  bash "$SCRIPT_DIR/calibrate-decisions.sh" "${EVAL_ARTIFACT_DIR:+$EVAL_ARTIFACT_DIR/calibration}" || true
 fi
 exit "$fail"

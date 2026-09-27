@@ -145,6 +145,39 @@ check "3b: the report is printed after the verdict and never assigns fail" "0" \
 check "3c: the report cannot abort the run" "1" \
   "$(grep -c 'decisions-report.py" "\$DECISIONS_DIR" || true' "$RUN_EVALS")"
 
+# --- 4. planted findings and the calibration runner --------------------------------
+CORPUS="$SCRIPT_DIR/corpus"
+check "4a: every must-not-flag fixture plants a known false positive" "0" \
+  "$(for m in "$CORPUS"/must-not-flag/*/manifest.json; do jq -e '.known_false_positive | type == "object"' "$m" >/dev/null || echo "$m"; done | grep -c . || true)"
+check "4b: every must-catch fixture plants a known true positive" "0" \
+  "$(for m in "$CORPUS"/must-catch/*/manifest.json; do jq -e '.known_true_positive | type == "object"' "$m" >/dev/null || echo "$m"; done | grep -c . || true)"
+check "4c: every planted evidence line exists in its fixture file" "0" \
+  "$(for m in "$CORPUS"/*/*/manifest.json; do
+       jq -r '(.known_false_positive // .known_true_positive) | "\(.file)\t\(.evidence_line)"' "$m" \
+         | while IFS=$'\t' read -r file ev; do grep -qF -- "$ev" "$(dirname "$m")/after/$file" || echo "$m"; done
+     done | grep -c . || true)"
+CAL="$TMP/cal"
+( export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0
+  bash "$SCRIPT_DIR/calibrate-decisions.sh" "$CAL" > "$TMP/cal.log" 2>&1 )
+check "4d: calibration scores 20 planted findings in each of two variants" "20/20" \
+  "$(ls "$CAL/as-is" | wc -l | tr -d ' ')/$(ls "$CAL/stripped" | wc -l | tr -d ' ')"
+check "4e: ground truth holds — all 14 planted FPs count as DR re-raises, all 6 TPs as catches (both variants)" "2" \
+  "$(grep -cE '^ +base +14/14 +6/6 ' "$TMP/cal.log")"
+# Code comments only: Markdown headings (DR-014 ships its LADR document, which
+# is the point of that fixture) and C# directives such as `#nullable` are not
+# comments and must survive.
+check "4f: the stripped variant carries no code comments" "0" \
+  "$( { find "$CAL"/work/stripped-* -path '*/.git' -prune -o -name '*.cs' -type f -print0 \
+          | xargs -0 grep -hE '^[[:space:]]*//' ;
+        find "$CAL"/work/stripped-* -path '*/.git' -prune -o \( -name '*.yml' -o -name '*.yaml' \) -type f -print0 \
+          | xargs -0 grep -hE '^[[:space:]]*#' ; } 2>/dev/null | grep -c . || true)"
+check "4f2: the as-is variant keeps them (the two variants really differ)" "true" \
+  "$(find "$CAL"/work/as-is-* -path '*/.git' -prune -o -name '*.cs' -type f -print0 | xargs -0 grep -lE '^[[:space:]]*//' 2>/dev/null | grep -q . && echo true || echo false)"
+check "4g: every planted finding quotes its code line (no line-not-found fallback)" "0" \
+  "$(jq -r '.findings[0].first_evidence' "$CAL"/work/*/ci_temp/findings.merged.json | grep -cE ' -- $' || true)"
+check "4h: run-evals runs the calibration only with the measurement, and it cannot abort" "1" \
+  "$(grep -c 'calibrate-decisions.sh" "\${EVAL_ARTIFACT_DIR:+\$EVAL_ARTIFACT_DIR/calibration}" || true' "$RUN_EVALS")"
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

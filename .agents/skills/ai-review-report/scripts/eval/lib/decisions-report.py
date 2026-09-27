@@ -2,7 +2,8 @@
 """Measure the LADR-093 decision model against the eval corpus's ground truth.
 
 stdin : nothing. argv[1] is a directory of per-fixture-sample JSON records
-        written by run-evals.sh (one `<fixture>.<sample>.json` each).
+        written by run-evals.sh or calibrate-decisions.sh (one
+        `<fixture>.<sample>.json` each); optional argv[2] is a report title.
 stdout: a plain-text report. Report-only: exit 0 whatever it finds, 2 only on
         unusable input, so it can never fail the eval gate.
 
@@ -177,12 +178,13 @@ def summarise(values):
 
 
 def main():
-    if len(sys.argv) != 2 or not os.path.isdir(sys.argv[1]):
-        print("usage: decisions-report.py <records-dir>")
+    if len(sys.argv) not in (2, 3) or not os.path.isdir(sys.argv[1]):
+        print("usage: decisions-report.py <records-dir> [title]")
         return 2
     docs = load(sys.argv[1])
+    title = sys.argv[2] if len(sys.argv) == 3 else "DECISION MODEL MEASUREMENT (LADR-093, report-only)"
     print("==========================================")
-    print(" DECISION MODEL MEASUREMENT (LADR-093, report-only)")
+    print(f" {title}")
     print("==========================================")
     if not docs:
         print(" No decision records — the measurement did not run.")

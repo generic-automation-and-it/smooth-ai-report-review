@@ -3,5 +3,12 @@
   "kind": "must-catch",
   "label": "MC-006",
   "min_severity": "HIGH",
-  "note": "Unsafe EF Core migration: Up() drops a column with no data-preservation step, and Down() is empty so the migration cannot be rolled back, making this a one-way destructive schema change with no recovery path."
+  "note": "Unsafe EF Core migration: Up() drops a column with no data-preservation step, and Down() is empty so the migration cannot be rolled back, making this a one-way destructive schema change with no recovery path.",
+  "known_true_positive": {
+    "title": "Destructive migration: DropColumn with no data preservation and an empty Down()",
+    "severity": "high",
+    "file": "src/Project.Infrastructure/Migrations/20260601120000_DropLegacyColumn_Migration.cs",
+    "evidence_line": "migrationBuilder.DropColumn(",
+    "why_it_matters": "Up() drops LegacyExternalRef without copying its data anywhere, and Down() is empty, so applying the migration permanently destroys the data and the deployment cannot be rolled back."
+  }
 }

@@ -3,5 +3,12 @@
   "kind": "must-catch",
   "label": "MC-003",
   "min_severity": "MEDIUM",
-  "note": "Reachable null-guard deleted: the ArgumentNullException guard on request.Customer was the only protection before Customer.Id is dereferenced; callers can pass null legally (nullable reference type), so removing the guard introduces a real NRE regression. Bar is MEDIUM, not HIGH: the input already threw before this change, so what regresses is the exception TYPE and message quality, not success-to-failure -- unlike MC-001, where an always-null navigation property turns a working path into an unconditional throw."
+  "note": "Reachable null-guard deleted: the ArgumentNullException guard on request.Customer was the only protection before Customer.Id is dereferenced; callers can pass null legally (nullable reference type), so removing the guard introduces a real NRE regression. Bar is MEDIUM, not HIGH: the input already threw before this change, so what regresses is the exception TYPE and message quality, not success-to-failure -- unlike MC-001, where an always-null navigation property turns a working path into an unconditional throw.",
+  "known_true_positive": {
+    "title": "Null guard on request.Customer removed before Customer.Id is dereferenced",
+    "severity": "medium",
+    "file": "src/Project.Application/Features/Orders/CreateOrderHandler.cs",
+    "evidence_line": "CustomerId = request.Customer.Id,",
+    "why_it_matters": "Customer is nullable in CreateOrderRequest and the ArgumentNullException guard was deleted, so a request without a customer now fails with a NullReferenceException instead of a clear argument error."
+  }
 }
