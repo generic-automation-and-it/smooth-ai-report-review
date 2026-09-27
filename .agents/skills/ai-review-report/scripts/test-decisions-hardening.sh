@@ -313,17 +313,41 @@ check "Test 2m: a secret-looking file gets no source excerpt and no named-file h
   "$(printf '%s\n' "$ctx" | grep -c '\.env\.production` around')|$(printf '%s\n' "$ctx" | grep -c 'server.pem')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `app.sh`')"
 check "Test 2n: a path named with a slash is looked up without a stray-backslash grep warning" "0" \
   "$(grep -c 'stray' "$TMP_DIR/sec.log" || true)"
+# End to end for secret-NAMED paths (review 5331393801 finding 2): a finding in
+# secrets/production.json that names config/secrets.yml gets neither a source
+# excerpt nor a named-file hunk; the ordinary file it names still does.
+SEC2="$TMP_DIR/sec2"
+mkdir -p "$SEC2/secrets" "$SEC2/config"
+(
+  cd "$SEC2"
+  git init -q && git config user.email t@t && git config user.name t
+  printf '{"db":"a"}\n' > secrets/production.json; printf 'k: a\n' > config/secrets.yml; printf 'x\n' > app.sh
+  git add -A && git commit -qm base
+  printf '{"db":"b","token":"s3cr3t"}\n' > secrets/production.json; printf 'k: b\n' > config/secrets.yml; printf 'y\n' > app.sh
+  git commit -qam head
+  git diff HEAD~1..HEAD > "$TMP_DIR/sec2_diff.txt"
+)
+merged_doc "$TMP_DIR/sec2.json" '{"#":1,"title":"sec2","severity":"medium","file":"secrets/production.json","line":1,"why_it_matters":"see config/secrets.yml and app.sh","verified":true}'
+reset_stub sec2
+(cd "$SEC2" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
+  _DECISIONS_RETRY_DELAY=0 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" \
+  bash "$SCORER" "$TMP_DIR/sec2.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/sec2_diff.txt" > "$TMP_DIR/sec2.log" 2>&1)
+ctx="$(ctx_of sec2)"
+check "Test 2p: secret-named paths get no source excerpt and no named-file hunk; an ordinary one still does" "0|0|0|1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'production.json` around')|$(printf '%s\n' "$ctx" | grep -c 's3cr3t')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `config/secrets.yml`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `app.sh`')"
 # The path check itself: directory components and Terraform JSON vars count too.
 eval "$(awk '/^is_sensitive_path\(\) \{/,/^\}/' "$SCORER")"
 sens=""
 for p in .env config/.env.local/db.yml .env/settings.json deploy/.ssh/config home/.aws/credentials .gnupg/pubring.kbx \
-         infra/prod.tfvars.json infra/x.auto.tfvars.json infra/state.tfstate.backup; do
+         infra/prod.tfvars.json infra/x.auto.tfvars.json infra/state.tfstate.backup \
+         secrets/production.json config/secrets.yml .secrets/token deploy/app-secrets.yaml k8s/db-secret.yaml .envrc; do
   is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
 done
-for p in src/env.sh docs/environment.md src/.envrc_notes/readme.md infra/main.tf app/ssh/client.go; do
+for p in src/env.sh docs/environment.md src/.envrc_notes/readme.md infra/main.tf app/ssh/client.go \
+         docs/secrets-management.md src/secretary.py; do
   is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
 done
-check "Test 2o: sensitive directory components and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyynnnnn" "$sens"
+check "Test 2o: sensitive directories, secret-named files and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyyyyyyyynnnnnnn" "$sens"
 
 
 # --- 3. findings_with_rules counts only requests actually sent -------------------------
