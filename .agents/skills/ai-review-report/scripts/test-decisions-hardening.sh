@@ -342,19 +342,43 @@ reset_stub sec2
 ctx="$(ctx_of sec2)"
 check "Test 2p: secret-named paths get no source excerpt and no named-file hunk; an ordinary one still does" "0|0|0|1" \
   "$(printf '%s\n' "$ctx" | grep -c 'production.json` around')|$(printf '%s\n' "$ctx" | grep -c 's3cr3t')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `config/secrets.yml`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `app.sh`')"
+# Review 5331424628 finding 1: a finding on a tracked .kube/config that names a
+# kubeconfig file gets neither an excerpt nor a named-file hunk.
+KUBE="$TMP_DIR/kube"
+mkdir -p "$KUBE/.kube" "$KUBE/ops"
+(
+  cd "$KUBE"
+  git init -q && git config user.email t@t && git config user.name t
+  printf 'token: a\n' > .kube/config; printf 'token: a\n' > ops/prod.kubeconfig; printf 'x\n' > app.sh
+  git add -A && git commit -qm base
+  printf 'token: kub3s3cr3t\n' > .kube/config; printf 'token: b\n' > ops/prod.kubeconfig; printf 'y\n' > app.sh
+  git commit -qam head
+  git diff HEAD~1..HEAD > "$TMP_DIR/kube_diff.txt"
+)
+merged_doc "$TMP_DIR/kube.json" '{"#":1,"title":"kube","severity":"medium","file":".kube/config","line":1,"why_it_matters":"see ops/prod.kubeconfig and app.sh","verified":true}'
+reset_stub kube
+(cd "$KUBE" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
+  _DECISIONS_RETRY_DELAY=0 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" \
+  bash "$SCORER" "$TMP_DIR/kube.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/kube_diff.txt" > "$TMP_DIR/kube.log" 2>&1)
+ctx="$(ctx_of kube)"
+check "Test 2q: .kube/config and a named kubeconfig get no excerpt and no hunk; an ordinary file still does" "0|0|1" \
+  "$(printf '%s\n' "$ctx" | grep -c '\.kube/config` around')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `ops/prod.kubeconfig`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `app.sh`')"
 # The path check itself: directory components and Terraform JSON vars count too.
 eval "$(awk '/^is_sensitive_path\(\) \{/,/^\}/' "$SCORER")"
 sens=""
 for p in .env config/.env.local/db.yml .env/settings.json deploy/.ssh/config home/.aws/credentials .gnupg/pubring.kbx \
          infra/prod.tfvars.json infra/x.auto.tfvars.json infra/state.tfstate.backup \
-         secrets/production.json config/secrets.yml .secrets/token deploy/app-secrets.yaml k8s/db-secret.yaml .envrc; do
+         secrets/production.json config/secrets.yml .secrets/token deploy/app-secrets.yaml k8s/db-secret.yaml .envrc \
+         .kube/config deploy/.kube/prod.yaml ops/kubeconfig ops/prod.kubeconfig .azure/accessTokens.json \
+         .config/gcloud/credentials.db .docker/config.json; do
   is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
 done
 for p in src/env.sh docs/environment.md src/.envrc_notes/readme.md infra/main.tf app/ssh/client.go \
-         docs/secrets-management.md src/secretary.py; do
+         docs/secrets-management.md src/secretary.py \
+         .docker/Dockerfile docs/kubernetes.md src/kube/client.go; do
   is_sensitive_path "$p" && sens="${sens}y" || sens="${sens}n"
 done
-check "Test 2o: sensitive directories, secret-named files and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyyyyyyyynnnnnnn" "$sens"
+check "Test 2o: sensitive directories, secret-named files, cluster/cloud credentials and *.tfvars.json are excluded; look-alikes are not" "yyyyyyyyyyyyyyyyyyyyyynnnnnnnnnn" "$sens"
 
 
 # --- 3. findings_with_rules counts only requests actually sent -------------------------

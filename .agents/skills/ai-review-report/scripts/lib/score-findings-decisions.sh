@@ -450,16 +450,20 @@ diff_files > "$work/diff_files.txt"
 # content can steer, and the code context goes to a third party. The finding's
 # own diff hunk is unaffected (it always went, like the chunk review's diff).
 # Directories are checked as well as the basename: an ordinary-named file inside
-# `.env/`, `.env.local/`, `.ssh/`, `.aws/`, `.gnupg/` or `secrets/` is just as
-# secret. Secret-NAMED files count too (`secrets.json`, `db-secret.yaml`): a
+# `.env/`, `.env.local/`, `.ssh/`, `.aws/`, `.gnupg/`, `.kube/`, `.azure/`,
+# `.config/gcloud/` or `secrets/` is just as secret. `.docker/` holds Dockerfiles
+# in many repos, so only its `config.json` (registry auth) is excluded. Secret-NAMED files count too (`secrets.json`, `db-secret.yaml`): a
 # finding there would otherwise send an excerpt of unchanged lines, credentials
 # included (review 5331393801 finding 2). `secrets-management.md` and
 # `secretary.py` stay allowed — the name must be exactly the word.
 is_sensitive_path() {
   case "/$1/" in
     */.env/*|*/.env.*/*|*/.ssh/*|*/.aws/*|*/.gnupg/*|*/secrets/*|*/.secrets/*|*/secret/*) return 0 ;;
+    # Cluster and cloud CLI credentials (review 5331424628 finding 1).
+    */.kube/*|*/.azure/*|*/.config/gcloud/*|*/.docker/config.json/) return 0 ;;
   esac
   case "${1##*/}" in
+    kubeconfig|kubeconfig.*|*.kubeconfig|*-kubeconfig|*_kubeconfig) return 0 ;;
     secrets|.secrets|secrets.*|secret.*|*[-_.]secrets.*|*[-_.]secret.*|*[-_.]secrets|*[-_.]secret) return 0 ;;
     .env|.env.*|.envrc|*.env|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.tfvars|*.tfvars.json|*.tfstate|*.tfstate.*) return 0 ;;
     id_rsa*|id_dsa*|id_ecdsa*|id_ed25519*|.npmrc|.pypirc|.netrc|.git-credentials|credentials|credentials.*) return 0 ;;
