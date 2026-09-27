@@ -187,18 +187,37 @@ EOF_ALL
   # a backtick, a colon before the line number, a space, end of line — is a
   # boundary. `/` before the suffix is allowed on purpose: `src/app.js` IS a
   # mention of `app.js`. Regex metacharacters in the suffix are escaped.
-  # A mention counts only in STRUCTURE: a heading line, or a line inside a
-  # finding block (a severity-emoji or priority line and its continuation
-  # lines — indented, list, bold-label, fenced or blank — up to the next
-  # column-0 prose line, heading or block start). Narration is excluded:
-  # "I will inspect src/b.cs next." named the file, satisfied the inventory,
-  # and a response truncated right there passed as complete (review
-  # 5266192686, finding 3).
+  # A mention counts only in STRUCTURE: a heading line, the file list written
+  # directly under a `File:`/`Files:` heading, or a line inside a finding
+  # block (a severity-emoji or priority line and its continuation lines —
+  # indented, list, bold-label, fenced or blank — up to the next column-0
+  # prose line, heading or block start). Narration is excluded: "I will
+  # inspect src/b.cs next." named the file, satisfied the inventory, and a
+  # response truncated right there passed as complete (review 5266192686,
+  # finding 3).
+  #
+  # The list under a heading is structure because the prompt asks for it:
+  # "use `### 📄 Files:` and list every filename". The first cut counted the
+  # heading LINE only, so a model that put the names on bullet lines beneath
+  # the heading — the literal reading of that instruction — had every grouped
+  # file reported as "never named". Consumer run 36247697720 (PR 108) rejected
+  # two complete reviews of a 15-file chunk that way, re-asked the same model
+  # into the same shape, and only the sweep's retry (names inline on the
+  # heading line) passed; four Low findings from the first answer were lost
+  # (LADR-095). The list runs from the heading, across blank lines, over
+  # consecutive list items (`-`, `*`, `+`, `1.`, `1)`), and ends at the first
+  # other line — `**Issues Found:**` in the template. Scoped to `File(s):`
+  # headings only, so bullets under `## Plan` stay narration; and a `Files:`
+  # heading followed by a list and nothing else is still rejected by the
+  # per-section completion check below. This widens the inventory, not the
+  # gate.
   _rhs_struct="$(mktemp)"
   awk '
     { low = tolower($0) }
-    /^#/ { print; inblk = 0; next }
-    /🔴|🟠|🟡|🔵/ || (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { print; inblk = 1; next }
+    /^#/ { print; inblk = 0; inlist = (low ~ /(^|[^[:alnum:]])files?:/); next }
+    /🔴|🟠|🟡|🔵/ || (low ~ /(critical|high|medium|low)/ && low ~ /priority/) { print; inblk = 1; inlist = 0; next }
+    inlist && ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*[-*+][[:space:]]/ || $0 ~ /^[[:space:]]*[0-9]+[.)][[:space:]]/) { print; next }
+    { inlist = 0 }
     inblk && ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]+/ || $0 ~ /^[-*`|]/ || $0 ~ /^\*\*/) { print; next }
     { inblk = 0 }
   ' "$_rhs_src" > "$_rhs_struct" 2>/dev/null || cp "$_rhs_src" "$_rhs_struct"
@@ -215,7 +234,7 @@ EOF_ALL
 ${OPENCODE_EXPECTED_CHUNK_FILES}
 EOF_EXPECTED
   if [ "$_rhs_expected_n" -ge 2 ] && [ -n "$_rhs_missing" ]; then
-    _rhs_reject "chunk file(s) never named in the review's headings or severity lines: $(printf '%s' "$_rhs_missing" | tr '\n' ' ' | sed 's/ *$//')"
+    _rhs_reject "chunk file(s) never named in the review's headings, the file list under a Files: heading, or severity lines: $(printf '%s' "$_rhs_missing" | tr '\n' ' ' | sed 's/ *$//')"
   fi
 fi
 

@@ -36,6 +36,13 @@
 #                             the chain moves on (default 0 = move on at once).
 #                             Provider errors and empty output never retry
 #                             here. Only meaningful with OPENCODE_OUTPUT_SHAPE_CHECK.
+#                             The re-ask is NOT the identical prompt: the
+#                             predicate's reason is appended as a "Format
+#                             correction" block (LADR-095), because a model
+#                             handed the same prompt answers in the same
+#                             shape — consumer run 36247697720 re-asked into
+#                             the identical rejection. The next model in the
+#                             chain gets the original prompt.
 #   OPENCODE_REJECTED_OUTPUT_FILE  When set, every shape-rejected answer is
 #                             APPENDED there (header: model, bytes, UTC time,
 #                             the predicate's reason; body capped at 64 KB).
@@ -98,6 +105,13 @@ SHAPE_REJECT_RC=3
 # failure-reason block, which parses this line back out of the chunk's stderr
 # log. test-opencode-with-fallback-targets.sh asserts the two literals are equal.
 SHAPE_REJECT_MARKER="opencode-with-fallback.sh: output-shape check rejected the response from"
+# The predicate's one-line reason for the LAST shape rejection, kept for the
+# re-ask prompt; and the temp prompt that carries it. Empty = ask with the
+# caller's prompt as-is. Removed on exit; try_run clears it per model so a
+# fresh model never inherits another model's correction.
+SHAPE_REJECT_WHY=""
+REASK_PROMPT=""
+trap '[ -n "$REASK_PROMPT" ] && rm -f "$REASK_PROMPT" 2>/dev/null; :' EXIT
 
 model_target() {
   case "$1" in
@@ -148,20 +162,24 @@ run_opencode() {
   # discovery loads the runtime AGENTS.md the caller generated at that cwd. The
   # subshell keeps the caller's cwd untouched — the prompt file was absolutized
   # at the top of this script, so stdin still resolves.
+  # A re-ask reads the corrected prompt (LADR-095); every other call reads the
+  # caller's. Both paths are absolute when OPENCODE_RUN_CWD is set: the
+  # caller's was absolutized above and mktemp returns an absolute path.
+  local _in="${REASK_PROMPT:-$prompt_file}"
   if [ -n "${OPENCODE_RUN_CWD:-}" ]; then
     _out=$(cd "$OPENCODE_RUN_CWD" && opencode run \
       --agent "${OPENCODE_AGENT}" \
       --model "${_target}" \
       --format default \
       --log-level warn \
-      < "$prompt_file") || return 1
+      < "$_in") || return 1
   else
     _out=$(opencode run \
       --agent "${OPENCODE_AGENT}" \
       --model "${_target}" \
       --format default \
       --log-level warn \
-      < "$prompt_file") || return 1
+      < "$_in") || return 1
   fi
   # The byte floor is a proxy for "the model produced nothing"; when the caller
   # can name a predicate that answers the real question, the predicate decides
@@ -231,6 +249,7 @@ run_opencode() {
       # Nothing came back at all is a silent provider failure, not a format
       # problem, so it does not earn the same-model retry below.
       [ "$_bytes" -gt 0 ] || return 1
+      SHAPE_REJECT_WHY="$_why"
       return "$SHAPE_REJECT_RC"
     fi
     echo "opencode-with-fallback.sh: OPENCODE_OUTPUT_SHAPE_CHECK not found: ${OPENCODE_OUTPUT_SHAPE_CHECK} — falling back to the ${OPENCODE_MIN_OUTPUT_BYTES}-byte floor" >&2
@@ -242,9 +261,36 @@ run_opencode() {
   printf '%s\n' "$_out"
 }
 
+# Write the re-ask prompt: the caller's prompt, then a short block that quotes
+# the predicate's reason and asks for the same answer in the mandated layout.
+# The wording is deliberately generic — it names no section or heading — so
+# the block stays true for any caller that opts into the shape check; the
+# rules themselves are already in the prompt above it. Best-effort: if the
+# temp file cannot be written, the re-ask falls back to the original prompt,
+# which is exactly the pre-LADR-095 behaviour.
+build_reask_prompt() { # build_reask_prompt <reason>
+  local _reason="$1" _tmp
+  _reason="${_reason#review-has-shape.sh: rejected — }"
+  _tmp="$(mktemp 2>/dev/null)" || { REASK_PROMPT=""; return 0; }
+  if {
+    cat "$prompt_file"
+    printf '\n\n---\n\n**Format correction — your previous answer was rejected by the completeness check for its layout, not for its content:**\n\n> %s\n\nSend the complete answer again in the output format the instructions above mandate. Keep every finding and every verdict; change only what the check named.\n' \
+      "${_reason:-the answer did not match the mandated output format}"
+  } > "$_tmp" 2>/dev/null; then
+    REASK_PROMPT="$_tmp"
+  else
+    rm -f "$_tmp" 2>/dev/null; REASK_PROMPT=""
+  fi
+  return 0
+}
+
 try_run() {
   local model="$1" _rc _left="$OPENCODE_SHAPE_REJECT_RETRIES"
   [ -z "$model" ] && return 1
+  # A fresh model starts from the caller's prompt, never from a correction
+  # written for a different model's answer.
+  [ -z "$REASK_PROMPT" ] || rm -f "$REASK_PROMPT" 2>/dev/null
+  REASK_PROMPT=""
   while :; do
     _rc=0
     run_opencode "$model" || _rc=$?
@@ -255,9 +301,14 @@ try_run() {
     # primary's rejected answer was followed by 707 s of a slower secondary
     # that never finished, then a sweep retry of the SAME primary that passed
     # in 95 s — this puts that second chance first.
+    #
+    # The re-ask carries the rejection reason (LADR-095). Run 36247697720
+    # re-asked with the identical prompt and got the identical shape back —
+    # the model had no way to know which rule it broke.
     if [ "$_rc" -eq "$SHAPE_REJECT_RC" ] && [ "$_left" -gt 0 ]; then
       _left=$((_left - 1))
-      echo "opencode-with-fallback.sh: re-asking $(model_target "$model") after a shape rejection (${_left} retr$([ "$_left" -eq 1 ] && echo y || echo ies) left)" >&2
+      build_reask_prompt "$SHAPE_REJECT_WHY"
+      echo "opencode-with-fallback.sh: re-asking $(model_target "$model") after a shape rejection (${_left} retr$([ "$_left" -eq 1 ] && echo y || echo ies) left)${REASK_PROMPT:+, with the rejection reason appended to the prompt}" >&2
       continue
     fi
     return 1
