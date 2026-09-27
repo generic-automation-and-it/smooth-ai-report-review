@@ -51,8 +51,13 @@ fi
 # Injected by Conductor into the workspace lifecycle only.
 export OPENCODE_GO_API_KEY="${OPENCODE_GO_API_KEY:-${OPENCODE_API_KEY:-}}"
 : "${OPENCODE_GO_API_KEY:?Set OPENCODE_API_KEY or OPENCODE_GO_API_KEY in the workspace environment.}"
-# Exported so `-e NAME` forwards the value without putting it on the command line.
-export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in the workspace environment.}"
+# The shared review workflow names this secret OPENCODE_OPENROUTER_API_KEY,
+# while the imposter's provider mapping consumes OPENROUTER_API_KEY. Normalize
+# both names here so Conductor can supply either naming convention. Export the
+# normalized value so `-e NAME` forwards it without putting it on the command
+# line, including when Docker must be invoked through sudo below.
+export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${OPENCODE_OPENROUTER_API_KEY:-}}"
+: "${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY or OPENCODE_OPENROUTER_API_KEY in the workspace environment.}"
 # Uncomment (plus --preserve-env and the -e flags) to stop OpenCode session
 # token usage. Image default is SessionForwarding=opencode-go.
 #export OPENCODE_GO_ANTHROPIC_SESSION_FORWARDING="${OPENCODE_GO_ANTHROPIC_SESSION_FORWARDING:-none}"
