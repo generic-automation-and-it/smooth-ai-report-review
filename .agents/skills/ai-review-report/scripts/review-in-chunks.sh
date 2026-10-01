@@ -78,7 +78,7 @@ structured_findings_enabled() {
   printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
 }
 
-# LADR-101: per-chunk stall detection. Same tokenized truthy test as the
+# LADR-102: per-chunk stall detection. Same tokenized truthy test as the
 # structured-findings gate above, so a pathological value like `1true` lands on
 # the same side of the line everywhere. DEFAULT ON, matching
 # OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY (LADR-078) and
@@ -101,7 +101,7 @@ stall_detection_enabled() {
 # Arming is deliberately conditional on the threshold being smaller than the
 # budget the stage is already bounded by. If the threshold is at or above the
 # budget, `timeout` fires first no matter what, the watchdog can only add a
-# second process and a `stat` loop per stage, and the LADR-101 behaviour is
+# second process and a `stat` loop per stage, and the LADR-102 behaviour is
 # unreachable — so it is not started. Without this guard a consumer who set a
 # stall threshold above their chunk budget would get a watchdog that provably
 # cannot act, which is exactly the kind of inert feature that reads as working.
@@ -144,7 +144,7 @@ _stall_arm() { # <timeout_pid> <chunk_num> <stage_label> <budget_seconds>
   # itself to that PID and break both the `_stall_disarm` kill and every read of
   # the variable — the notice has to be stderr, which the chunk's inherited log
   # still shows.
-  echo "  ⏱️  ${_label} stall detector armed — no output for ${_secs}s kills the stage early (LADR-101)" >&2
+  echo "  ⏱️  ${_label} stall detector armed — no output for ${_secs}s kills the stage early (LADR-102)" >&2
   # stderr is deliberately INHERITED, not redirected: the watchdog's kill notice
   # is the only place the stall is ever explained, and this is a routing event
   # that otherwise looks exactly like a timeout in the job log. It is reaped by
@@ -777,6 +777,7 @@ ${AI_REVIEW_NOTES}
 
 **Important:** Consider these notes when reviewing the code below.
 - Any items listed under **"Skip Areas"** MUST be treated as out-of-scope for 🔴 Critical, 🟠 High, and 🟡 Medium classifications. If you observe a concern in a skip area, flag it as 🔵 Low Priority at most.
+- Do not emit a residual-risk or testing-gap item that restates a Skip Areas bullet. These entries have no severity to downgrade; match by the bullet's area and summary text, not its per-run identifier.
 
 EOF
   fi
@@ -1430,7 +1431,7 @@ EOF
   # starving a stage, so the pre-split single-wrap behaviour is used verbatim.
   local _primary_budget _secondary_budget _secondary_model
   local _stage1_rc=0 _chunk_rc=0 _split_used=0 _stage_started _elapsed _remaining _stage1_fb
-  # LADR-101: per-stage process ids for the stall watchdog, plus the reason a
+  # LADR-102: per-stage process ids for the stall watchdog, plus the reason a
   # stage was killed for stalling (empty when it was not). Declared up here
   # because `set -u` is not set on this function's caller path and an unset
   # variable in the marker block below would otherwise print as empty anyway —
@@ -1495,7 +1496,7 @@ EOF
   else
     echo "  ⚠️ Chunk ${chunk_num}: no runtime AGENTS.md — reviewing without loaded project rules" >&2
   fi
-  # LADR-101: the stage is launched in the BACKGROUND so the watchdog has a PID
+  # LADR-102: the stage is launched in the BACKGROUND so the watchdog has a PID
   # to watch and a process group to kill. This is the only reason the call is not
   # a plain foreground `if ...; then` any more — everything downstream still reads
   # `$_chunk_rc`, so a stall kill is indistinguishable from a `timeout` firing:
@@ -1523,7 +1524,7 @@ EOF
   if [ "$_chunk_rc" -eq 0 ]; then
     chunk_shape_notes "$chunk_num"
   else
-    # LADR-101: a stall kill exits non-zero but is NOT a timeout, and every branch
+    # LADR-102: a stall kill exits non-zero but is NOT a timeout, and every branch
     # of the posted failure marker names a cause. Reporting "the budget was split
     # and both tiers ran out" for a stage killed at 240 s of a 650 s share would be
     # a lie in the one place the reader is told what happened — the same defect
@@ -1535,7 +1536,7 @@ EOF
     # routing event, exactly like a timeout.
     if [ -f "ci_temp/reviews/chunk_${chunk_num}.stalled" ]; then
       _stall_reason="$(cat "ci_temp/reviews/chunk_${chunk_num}.stalled" 2>/dev/null)"
-      echo "  ⏱️  Chunk ${chunk_num} primary was killed for stalling — not a timeout (LADR-101)"
+      echo "  ⏱️  Chunk ${chunk_num} primary was killed for stalling — not a timeout (LADR-102)"
     fi
     # Stage 2 gets whatever is LEFT of the total, not a fixed slice. That single
     # subtraction gives both behaviours for free: a primary that timed out has
@@ -1569,14 +1570,14 @@ EOF
           _stall_reason=""
         else
           _chunk_rc=$?
-          # LADR-101: stage 2 gets the same stall handling as stage 1. Its budget
+          # LADR-102: stage 2 gets the same stall handling as stage 1. Its budget
           # is `remaining`, not the full chunk budget, so the arming guard above
           # compares the threshold against the right number — a threshold that
           # could never beat `total` may well beat `remaining`, and arming it here
           # is what keeps the reserve from being spent by a dead primary.
           if [ -f "ci_temp/reviews/chunk_${chunk_num}.stalled" ]; then
             _stall_reason="$(cat "ci_temp/reviews/chunk_${chunk_num}.stalled" 2>/dev/null)"
-            echo "  ⏱️  Chunk ${chunk_num} secondary was killed for stalling — not a timeout (LADR-101)"
+            echo "  ⏱️  Chunk ${chunk_num} secondary was killed for stalling — not a timeout (LADR-102)"
           fi
         fi
         _stall_disarm "$_stage2_wd"
@@ -1711,13 +1712,13 @@ EOF
         'index($0, m) == 1 { s = substr($0, length(m) + 2); out = out (out == "" ? "" : ", ") s } END { print out }' \
         "ci_temp/reviews/chunk_${chunk_num}_stderr.log" 2>/dev/null)"
       if [ -n "$_stall_reason" ]; then
-        # LADR-101. Checked FIRST, before every 124 branch, because a stall kill
+        # LADR-102. Checked FIRST, before every 124 branch, because a stall kill
         # surfaces as a non-zero exit that is not 124 and these branches would
         # otherwise claim a timeout that never happened. The remedy is also
         # different: a stall is not a budget that needs raising, it is a model
         # that stopped emitting, and telling the reader to raise
         # OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT is the wrong advice for it.
-        echo "**Reason:** ${_stall_reason} — the model produced no output for that long and the stage was killed early, so this budget was NOT spent (LADR-101). The failure is routed exactly like a timeout: the LADR-081 secondary got whatever budget remained, and if both tiers stalled the LADR-082 retry sweep had one more attempt. Raise \`OPENCODE_REVIEW_REPORT_STALL_TIMEOUT\` if an honest slow chunk is caught by this; lower it, or set \`OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR=0\`, if the endpoint needs longer silent stretches."
+        echo "**Reason:** ${_stall_reason} — the model produced no output for that long and the stage was killed early, so this budget was NOT spent (LADR-102). The failure is routed exactly like a timeout: the LADR-081 secondary got whatever budget remained, and if both tiers stalled the LADR-082 retry sweep had one more attempt. Raise \`OPENCODE_REVIEW_REPORT_STALL_TIMEOUT\` if an honest slow chunk is caught by this; lower it, or set \`OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR=0\`, if the endpoint needs longer silent stretches."
       elif [ "$exit_code" -eq 124 ] && [ "${CHUNK_RETRY_ATTEMPT:-0}" = "1" ]; then
         # LADR-084: the retry deliberately runs unsplit, so none of the three
         # first-attempt branches below describes it — the budget-too-small one
@@ -1761,7 +1762,7 @@ EOF
       echo "**Prompt Size:** ${prompt_size} bytes"
     } > ci_temp/reviews/chunk_${chunk_num}.md
     # LADR-031: out-of-band failure signal (see comment at the empty/tiny site).
-    # LADR-101: the flag body carries WHY when a stall caused it, so the run
+    # LADR-102: the flag body carries WHY when a stall caused it, so the run
     # artifact and any human reading the flag can tell a stall from a timeout
     # without having to reconstruct it from log ordering. The flag's EXISTENCE is
     # the control signal and is unchanged; only its text is richer.

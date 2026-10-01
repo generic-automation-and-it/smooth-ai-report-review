@@ -1171,7 +1171,7 @@ echo "=========================================="
 echo "Retry sweep tests passed"
 echo "=========================================="
 
-# --- Per-chunk stall detection (LADR-101) -------------------------------------
+# --- Per-chunk stall detection (LADR-102) -------------------------------------
 # Run 36837246807 (job 110287529991, PR #144) burned 650 s of a 1000 s budget on
 # one chunk — 10m50s of a 17m19s gate run — and the LADR-082 retry then finished
 # it in 5m18s. The chunk was never hung; the model was streaming tool events
@@ -1182,7 +1182,7 @@ echo "=========================================="
 # working, just slowly.
 echo ""
 echo "=========================================="
-echo "Testing per-chunk stall detection (LADR-101)"
+echo "Testing per-chunk stall detection (LADR-102)"
 echo "=========================================="
 _sf_fail=0
 _sf() { # _sf <label> <expected> <actual>
@@ -1336,8 +1336,8 @@ _sf "runtime: a silent target is killed, not left to run forever" "1" \
 # The whole point of the feature is that this is bounded well under any budget.
 _sf "runtime: the kill lands within a few seconds of the threshold, not a budget" "1" \
   "$(awk -v s="$_sfr_silent" 'BEGIN { print (s > 0 && s < 30) ? 1 : 0 }')"
-_sf "runtime: the kill is announced with the LADR-101 marker" "1" \
-  "$(_sf_has "${_sfr}/wd.err" 'stalled .* killing (LADR-101)')"
+_sf "runtime: the kill is announced with the LADR-102 marker" "1" \
+  "$(_sf_has "${_sfr}/wd.err" 'stalled .* killing (LADR-102)')"
 _sf "runtime: the marker records the threshold so the postmortem is readable" "1" \
   "$(_sf_has "${_sfr}/marker" 'no output for 3s')"
 
@@ -1389,7 +1389,7 @@ cp "$SOURCE_SHAPE_LIB"   "${_sfs}/.agents/skills/ai-review-report/scripts/lib/re
 cp "$SOURCE_RUNTIME_AGENTS_LIB" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
 cp "$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
    "${_sfs}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
-# LADR-101: the sandbox must carry the two new libs too. A missing one now
+# LADR-102: the sandbox must carry the two new libs too. A missing one now
 # degrades to "no detector" (fail-open, asserted above), which means an omitted
 # copy here would silently disable the feature under test rather than fail loudly.
 cp "$_sfv" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/validate-stall-timeout.sh"
@@ -1438,8 +1438,8 @@ chmod +x "${_sfs}/bin/timeout"
 ) || true
 _sf "routing: the watchdog is armed in the real chunk script" "1" \
   "$(_sf_has "${_sfs}/run.log" 'stall detector armed')"
-_sf "routing: the primary stall is announced with the LADR-101 marker" "1" \
-  "$(_sf_has "${_sfs}/run.log" 'stalled — no output for 3s, killing (LADR-101)')"
+_sf "routing: the primary stall is announced with the LADR-102 marker" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'stalled — no output for 3s, killing (LADR-102)')"
 _sf "routing: the stall is reported as a stall, not as a timeout" "1" \
   "$(_sf_has "${_sfs}/run.log" 'killed for stalling')"
 # Acceptance criterion 2: a stall during split stage 1 routes to the LADR-081
@@ -1495,8 +1495,8 @@ _sf "the posted marker names the stall" "1" \
   "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'Reason:\*\* stalled: no output for 3s')"
 _sf "the posted marker does not claim a timeout" "0" \
   "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'Reason:\*\* Timeout')"
-_sf "the stall reason carries the LADR-101 marker into the posted body" "1" \
-  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'LADR-101')"
+_sf "the stall reason carries the LADR-102 marker into the posted body" "1" \
+  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'LADR-102')"
 _sf "the posted body keeps its established failure-marker shape" "1" \
   "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'Review Failed for Chunk')"
 # The .failed flag body is diagnostic only; its EXISTENCE is the control signal.
@@ -1504,7 +1504,7 @@ _sf "the fail-closed flag names the stall as well" "1" \
   "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.failed" 'stalled')"
 
 # Disable path (acceptance criterion 4): a falsy ENABLE value and a 0 threshold
-# must both leave the gate behaving exactly as it did before LADR-101.
+# must both leave the gate behaving exactly as it did before LADR-102.
 _sf_disable() { # _sf_disable <label> <env assignment...>
   local label="$1"; shift
   rm -rf "${_sfs}/ci_temp/reviews"
@@ -1536,8 +1536,8 @@ _sf_disable "enable-off" OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR=0 \
   OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=3
 _sf "disable: a falsy ENABLE value arms no watchdog" "0" \
   "$(grep -c 'stall detector armed' "${_sfs}/disable.log")"
-_sf "disable: the slow primary is left to its own budget (no LADR-101 kill)" "0" \
-  "$(grep -c 'LADR-101' "${_sfs}/disable.log")"
+_sf "disable: the slow primary is left to its own budget (no LADR-102 kill)" "0" \
+  "$(grep -c 'LADR-102' "${_sfs}/disable.log")"
 _sf_disable "timeout-zero" OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=0
 _sf "disable: a 0 threshold arms no watchdog" "0" \
   "$(grep -c 'stall detector armed' "${_sfs}/disable.log")"

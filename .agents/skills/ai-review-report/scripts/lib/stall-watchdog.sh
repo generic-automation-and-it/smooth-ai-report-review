@@ -1,6 +1,6 @@
 #!/bin/bash
 # stall-watchdog.sh — kill a chunk whose model has gone silent, before its budget
-# expires (LADR-101).
+# expires (LADR-102).
 #
 # Usage:
 #   bash stall-watchdog.sh <timeout_pid> <watch_file> <threshold_seconds> <chunk_label> <marker_file>
@@ -132,14 +132,14 @@ if ! kill -0 "$_timeout_pid" 2>/dev/null; then
   exit 0
 fi
 
-echo "⏱️  ${_label} stalled — no output for ${_threshold}s, killing (LADR-101)" >&2
+echo "⏱️  ${_label} stalled — no output for ${_threshold}s, killing (LADR-102)" >&2
 
 # Marker file so the caller's log and any diagnostic group can distinguish a
 # stall kill from a budget timeout after the fact. Purely diagnostic: the
 # routing is carried by the non-zero exit, exactly as for a timeout, and nothing
 # downstream reads this (LADR-031's `.failed` flag remains the only control
 # signal — a watchdog must never become a second one).
-[ -n "$_marker" ] && printf 'stalled: no output for %ss (LADR-101)\n' "$_threshold" > "$_marker" 2>/dev/null
+[ -n "$_marker" ] && printf 'stalled: no output for %ss (LADR-102)\n' "$_threshold" > "$_marker" 2>/dev/null
 
 # Process group first (GNU `timeout` is its own group leader, so -PID reaches
 # `opencode` and the model transport), then the direct pid. Both are best-effort:

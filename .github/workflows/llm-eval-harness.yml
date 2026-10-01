@@ -191,6 +191,9 @@ jobs:
             # decision-model scope filter they sit beside. The job's scope
             # check already covers .agents/skills/ai-analyse/.
             .agents/skills/ai-analyse/scripts/test-filter-failing-test-findings.sh
+            .agents/skills/ai-analyse/scripts/test-split-testing-gaps.sh
+            .agents/skills/ai-analyse/scripts/test-complete-fix-skip-table.sh
+            .agents/skills/ai-analyse/scripts/test-soft-items-workflow.sh
             .agents/skills/ai-analyse/scripts/test-filter-test-self-fix.sh
             .agents/skills/ai-analyse/scripts/test-run-test-gate.sh
             # Per-chunk context scope filtering. Both directions of error are
