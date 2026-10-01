@@ -11,25 +11,25 @@
 #
 # This is the DETERMINISTIC guard: the analyse model is untrusted, so the SKILL
 # prompt asking it to leave tests alone is only advisory. This script runs in
-# the workflow after the model edits and, unless self-fix of tests is explicitly
-# enabled, reverts any change the model made to a test, test-framework, or eval
-# file
+# the workflow after the model edits and reverts any eval edit, plus test and
+# test-framework edits unless self-fix of tests is explicitly enabled
 # (restoring tracked files to HEAD, deleting newly-created untracked ones)
 # BEFORE the commit step stages anything. Non-test edits are left untouched.
 #
-# Enable test/eval self-fix by setting the GitHub Variable
+# Enable test self-fix (not eval self-fix) by setting the GitHub Variable
 # OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX to a truthy value (1/true/yes/on).
 #
 # Operates on the git working tree in the current directory. Prints one reverted
-# path per line to stdout (empty when nothing was reverted or self-fix is
-# allowed); human-readable progress goes to stderr.
+# path per line to stdout (empty when nothing was reverted); human-readable
+# progress goes to stderr.
 set -euo pipefail
 
 allow_raw="${OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX:-}"
+allow_test_self_fix=false
 case "$(printf '%s' "$allow_raw" | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on)
-    echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is enabled; test/eval edits are permitted." >&2
-    exit 0
+    allow_test_self_fix=true
+    echo "OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is enabled; test edits are permitted, eval edits are not." >&2
     ;;
 esac
 
@@ -39,7 +39,7 @@ PATHSPEC=( . ':(exclude)ci_temp' ':(exclude).context' ':(exclude).smooth-ai-revi
 # Case-insensitive matcher: test directories, JS/TS/Python test-file naming, and
 # common test-framework config/setup files.
 #
-# `evals?/` is in the same list, and for the same reason. An eval harness is a
+# `evals?/` is guarded independently of the test opt-in. An eval harness is a
 # test of the reviewer: its corpus fixtures are the inputs, its manifests are
 # the expected results, and its scorer decides pass/fail. A fixer free to edit
 # them can turn a failing eval green by relabelling the expectation, which is
@@ -54,7 +54,8 @@ PATHSPEC=( . ':(exclude)ci_temp' ':(exclude).context' ':(exclude).smooth-ai-revi
 # is caught too. For an edit guard that is the safe direction: the failure mode
 # is "a Medium/Low fix was not applied", it is reported in the summary comment,
 # and a human or /ai-review can still make the change.
-CI_RE='(^|/)(__tests__|__mocks__|tests?|specs?|evals?|e2e|cypress|playwright|\.storybook)/'
+EVAL_RE='(^|/)evals?/'
+CI_RE='(^|/)(__tests__|__mocks__|tests?|specs?|e2e|cypress|playwright|\.storybook)/'
 CI_RE+='|\.(test|spec)\.[A-Za-z0-9.]+$'
 CI_RE+='|(^|/)test_[A-Za-z0-9][A-Za-z0-9_]*\.py$'
 CI_RE+='|(^|/)[A-Za-z0-9][A-Za-z0-9_.-]*_test\.[A-Za-z0-9]+$'
@@ -73,6 +74,15 @@ is_test_path() {
   local p="$1"
   printf '%s\n' "$p" | grep -iEq "$CI_RE" && return 0
   printf '%s\n' "$p" | grep -Eq "$CS_RE" && return 0
+  return 1
+}
+
+is_guarded_path() {
+  local p="$1"
+  printf '%s\n' "$p" | grep -iEq "$EVAL_RE" && return 0
+  if [ "$allow_test_self_fix" = false ] && is_test_path "$p"; then
+    return 0
+  fi
   return 1
 }
 
@@ -109,14 +119,14 @@ revert_tracked_test() {
 reverted=()
 for p in "${tracked[@]:-}"; do
   [ -n "$p" ] || continue
-  if is_test_path "$p"; then
+  if is_guarded_path "$p"; then
     revert_tracked_test "$p"
     reverted+=( "$p" )
   fi
 done
 for p in "${untracked[@]:-}"; do
   [ -n "$p" ] || continue
-  if is_test_path "$p"; then
+  if is_guarded_path "$p"; then
     # -rf so an untracked test *directory* is removed too (rm -f fails on a dir).
     rm -rf -- "$p"
     reverted+=( "$p" )
@@ -128,7 +138,7 @@ if [ "${#reverted[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "Reverted ${#reverted[@]} test/eval edit(s) (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off):" >&2
+echo "Reverted ${#reverted[@]} protected test/eval edit(s):" >&2
 for p in "${reverted[@]}"; do
   echo " - $p" >&2
   printf '%s\n' "$p"
