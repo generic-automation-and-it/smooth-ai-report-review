@@ -520,6 +520,18 @@ jobs:
       # FLOOR (small chunks); a large prompt scales up toward this cap, which
       # preserves the deadlock-detector property the fixed budget used to give.
       OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
+      # LADR-101: per-chunk stall detection. A chunk whose stderr log (the
+      # tool-event stream) stops growing for this long is killed early instead of
+      # burning its whole budget; the kill routes exactly like a timeout, so the
+      # LADR-081 secondary gets the remaining budget and the LADR-082 sweep still
+      # gets its retry. Default ON — absent this, a silently-stuck model costs the
+      # entire primary share (run 36837246807: 10m50s of a 17m19s gate run).
+      OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR || '1' }}
+      # Seconds of NO stderr growth before the stage is killed. Deliberately
+      # generous: a working model streams tool events continuously, so silence
+      # this long is a hang, not a slow model. Set to 0 (or a falsy ENABLE value)
+      # to disable.
+      OPENCODE_REVIEW_REPORT_STALL_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_STALL_TIMEOUT || '240' }}
       # Total budget, seconds, for the aggregation summary call (LADR-092).
       # Split across the chain: the orchestrator gets a share (390s at the
       # default), the review-model fallback gets what is left. Was unbounded.

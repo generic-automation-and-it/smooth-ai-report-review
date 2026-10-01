@@ -484,6 +484,9 @@ jobs:
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT || '450' }}
           # Ceiling for the prompt-size-scaled chunk budget (mirrors the reusable workflow).
           OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX: ${{ vars.OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX || '1200' }}
+          # LADR-101 stall detection (mirrors the reusable workflow).
+          OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR || '1' }}
+          OPENCODE_REVIEW_REPORT_STALL_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_STALL_TIMEOUT || '240' }}
           # Aggregation summary budget, seconds (LADR-092) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT || '600' }}
           # Max chunks reviewed concurrently (mirrors the reusable workflow).

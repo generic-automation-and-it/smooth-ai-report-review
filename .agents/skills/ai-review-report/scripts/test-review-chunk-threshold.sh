@@ -1170,3 +1170,394 @@ echo ""
 echo "=========================================="
 echo "Retry sweep tests passed"
 echo "=========================================="
+
+# --- Per-chunk stall detection (LADR-101) -------------------------------------
+# Run 36837246807 (job 110287529991, PR #144) burned 650 s of a 1000 s budget on
+# one chunk — 10m50s of a 17m19s gate run — and the LADR-082 retry then finished
+# it in 5m18s. The chunk was never hung; the model was streaming tool events
+# far too slowly through a slow endpoint, and the ONLY detector the gate had was
+# an outer `timeout` that fires once, at the very end of the budget. This is that
+# detector, and it is the third in a series: LADR-076 capped the exploration, and
+# LADR-077 failed narration instead of reviewing; neither can see a model that is
+# working, just slowly.
+echo ""
+echo "=========================================="
+echo "Testing per-chunk stall detection (LADR-101)"
+echo "=========================================="
+_sf_fail=0
+_sf() { # _sf <label> <expected> <actual>
+  if [ "$3" = "$2" ]; then echo "  ✅ $1"; else echo "  ❌ $1 (expected '$2', got '$3')"; _sf_fail=1; fi
+}
+_sfv="$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/validate-stall-timeout.sh"
+_sfd="$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/stall-watchdog.sh"
+_sf_has() { if [ -f "$1" ] && grep -q "$2" "$1" 2>/dev/null; then echo 1; else echo 0; fi; }
+
+# --- Threshold parsing and validation ----------------------------------------
+# Load-bearing: the threshold wraps a KILL, so too low kills honest chunks (the
+# same fail-closed REQUEST_CHANGES the chunk budget is calibrated to avoid) and
+# too high never fires. Junk must degrade to today's behaviour, never to a
+# nonsense interval.
+_sf "the stall validator exists" "1" "$([ -f "$_sfv" ] && echo 1 || echo 0)"
+_sf "the watchdog exists" "1" "$([ -f "$_sfd" ] && echo 1 || echo 0)"
+_sf "unset resolves to the 240s default (detector is default-ON)" "240" \
+  "$(bash "$_sfv" 2>/dev/null)"
+_sf "a blank value resolves to the default, not to 0/disabled" "240" \
+  "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT="" bash "$_sfv" 2>/dev/null)"
+_sf "a whitespace-only value resolves to the default" "240" \
+  "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT="   " bash "$_sfv" 2>/dev/null)"
+_sf "an explicit threshold is honoured" "90" \
+  "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=90 bash "$_sfv" 2>/dev/null)"
+# `0` is the off-switch on the numeric var (the ENABLE_* var is the documented
+# one). Guarded by the pattern staying strict about leading zeros.
+_sf "0 disables the detector" "0" \
+  "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=0 bash "$_sfv" 2>/dev/null)"
+_sf "007 is rejected as junk, not accepted as 7" "240" \
+  "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=007 bash "$_sfv" 2>/dev/null)"
+for _junk in abc -5 45s " " 12.5; do
+  _sf "junk '${_junk}' falls back to the default rather than guessing" "240" \
+    "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT="$_junk" bash "$_sfv" 2>/dev/null)"
+done
+_sf "junk is reported on stderr, not swallowed" "1" \
+  "$(OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=junk bash "$_sfv" 2>&1 >/dev/null | grep -c 'not a positive integer')"
+_sf "stdout is a bare integer on every path" "1" \
+  "$(bash "$_sfv" 2>/dev/null | grep -cE '^(0|[1-9][0-9]*)$')"
+
+# --- Env-var parity: both packagings, same commit -----------------------------
+_sf "declared in the reusable workflow" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
+_sf "declared in the local-job packaging" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+_sf "threshold declared in the reusable workflow" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_STALL_TIMEOUT:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
+_sf "threshold declared in the local-job packaging" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_STALL_TIMEOUT:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+_sf "the gate reads the enable toggle" "1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR' "$_ric" | awk '{print ($1 > 0) ? 1 : 0}')"
+_sf "the gate resolves the threshold through the shared validator" "1" \
+  "$(grep -c 'lib/validate-stall-timeout\.sh' "$_ric")"
+_sf "the watchdog watches the stderr tool-event stream, not the review body" "1" \
+  "$(grep -c 'chunk_\${_chunk}_stderr\.log' "$_ric")"
+
+# --- Call-site wiring ---------------------------------------------------------
+# The kill is only safe if the stage runs in its own process group, which is why
+# the call moved from a foreground `if` into a background job whose $! the
+# watchdog can signal. Assert the shape rather than re-deriving it: a `timeout`
+# that is NOT backgrounded has no PID to kill and the watchdog can do nothing.
+_sf "stage 1 is launched in the background so the watchdog has a PID" "1" \
+  "$(grep -c 'timeout "\${_primary_budget}s".*_stderr\.log &$' "$_ric")"
+_sf "stage 2 is launched in the background too" "1" \
+  "$(grep -c 'timeout "\${_remaining}s".*_stderr\.log &$' "$_ric")"
+_sf "the watchdog is armed for stage 1" "1" \
+  "$(grep -c '_stall_arm "\$_stage1_pid"' "$_ric")"
+_sf "the watchdog is armed for stage 2 as well (LADR-081 reserve)" "1" \
+  "$(grep -c '_stall_arm "\$_stage2_pid"' "$_ric")"
+# The arming guard is what stops the feature becoming an inert second process:
+# with threshold >= budget, `timeout` always fires first and the watchdog can
+# never act.
+_sf "the watchdog is not armed when the threshold cannot beat the budget" "1" \
+  "$(grep -c '_secs" -ge "\$_budget' "$_ric")"
+_sf "the watchdog is disarmed on stage 1's way out" "1" \
+  "$(grep -c '_stall_disarm "\$_stage1_wd"' "$_ric")"
+_sf "the watchdog is disarmed on stage 2's way out" "1" \
+  "$(grep -c '_stall_disarm "\$_stage2_wd"' "$_ric")"
+# The ordering is the load-bearing part: a watchdog still armed while stage 2
+# runs would be watching stage 1's PID, and could fire against an unrelated
+# process once that slot is reused. Disarm must come after the wait and before
+# the marker read.
+_sf "stage 1 is disarmed after its wait and before the marker is read" "1" \
+  "$(awk '/^  _stall_disarm "\$_stage1_wd"$/{d=NR} d && NR>d && /if \[ -f "ci_temp\/reviews\/chunk_\$\{chunk_num\}\.stalled" \]/{print "1"; exit}' "$_ric")"
+# Fail-open: a missing lib inside a command substitution under `set -e` would
+# otherwise abort the SUBSTITUTION, and `set -e` in the caller would read the
+# non-zero status as a failed assignment — fail-closing a chunk with no review.
+_sf "a failing/absent validator degrades to no detector, not to a failed chunk" "1" \
+  "$(grep -c 'if _out="\$(bash .*validate-stall-timeout\.sh.*2>/dev/null)"; then' "$_ric")"
+# The stall is a routing event, so it must reach BOTH the LADR-081 secondary and
+# the LADR-082 sweep through the ordinary non-zero path — never a new control
+# signal of its own.
+# The diagnostic marker and the LADR-031 flag are two different files on purpose:
+# the marker says WHY (a stall happened), the flag is the control signal (this
+# chunk was not reviewed) and aggregation counts only the flag. Assert they are
+# distinct paths rather than counting occurrences.
+_sf "the stall marker is its own file, distinct from the LADR-031 flag" "1" \
+  "$(grep -c 'chunk_\${chunk_num}\.stalled' "$_ric" | awk '{print ($1 > 0) ? 1 : 0}')"
+_sf "a stalled chunk still writes the LADR-031 .failed flag" "1" \
+  "$(grep -c 'chunk_\${chunk_num}\.failed' "$_ric" | awk '{print ($1 > 0) ? 1 : 0}')"
+_sf "nothing globs the stall marker as a failure flag" "0" \
+  "$(grep -c 'chunk_\*\.stalled' "$_ric")"
+_sf "the stall reason is checked before every 124 timeout branch" "1" \
+  "$(awk '/if \[ -n "\$_stall_reason" \]; then/{print NR; exit}' "$_ric" | awk -v r="$(grep -n 'if \[ "\$exit_code" -eq 124 \]' "$_ric" | head -1 | cut -d: -f1)" '{print ($1 < r) ? 1 : 0}')"
+# The watchdog must never become a second control signal: nothing downstream may
+# read the marker except the diagnostic reason and the flag body.
+_sf "nothing outside the chunk script reads the .stalled marker" "0" \
+  "$(grep -rl '\.stalled' "$REPO_ROOT/.agents/skills/ai-review-report/scripts" 2>/dev/null | grep -v 'review-in-chunks.sh\|stall-watchdog.sh\|test-review-chunk-threshold.sh' | wc -l | tr -d ' ')"
+_sf "the watchdog kills the process group, not just the wrapper" "1" \
+  "$(grep -c 'kill -TERM "-\${_timeout_pid}"' "$_sfd")"
+_sf "the watchdog exits quietly when the target already finished" "1" \
+  "$(grep -c 'if ! kill -0 "\$_timeout_pid" 2>/dev/null; then' "$_sfd" | awk '{print ($1 >= 1) ? 1 : 0}')"
+# The guard immediately before the kill is what stops a race with `timeout`
+# firing on its own from being reported as a stall: the target is re-checked
+# after the silence window, not only during it.
+_sf "the watchdog re-checks liveness immediately before killing" "1" \
+  "$(awk '/^# Still here: no bytes/{f=1} f && /kill -0 "\$_timeout_pid"/{print "1"; exit} /kill -TERM "-/{print "0"; exit}' "$_sfd")"
+
+# --- Runtime proof of the watchdog itself (offline, no model calls) -----------
+# The grep assertions above pin the SHAPE. They cannot show that a silent target
+# is actually killed, that a streaming one is left alone, or that the kill lands
+# before the budget — which is the entire feature. Drive the real lib against
+# real processes with a short threshold.
+_sfr="${TMP_DIR}/stall-runtime"
+mkdir -p "${_sfr}"
+# A target that ignores SIGTERM (a hung socket does not act on TERM) and never
+# exits. This is the case the detector exists for; the escalation to KILL is
+# what makes it terminate at all.
+cat > "${_sfr}/hang.sh" << 'STALLHANG'
+#!/usr/bin/env bash
+trap '' TERM
+while :; do sleep 1; done
+STALLHANG
+chmod +x "${_sfr}/hang.sh"
+# A slow-but-working model: one tool event per second, well under any threshold.
+cat > "${_sfr}/stream.sh" << 'STALLSTREAM'
+#!/usr/bin/env bash
+for _i in $(seq 1 30); do echo "tick ${_i}" >> "${STREAM_LOG}"; sleep 1; done
+STALLSTREAM
+chmod +x "${_sfr}/stream.sh"
+
+"${_sfr}/hang.sh" & _sfr_pid=$!
+_sfr_t0=$SECONDS
+bash "$_sfd" "$_sfr_pid" "${_sfr}/never.log" 3 "Chunk 0 (primary)" "${_sfr}/marker" 2>"${_sfr}/wd.err"
+# Silenced: this target is KILLed on purpose (the watchdog escalates past a
+# TERM it ignores), and the suite is `set -e` — an unsilenced "Killed" from
+# `wait` reads as a test failure.
+wait "$_sfr_pid" 2>/dev/null || true
+_sfr_silent=$(( SECONDS - _sfr_t0 ))
+_sf "runtime: a silent target is killed, not left to run forever" "1" \
+  "$(kill -0 "$_sfr_pid" 2>/dev/null && echo 0 || echo 1)"
+# The whole point of the feature is that this is bounded well under any budget.
+_sf "runtime: the kill lands within a few seconds of the threshold, not a budget" "1" \
+  "$(awk -v s="$_sfr_silent" 'BEGIN { print (s > 0 && s < 30) ? 1 : 0 }')"
+_sf "runtime: the kill is announced with the LADR-101 marker" "1" \
+  "$(_sf_has "${_sfr}/wd.err" 'stalled .* killing (LADR-101)')"
+_sf "runtime: the marker records the threshold so the postmortem is readable" "1" \
+  "$(_sf_has "${_sfr}/marker" 'no output for 3s')"
+
+: > "${_sfr}/stream.log"
+STREAM_LOG="${_sfr}/stream.log" "${_sfr}/stream.sh" & _sfr_pid2=$!
+_sfr_t1=$SECONDS
+bash "$_sfd" "$_sfr_pid2" "${_sfr}/stream.log" 5 "Chunk 0" "${_sfr}/marker2" 2>"${_sfr}/wd2.err"
+_sfr_stream=$(( SECONDS - _sfr_t1 ))
+kill -TERM "$_sfr_pid2" 2>/dev/null || true
+wait "$_sfr_pid2" 2>/dev/null || true
+_sf "runtime: a slow-but-STREAMING model is never killed (the no-false-positive case)" "1" \
+  "$(kill -0 "$_sfr_pid2" 2>/dev/null && echo 0 || echo 1)"
+_sf "runtime: the streaming model really did keep producing output" "1" \
+  "$(awk -v b="$(wc -c < "${_sfr}/stream.log" | tr -d ' ')" 'BEGIN { print (b > 20) ? 1 : 0 }')"
+_sf "runtime: no kill marker is written for a streaming model" "0" \
+  "$([ -f "${_sfr}/marker2" ] && echo 1 || echo 0)"
+
+# The detector must not fire on a model that finishes normally.
+: > "${_sfr}/quick.log"
+( sleep 2; echo done >> "${_sfr}/quick.log" ) & _sfr_pid3=$!
+bash "$_sfd" "$_sfr_pid3" "${_sfr}/quick.log" 30 "Chunk 0" "${_sfr}/marker3" 2>/dev/null
+_sf "runtime: a model that finishes on its own is left alone" "0" \
+  "$([ -f "${_sfr}/marker3" ] && echo 1 || echo 0)"
+# A junk threshold must make the watchdog inert rather than kill on the first poll.
+"${_sfr}/hang.sh" & _sfr_pid4=$!
+bash "$_sfd" "$_sfr_pid4" "${_sfr}/never.log" "abc" "Chunk 0" "${_sfr}/marker4" 2>/dev/null
+_sf "runtime: a junk threshold arms nothing" "1" \
+  "$(kill -0 "$_sfr_pid4" 2>/dev/null && echo 1 || echo 0)"
+_sf "runtime: a junk threshold writes no marker" "0" \
+  "$([ -f "${_sfr}/marker4" ] && echo 1 || echo 0)"
+# `wait` is silenced because this target is killed with -KILL on purpose (a junk
+# threshold must leave it running, so the case has to clean it up itself) and the
+# suite is `set -e`; an unsilenced "Killed" here reads as a test failure.
+kill -KILL "$_sfr_pid4" 2>/dev/null || true
+wait "$_sfr_pid4" 2>/dev/null || true
+
+# --- Runtime proof: the kill routes into LADR-081 and LADR-082 ---------------
+# The greps prove the wiring exists; only driving the real chunk script proves a
+# stall actually reaches the secondary with the remaining budget and then the
+# retry sweep. Same sandbox shape as the LADR-081 split harness above.
+_sfs="${TMP_DIR}/stall-chunk"
+mkdir -p "${_sfs}/.agents/skills/ai-review-report/scripts/lib" "${_sfs}/bin"
+cp "$SOURCE_SCRIPT"      "${_sfs}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+cp "$SOURCE_COUNT_LIB"   "${_sfs}/.agents/skills/ai-review-report/scripts/lib/count-changed-files.sh"
+cp "$SOURCE_EXTRACT_LIB" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/extract-findings-json.sh"
+cp "$SOURCE_TIMEOUT_LIB" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/validate-chunk-timeout.sh"
+cp "$SOURCE_SPLIT_LIB"   "${_sfs}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
+cp "$SOURCE_SHAPE_LIB"   "${_sfs}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
+cp "$SOURCE_RUNTIME_AGENTS_LIB" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
+cp "$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh" \
+   "${_sfs}/.agents/skills/ai-review-report/scripts/lib/report-error-log.sh"
+# LADR-101: the sandbox must carry the two new libs too. A missing one now
+# degrades to "no detector" (fail-open, asserted above), which means an omitted
+# copy here would silently disable the feature under test rather than fail loudly.
+cp "$_sfv" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/validate-stall-timeout.sh"
+cp "$_sfd" "${_sfs}/.agents/skills/ai-review-report/scripts/lib/stall-watchdog.sh"
+# Primary goes silent for good (no stderr at all, hangs); the secondary answers.
+cat > "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'STALLSTUB'
+#!/usr/bin/env bash
+prompt_file="${@: -1}"
+if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+echo "$1" >> "${STALL_CALLS_LOG:-/dev/null}"
+if [ "$1" = "primary-model" ]; then
+  # Silence the stderr log entirely, then hang — the exact shape of run
+  # 36837246807's chunk 0. Ignores TERM so the KILL escalation is exercised.
+  trap '' TERM
+  while :; do sleep 1; done
+fi
+printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued by the secondary tier — `alpha/a.txt:1`.\n\n%.0s' {1..20}
+STALLSTUB
+chmod +x "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+# A REAL `timeout`, not the recording shim the split harness uses: the watchdog
+# has to signal a process group, and the pass-through shim has none.
+cat > "${_sfs}/bin/timeout" << 'STALLTIMEOUT'
+#!/usr/bin/env bash
+exec /usr/bin/timeout "$@"
+STALLTIMEOUT
+chmod +x "${_sfs}/bin/timeout"
+(
+  cd "${_sfs}"
+  git init -q; git config user.email t@e.com; git config user.name T
+  mkdir -p alpha; echo one > alpha/a.txt
+  git add alpha/a.txt; git commit -q -m base
+  echo two >> alpha/a.txt; git add alpha/a.txt; git commit -q -m head
+  mkdir -p ci_temp; printf 'alpha/a.txt\0' > ci_temp/changed_files.txt
+  STALL_CALLS_LOG="${_sfs}/calls.log" \
+  OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=3 \
+  OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900 \
+  OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+  OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+  GITHUB_OUTPUT="${_sfs}/gh.out" \
+  PATH="${_sfs}/bin:${PATH}" \
+  bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+    "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+    > "${_sfs}/run.log" 2>&1
+) || true
+_sf "routing: the watchdog is armed in the real chunk script" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'stall detector armed')"
+_sf "routing: the primary stall is announced with the LADR-101 marker" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'stalled — no output for 3s, killing (LADR-101)')"
+_sf "routing: the stall is reported as a stall, not as a timeout" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'killed for stalling')"
+# Acceptance criterion 2: a stall during split stage 1 routes to the LADR-081
+# secondary with the remaining budget, exactly as a timeout does.
+_sf "routing: the stalled primary hands over to the LADR-081 secondary" "1" \
+  "$(_sf_has "${_sfs}/calls.log" '^secondary-model$')"
+_sf "routing: the hand-over is announced as the LADR-081 budget remainder" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'handing .*s to secondary secondary-model (LADR-081)')"
+_sf "routing: the secondary rescues the chunk" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'rescued by secondary')"
+_sf "routing: the rescued chunk leaves no fail-closed flag" "0" \
+  "$(find "${_sfs}/ci_temp/reviews" -name '*.failed' 2>/dev/null | wc -l | tr -d ' ')"
+# The whole saving: the secondary ran while most of the budget remained.
+_sf "routing: the hand-over happens in seconds, not at the 650s share" "1" \
+  "$(_sf_has "${_sfs}/run.log" 'failed (rc [0-9]*) after [0-9]s')"
+
+# Both stages stalling: the chunk must land in the LADR-082 sweep and the posted
+# marker must name the stall rather than a timeout it never hit.
+cat > "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'STALLALL'
+#!/usr/bin/env bash
+prompt_file="${@: -1}"
+if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+echo "$1" >> "${STALL_CALLS_LOG:-/dev/null}"
+trap '' TERM
+while :; do sleep 1; done
+STALLALL
+chmod +x "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+rm -f "${_sfs}/calls.log"
+rm -rf "${_sfs}/ci_temp/reviews"
+(
+  cd "${_sfs}"
+  STALL_CALLS_LOG="${_sfs}/calls.log" \
+  OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=3 \
+  OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900 \
+  OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+  OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+  GITHUB_OUTPUT="${_sfs}/gh2.out" \
+  PATH="${_sfs}/bin:${PATH}" \
+  bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+    "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+    > "${_sfs}/run2.log" 2>&1
+) || true
+_sf "routing: a doubly-stalled chunk still fail-closes" "1" \
+  "$([ -f "${_sfs}/ci_temp/reviews/chunk_0.failed" ] && echo 1 || echo 0)"
+_sf "routing: the LADR-082 retry sweep still gets its attempt" "1" \
+  "$(grep -c '^primary-model$' "${_sfs}/calls.log" | awk '{print ($1 >= 2) ? 1 : 0}')"
+# Acceptance criterion 8: no change to posted shape, and the reason names the
+# stall — a marker claiming "the budget was split and both tiers ran out" for a
+# stage killed at 3s of a 650s share is the LADR-081 lying-again defect.
+_sf "the posted marker names the stall" "1" \
+  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'Reason:\*\* stalled: no output for 3s')"
+_sf "the posted marker does not claim a timeout" "0" \
+  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'Reason:\*\* Timeout')"
+_sf "the stall reason carries the LADR-101 marker into the posted body" "1" \
+  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'LADR-101')"
+_sf "the posted body keeps its established failure-marker shape" "1" \
+  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.md" 'Review Failed for Chunk')"
+# The .failed flag body is diagnostic only; its EXISTENCE is the control signal.
+_sf "the fail-closed flag names the stall as well" "1" \
+  "$(_sf_has "${_sfs}/ci_temp/reviews/chunk_0.failed" 'stalled')"
+
+# Disable path (acceptance criterion 4): a falsy ENABLE value and a 0 threshold
+# must both leave the gate behaving exactly as it did before LADR-101.
+_sf_disable() { # _sf_disable <label> <env assignment...>
+  local label="$1"; shift
+  rm -rf "${_sfs}/ci_temp/reviews"
+  ( cd "${_sfs}"
+    env "$@" \
+      STALL_CALLS_LOG="${_sfs}/disable-calls.log" \
+      OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT=900 \
+      OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+      OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+      GITHUB_OUTPUT="${_sfs}/disable.out" \
+      PATH="${_sfs}/bin:${PATH}" \
+      bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+        "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+        > "${_sfs}/disable.log" 2>&1
+  ) || true
+}
+# Restore an answering secondary so only the DETECTOR is disabled, not the chain.
+cat > "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'STALLOFF'
+#!/usr/bin/env bash
+prompt_file="${@: -1}"
+if [[ "$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+if [ "$1" = "primary-model" ]; then sleep 30; fi
+printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: not stalled — `alpha/a.txt:1`.\n\n%.0s' {1..20}
+STALLOFF
+chmod +x "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+_sf_disable "enable-off" OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR=0 \
+  OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=3
+_sf "disable: a falsy ENABLE value arms no watchdog" "0" \
+  "$(grep -c 'stall detector armed' "${_sfs}/disable.log")"
+_sf "disable: the slow primary is left to its own budget (no LADR-101 kill)" "0" \
+  "$(grep -c 'LADR-101' "${_sfs}/disable.log")"
+_sf_disable "timeout-zero" OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=0
+_sf "disable: a 0 threshold arms no watchdog" "0" \
+  "$(grep -c 'stall detector armed' "${_sfs}/disable.log")"
+# A threshold at or above the budget cannot beat `timeout`, so it must not even
+# start a process — this is the inert-feature guard.
+_sf_disable "threshold-above-budget" OPENCODE_REVIEW_REPORT_STALL_TIMEOUT=900
+_sf "an unreachable threshold starts no watchdog (no inert second process)" "0" \
+  "$(grep -c 'stall detector armed' "${_sfs}/disable.log")"
+
+if [ "$_sf_fail" -ne 0 ]; then
+  for _l in run run2 disable; do
+    echo "--- ${_sfs}/${_l}.log (tail) ---"
+    tail -40 "${_sfs}/${_l}.log" 2>/dev/null || true
+  done
+  echo "--- stall-runtime ---"
+  ls -la "${_sfr}" 2>/dev/null || true
+  exit 1
+fi
+
+echo ""
+echo "=========================================="
+echo "Stall detection tests passed"
+echo "=========================================="
