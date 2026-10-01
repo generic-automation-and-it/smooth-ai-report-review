@@ -211,7 +211,8 @@ jq -r '
   # (`T1)`, `R1)`), for one reason: adding a finding must not renumber a
   # residual risk. Cross-round references live in the Skip Areas bullets of the
   # PR body, which the gate reads to decide whether a finding is intentional —
-  # a shared sequence would silently repoint every one of them on the next run.
+  # a shared sequence would confuse the classes within one run; across runs,
+  # the gate recognises a skipped soft item by the Skip Areas text, not number.
   # The prefix also keeps the plain-number namespace exactly as it was for
   # consumers that map a number onto an entry in the findings array; nothing
   # matching `**1)**` can ever match `**R1)**`.

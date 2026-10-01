@@ -256,6 +256,15 @@ for _rule in \
   fi
 done
 
+AGGREGATE="$SCRIPT_DIR/aggregate-reviews.sh"
+for _prompt in "$TARGET" "$AGGREGATE"; do
+  if grep -qF 'Do not emit a residual-risk or testing-gap item that restates a Skip Areas bullet.' "$_prompt"; then
+    ok "Skip Areas suppresses soft items in ${_prompt##*/}"
+  else
+    bad "missing Skip Areas soft-item rule in ${_prompt##*/}"
+  fi
+done
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then

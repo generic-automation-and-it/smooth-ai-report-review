@@ -626,12 +626,9 @@ check "Test 13g: Medium section is not None found when only soft items exist" "0
   "$(printf '%s\n' "$soft_medium" | grep -c '^None found$' || true)"
 
 # LADR-063: soft items are numbered in their OWN sequences (#T1…, #R1…), not in
-# the findings' #N sequence. Two separate contracts are pinned here. First, they
-# ARE numbered — an unnumbered item cannot be referenced in a fix/skip decision,
-# which is what made residual risks invisible in practice. Second, the sequences
-# are independent: adding a finding must not repoint `#R1`, because the PR
-# description's Skip Areas bullets are read by the NEXT run's gate and a shifted
-# number silently rebinds a skip to a different item.
+# the findings sequence. They are addressable within a review, and adding a
+# finding does not change R/T numbers in that same review. Across runs the gate
+# recognises a human skip from the Skip Areas text, not a per-run identifier.
 check "Test 13j: testing gaps are numbered T1)..Tn)" "2" \
   "$(printf '%s\n' "$soft_medium" | grep -cE '^- \*\*T[0-9]+\)\*\* ' || true)"
 check "Test 13k: residual risks are numbered R1)..Rn)" "1" \
@@ -648,6 +645,8 @@ fi
 if [ -x "$ANALYSE_SCOPE_SH" ]; then
   check "Test 13i: ai-analyse sees soft items as actionable scope" "true" \
     "$(bash "$ANALYSE_SCOPE_SH" "$TMP_DIR/soft-rendered.md" | jq -r .has_low_medium)"
+  check "Test 13n: extractor counts soft buckets separately from findings" "0,1,2" \
+    "$(bash "$ANALYSE_SCOPE_SH" "$TMP_DIR/soft-rendered.md" | jq -r '[.finding_count,.residual_count,.testing_gap_count] | join(",")')"
 fi
 
 # --- Test 14: the Issues Summary always has a home ---------------------------
