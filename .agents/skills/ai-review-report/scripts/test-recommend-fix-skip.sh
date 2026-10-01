@@ -483,6 +483,16 @@ for p in .agents/skills/ai-analyse/scripts/lib/apply-decisions-to-scope.sh .agen
 done
 check "Test 11d: the new libs are guarded, so a PR branch that predates them still analyses" "2" \
   "$(grep -cE '\[ -f "\$\{(REVIEW|ANALYSE)_SKILL_DIR\}/scripts/lib/(recommend-fix-skip|apply-decisions-to-scope)\.sh" \]' "$ANALYSE_WF" || true)"
+soft_order="$(grep -nE 'bash "\$\{ANALYSE_SKILL_DIR\}/scripts/lib/(split-testing-gaps|filter-failing-test-findings|complete-fix-skip-table)\.sh"|\} > ci_temp/analyse_prompt\.md$|cat ci_temp/analyse_out\.md' "$ANALYSE_WF" \
+  | sed -E 's/.*(split-testing-gaps|filter-failing-test-findings|complete-fix-skip-table|analyse_prompt|analyse_out).*/\1/' | uniq | paste -sd ' ' -)"
+check "Test 11f: split precedes failing-test filter; completeness follows model output" \
+  "split-testing-gaps filter-failing-test-findings analyse_prompt analyse_out complete-fix-skip-table" "$soft_order"
+for lib in split-testing-gaps complete-fix-skip-table; do
+  check "Test 11g: ${lib} is guarded for older PR checkouts" "1" \
+    "$(grep -cF "if [ -f \"\${ANALYSE_SKILL_DIR}/scripts/lib/${lib}.sh\" ]; then" "$ANALYSE_WF" || true)"
+done
+check "Test 11h: completeness rows are appended to the posted summary" "1" \
+  "$(grep -cF 'cat ci_temp/filter_reports/completeness_rows.md' "$ANALYSE_WF" || true)"
 
 echo ""
 echo "=========================================="

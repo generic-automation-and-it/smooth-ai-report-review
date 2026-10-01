@@ -44,12 +44,18 @@ fi
 
 jq -n \
   --argjson has_low_medium "$has_low_medium" \
+  --argjson finding_count "$(printf '%s\n%s\n' "$medium" "$low" | grep -Ec '^[0-9]+\. ' || true)" \
+  --argjson residual_count "$(printf '%s\n%s\n' "$medium" "$low" | grep -Ec '^- \*\*R[0-9]+\)\*\*' || true)" \
+  --argjson testing_gap_count "$(printf '%s\n%s\n' "$medium" "$low" | grep -Ec '^- \*\*T[0-9]+\)\*\*' || true)" \
   --arg medium "$medium" \
   --arg low "$low" \
   --arg suggested_fixes "$suggested_fixes" \
   --arg review_type "$review_type" \
   '{
     has_low_medium: $has_low_medium,
+    finding_count: $finding_count,
+    residual_count: $residual_count,
+    testing_gap_count: $testing_gap_count,
     medium: $medium,
     low: $low,
     suggested_fixes: $suggested_fixes,

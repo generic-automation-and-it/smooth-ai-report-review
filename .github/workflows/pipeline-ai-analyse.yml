@@ -327,7 +327,7 @@ jobs:
       # purpose — never the raw PR diff or body (review 5331170285 finding 3).
       # Skip Areas are used at runtime to check gate-answer reuse, but may
       # contain arbitrary pasted credentials; never persist the raw copy.
-      ANALYSE_RUN_FILES: analyse_prompt.md analyse_out.md filter_reports decisions/scope.md decisions/out
+      ANALYSE_RUN_FILES: analyse_prompt.md analyse_out.md analyse_scope.md analyse_no_scope filter_reports decisions/scope.md decisions/out
     steps:
       - name: Resolve PR head
         id: pr
@@ -452,12 +452,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci_temp ci_temp/filter_reports
+          # Pre-decide testing gaps before the failing-test filter: a missing
+          # test is not itself a failing-test finding. Older PR checkouts may
+          # lack this lib; in that case retain the previous behaviour.
+          medium_input="${MEDIUM_SECTION}"
+          low_input="${LOW_SECTION}"
+          if [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/split-testing-gaps.sh" ]; then
+            medium_input="$(printf '%s' "$medium_input" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/split-testing-gaps.sh" ci_temp/filter_reports/medium_testing_gaps)"
+            low_input="$(printf '%s' "$low_input" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/split-testing-gaps.sh" ci_temp/filter_reports/low_testing_gaps)"
+          fi
           # Layer 1 deterministic filter: withhold failing-test findings
           # before the model sees them.  The filter reads the section
           # text on stdin, writes the filtered text on stdout, and
           # writes withheld bullets to the report file (and stderr).
-          filtered_medium="$(printf '%s' "${MEDIUM_SECTION}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/medium_withheld)"
-          filtered_low="$(printf '%s' "${LOW_SECTION}" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/low_withheld)"
+          filtered_medium="$(printf '%s' "$medium_input" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/medium_withheld)"
+          filtered_low="$(printf '%s' "$low_input" | bash "${ANALYSE_SKILL_DIR}/scripts/lib/filter-failing-test-findings.sh" ci_temp/filter_reports/low_withheld)"
           # LADR-097: optional decision-model FIX/SKIP recommendations, AFTER
           # the failing-test filter so a withheld finding costs no request.
           # Off unless OPENCODE_ANALYSE_ENABLE_DECISIONS is truthy (the lib
@@ -471,6 +480,7 @@ jobs:
           decisions_status="off"
           if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/recommend-fix-skip.sh" ] && \
              [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/apply-decisions-to-scope.sh" ] && \
+             printf '%s\n%s\n' "$filtered_medium" "$filtered_low" | grep -Eq '^([0-9]+\. |- \*\*([0-9]+\.|[RTP][0-9]+\))\*\*)' && \
              printf '%s' "${OPENCODE_ANALYSE_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
             # Fresh every time: the status and withhold reports the summary
             # step reads must describe THIS run.
@@ -553,6 +563,33 @@ jobs:
             fi
           fi
           {
+            echo "### Medium"
+            printf '%s\n' "$filtered_medium"
+            echo "### Low"
+            printf '%s\n' "$filtered_low"
+          } > ci_temp/analyse_scope.md
+          # Free-form orchestrator findings are not numbered. Use the scope
+          # extractor's non-empty/non-placeholder predicate, not an ID regex,
+          # or a valid fallback review silently skips the fixer entirely.
+          has_scope_items() {
+            printf '%s\n%s\n' "$filtered_medium" "$filtered_low" | awk '
+              {
+                line = $0
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+                if (line == "" || line ~ /^None found[.]?$/) next
+                found = 1
+              }
+              END { exit(found ? 0 : 1) }
+            '
+          }
+          if [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/split-testing-gaps.sh" ] && \
+             [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/complete-fix-skip-table.sh" ] && \
+             ! has_scope_items; then
+            : > ci_temp/analyse_no_scope
+          else
+            rm -f ci_temp/analyse_no_scope
+          fi
+          {
             echo "# ai-analyse headless execute"
             echo ""
             echo "You are running in CI. Follow the inlined skill contract exactly."
@@ -605,11 +642,16 @@ jobs:
             echo ""
             echo "Edit files as needed, then print only the FIX/SKIP markdown table and a short note if no file changes were made. Do not run git."
             echo "The table must contain only Medium and Low findings. Do not add a row (neither FIX nor SKIP) for any Critical or High finding — omit them entirely, even if they appear in Suggested Fixes."
+            echo "Give exactly one row to every in-scope finding and R/T item; quote each identifier verbatim."
           } > ci_temp/analyse_prompt.md
 
       - name: Run ai-analyse
         run: |
           set -euo pipefail
+          if [ -f ci_temp/analyse_no_scope ]; then
+            echo "No items in scope after deterministic filters; model call skipped." | tee ci_temp/analyse_out.md
+            exit 0
+          fi
           export OPENCODE_AGENT=analyse
           export OPENCODE_MIN_OUTPUT_BYTES=50
           primary_target="${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}"
@@ -865,7 +907,7 @@ jobs:
             fi
             if [ -n "${REVERTED_TESTS:-}" ]; then
               echo ""
-              echo "**Reverted ${REVERTED_TESTS_COUNT:-0} test/test-framework edit(s)** (test in the loop — set the \`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX\` Variable to allow):"
+              echo "**Reverted ${REVERTED_TESTS_COUNT:-0} test/test-framework/eval edit(s)** (test edits may be allowed with \`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX\`; eval edits are never allowed):"
               printf '%s\n' "${REVERTED_TESTS}" | while IFS= read -r p; do
                 [ -n "$p" ] && echo "- \`${p}\`"
               done
@@ -933,6 +975,47 @@ jobs:
             fi
             echo ""
             cat ci_temp/analyse_out.md
+            testing_gap_count=0
+            for c in ci_temp/filter_reports/medium_testing_gaps.count ci_temp/filter_reports/low_testing_gaps.count; do
+              [ -s "$c" ] || continue
+              testing_gap_count=$(( testing_gap_count + $(tr -dc '0-9' < "$c") ))
+            done
+            if [ "$testing_gap_count" -gt 0 ]; then
+              echo ""
+              echo "**Pre-decided ${testing_gap_count} testing gap(s) as SKIP** (test in the loop):"
+              echo ""
+              echo "| # | Decision | Priority | File | Summary | Reason |"
+              echo "|---|----------|----------|------|---------|--------|"
+              awk '
+                /^- \*\*T[0-9]+\)\*\*/ {
+                  id = $0
+                  sub(/^- \*\*/, "", id)
+                  sub(/\)\*\*.*/, ")", id)
+                  summary = $0
+                  sub(/^- \*\*T[0-9]+\)\*\*[[:space:]]*/, "", summary)
+                  sub(/^[^:]*:[[:space:]]*/, "", summary)
+                  gsub(/\|/, "\\|", summary)
+                  printf "| %s | SKIP | Medium (testing gap) | — | %s | test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off) |\n", id, summary
+                }
+              ' ci_temp/filter_reports/medium_testing_gaps ci_temp/filter_reports/low_testing_gaps 2>/dev/null || true
+            fi
+            if [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/complete-fix-skip-table.sh" ]; then
+              bash "${ANALYSE_SKILL_DIR}/scripts/lib/complete-fix-skip-table.sh" \
+                ci_temp/analyse_scope.md ci_temp/analyse_out.md ci_temp/filter_reports/completeness.count \
+                ci_temp/filter_reports/medium_testing_gaps ci_temp/filter_reports/low_testing_gaps \
+                ci_temp/filter_reports/medium_withheld ci_temp/filter_reports/low_withheld \
+                ci_temp/filter_reports/medium_decisions_withheld ci_temp/filter_reports/low_decisions_withheld \
+                > ci_temp/filter_reports/completeness_rows.md
+              missing_count="$(cat ci_temp/filter_reports/completeness.count)"
+              if [ "$missing_count" -gt 0 ]; then
+                echo ""
+                echo "**Warning:** ${missing_count} in-scope item(s) were omitted by the autonomous fixer and recorded as SKIP."
+                echo ""
+                echo "| # | Decision | Priority | File | Summary | Reason |"
+                echo "|---|----------|----------|------|---------|--------|"
+                cat ci_temp/filter_reports/completeness_rows.md
+              fi
+            fi
           } | "${AI_REVIEW_DIR}/scripts/copilot-review.sh" summary "$PR_NUMBER"
 
       # LADR-098: what the autonomous run saw and did — the prompt, the fixer's

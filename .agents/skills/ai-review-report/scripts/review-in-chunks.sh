@@ -678,6 +678,7 @@ ${AI_REVIEW_NOTES}
 
 **Important:** Consider these notes when reviewing the code below.
 - Any items listed under **"Skip Areas"** MUST be treated as out-of-scope for 🔴 Critical, 🟠 High, and 🟡 Medium classifications. If you observe a concern in a skip area, flag it as 🔵 Low Priority at most.
+- Do not emit a residual-risk or testing-gap item that restates a Skip Areas bullet. These entries have no severity to downgrade; match by the bullet's area and summary text, not its per-run identifier.
 
 EOF
   fi
