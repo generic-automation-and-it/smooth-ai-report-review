@@ -568,9 +568,23 @@ jobs:
             echo "### Low"
             printf '%s\n' "$filtered_low"
           } > ci_temp/analyse_scope.md
+          # Free-form orchestrator findings are not numbered. Use the scope
+          # extractor's non-empty/non-placeholder predicate, not an ID regex,
+          # or a valid fallback review silently skips the fixer entirely.
+          has_scope_items() {
+            printf '%s\n%s\n' "$filtered_medium" "$filtered_low" | awk '
+              {
+                line = $0
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+                if (line == "" || line ~ /^None found[.]?$/) next
+                found = 1
+              }
+              END { exit(found ? 0 : 1) }
+            '
+          }
           if [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/split-testing-gaps.sh" ] && \
              [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/complete-fix-skip-table.sh" ] && \
-             ! grep -Eq '^([0-9]+\. |- \*\*([0-9]+\.|[RTP][0-9]+\))\*\*)' ci_temp/analyse_scope.md; then
+             ! has_scope_items; then
             : > ci_temp/analyse_no_scope
           else
             rm -f ci_temp/analyse_no_scope
@@ -972,8 +986,18 @@ jobs:
               echo ""
               echo "| # | Decision | Priority | File | Summary | Reason |"
               echo "|---|----------|----------|------|---------|--------|"
-              sed -nE 's/^- \*\*(T[0-9]+\))\*\*.*/| \1 | SKIP | Medium (testing gap) | — | Testing gap | test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off) |/p' \
-                ci_temp/filter_reports/medium_testing_gaps ci_temp/filter_reports/low_testing_gaps 2>/dev/null || true
+              awk '
+                /^- \*\*T[0-9]+\)\*\*/ {
+                  id = $0
+                  sub(/^- \*\*/, "", id)
+                  sub(/\)\*\*.*/, ")", id)
+                  summary = $0
+                  sub(/^- \*\*T[0-9]+\)\*\*[[:space:]]*/, "", summary)
+                  sub(/^[^:]*:[[:space:]]*/, "", summary)
+                  gsub(/\|/, "\\|", summary)
+                  printf "| %s | SKIP | Medium (testing gap) | — | %s | test edit not allowed (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX off) |\n", id, summary
+                }
+              ' ci_temp/filter_reports/medium_testing_gaps ci_temp/filter_reports/low_testing_gaps 2>/dev/null || true
             fi
             if [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/complete-fix-skip-table.sh" ]; then
               bash "${ANALYSE_SKILL_DIR}/scripts/lib/complete-fix-skip-table.sh" \

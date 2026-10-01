@@ -10,6 +10,7 @@
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-10-01 | Fixed LADR-101 fallback regressions: unnumbered orchestrator findings keep the analyse model path, decorated model decisions count as answered, and pre-decided T rows name the gap. | LADR-101 |
 | 2026-09-30 | Routed R/T soft items through human execute, deterministic analyse pre-decisions/completeness, and text-based Skip Areas prompt suppression; corrected cross-round matching guidance. | LADR-101 |
 | 2026-09-27 | **Omission findings are quoted and judged by the place that lacks the code.** The chunk prompt's quote-the-line list gains "X is missing → quote where X must happen"; `supported`'s instructions and criteria say an omission is shown by that place, visibly lacking the code. Most valid low-scoring findings on PR 179 were omissions. The question wording changed, so eval `supported` scores before and after are not directly comparable. | LADR-098 |
 | 2026-09-27 | **Project rules reach the decision model per file, rule files first.** `cap_rules` replaces the 12,000-byte prefix cut: rule files (`.github/instructions/**`, `.agents/rules*/**`, `*.instructions.md`) first, the budget shared evenly within each tier, every cut marked. A trim is logged, recorded (`rules_trimmed`, `findings_with_rules_trimmed`) and named in the Coverage note. PR 179's chunk 8 had lost the checklist line a High finding cited (30% decision score). | LADR-098 |

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Exercise the workflow's actual run blocks, offline, without a model or GitHub.
 set -euo pipefail
-python3 - <<'PY'
+review_repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
+REVIEW_TEST_REPO_ROOT="$review_repo_root" python3 - <<'PY'
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
-root = Path.cwd()
+root = Path(os.environ['REVIEW_TEST_REPO_ROOT'])
 workflow = (root / '.github/workflows/pipeline-ai-analyse.yml').read_text().splitlines()
 analyse_dir = root / '.agents/skills/ai-analyse'
 review_dir = root / '.agents/skills/ai-review-report'
@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as tmp:
     helper.chmod(0o755)
     env = dict(os.environ, ANALYSE_SKILL_DIR=str(analyse_dir),
                REVIEW_SKILL_DIR=str(review_dir), AI_REVIEW_DIR=str(scratch / 'ai-review'),
-               PR_NUMBER='1', MEDIUM_SECTION='- **T1)** 🟡 Testing gap: no test covers when an upstream test fails',
+               PR_NUMBER='1', MEDIUM_SECTION='- **T1)** 🟡 Testing gap: no test covers when an upstream test fails | retries',
                LOW_SECTION='', SUGGESTED_FIXES='', OPENCODE_ANALYSE_ENABLE_DECISIONS='0',
                OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX='0')
 
@@ -57,6 +57,7 @@ with tempfile.TemporaryDirectory() as tmp:
     posted = invoke(summary, scratch, env)
     assert 'model call skipped' in posted
     assert '| T1) | SKIP | Medium (testing gap)' in posted
+    assert 'no test covers when an upstream test fails \\| retries' in posted, posted
     print('T-only default-off path: PASS')
 
     # Flag-on keeps the exact T item in the prompt and calls the model.
@@ -82,6 +83,22 @@ with tempfile.TemporaryDirectory() as tmp:
     assert '**Warning:** 1 in-scope item(s)' in posted
     assert '| 1. | FIX | Medium | a.sh | one | mechanical |' in posted
     print('mixed scope and posted completeness: PASS')
+
+    # A free-form orchestrator summary has work even without item identifiers.
+    shutil.rmtree(scratch / 'ci_temp')
+    unnumbered = dict(env, MEDIUM_SECTION='- 🟡 First unnumbered finding\n- 🟡 Second unnumbered finding',
+                      LOW_SECTION='- 🔵 Unnumbered low finding')
+    invoke(build, scratch, unnumbered)
+    assert not (scratch / 'ci_temp/analyse_no_scope').exists()
+    prompt = (scratch / 'ci_temp/analyse_prompt.md').read_text()
+    assert 'First unnumbered finding' in prompt and 'Unnumbered low finding' in prompt
+    print('unnumbered orchestrator scope stays in model path: PASS')
+
+    shutil.rmtree(scratch / 'ci_temp')
+    placeholders = dict(env, MEDIUM_SECTION='None found.', LOW_SECTION='None found')
+    invoke(build, scratch, placeholders)
+    assert (scratch / 'ci_temp/analyse_no_scope').exists()
+    print('empty placeholder sections bypass model: PASS')
 
     # The default-branch YAML must still work against an older PR checkout.
     old = scratch / 'old-analyse'

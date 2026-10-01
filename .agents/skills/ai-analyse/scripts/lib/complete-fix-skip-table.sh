@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 def identifier(raw):
-    cell = raw.strip().strip('*').strip()
+    cell = raw.strip().strip('*`').strip()
     match = re.fullmatch(r'#?([0-9]+)\.?', cell)
     if match:
         return match.group(1)
@@ -54,7 +54,7 @@ for line in model.splitlines():
     if not line.lstrip().startswith('|'):
         continue
     cells = line.strip().strip('|').split('|')
-    if len(cells) < 2 or cells[1].strip().upper() not in {'FIX', 'SKIP'}:
+    if len(cells) < 2 or not re.search(r'\b(FIX|SKIP)\b', cells[1].strip().strip('*`'), re.I):
         continue
     key = identifier(cells[0])
     if key:

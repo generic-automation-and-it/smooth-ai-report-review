@@ -23,7 +23,7 @@ cat > "$scratch/model" <<'EOF'
 | 2 | SKIP | Medium | a.sh | two | deferred |
 | #4 | SKIP | Low | b.sh | four | invalid |
 | **R1)** | SKIP | Medium (residual risk) | — | one | advisory |
-| R3) | SKIP | Medium (residual risk) | — | three | advisory |
+| R3) | **SKIP** | Medium (residual risk) | — | three | advisory |
 | T1 | FIX | Medium (testing gap) | t.sh | one | focused test |
 | 5. | SKIP | Low | c.sh | five | intentional |
 EOF
@@ -35,9 +35,13 @@ grep -Fq '| R2) | SKIP | Medium (residual risk) |' "$scratch/rows"
 ! grep -Eq '#[0-9]+' "$scratch/rows"
 cmp "$scratch/model" "$scratch/model.original"
 cat >> "$scratch/model" <<'EOF'
-| 3. | FIX | Medium | a.sh | three | mechanical |
+| `3.` | **FIX** | Medium | a.sh | three | mechanical |
 | R2 | SKIP | Medium (residual risk) | — | two | advisory |
 EOF
+bash "$here/lib/complete-fix-skip-table.sh" "$scratch/scope" "$scratch/model" "$scratch/count" > "$scratch/rows"
+test "$(cat "$scratch/count")" = 0
+test ! -s "$scratch/rows"
+sed -i 's/| \*\*FIX\*\* |/| ✅ FIX |/' "$scratch/model"
 bash "$here/lib/complete-fix-skip-table.sh" "$scratch/scope" "$scratch/model" "$scratch/count" > "$scratch/rows"
 test "$(cat "$scratch/count")" = 0
 test ! -s "$scratch/rows"
