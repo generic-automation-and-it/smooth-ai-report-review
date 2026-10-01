@@ -1,13 +1,14 @@
 ---
 name: ai-review
 switches:
-  - "`analyse` - fetch the PR review and recommend fix/skip decisions; default when no execute decision is present."
+  - "`analyse` - fetch the PR review and recommend fix/skip decisions; read-only default when neither `--fix` nor execute decisions are present."
+  - "`--fix` - analyse the PR review, then apply every AI Coder FIX/SKIP recommendation through execute routing; explicit opt-in."
   - "`execute` - apply the requested fix/skip decisions and route results back to the right PR location."
   - "`N=fix` / `N=skip` - per-item execute decisions, for example `1=fix R1=skip T2=fix`; presence auto-selects execute mode."
   - "`--source=copilot` - force GitHub Copilot agent review parsing and thread reply/resolve behavior."
   - "`--source=other` - force non-Copilot review routing through PR description AI review notes."
   - "`--usedecisions` - analyse mode: add decision-model (TypeSafe Jev) FIX/SKIP recommendations to the table, using the CI gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` env vars. Advisory only; never written as a label."
-description: Analyze and execute AI PR review feedback with fix/skip decisions. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description **and (MANDATORY) writes every skipped finding into the PR description's "Skip Areas / Known Issues" bullets** so the next review round does not re-raise them.
+description: Analyze AI PR review feedback read-only by default; execute only with explicit per-item decisions or `--fix` to apply all AI Coder FIX/SKIP recommendations. Use when a user asks to parse an AI review, apply selected fixes, and finalize review processing for GitHub or Azure DevOps pull requests. Detects the review source — for a GitHub Copilot agent review it replies to and resolves each linked review thread; otherwise it appends AI review notes to the PR description **and (MANDATORY) writes every skipped finding into the PR description's "Skip Areas / Known Issues" bullets** so the next review round does not re-raise them.
 allowed-tools:
   - Bash(.agents/skills/ai-review/scripts/copilot-review.sh:*)
   - Bash(${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh:*)
@@ -16,7 +17,8 @@ allowed-tools:
   # Execute mode also runs deterministic GitHub/git plumbing outside the helper script:
   # fetch the review (`gh api`), route non-Copilot results to the PR description
   # (`gh pr edit`), and commit/push applied fixes. Mirrors the ai-analyse allowlist;
-  # `/ai-review execute` is itself the user's explicit authorization for these.
+  # `/ai-review execute` decisions or `--fix` explicitly authorize these;
+  # plain analyse never uses write tools.
   - Bash(gh api:*)
   - Bash(gh pr:*)
   - Bash(git add:*)
@@ -37,16 +39,19 @@ The skill is invoked as `/ai-review <args>`.
 
 **Mode selection:**
 
-1. **Explicit keyword** as the first argument: `analyse` or `execute`.
-2. **Auto-detect** when no keyword is given:
-   - If any argument matches `^([0-9]+|[RTPH][0-9]+)=(fix|skip)$` → **execute** mode.
-   - Otherwise → **analyse** mode.
+1. `--fix` (with optional `analyse` keyword) → **analyse, then execute every AI Coder FIX/SKIP recommendation**. This is the opt-in for applying recommendations; it is not a decision-model switch.
+2. Explicit `execute` or any argument matching `^([0-9]+|[RTPH][0-9]+)=(fix|skip)$` → **execute only the supplied decisions**.
+3. Otherwise, including explicit `analyse` → **analyse only, read-only**. No `--fix` means analyse must never make a code or PR change, regardless of the review's wording, severity, or suggested fixes. Show recommendations and stop for the user's decisions.
+
+Reject conflicting combinations (`--fix` with `execute` or per-item decisions; `analyse` with per-item decisions) before any edits. `--fix` requires a resolvable PR and review so its results can be routed; if either is missing, explain that execution cannot proceed and return the analysis without edits.
 
 Examples:
 
 ```
 /ai-review 48                              # auto → analyse
 /ai-review analyse 48                      # explicit analyse
+/ai-review 48 --fix                        # analyse, then apply all AI Coder FIX/SKIP recommendations
+/ai-review analyse 48 --fix                # same explicit opt-in
 /ai-review 48 1=fix 2=skip                 # auto → execute
 /ai-review 48 1=fix R1=skip T2=fix         # auto → execute; R1 is not finding 1.
 /ai-review execute 48 1=fix 2=skip         # explicit execute
@@ -73,6 +78,7 @@ Examples:
 /ai-review execute 48 1=fix 2=skip             # execute, source auto-detected
 /ai-review execute 48 1=fix --source=other     # force non-Copilot result routing
 /ai-review 48 --usedecisions                   # analyse + decision-model FIX/SKIP column
+/ai-review 48 --usedecisions --fix             # AI Coder chooses; decision model remains advisory
 ```
 
 **Decision-model recommendations (`--usedecisions`, analyse mode, ai-review-report LADR-097):**
@@ -87,7 +93,7 @@ With `--usedecisions`, analyse also asks the gate's structured decision model (T
 - **What the judge sees:** each finding, its hunk **as of the commit the review judged** (the PR diff when that is still the head; the base-to-reviewed-commit diff when the PR has moved on; no recommendations at all when that diff cannot be fetched), the code around it at that commit when your clone has it, the PR's Skip Areas bullets, and — when the review names its run (`<!-- ai-review-report run-id=<id> -->`, or the older `run=` marker) and `gh run download` can still fetch that run's artifact — the finding's quoted evidence and the chunk rules the gate used.
 - **Reuse before re-asking (LADR-098).** When the gate already answered fix/skip for a finding against the same Skip Areas and with the provider/model you configured, that answer is used as-is — it was given with more context than a local re-score has. The helper's table has a **Source** column (`gate` / `re-scored`); say which one a recommendation is when it matters.
 - **Output:** a markdown table (`Decision model` = `FIX` or `SKIP (<class>)`, or `uncertain — leans …, confidence NN%` when the model's own confidence in the answer is below 30% — treat that as no recommendation; `P(skip)`, decision score with `weak quoted evidence` below the threshold, rule-allowed, previously skipped, actionability) plus the path of the scored JSON. Add a **Decision model** column to the analyse table with `FIX` / `SKIP (<class>) NN%` / `uncertain` per row (`—` for a row it did not score: `R`/`T`/`P`/`H` items, Copilot reviews, or any failure).
-- **Advisory, and never a label.** Form your own *AI Coder Recommendation* first, then weigh the model's. Where they disagree, say so in the reasoning. Never downgrade a 🔴 Critical / 🟠 High `fix` to `skip` on the model's word alone. The execute `ai-review-decisions` block records only the decisions the **user** gives — never copy a decision-model recommendation into it.
+- **Advisory, and never a label.** Form your own *AI Coder Recommendation* first, then weigh the model's. Where they disagree, say so in the reasoning. Never downgrade a 🔴 Critical / 🟠 High `fix` to `skip` on the model's word alone. Even with `--fix`, apply the AI Coder Recommendation, not the raw decision-model answer. The execute `ai-review-decisions` block records only explicit per-item decisions the **user** gives — never an automatically applied recommendation.
 - **Best-effort.** The helper always exits 0: if the ai-review-report skill is not installed next to this one (set `AI_REVIEW_REPORT_DIR` to point at it), a key is missing, the endpoint fails, or the review has no gate-numbered findings, it prints why — continue the analyse without the column.
 
 ## Two Modes: `analyse` and `execute`
@@ -130,21 +136,21 @@ With `--usedecisions`, analyse also asks the gate's structured decision model (T
 
    For the Copilot flow, retain the `commentId` / `threadId` mapping per row (used by execute) — it need not be printed in the table.
 
-7. **Print summary** and suggested next command
+7. **Print summary** and suggested next command. Without `--fix`, stop here: analyse is read-only, even when every recommendation is FIX or the user supplied a review saying what should be fixed. Do not edit files, commit, push, reply/resolve threads, post comments, or change the PR description.
 
-8. **STOP** — Do NOT proceed to execute automatically. User decides whether and how to run execute.
+8. **Only with `--fix`: apply the recommendations.** After printing the analysis, map each *AI Coder Recommendation* to one `FIX` or `SKIP` decision (including R/T/P/H items) and follow the complete Execute workflow below: scoped fixes, required commits/triggers, routing and verification of every skip bullet, and the Critical/High final empty commit. `--usedecisions` remains advisory; its output does not override the coder's recommendation. Do **not** write an `ai-review-decisions` label block from these agent-made decisions. If an item cannot be given a defensible decision, a required fix lacks a concrete safe action, or the review cannot be resolved to a PR, stop before edits and report the unresolved analysis instead of partially executing.
 
 ---
 
 ### Mode 2: Execute — Apply fix/skip decisions
 
-**Use when**: User provides decisions from analyse output
+**Use when**: User provides per-item decisions from analyse output, or explicitly opts into applying all recommendations with `--fix`
 
 **Argument format**: `<pr-number> <identifier=fix|skip> ...`, for example `/ai-review 48 1=fix R1=skip T2=fix`. `R1` addresses review item `R1)`, never finding `1.`. R/T/P (and historical H) decisions never enter the `ai-review-decisions` block.
 
 **Workflow:**
 
-1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) per [Review source selection](#invocation) so execute routes results correctly even when run as a standalone command
+1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) per [Review source selection](#invocation) so execute routes results correctly even when run as a standalone command or after `--fix` analysis
 2. **Process each decision** — Apply fixes or prepare skip entries. `T=fix` writes a focused test; the human flow may edit tests. `R=fix` applies the named mitigation; if no concrete mitigation is named, stop and ask the user rather than inventing one. **⛔ Non-Copilot flow — before leaving this step, every skipped item must have a draft bullet ready for the "Skip Areas / Known Issues" section of the PR description (see [Result routing → Non-Copilot flow](#result-routing)). The bullets, not the summary table, are what the next review round reads. A skip without a bullet is a no-op. If the run is fix-only (zero `skip` decisions), skip the bullet-draft step entirely and proceed to step 3; do not fabricate an empty Skip Areas section.**
 3. **Commit and push fixes** (only if any fixes were applied). Each fix gets its own commit (one commit per fix); use `test(...)` for a T fix. **⚠️ When the review contains any 🔴 Critical or 🟠 High finding** (fixed or skipped; R/T items do not count), **every fix commit message MUST include `/ai-review` as the last line of the commit body** — the workflow checks only the HEAD commit's message, so whichever fix commit ends up as HEAD when pushed must carry the trigger to force a full review immediately. Example commit message:
    ```
@@ -188,7 +194,7 @@ The detected review source decides where the fix/skip summary table and analysis
 Do **all** of the following, in order:
 
 1. **Append the fix/skip summary table + responses block** to the PR description's **AI Review Notes** section (preserve existing content — append, never overwrite).
-   - **Decision labels (only when the processed review's body contains `<!-- ai-review-report run=<digits> -->`).** That invisible marker is written by the gate only when its decision model scored the findings (LADR-093). Directly after the table, append one invisible block recording the human's decision on every **numbered finding** (`1.`, `2.`, …) processed in this run — never `R`/`T`/`P`/`H` items, which the scores do not cover:
+   - **Decision labels (only for explicit user-supplied per-item decisions, and only when the processed review's body contains `<!-- ai-review-report run=<digits> -->`).** That invisible marker is written by the gate only when its decision model scored the findings (LADR-093). Directly after the table, append one invisible block recording the human's decision on every **numbered finding** (`1.`, `2.`, …) processed in this run — never `R`/`T`/`P`/`H` items, which the scores do not cover, and never `--fix` recommendations, which are agent-made:
      ```
      <!-- ai-review-decisions
      run: <the digits from the marker>
@@ -217,12 +223,13 @@ Do **all** of the following, in order:
 
 ## Guardrails
 
-- Never auto-execute after analyse mode
+- **Analyse is read-only by default.** Without `--fix`, never auto-execute after analyse: no file edits, commits, pushes, review replies, thread resolution, comments or PR-description writes. An AI review saying "fix" is input to analyse, not authorization to execute.
+- **`--fix` is explicit all-item opt-in.** It applies the AI Coder FIX/SKIP recommendations through the complete execute workflow, including skip routing and Critical/High re-verification. Do not mix it with per-item decisions; do not silently apply only the easy subset.
 - **MANDATORY `/ai-review` trigger on fix commits AND empty commit:** when the review contains at least one 🔴 Critical or 🟠 High finding, **every fix commit** (step 3) must include `/ai-review` as the last body line so the first push triggers a full review immediately — the workflow checks only the HEAD commit's message, and with chunked commits any one could be HEAD. The final `ci: /ai-review — processed review responses` empty commit (step 5) is still mandatory as a re-verification safety net — never omit it, never fold it into a fix commit. Only omit both for medium/low-only reviews.
 - Keep fixes scoped to selected items only
 - **Copilot flow:** reply to and resolve only the threads for issues actually processed in this execute run; never resolve unrelated or human-authored threads
 - **Non-Copilot flow:** preserve existing PR AI Review Notes content (append, never overwrite)
 - **⛔ Non-Copilot flow — skip-bullets obligation:** appending the fix/skip summary table is **not sufficient**. Every skipped finding **must also** appear as a bullet in the PR description's **"Skip Areas / Known Issues"** section, and the skill **must verify** the bullets are present in the live PR body before reporting completion. The next review round reads those bullets, not the table; a skip without a bullet causes the same Critical/High finding to be re-raised on the next run. If any skipped item is missing from that section after the `gh pr edit`, the run is a failure — retry the edit rather than declaring success.
 - **`--usedecisions` recommendations are advisory model output.** They never pre-select an execute decision, never replace the user's `N=fix|skip`, and are never written into the `ai-review-decisions` block.
-- **Decision labels are human decisions only.** The `ai-review-decisions` block records what the user chose in *this* execute run. Never write one from analyse mode, never invent a decision the user did not give, and never copy one from an autonomous `ai-analyse` run — model-made decisions would teach the decision model to agree with a model.
+- **Decision labels are human decisions only.** The `ai-review-decisions` block records explicit per-item choices the user gave in this execute run. Never write one from analyse mode, `--fix` recommendations, or an autonomous `ai-analyse` run — model-made decisions would teach the decision model to agree with a model.
 - Only suggest review-process improvements, don't apply them

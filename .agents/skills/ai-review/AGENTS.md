@@ -59,6 +59,8 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 7. **Soft-item decisions are separate from numbered findings (LADR-101).** `/ai-review` execute accepts R/T/P/H identifiers as distinct from numbered findings. A T fix writes a focused test; an R fix applies a concrete named mitigation. Non-Copilot skips become Skip Areas bullets whose area and summary text, not per-run R/T numbering, guides the next gate. These classes never enter the numbered-finding decision-label block.
 
+8. **Analyse is read-only unless `--fix` is explicit.** A review's imperative wording never selects execute. `--fix` runs analyse first, then applies every AI Coder FIX/SKIP recommendation via the full execute routing; it is distinct from `--usedecisions` and does not turn model recommendations into human decision labels. Explicit per-item decisions still select execute without `--fix`.
+
 ## Environment Variables
 
 `review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in. The key is never read by the helper itself: it is inherited by ai-review-report's `score-findings-decisions.sh`, the only process that uses it, which hands it to curl through a 0600 header file (`.github/instructions/skills/skill-secret-handling.instructions.md`). `gh` uses the developer's own authentication. Since LADR-098 the helper also calls ai-review-report's `lib/review-diff.sh` (the diff as of the reviewed commit — it prints the reason and exits 0 without recommendations when that diff cannot be fetched) and passes the reviewed sha as `--rev`; it reads the always-on `run-id=` marker as well as the older `run=` one. Its temp directory (`${TMPDIR}/ai-review-decisions-<pr>.*`) is left in place on purpose: the printed `decisions.json` path is for the agent to read.
@@ -80,6 +82,7 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 ## Changelog
 
+- **2026-10-01:** Made analyse read-only by default and added explicit `--fix` to apply all AI Coder recommendations through execute while keeping decision labels human-only.
 - **2026-09-30:** Added R/T/P/H execute grammar, R/T fix rules and text-based cross-round skip guidance (LADR-101).
 - **2026-09-27:** `--usedecisions` judges the diff as of the reviewed commit, reuses the gate's own fix/skip answers when still valid (Source column), finds the run through the always-on `run-id=` marker, and reads code at the reviewed commit (ai-review-report LADR-098).
 - **2026-09-27:** `--usedecisions` (analyse): `scripts/review-decisions.sh` adds decision-model FIX/SKIP recommendations for a gate review's numbered findings, using the CI gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` variables. Advisory; never a label (ai-review-report LADR-097).
