@@ -907,7 +907,7 @@ jobs:
             fi
             if [ -n "${REVERTED_TESTS:-}" ]; then
               echo ""
-              echo "**Reverted ${REVERTED_TESTS_COUNT:-0} test/test-framework edit(s)** (test in the loop — set the \`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX\` Variable to allow):"
+              echo "**Reverted ${REVERTED_TESTS_COUNT:-0} test/test-framework/eval edit(s)** (test edits may be allowed with \`OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX\`; eval edits are never allowed):"
               printf '%s\n' "${REVERTED_TESTS}" | while IFS= read -r p; do
                 [ -n "$p" ] && echo "- \`${p}\`"
               done
