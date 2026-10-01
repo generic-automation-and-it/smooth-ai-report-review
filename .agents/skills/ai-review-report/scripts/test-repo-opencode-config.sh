@@ -9,7 +9,9 @@
 # everything else in the built-in: agents and their permissions (LADR-029/094),
 # the `instructions` list (LADR-087) and every other provider. This test pins
 # that: the two files may differ only in `provider.openai.models`, and the copy
-# must still declare every built-in openai model.
+# must still declare every built-in openai model. Both the gate and ai-analyse
+# must forward OPENCODE_REVIEW_REPORT_CONFIG, or one of them silently runs on the
+# built-in.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,3 +56,12 @@ cp "$REPO_CONFIG" "$TMP/repo/$REPO_CONFIG_REL"
     > "$TMP/run.out" 2>&1
 ) || { cat "$TMP/run.out" >&2; fail "$REPO_CONFIG_REL did not resolve through prepare-opencode-config.sh"; }
 echo "✅ $REPO_CONFIG_REL resolves as an OPENCODE_REVIEW_REPORT_CONFIG override and receives the gateway URL"
+
+# Both consumers of the config must read the override, or one of them silently
+# keeps running on the built-in.
+for wf in pipeline-code-review-report.yml pipeline-ai-analyse.yml; do
+  grep -Eq '^ +OPENCODE_REVIEW_REPORT_CONFIG: \$\{\{.*vars\.OPENCODE_REVIEW_REPORT_CONFIG' \
+    "$REPO_ROOT/.github/workflows/$wf" \
+    || fail "$wf does not forward OPENCODE_REVIEW_REPORT_CONFIG"
+done
+echo "✅ the gate and ai-analyse both forward OPENCODE_REVIEW_REPORT_CONFIG"
