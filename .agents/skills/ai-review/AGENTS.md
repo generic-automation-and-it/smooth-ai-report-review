@@ -82,10 +82,11 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 ## Changelog
 
-- **2026-10-01:** Made analyse read-only by default and added explicit `--fix` to apply all AI Coder recommendations through execute while keeping decision labels human-only.
-- **2026-09-30:** Added R/T/P/H execute grammar, R/T fix rules and text-based cross-round skip guidance (LADR-101).
-- **2026-09-27:** `--usedecisions` judges the diff as of the reviewed commit, reuses the gate's own fix/skip answers when still valid (Source column), finds the run through the always-on `run-id=` marker, and reads code at the reviewed commit (ai-review-report LADR-098).
-- **2026-09-27:** `--usedecisions` (analyse): `scripts/review-decisions.sh` adds decision-model FIX/SKIP recommendations for a gate review's numbered findings, using the CI gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` variables. Advisory; never a label (ai-review-report LADR-097).
-- **2026-09-27:** Execute (Non-Copilot flow) records the human's fix/skip decisions as an invisible `ai-review-decisions` block when the review carries the gate's run marker, feeding the decision model's real-findings labels (ai-review-report LADR-096).
-- **2026-09-27:** Replaced the per-tool `models` frontmatter block with `effort: high` and dropped `model:` from `agents/openai.yaml`: skills no longer switch model per tool or provider.
-- **2026-08-14:** Added AGENTS.md with copilot-review.sh EXIT-trap scope bug fix documentation (false failure + temp-file leak resolved via script-scoped registry + by-name assignment helper).
+| Date | Change | Ref |
+|------|--------|-----|
+| 2026-10-01 | Analyse is read-only by default; explicit `--fix` applies all AI Coder recommendations through execute while decision labels stay human-only. | |
+| 2026-09-30 | R/T/P/H execute grammar, R/T fix rules and text-based cross-round skip guidance. | ai-review-report LADR-101 |
+| 2026-09-27 | `--usedecisions` judges the diff as of the reviewed commit, reuses the gate's fix/skip answers when still valid, and finds the run via the always-on `run-id=` marker. | ai-review-report LADR-098 |
+| 2026-09-27 | `--usedecisions` (analyse): decision-model FIX/SKIP recommendations via `scripts/review-decisions.sh`, on the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` variables; advisory, never a label. | ai-review-report LADR-097 |
+| 2026-09-27 | Execute (non-Copilot) records the human's fix/skip decisions as an invisible `ai-review-decisions` block keyed on the gate's run marker. | ai-review-report LADR-096 |
+| 2026-08-14 | `copilot-review.sh`: EXIT trap moved to script scope with a by-name temp registry — a function-local trap fired after return, failed on unbound locals (false failure) and leaked temp files. | EXIT-trap fix |
