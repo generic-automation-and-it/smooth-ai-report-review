@@ -28,6 +28,7 @@ Autonomous counterpart to `/ai-review`: consumes the OpenCode Review Report's lo
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-10-01 | `pipeline-ai-analyse.yml` forwards `OPENCODE_REVIEW_REPORT_CONFIG`, so analyse loads the same custom `opencode.json` as the gate (this repo: `.github/opencode.json`); blank keeps the built-in. | ai-review-report LADR-047 |
 | 2026-10-01 | Unnumbered orchestrator findings keep the model path; decorated FIX/SKIP rows count as answered; pre-decided T rows name the gap. | LADR-101 |
 | 2026-09-30 | Pre-decided T skips, R/T decision rules and deterministic completeness rows for all in-scope items. | LADR-101 |
 | 2026-09-27 | Reuses the gate's fix/skip answers when still valid, judges the diff as reviewed, uploads `ai-analyse-run-<id>`; this skill's tests join the blocking job. | LADR-098 |

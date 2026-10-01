@@ -309,6 +309,11 @@ jobs:
       OPENCODE_REVIEW_REPORT_GEMINI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_GEMINI_URL }}
       OPENCODE_REVIEW_REPORT_COPILOT_URL: ${{ vars.OPENCODE_REVIEW_REPORT_COPILOT_URL }}
       OPENCODE_REVIEW_REPORT_OPENAI_URL: ${{ vars.OPENCODE_REVIEW_REPORT_OPENAI_URL }}
+      # LADR-047: the same custom opencode.json the gate loads, so analyse runs on
+      # the repo's own config (models, agents, permissions) rather than the
+      # built-in. Repo-relative, resolved inside the PR checkout by
+      # prepare-opencode-config.sh; blank keeps the built-in.
+      OPENCODE_REVIEW_REPORT_CONFIG: ${{ vars.OPENCODE_REVIEW_REPORT_CONFIG || '' }}
       OPENCODE_GEMINI_API_KEY: ${{ secrets.OPENCODE_GEMINI_API_KEY }}
       OPENCODE_COPILOT_API_KEY: ${{ secrets.OPENCODE_COPILOT_API_KEY }}
       OPENCODE_OPENAI_API_KEY: ${{ secrets.OPENCODE_OPENAI_API_KEY }}

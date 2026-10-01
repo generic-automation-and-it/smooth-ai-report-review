@@ -131,7 +131,7 @@ jobs:
           # test-recommend-fix-skip.sh exercises their decision scripts
           # (LADR-097): without them a PR touching only those scripts passed
           # this required job without running the suite that tests them.
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|README\.md$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|\.github/opencode\.json$|README\.md$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
@@ -149,6 +149,9 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-find-context-files.sh
             .agents/skills/ai-review-report/scripts/test-opencode-v2-plugin.sh
             .agents/skills/ai-review-report/scripts/test-prepare-opencode-v2-config.sh
+            # This repo's own LADR-047 override (.github/opencode.json) may differ
+            # from the built-in only in provider.openai.models.
+            .agents/skills/ai-review-report/scripts/test-repo-opencode-config.sh
             .agents/skills/ai-review-report/scripts/test-opencode-with-fallback-targets.sh
             .agents/skills/ai-review-report/scripts/test-review-chunk-threshold.sh
             # LADR-092: the aggregation summary call is bounded and split so a
