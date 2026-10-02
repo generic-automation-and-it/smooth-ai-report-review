@@ -287,16 +287,37 @@ should_run() {
   case "$EVENT_NAME" in
     pull_request)
       # Skip dependabot PRs, and draft PRs unless the repo opted in.
-      local actor draft run_on_draft
+      local actor draft run_on_draft live_pr_number
       actor="$(jq -r '.sender.login // .pull_request.user.login // ""' "$GITHUB_EVENT_PATH")"
-      draft="$(jq -r '.pull_request.draft // false' "$GITHUB_EVENT_PATH")"
+      # Draft state, live not snapshot. The payload's .pull_request.draft is
+      # captured at event-fire time, so a synchronize event that races with
+      # ready_for_review carries a stale draft=true; trusting it skips a
+      # now-ready PR. Precedence:
+      #   1. LIVE_DRAFT_STATE — the workflow's live_draft step already queried
+      #      the PR; honour it so both layers agree (a divergence is a green run
+      #      with no review).
+      #   2. A live `gh pr view` — self-contained for callers whose workflow
+      #      doesn't set LIVE_DRAFT_STATE.
+      #   3. The payload — last resort.
+      # Fail open (draft=false) on lookup error so a ready PR is never skipped
+      # because the check failed.
+      draft="${LIVE_DRAFT_STATE:-}"
+      if [ -z "$draft" ] && command -v gh >/dev/null 2>&1; then
+        live_pr_number="$(jq -r '.pull_request.number // ""' "$GITHUB_EVENT_PATH" 2>/dev/null || true)"
+        if [ -n "$live_pr_number" ]; then
+          draft="$(GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh pr view "$live_pr_number" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo false)"
+        fi
+      fi
+      if [ -z "$draft" ]; then
+        draft="$(jq -r '.pull_request.draft // false' "$GITHUB_EVENT_PATH")"
+      fi
       if [ "$actor" = "dependabot[bot]" ]; then
         echo "Skipping: dependabot PR"
         return 1
       fi
       if [ "$draft" = "true" ]; then
-        # Mirrors the job-level draft guard, which is conditional on the same
-        # setting. Both must honour it: the workflow if: decides whether the job
+        # Mirrors the workflow's draft guard, which is conditional on the same
+        # setting. Both must honour it: the workflow decides whether the job
         # starts, this decides whether the review runs, and a divergence gives a
         # green run with no review -- which reads more like a review than a
         # skipped check does.
