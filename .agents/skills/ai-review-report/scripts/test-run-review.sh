@@ -180,10 +180,18 @@ should_run_pr() {
   local event_path="$1"
   local actor draft run_on_draft
   actor="$(jq -r '.sender.login // .pull_request.user.login // ""' "$event_path")"
-  draft="$(jq -r '.pull_request.draft // false' "$event_path")"
+  # Mirror the script's draft-state precedence for the testable paths:
+  # LIVE_DRAFT_STATE (the workflow's live check) wins, else the payload. The
+  # script's middle path — a live `gh pr view` — is a thin lookup that can't
+  # run in this sandbox; the payload fallback below is its last resort.
+  if [ -n "${LIVE_DRAFT_STATE:-}" ]; then
+    draft="$LIVE_DRAFT_STATE"
+  else
+    draft="$(jq -r '.pull_request.draft // false' "$event_path")"
+  fi
   [ "$actor" != "dependabot[bot]" ] || return 1
   # Draft is conditional on OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT, mirroring both
-  # run-review.sh's should_run() and the job-level if: in all three packagings.
+  # run-review.sh's should_run() and the workflow's draft guard.
   if [ "$draft" = "true" ]; then
     run_on_draft="${OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT:-0}"
     printf '%s' "${run_on_draft,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' || return 1
@@ -233,6 +241,21 @@ for _v in 0 false no off tru "" "  "; do
     check "should_run rejects draft PR when RUN_ON_DRAFT='$_v'" "no" "no"
   fi
 done
+
+# LIVE_DRAFT_STATE (the workflow's live check) overrides the payload's stale
+# snapshot — the ready_for_review race fix. A synchronize event carries
+# draft=true, but the PR is live-ready, so the review must run.
+f="$TMP_DIR/draft.json"; write_draft_pr_event "$f"
+if LIVE_DRAFT_STATE=false should_run_pr "$f"; then
+  check "should_run accepts PR when LIVE_DRAFT_STATE=false (stale payload draft=true)" "yes" "yes"
+else
+  check "should_run accepts PR when LIVE_DRAFT_STATE=false (stale payload draft=true)" "yes" "no"
+fi
+if LIVE_DRAFT_STATE=true should_run_pr "$f"; then
+  check "should_run rejects PR when LIVE_DRAFT_STATE=true" "no" "yes"
+else
+  check "should_run rejects PR when LIVE_DRAFT_STATE=true" "no" "no"
+fi
 
 # Dependabot precedence: the draft opt-in must not resurrect a dependabot PR.
 f="$TMP_DIR/dependabot-draft.json"; write_dependabot_pr_event "$f"
