@@ -244,7 +244,7 @@ check_template_compliance() {
 
   # Check for TL;DR section (flexible matching)
   # Matches: "## 🎯 TL;DR", "## TL;DR", "## 🎯 Quick Context", "## Quick Context", etc.
-  if ! echo "$content" | grep -qE "^##[[:space:]]*(🎯[[:space:]]*)?(TL;DR|Quick Context)"; then
+  if ! grep -qE "^##[[:space:]]*(🎯[[:space:]]*)?(TL;DR|Quick Context)" <<< "$content"; then
     MISSING_SECTIONS+=("## 🎯 TL;DR")
   fi
 
@@ -279,12 +279,12 @@ check_structural_quality() {
   content=$(cat "$file")
 
   # 1. Changelog section must always be present
-  if ! echo "$content" | grep -qE "^## (📝 )?Changelog"; then
+  if ! grep -qE "^## (📝 )?Changelog" <<< "$content"; then
     QUALITY_ISSUES_LIST+=("Missing required '## Changelog' section")
   fi
 
   # 2. Anti-pattern: (src: path) annotations
-  if echo "$content" | grep -qE '\(src:[[:space:]]'; then
+  if grep -qE '\(src:[[:space:]]' <<< "$content"; then
     QUALITY_ISSUES_LIST+=("Contains '(src: path)' annotations (anti-pattern)")
   fi
 
@@ -327,7 +327,7 @@ check_structural_quality() {
   done <<< "$content"
 
   # 4. Anti-pattern: Empty sections with N/A content
-  if echo "$content" | grep -A1 "^## " | grep -qE "^[[:space:]]*(N/A\.?|None\.?|Not applicable\.?|-|—)[[:space:]]*$"; then
+  if grep -qE "^[[:space:]]*(N/A\.?|None\.?|Not applicable\.?|-|—)[[:space:]]*$" <<< "$(grep -A1 "^## " <<< "$content")"; then
     QUALITY_ISSUES_LIST+=("Contains section(s) with 'N/A' or 'None' (anti-pattern: omit empty sections)")
   fi
 

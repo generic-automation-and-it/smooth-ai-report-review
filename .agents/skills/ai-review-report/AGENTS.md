@@ -1326,7 +1326,7 @@ No backend test projects: the gate's tests are offline shell harnesses under `sc
 | L0 | `scripts/test-gh-retry.sh` | one bounded `gh` retry (LADR-078) |
 | L0 | `scripts/test-context-scope.sh`, `scripts/test-find-context-files.sh`, `scripts/test-build-runtime-agents.sh` | context discovery, scope filter, runtime AGENTS.md (LADR-087/089/090) |
 | L0 | `scripts/test-install-opencode.sh`, `scripts/test-opencode-health.sh`, `scripts/test-prepare-opencode-v2-config.sh`, `scripts/test-opencode-with-fallback-targets.sh`, `scripts/test-opencode-v2-plugin.sh` | OpenCode v2 install, binding and transport (LADR-087) |
-| L0 | `scripts/test-install-rtk.sh`, `scripts/test-check-versions.sh`, `scripts/test-minimize-reviews.sh`, `scripts/test-balance-fences.sh`, `scripts/test-validate-agents-md-disable.sh` | RTK, version notices, review minimisation, fence hygiene, AGENTS.md check toggle |
+| L0 | `scripts/test-install-rtk.sh`, `scripts/test-check-versions.sh`, `scripts/test-minimize-reviews.sh`, `scripts/test-balance-fences.sh`, `scripts/test-validate-agents-md-disable.sh`, `scripts/test-validate-agents-md-large-file.sh` | RTK, version notices, review minimisation, fence hygiene, AGENTS.md check toggle and large-file section checks |
 | L0 | `scripts/eval/test-evals.sh`, `scripts/eval/test-decisions-report.sh` | eval harness structure and the decision measurement (no paid calls) |
 | L1 | `scripts/eval/local-evals.sh`, `llm-eval-harness.yml` `llm-evals` job | the paid corpus eval (report-only) |
 
@@ -1353,5 +1353,6 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-10-05 | `validate-agents-md.sh` section checks read the file content through a here-string instead of piping `echo "$content"` into `grep -q`: under `set -o pipefail`, `grep -q` exits on the first match, `echo` takes SIGPIPE on a large file, and a present `## TL;DR` or `## Changelog` was reported missing (seen on 55–101 KB AGENTS.md files). The N/A-section check had the same shape and silently missed matches. `test-validate-agents-md-large-file.sh` pins it. | LEGO/gf-ipc-smart-card PR 47 |
 | 2026-09-27 | Reduced to the AGENTS.md quality standard: LADRs to Context/Decision/Consequences, superseded LADRs as stubs, Key Behaviors to rules + LADR refs, non-standard sections folded in; incident narrative left to git history. Stale text corrected against the code: tooling step names and `v2` refs (LADR-037/043), `prepare-opencode-config.sh` in place of the retired installer and its `is_ours` guard (LADR-071), partial-coverage rendering (LADR-055/058 → LADR-064), the v2 `instructions` array (LADR-070 → LADR-087), four skills. | docs |
 | 2026-08-02 | An autonomous `ai-analyse` pass applied a verified-looking false positive (a wrong measurement "fix"); severity alone cannot tell it from a correct Medium — hence the route-based selection plan. Treat `[ai-analyse]` commits touching factual claims as needing a human read. | LADR-055 |
