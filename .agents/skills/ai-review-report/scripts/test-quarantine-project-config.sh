@@ -105,14 +105,16 @@ quarantine_project_config "$ws" >/dev/null 2>&1
 check "Case 8: directory untouched" "dir" "$([ -d "$ws/opencode.json" ] && echo dir || echo gone)"
 
 # --- Case 9: CLI --restore works off the exported manifest (YAML steps)
+# The CLI must restore through the passed manifest at once — a no-op-only
+# exercise would pass with a broken manifest handoff while the production
+# consumer (pipeline-ai-analyse.yml Commit fixes) silently skips restoration.
 ws="$TMP_DIR/ws9"; mkdir -p "$ws"
 printf '{"user":9}\n' > "$ws/opencode.json"
 quarantine_project_config "$ws" >/dev/null
 saved_manifest="$QPC_MANIFEST"
-QPC_MANIFEST="" bash "$SCRIPT_DIR/lib/quarantine-project-config.sh" --restore >/dev/null
+QPC_MANIFEST="$saved_manifest" bash "$SCRIPT_DIR/lib/quarantine-project-config.sh" --restore >/dev/null
 check "Case 9: CLI restore exit" "0" "$?"
-QPC_MANIFEST="$saved_manifest" restore_project_config >/dev/null
-check "Case 9: original restored via manifest" '{"user":9}' "$(cat "$ws/opencode.json")"
+check "Case 9: original restored via CLI" '{"user":9}' "$(cat "$ws/opencode.json")"
 
 # --- Case 10: sourced lib keeps caller state (LADR-071 sourced-lib rule)
 # The vacuous form (comparing a var to itself) would pass on an empty lib —
