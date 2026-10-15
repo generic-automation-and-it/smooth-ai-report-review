@@ -537,7 +537,7 @@ assemble_run_artifacts() {
 METADATA_EOF
   return 0
 }
-trap '_rc=$?; assemble_run_artifacts; exit $_rc' EXIT
+trap '_rc=$?; command -v restore_project_config >/dev/null 2>&1 && restore_project_config; assemble_run_artifacts; exit $_rc' EXIT
 # Tells aggregate-reviews.sh that THIS entrypoint assembles ci_temp/run/ for
 # the workflow's upload step, so the run markers it writes (LADR-096/098)
 # promise an artifact that will exist. local-review.sh — which the npm-in-CI
@@ -790,10 +790,16 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
     echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
     exit 1
   }
+  # The checkout below restores tracked files — including a quarantined root
+  # opencode.json — and refuses to overwrite our untracked stand-in, so cycle
+  # the quarantine around it (LADR-103): restore, checkout, re-quarantine.
+  # A failed checkout exits into the EXIT trap, which still restores.
+  restore_project_config
   git checkout "FETCH_HEAD" || {
     echo "❌ Failed to checkout FETCH_HEAD" >&2
     exit 1
   }
+  quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
 fi
 
 # --- Step 7: Prepare `upstream` remote + post the all-models-failed review ---

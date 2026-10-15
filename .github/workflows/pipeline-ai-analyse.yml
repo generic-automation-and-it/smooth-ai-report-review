@@ -420,6 +420,18 @@ jobs:
           else
             bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
           fi
+          # LADR-103: quarantine the PR checkout's own opencode.json(c) — it
+          # loads from the untrusted head above OPENCODE_CONFIG and newer
+          # opencode builds refuse it in CI. The stand-in is the resolved
+          # managed copy (built-in, OPENCODE_REVIEW_REPORT_CONFIG override, or
+          # a client file such as .github/assets/opencode.json). Guarded like
+          # the other new libs: this YAML runs from the default branch against
+          # the PR's scripts. Restored at the top of Commit fixes, before
+          # anything is staged — a stand-in must never be committed.
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/quarantine-project-config.sh" ]; then
+            . "${REVIEW_SKILL_DIR}/scripts/lib/quarantine-project-config.sh"
+            quarantine_project_config "${GITHUB_WORKSPACE}"
+          fi
           # opencode v2 binds one shared background service's config when that
           # service STARTS; an already-running one silently ignores this step's
           # OPENCODE_CONFIG (LADR-071/087). Stop it first so `stats` starts a
@@ -686,6 +698,14 @@ jobs:
           OPENCODE_ANALYSE_TEST_LOG_LINES: ${{ vars.OPENCODE_ANALYSE_TEST_LOG_LINES || '40' }}
         run: |
           set -euo pipefail
+          # LADR-103: hand the tree back BEFORE staging — the quarantine
+          # stand-in (managed config at the root opencode.json path) must
+          # never be staged or committed. CLI form: steps do not share a
+          # shell, so the manifest travels via QPC_MANIFEST ($GITHUB_ENV).
+          # Guarded: older tooling checkouts predate the lib.
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/quarantine-project-config.sh" ]; then
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/quarantine-project-config.sh" --restore
+          fi
           # Test-in-the-loop guard: unless OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX is
           # enabled, revert any test / test-framework edit the (untrusted) model
           # made before we stage anything, so the suite stays an independent
