@@ -693,34 +693,10 @@ review_chunk() {
   # Build per-chunk context from global context_files.txt (produced by find-context-files.sh)
   > ci_temp/chunk_${chunk_num}_context.txt
   if [ -f ci_temp/context_files.txt ]; then
-    while IFS= read -r ctx_file; do
-      ctx_dir=$(dirname "$ctx_file")
-      include=false
-
-      # Root-level and dot-prefixed paths are CANDIDATES, not automatic
-      # inclusions. This branch used to force-include them, which was fine when
-      # "dot-prefixed" meant a handful of root-level mandatory files — and
-      # wrong once whole rule trees (`.github/instructions/**`,
-      # `.agents/rules/**`) began arriving through the same channel. A 5-file
-      # CI-workflow PR was handed eight backend rules it could not need, and
-      # the `applyTo:` those files already declare was never consulted.
-      # The scope filter below decides; see lib/filter-context-scope.sh.
-      if [ "$ctx_dir" = "." ] || [[ "$ctx_dir" == .* ]]; then
-        include=true
-      else
-        # Include if context file's directory is an ancestor of any chunk file
-        for f in "${files[@]}"; do
-          if [[ "$f" == "${ctx_dir}/"* ]]; then
-            include=true
-            break
-          fi
-        done
-      fi
-
-      if [ "$include" = true ]; then
-        echo "$ctx_file"
-      fi
-    done < ci_temp/context_files.txt >> ci_temp/chunk_${chunk_num}_context.txt
+    # The finder now supplies only scoped rules and explicit mandatory paths
+    # (LADR-105). All are candidates: directory ancestry must not discard an
+    # opted-in docs/testing.md before the scope filter can keep it globally.
+    cp ci_temp/context_files.txt "ci_temp/chunk_${chunk_num}_context.txt"
 
     # Drop candidates whose own frontmatter says they do not apply here.
     # Fail-open by construction: anything without a parseable scope survives,

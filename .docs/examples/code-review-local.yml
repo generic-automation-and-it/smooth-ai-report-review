@@ -51,9 +51,8 @@
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED (default 0), and
 #               OPENCODE_REVIEW_REPORT_EXCLUDE_GENERATED_PATHS (newline-separated exact
 #                 paths or directory prefixes, default empty),
-#               MANDATORY_CONTEXT_FILES (space-separated paths, default: the reusable
-#                 workflow's context list — override with your repo's real context files,
-#                 or `none` when the repo has no mandatory context files),
+#               MANDATORY_CONTEXT_FILES (optional space-separated paths, default none;
+#                 scoped instruction discovery remains enabled),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),
@@ -491,13 +490,7 @@ jobs:
           OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT || '600' }}
           # Max chunks reviewed concurrently (mirrors the reusable workflow).
           OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
-          MANDATORY_CONTEXT_FILES: >-
-            ${{ vars.MANDATORY_CONTEXT_FILES ||
-            '.docs/nfr/PROJECT_SETUP_AGENTS.md
-            .agents/skills/code-review-standards/SKILL.md
-            .docs/nfr/TOOL_SETUP_AGENTS.md
-            .agents/rules-scoped/backend/testing-standards.instructions.md
-            .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
+          MANDATORY_CONTEXT_FILES: ${{ vars.MANDATORY_CONTEXT_FILES || 'none' }}
           AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
           OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
           OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}

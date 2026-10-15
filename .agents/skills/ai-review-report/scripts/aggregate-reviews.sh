@@ -1016,7 +1016,7 @@ echo "---" >> ci_temp/final_review.md
 echo "" >> ci_temp/final_review.md
 echo "## 📚 AI Review Context Documents" >> ci_temp/final_review.md
 echo "" >> ci_temp/final_review.md
-echo "The following explicit context files (custom \`*_AGENTS.md\`, \`.agents/rules\`, GitHub instructions, and mandatory paths) were provided to guide this review. Standard \`AGENTS.md\` scope was loaded natively by opencode v2:" >> ci_temp/final_review.md
+echo "The following scoped instruction files and explicitly opted-in context paths were provided to guide this review. Standard \`AGENTS.md\` scope was loaded natively by opencode v2:" >> ci_temp/final_review.md
 echo "" >> ci_temp/final_review.md
 
 # Use all_context_files.txt collected from chunks (Implementation #90)

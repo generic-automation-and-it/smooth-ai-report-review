@@ -75,7 +75,7 @@
 #                         `.agents/skills/ai-review-report` first, then the
 #                         reusable-workflow side-checkout path
 #                         `.smooth-ai-review-tools/.agents/skills/ai-review-report`.
-#   MANDATORY_CONTEXT_FILES  [built-in list] — space-separated paths loaded
+#   MANDATORY_CONTEXT_FILES  [none] — optional space-separated paths loaded
 #                         into every review (see find-context-files.sh), or
 #                         `none` for a repo that has no mandatory context files.
 #   AGENTS_MD_EXEMPT_PATHS  ['.docs/release-notes'] — pipe-separated prefixes
@@ -203,12 +203,8 @@ export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY
 export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY
 export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
 
-# Mandatory context files — copy-installed callers may set this via env. When
-# unset, we use the reusable workflow's built-in default. find-context-files.sh
-# warns-and-skips on missing paths, so exploratory local runs do not fail.
-if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
-  MANDATORY_CONTEXT_FILES=$'.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
-fi
+# Mandatory context is opt-in; scoped instruction discovery stays enabled.
+MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-none}"
 export MANDATORY_CONTEXT_FILES
 AGENTS_MD_EXEMPT_PATHS="${AGENTS_MD_EXEMPT_PATHS:-.docs/release-notes}"
 export AGENTS_MD_EXEMPT_PATHS
@@ -1126,7 +1122,7 @@ EOF
 fi
 unset _trivial_skip_enabled
 
-# --- Step 13: Find explicit context (custom *_AGENTS.md + .agents/rules + GitHub rules)
+# --- Step 13: Find scoped instructions and explicitly opted-in context
 # When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
 # (1/true/yes/on), skip the mandatory context file loading AND the AGENTS.md
 # custom-context/rules discovery — the review runs without injected context

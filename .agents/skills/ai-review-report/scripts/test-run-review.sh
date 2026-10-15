@@ -919,6 +919,7 @@ print(m.group(1) if m else '')
 mc_reusable="$(assert_mandatory_context_files_match .github/workflows/pipeline-code-review-report.yml)"
 mc_local="$(assert_mandatory_context_files_match .docs/examples/code-review-local.yml)"
 check "MANDATORY_CONTEXT_FILES defaults match between packagings" "$mc_reusable" "$mc_local"
+check "MANDATORY_CONTEXT_FILES defaults to none" "none" "$mc_reusable"
 
 # 7. The local-job example (.docs/examples/code-review-local.yml) pins
 # the upstream `ref:` to a commit SHA. That SHA MUST be reachable on
