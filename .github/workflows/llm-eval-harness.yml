@@ -154,6 +154,11 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-repo-opencode-config.sh
             .agents/skills/ai-review-report/scripts/test-opencode-with-fallback-targets.sh
             .agents/skills/ai-review-report/scripts/test-review-chunk-threshold.sh
+            # LADR-060: the verification lens is diverted BEFORE the doc-only test,
+            # so the static order check cannot see the allowlist arms - only this
+            # harness runs the real script (workflow chunk -> lens, markdown AND
+            # non-verification YAML chunk -> documentation lens).
+            .agents/skills/ai-review-report/scripts/test-verification-lens.sh
             # LADR-092: the aggregation summary call is bounded and split so a
             # hung orchestrator still leaves the fallback a turn (~30 s: it
             # drives real `timeout` kills, scaled 1/100 for the e2e part).

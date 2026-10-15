@@ -73,9 +73,10 @@ done < ci_temp/changed_dirs.txt
 # per-run; pulling the whole scoped tree into every chunk would duplicate them
 # and inflate prompts for chunks the scope does not apply to.
 #
-# Both trees are consumer-repo paths and are absent from this repo, so each
-# block is existence-guarded. Dot-prefixed context paths are included in every
-# chunk by review-in-chunks.sh.
+# `.agents/rules` is a consumer-repo path and is absent here; `.github/instructions`
+# is this repo's own rule tree (the `*.instructions.scoped.md` below). Each block is
+# existence-guarded. Dot-prefixed context paths are candidates in every chunk,
+# decided by the scope filter.
 if [ -d .agents/rules ]; then
   find .agents/rules -type f -name '*.md' ! -name 'AGENTS.md' \
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true

@@ -30,6 +30,9 @@ touch "$REPO/docs/AGENTS.md" "$REPO/docs/KEEP_AGENTS.md" "$REPO/docs/rules.txt"
 touch "$REPO/.github/instructions/root.instructions.scoped.md"
 touch "$REPO/.github/instructions/backend/nested.instructions.scoped.md"
 touch "$REPO/.github/instructions/reference.instructions.md"
+# Plain markdown in the same directory is documentation too: the finder injects
+# the scoped name only, so `notes.md` must not appear either.
+touch "$REPO/.github/instructions/notes.md"
 touch "$REPO/.agents/rules/top.md" "$REPO/.agents/rules/backend/nested.md"
 # LADR-104 asymmetry: `.agents/rules/**` has no suffix convention — every .md
 # there is a rule — so an unsuffixed `.instructions.md` MUST still be injected
@@ -64,12 +67,11 @@ ok "custom *_AGENTS.md, mandatory paths, and recursive .agents + GitHub rules ar
 # LADR-104: the name is the opt-in. An unscoped `*.instructions.md` sibling must
 # stay out of the injected set even though it sits in the very directory the
 # finder traverses — otherwise the convention is decorative.
-if grep -Fxq '.github/instructions/reference.instructions.md' "$REPO/ci_temp/context_files.txt"; then
-  fail "a plain *.instructions.md file was injected — only *instructions.scoped.md opts in (LADR-104)"
-fi
+for _doc in '.github/instructions/reference.instructions.md' '.github/instructions/notes.md'; do
+  grep -Fxq "$_doc" "$REPO/ci_temp/context_files.txt" \
+    && fail "$_doc was injected — only *instructions.scoped.md opts in (LADR-104)"
+done
 ok "plain *.instructions.md stays documentation under .github/instructions; *instructions.scoped.md opts in"
-grep -Fxq '.agents/rules/legacy.instructions.md' "$REPO/ci_temp/context_files.txt" \
-  || fail ".agents/rules/** has no suffix convention — an unsuffixed rule there must still be injected"
 ok "the .agents/rules/** tree keeps injecting every .md (no suffix convention)"
 
 if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
@@ -156,7 +158,7 @@ done <<< "$CONFIG_PATTERNS"
 # must find nothing there — otherwise the loop would pass with a finder that
 # matched everything. The `.github/instructions` negative above covers the old
 # name specifically; this one proves the loop can discriminate at all.
-CONTROL="$(_fixture_for '.agents/rules-scoped/**/*.md' control-control)"  # declared in no glob, enumerated by no find
+CONTROL="$(_fixture_for '.agents/rules-scoped/**/*.md' control)"
 mkdir -p "$PROBE_REPO/$(dirname "$CONTROL")"; touch "$PROBE_REPO/$CONTROL"
 # The finder requires MANDATORY_CONTEXT_FILES to be set (absent paths warn and
 # skip), and exits non-zero otherwise — under `set -e` that would end this

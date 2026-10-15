@@ -1019,7 +1019,7 @@ echo "v2 instructions declaration + explicit-loader warning (LADR-087):"
 
 _ladr080_cfg="$SCRIPT_DIR/../assets/opencode.json"
 for _pat in '.github/instructions/\*.instructions.scoped.md' \
-            '.github/instructions/\*\*/\*instructions.scoped.md'; do
+            '.github/instructions/\*\*/\*.instructions.scoped.md'; do
   # shellcheck disable=SC2016
   _hit="$(grep -cF "$(printf '%s' "$_pat" | tr -d '\\')" "$_ladr080_cfg" || true)"
   check "instructions carries $(printf '%s' "$_pat" | tr -d '\\')" \

@@ -115,6 +115,21 @@ else
   bad "verification lens over-fired on a documentation chunk"
 fi
 
+# Case 3: YAML that is NOT a verification mechanism must keep the documentation
+# lens. `*.yml` / `*.yaml` sit in the doc-only allowlist and that is the ONLY
+# thing keeping this chunk on the documentation prompt - collapse the allowlist
+# to `*.md` and it silently becomes a standard review, which is the exact
+# regression LADR-060's allowlist arms exist to prevent. Case 1 alone cannot see
+# it: a workflow file is diverted to the verification lens earlier, so it passes
+# whether or not `*.yml` is in the list.
+yaml_prompt="$(run_chunk_for "config/tooling.yaml" "yaml")"
+if [ -n "$yaml_prompt" ] && grep -q "REVIEW INSTRUCTIONS (DOCUMENTATION CHUNK)" "$yaml_prompt"; then
+  ok "YAML-only chunk (non-verification) keeps the documentation lens"
+else
+  bad "YAML-only chunk lost the documentation lens - the *.yml/*.yaml arms are load-bearing"
+  echo "    prompt: ${yaml_prompt:-<none generated>}"
+fi
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then
