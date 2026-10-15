@@ -215,7 +215,7 @@ is_mandatory_nfr_file() {
     ".docs/nfr/PROJECT_SETUP_AGENTS.md"
     ".agents/skills/code-review-standards/SKILL.md"
     ".docs/nfr/TOOL_SETUP_AGENTS.md"
-    ".agents/rules-scoped/backend/testing-standards.instructions.md"
+    ".agents/rules-scoped/backend/testing-standards.instructions.scoped.md"
   )
 
   for mandatory in "${mandatory_files[@]}"; do

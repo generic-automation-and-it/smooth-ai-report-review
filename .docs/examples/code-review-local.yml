@@ -496,8 +496,8 @@ jobs:
             '.docs/nfr/PROJECT_SETUP_AGENTS.md
             .agents/skills/code-review-standards/SKILL.md
             .docs/nfr/TOOL_SETUP_AGENTS.md
-            .agents/rules-scoped/backend/testing-standards.instructions.md
-            .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
+            .agents/rules-scoped/backend/testing-standards.instructions.scoped.md
+            .agents/rules-scoped/backend/dotnet-standards.instructions.scoped.md' }}
           AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
           OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
           OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}

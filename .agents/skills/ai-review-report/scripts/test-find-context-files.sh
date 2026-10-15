@@ -25,8 +25,11 @@ touch "$REPO/src/FEATURE_AGENTS.md" "$REPO/src/feature/LOCAL_AGENTS.md"
 # duplicate-injection it would cause.
 touch "$REPO/src/feature/FooAGENTS.md"
 touch "$REPO/docs/AGENTS.md" "$REPO/docs/KEEP_AGENTS.md" "$REPO/docs/rules.txt"
-touch "$REPO/.github/instructions/root.instructions.md"
-touch "$REPO/.github/instructions/backend/nested.instructions.md"
+# LADR-104: `*instructions.scoped.md` is the injected opt-in; a plain
+# `*.instructions.md` file is documentation and must NOT be discovered.
+touch "$REPO/.github/instructions/root.instructions.scoped.md"
+touch "$REPO/.github/instructions/backend/nested.instructions.scoped.md"
+touch "$REPO/.github/instructions/reference.instructions.md"
 touch "$REPO/.agents/rules/top.md" "$REPO/.agents/rules/backend/nested.md"
 touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 
@@ -42,14 +45,22 @@ for expected in \
   src/feature/LOCAL_AGENTS.md \
   docs/KEEP_AGENTS.md \
   docs/rules.txt \
-  .github/instructions/root.instructions.md \
-  .github/instructions/backend/nested.instructions.md \
+  .github/instructions/root.instructions.scoped.md \
+  .github/instructions/backend/nested.instructions.scoped.md \
   .agents/rules/top.md \
   .agents/rules/backend/nested.md; do
   grep -Fxq "$expected" "$REPO/ci_temp/context_files.txt" \
     || fail "expected context path missing: $expected"
 done
 ok "custom *_AGENTS.md, mandatory paths, and recursive .agents + GitHub rules are retained"
+
+# LADR-104: the name is the opt-in. An unscoped `*.instructions.md` sibling must
+# stay out of the injected set even though it sits in the very directory the
+# finder traverses — otherwise the convention is decorative.
+if grep -Fxq '.github/instructions/reference.instructions.md' "$REPO/ci_temp/context_files.txt"; then
+  fail "a plain *.instructions.md file was injected — only *instructions.scoped.md opts in (LADR-104)"
+fi
+ok "plain *.instructions.md stays documentation; *instructions.scoped.md opts in"
 
 if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
   fail "standard AGENTS.md was duplicated into explicit chunk context"
@@ -97,8 +108,9 @@ ok "every instructions root the config declares is enumerated by the finder ($(e
 
 # The root check above is necessary but not sufficient: it collapses every
 # pattern under a root to that root, so a NEW pattern under an existing root —
-# `.github/instructions/*.md`, say — reads as covered while the finder still
-# enumerates only `*.instructions.md` (review 5266192686, finding 2). So every
+# `.github/instructions/*.instructions.scoped.md`, say — reads as covered while
+# the finder still enumerates only `*.instructions.md` (review 5266192686,
+# finding 2). So every
 # declared glob is also tested BEHAVIOURALLY: a representative fixture is
 # written for it (`*` → `probe`, `**` → `deep/x`), the finder is re-run, and
 # the fixture must be discovered. A control pattern the finder does not
@@ -131,8 +143,10 @@ while IFS= read -r pat; do
   _probe_paths="${_probe_paths}${f}
 "
 done <<< "$CONFIG_PATTERNS"
-# Control: declared nowhere, enumerated nowhere — must stay undiscovered.
-CONTROL="$(_fixture_for '.github/instructions/*.md' control)"
+# Control: the old pattern — declared nowhere since LADR-104, and what a reader
+# would assume is still loaded. It must stay undiscovered, or the new glob is
+# decoration.
+CONTROL="$(_fixture_for '.github/instructions/*.instructions.md' control)"
 mkdir -p "$PROBE_REPO/$(dirname "$CONTROL")"; touch "$PROBE_REPO/$CONTROL"
 # The finder requires MANDATORY_CONTEXT_FILES to be set (absent paths warn and
 # skip), and exits non-zero otherwise — under `set -e` that would end this

@@ -147,8 +147,8 @@
   "instructions": [
     ".agents/rules/*.md",
     ".agents/rules/**/*.md",
-    ".github/instructions/*.instructions.md",
-    ".github/instructions/**/*.instructions.md"
+    ".github/instructions/*.instructions.scoped.md",
+    ".github/instructions/**/*.instructions.scoped.md"
   ],
   "share": "disabled",
   "permission": {

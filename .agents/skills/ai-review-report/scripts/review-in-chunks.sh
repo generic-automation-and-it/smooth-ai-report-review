@@ -897,7 +897,7 @@ EOF
   local is_doc_only=true
   for f in "${files[@]}"; do
     case "$f" in
-      *AGENTS.md|*.instructions.md|*.instructions.mdc|*CLAUDE.md|*.yml|*.yaml) ;;
+      *AGENTS.md|*instructions.scoped.md|*.instructions.md|*.instructions.mdc|*CLAUDE.md|*.yml|*.yaml) ;;
       *.md) ;;
       *) is_doc_only=false; break ;;
     esac

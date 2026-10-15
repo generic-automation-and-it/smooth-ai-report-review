@@ -310,7 +310,7 @@ cap_copy() {
 # High finding rested on (byte 12,062), and the judge scored the finding 30%
 # without ever seeing it (review 5331608121). Now:
 #   - rule files (.github/instructions/**, .agents/rules/**, .agents/rules-scoped/**,
-#     *.instructions.md) go first and get the budget first;
+#     *instructions.scoped.md) go first and get the budget first;
 #   - within each tier the budget is shared evenly ("water-filling"): small
 #     files stay whole, large ones are cut to an equal share, each with a
 #     visible marker, so no file vanishes while another is kept whole;
@@ -326,7 +326,10 @@ cap_rules() {
   fi
   if ! grep -q '^Source: `' "$src" 2>/dev/null \
      || ! res="$(jq -Rs --argjson max "$max" '
-          def isrule: test("^\\.github/instructions/|^\\.agents/rules(-scoped)?/|\\.instructions\\.md$");
+          # LADR-104: `*instructions.scoped.md` is the injected opt-in; a plain
+          # `*.instructions.md` is documentation and would never reach a chunk, so
+          # matching it as a rule would reserve budget for text the judge is sent twice.
+          def isrule: test("^\\.github/instructions/|^\\.agents/rules(-scoped)?/|\\.instructions\\.scoped\\.md$");
           def marker: "\n[... this file trimmed to fit the decision model context budget]\n";
            def header($p): "\n---\nSource: `" + $p + "`\n";
            # jq slices by characters: binary-search for a whole-character

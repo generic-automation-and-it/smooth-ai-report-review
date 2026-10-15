@@ -12,7 +12,7 @@
 # Why a runtime AGENTS.md instead of the old "MANDATORY: READ PROJECT CONTEXT
 # FILES FIRST" block: opencode v2 loads AGENTS.md files as active instructions
 # by directory scope, but does NOT load custom *_AGENTS.md, .agents/rules/*.md,
-# .github/instructions/*.instructions.md, or MANDATORY_CONTEXT_FILES (only exact
+# .github/instructions/*instructions.scoped.md (LADR-104), or MANDATORY_CONTEXT_FILES (only exact
 # AGENTS.md is discovered natively — LADR-087). The old block listed those paths
 # and told the model to read_file each one, spending tool calls against the
 # chunk exploration budget. Concatenating their content into a runtime AGENTS.md
