@@ -106,7 +106,7 @@ on:
         type: string
         default: ''
       mandatory_context_files:
-        description: 'Override for MANDATORY_CONTEXT_FILES (space-separated paths resolved in the repo under review, or `none` for no mandatory files). Blank → the built-in default list.'
+        description: 'Optional MANDATORY_CONTEXT_FILES override (space-separated paths resolved in the repo under review). Blank or `none` → no mandatory files; scoped instruction discovery remains enabled.'
         required: false
         type: string
         default: ''
@@ -163,7 +163,7 @@ on:
         type: string
         default: ''
       mandatory_context_files:
-        description: 'Override for MANDATORY_CONTEXT_FILES (space-separated paths resolved in the repo under review, or `none` for no mandatory files). Blank → the built-in default list.'
+        description: 'Optional MANDATORY_CONTEXT_FILES override (space-separated paths resolved in the repo under review). Blank or `none` → no mandatory files; scoped instruction discovery remains enabled.'
         required: false
         type: string
         default: ''
@@ -541,18 +541,9 @@ jobs:
       # 4) when the model endpoint is slow or rate-limited.
       OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
       # The `mandatory_context_files` input (workflow_call and workflow_dispatch),
-      # else the built-in list. That list names product-repo paths on purpose
-      # (cross-repo reuse; missing ones warn and skip) — a repo whose real set
-      # differs passes the input rather than editing this default, and `none`
-      # declares that the repo has no mandatory context files at all. There is
-      # no Variable fallback here by design: the per-run input is the contract.
-      MANDATORY_CONTEXT_FILES: >-
-        ${{ inputs.mandatory_context_files ||
-        '.docs/nfr/PROJECT_SETUP_AGENTS.md
-        .agents/skills/code-review-standards/SKILL.md
-        .docs/nfr/TOOL_SETUP_AGENTS.md
-        .agents/rules-scoped/backend/testing-standards.instructions.md
-        .agents/rules-scoped/backend/dotnet-standards.instructions.md' }}
+      # else none. Scoped instruction discovery remains enabled. No Variable
+      # fallback here by design: the per-run input is the contract.
+      MANDATORY_CONTEXT_FILES: ${{ inputs.mandatory_context_files || 'none' }}
       AGENTS_MD_EXEMPT_PATHS: >-
         ${{ inputs.agents_md_exempt_paths || '.docs/release-notes' }}
       OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}

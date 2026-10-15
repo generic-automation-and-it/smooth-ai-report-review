@@ -13,8 +13,8 @@
 #   True when the WHOLE value is `none` — any case, any surrounding whitespace
 #   (a YAML `>-` block or a Variable can carry newlines). `none` inside a list is
 #   an ordinary path, so a typo cannot silently discard the rest of the list, and
-#   `no ne` is two paths, not the opt-out. Blank is NOT the opt-out: every layer
-#   above the finder turns blank into the built-in list, and unset fails closed.
+#   `no ne` is two paths, not the opt-out. Callers normalize unset/blank to
+#   `none` before invoking this predicate (LADR-105).
 mandatory_context_is_none() {
   local _mc_v
   _mc_v="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ')"

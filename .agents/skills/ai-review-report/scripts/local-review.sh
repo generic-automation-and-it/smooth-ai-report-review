@@ -377,11 +377,9 @@ export PATH="${REPO_ROOT}/${WORK_DIR}/bin:$PATH"
 export GITHUB_OUTPUT="${WORK_DIR}/github_output.txt"
 touch "$GITHUB_OUTPUT"
 
-# Set mandatory context files. These resolve against the repo being reviewed.
-# Local runs default to files that exist in this skill's source repo; consumers
-# can override via the MANDATORY_CONTEXT_FILES env variable. Missing paths are
-# warned and skipped so exploratory local runs don't fail on cross-repo defaults.
-MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-.agents/skills/ai-review-report/SKILL.md}"
+# Mandatory context is opt-in, matching CI. Scoped discovery stays enabled.
+# Explicit paths resolve against the reviewed repo; missing ones warn.
+MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-none}"
 _missing_ctx=()
 # `none` as the whole value is the explicit opt-out that find-context-files.sh
 # honours, not a missing file. One shared definition (lib/mandatory-context.sh)

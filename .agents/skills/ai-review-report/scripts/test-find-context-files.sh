@@ -17,12 +17,8 @@ mkdir -p "$REPO/ci_temp" "$REPO/src/feature" "$REPO/.github/instructions/backend
 printf 'src/feature/app.ts\0' > "$REPO/ci_temp/changed_files.txt"
 touch "$REPO/AGENTS.md" "$REPO/src/AGENTS.md" "$REPO/src/feature/AGENTS.md"
 touch "$REPO/src/FEATURE_AGENTS.md" "$REPO/src/feature/LOCAL_AGENTS.md"
-# No underscore, on purpose — this one must NOT be discovered. The convention
-# is `*_AGENTS.md`, and the underscore is what keeps the exact standard
-# `AGENTS.md` basename out of explicit context without needing a companion
-# carve-out (find(1)'s leading `*` matches zero characters). Asserted negative
-# below so a later widening to `*AGENTS.md` is caught here rather than by the
-# duplicate-injection it would cause.
+# Neither standard nor custom AGENTS-like names are auto-discovered by this
+# channel. Explicitly opted-in custom paths are tested separately below.
 touch "$REPO/src/feature/FooAGENTS.md"
 touch "$REPO/docs/AGENTS.md" "$REPO/docs/KEEP_AGENTS.md" "$REPO/docs/rules.txt"
 # LADR-104: `*instructions.scoped.md` is the injected opt-in; a plain
@@ -34,11 +30,8 @@ touch "$REPO/.github/instructions/reference.instructions.md"
 # the scoped name only, so `notes.md` must not appear either.
 touch "$REPO/.github/instructions/notes.md"
 touch "$REPO/.agents/rules/top.md" "$REPO/.agents/rules/backend/nested.md"
-# LADR-104 asymmetry: `.agents/rules/**` has no suffix convention — every .md
-# there is a rule — so an unsuffixed `.instructions.md` MUST still be injected
-# there while the same name under `.github/instructions/` must not. A future
-# edit that adds the `-name '*instructions.scoped.md'` filter to this tree passes
-# every other assertion here; only this fixture catches it.
+# Legacy rules remain declared in opencode.json, but the custom loader must
+# not inject them automatically (LADR-105). They can still be opted in below.
 touch "$REPO/.agents/rules/legacy.instructions.md"
 touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 
@@ -50,78 +43,36 @@ touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 )
 
 for expected in \
-  src/FEATURE_AGENTS.md \
-  src/feature/LOCAL_AGENTS.md \
   docs/KEEP_AGENTS.md \
   docs/rules.txt \
   .github/instructions/root.instructions.scoped.md \
-  .github/instructions/backend/nested.instructions.scoped.md \
-  .agents/rules/top.md \
-  .agents/rules/backend/nested.md \
-  .agents/rules/legacy.instructions.md; do
+  .github/instructions/backend/nested.instructions.scoped.md; do
   grep -Fxq "$expected" "$REPO/ci_temp/context_files.txt" \
     || fail "expected context path missing: $expected"
 done
-ok "custom *_AGENTS.md, mandatory paths, and recursive .agents + GitHub rules are retained"
+ok "explicit mandatory paths and recursive scoped instruction discovery are retained"
 
 # LADR-104: the name is the opt-in. An unscoped `*.instructions.md` sibling must
 # stay out of the injected set even though it sits in the very directory the
 # finder traverses — otherwise the convention is decorative.
-for _doc in '.github/instructions/reference.instructions.md' '.github/instructions/notes.md'; do
+for _doc in .github/instructions/reference.instructions.md .github/instructions/notes.md \
+    .agents/rules/top.md .agents/rules/backend/nested.md .agents/rules/legacy.instructions.md \
+    src/FEATURE_AGENTS.md src/feature/LOCAL_AGENTS.md src/feature/FooAGENTS.md; do
   grep -Fxq "$_doc" "$REPO/ci_temp/context_files.txt" \
     && fail "$_doc was injected — only *instructions.scoped.md opts in (LADR-104)"
 done
-ok "plain *.instructions.md stays documentation under .github/instructions; *instructions.scoped.md opts in"
-ok "the .agents/rules/** tree keeps injecting every .md (no suffix convention)"
+ok "custom discovery injects only scoped instruction files, not legacy rules or custom *_AGENTS.md"
 
 if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
   fail "standard AGENTS.md was duplicated into explicit chunk context"
 fi
 ok "exact AGENTS.md basenames are excluded for native v2 scope loading"
 
-# The convention is the underscore, and it is what does the excluding above.
-# A non-underscore name is deliberately out of scope: widening the pattern to
-# `*AGENTS.md` to pick it up would also match the exact standard basename,
-# because find(1)'s leading `*` matches zero characters — and v2 already loads
-# every AGENTS.md natively, so that widening injects the same file twice.
-if grep -q 'FooAGENTS\.md' "$REPO/ci_temp/context_files.txt"; then
-  fail "a non-underscore AGENTS name was discovered — the pattern has been widened past the convention, which also re-admits the exact AGENTS.md basename"
-fi
-ok "non-underscore AGENTS names stay out of scope (the underscore is the exclusion)"
-
-# On v2 nothing resolves the config's `instructions` array, so
-# find-context-files.sh is the only thing that loads those files. The docs
-# state that as a guarantee ("adding an entry without adding it here ships a
-# rule file that silently never reaches the model"), so the test has to check
-# the guarantee, not a hardcoded pair: a third tree added to the config must
-# fail CI until the finder enumerates it too. Deriving the list from the config
-# is the difference between testing the invariant and testing two examples.
+# Keep config unchanged: custom discovery materializes only its scoped
+# instruction patterns, not the declarative .agents/rules/*.md entries.
+# Derive fixtures from the scoped declarations so their coverage stays pinned.
 CONFIG="$SCRIPT_DIR/../assets/opencode.json"
-declared_roots="$(python3 - "$CONFIG" <<'PYEOF'
-import json, sys
-cfg = json.load(open(sys.argv[1]))
-roots = []
-for entry in cfg.get("instructions", []):
-    if "://" in entry:            # URLs are not a filesystem tree
-        continue
-    head = entry.split("*", 1)[0].rstrip("/")   # prefix before the first glob
-    if "/" in head and head not in roots:
-        roots.append(head)
-print("\n".join(roots))
-PYEOF
-)"
-[ -n "$declared_roots" ] || fail "could not derive any instructions root from $CONFIG"
-while IFS= read -r root; do
-  [ -n "$root" ] || continue
-  grep -Fq "find ${root} -type f" "$FINDER" \
-    || fail "opencode.json declares instructions under '${root}/' but find-context-files.sh never enumerates it — on v2 those files would be declared and never loaded"
-done <<< "$declared_roots"
-ok "every instructions root the config declares is enumerated by the finder ($(echo "$declared_roots" | tr '\n' ' ' | sed 's/ $//'))"
-
-# The root check above is necessary but not sufficient: it collapses every
-# pattern under a root to that root, so a NEW pattern under an existing root
-# reads as covered while the finder may still enumerate something else (review
-# 5266192686, finding 2). So every declared glob is also tested BEHAVIOURALLY: a
+# Every scoped declaration is tested BEHAVIOURALLY: a
 # representative fixture is written for it (`*` → `probe`, `**` → `deep/x`), the
 # finder is re-run, and the fixture must be discovered. A control pattern the
 # finder does not enumerate must NOT be discovered, or this check is decoration.
@@ -129,11 +80,12 @@ CONFIG_PATTERNS="$(python3 - "$CONFIG" <<'PYEOF2'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
 for entry in cfg.get("instructions", []):
-    if "://" in entry:
+    if "://" in entry or not entry.endswith(".instructions.scoped.md"):
         continue
     print(entry)
 PYEOF2
 )"
+[ -n "$CONFIG_PATTERNS" ] || fail "no scoped instruction declarations found in $CONFIG"
 _fixture_for() { # _fixture_for <glob> <stem>  → a concrete path matching the glob
   python3 - "$1" "$2" <<'PYEOF3'
 import sys
@@ -160,10 +112,7 @@ done <<< "$CONFIG_PATTERNS"
 # name specifically; this one proves the loop can discriminate at all.
 CONTROL="$(_fixture_for '.agents/rules-scoped/**/*.md' control)"
 mkdir -p "$PROBE_REPO/$(dirname "$CONTROL")"; touch "$PROBE_REPO/$CONTROL"
-# The finder requires MANDATORY_CONTEXT_FILES to be set (absent paths warn and
-# skip), and exits non-zero otherwise — under `set -e` that would end this
-# script here with no assertion printed.
-( cd "$PROBE_REPO" && GITHUB_OUTPUT="$PROBE_REPO/output" MANDATORY_CONTEXT_FILES='AGENTS.md' bash "$FINDER" > "$PROBE_REPO/run.log" 2>&1 ) \
+( cd "$PROBE_REPO" && env -u MANDATORY_CONTEXT_FILES GITHUB_OUTPUT="$PROBE_REPO/output" bash "$FINDER" > "$PROBE_REPO/run.log" 2>&1 ) \
   || fail "the finder exited non-zero in the probe repo: $(tail -3 "$PROBE_REPO/run.log" | tr '\n' ' ')"
 while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -173,7 +122,7 @@ done <<< "$_probe_paths"
 if grep -Fxq "$CONTROL" "$PROBE_REPO/ci_temp/context_files.txt"; then
   fail "the control fixture '$CONTROL' was discovered although no declared pattern covers it — the behavioural check cannot discriminate"
 fi
-ok "every declared instructions glob discovers a representative file, and an undeclared sibling does not"
+ok "every declared scoped instructions glob discovers a representative file, and an undeclared sibling does not"
 
 # Scoped rules are excluded on purpose: they reach a review through
 # MANDATORY_CONTEXT_FILES, which the consuming repo controls per-run. Pulling
@@ -189,15 +138,14 @@ ok ".agents/rules-scoped stays out of both the config and the explicit context"
 
 # `none` as the whole value is an explicit "no mandatory context files"
 # declaration: no per-path warnings, nothing recorded as mandatory, and the
-# discovered rule trees are untouched. Blank cannot express this — every layer
-# above the finder turns blank into the built-in product-repo list.
+# scoped discovery is untouched. Blank now defaults to none too.
 run_finder() { # run_finder <value> — fresh ci_temp, log in $REPO/run.log, rc in $finder_rc
   find "$REPO/ci_temp" -mindepth 1 ! -name changed_files.txt -delete
   finder_rc=0
   ( cd "$REPO" && GITHUB_OUTPUT="$REPO/output" MANDATORY_CONTEXT_FILES="$1" \
       bash "$FINDER" > "$REPO/run.log" 2>&1 ) || finder_rc=$?
 }
-for _none in 'none' $'  NONE\n'; do
+for _none in 'none' $'  NONE\n' ''; do
   run_finder "$_none"
   [ "$finder_rc" -eq 0 ] || fail "MANDATORY_CONTEXT_FILES='$_none' made the finder exit $finder_rc"
   if grep -q 'Mandatory context file not found' "$REPO/run.log"; then
@@ -207,10 +155,21 @@ for _none in 'none' $'  NONE\n'; do
     || fail "MANDATORY_CONTEXT_FILES='$_none' did not log the opt-out"
   [ ! -s "$REPO/ci_temp/mandatory_context_files.txt" ] \
     || fail "MANDATORY_CONTEXT_FILES='$_none' recorded mandatory paths"
-  grep -Fxq '.agents/rules/top.md' "$REPO/ci_temp/context_files.txt" \
+  grep -Fxq '.github/instructions/root.instructions.scoped.md' "$REPO/ci_temp/context_files.txt" \
     || fail "MANDATORY_CONTEXT_FILES='$_none' also dropped discovered rule files"
+  if grep -q 'Adding .*mandatory context files' "$REPO/run.log"; then
+    fail "MANDATORY_CONTEXT_FILES='$_none' still announces mandatory loading"
+  fi
 done
-ok "'none' (any case, surrounding whitespace) opts out of mandatory context without warnings"
+ok "blank and 'none' keep scoped discovery without mandatory loading or warnings"
+
+# Legacy paths remain available only through an explicit non-empty override.
+run_finder '.agents/rules/legacy.instructions.md src/FEATURE_AGENTS.md'
+for _explicit in .agents/rules/legacy.instructions.md src/FEATURE_AGENTS.md; do
+  grep -Fxq "$_explicit" "$REPO/ci_temp/mandatory_context_files.txt" \
+    || fail "explicit mandatory override missing: $_explicit"
+done
+ok "explicit non-empty mandatory lists still opt in legacy paths"
 
 # Only the WHOLE value opts out: mixed with real paths, `none` is just a
 # missing path, so a typo cannot silently discard the rest of the list.
@@ -238,22 +197,55 @@ grep -q 'lib/mandatory-context.sh' "$FINDER" \
   || fail "find-context-files.sh no longer uses the shared opt-out predicate"
 ok "one opt-out predicate: whole-value 'none' only, shared by the finder and local-review.sh"
 
-# Unset still fails closed (LADR-025/029): the opt-out is explicit, never implied.
+# Standalone discovery defaults to none too, without legacy-path warnings.
 finder_rc=0
 ( cd "$REPO" && env -u MANDATORY_CONTEXT_FILES GITHUB_OUTPUT="$REPO/output" \
     bash "$FINDER" > "$REPO/run.log" 2>&1 ) || finder_rc=$?
-[ "$finder_rc" -eq 2 ] || fail "unset MANDATORY_CONTEXT_FILES exited $finder_rc, expected 2"
-ok "unset MANDATORY_CONTEXT_FILES still fails closed"
+[ "$finder_rc" -eq 0 ] || fail "unset MANDATORY_CONTEXT_FILES exited $finder_rc, expected 0"
+[ ! -s "$REPO/ci_temp/mandatory_context_files.txt" ] || fail "unset default recorded mandatory paths"
+if grep -q 'Mandatory context file not found' "$REPO/run.log"; then
+  fail "unset default warned about legacy paths"
+fi
+ok "unset MANDATORY_CONTEXT_FILES defaults to none"
+
+# With no scoped instructions, native/config/legacy files must not synthesize
+# any custom context. Explicitly opting in a path is the only exception.
+EMPTY_REPO="$TMP/no-scoped-repo"
+mkdir -p "$EMPTY_REPO/ci_temp" "$EMPTY_REPO/.agents/rules" "$EMPTY_REPO/src"
+printf 'src/app.ts\0' > "$EMPTY_REPO/ci_temp/changed_files.txt"
+touch "$EMPTY_REPO/AGENTS.md" "$EMPTY_REPO/src/FEATURE_AGENTS.md" "$EMPTY_REPO/.agents/rules/legacy.instructions.md"
+( cd "$EMPTY_REPO" && env -u MANDATORY_CONTEXT_FILES GITHUB_OUTPUT="$EMPTY_REPO/output" \
+    bash "$FINDER" > "$EMPTY_REPO/run.log" 2>&1 )
+grep -Fxq 'context_file_count=0' "$EMPTY_REPO/output" || fail "legacy files synthesized custom context"
+[ ! -s "$EMPTY_REPO/ci_temp/mandatory_context_files.txt" ] || fail "default-none recorded mandatory context"
+ok "no scoped files means no custom context, despite native/config/legacy files"
+
+# Exercise the real default assignment from both script entrypoints, without
+# running their model/install/git side effects or reproducing their defaults.
+for entrypoint in run-review.sh local-review.sh; do
+  assignment="$(grep '^MANDATORY_CONTEXT_FILES=' "$SCRIPT_DIR/$entrypoint")"
+  [ -n "$assignment" ] || fail "$entrypoint has no mandatory default assignment"
+  for value in unset blank explicit; do
+    case "$value" in
+      unset) prefix='unset MANDATORY_CONTEXT_FILES'; expected=none ;;
+      blank) prefix='MANDATORY_CONTEXT_FILES=""'; expected=none ;;
+      explicit) prefix='MANDATORY_CONTEXT_FILES="docs/rules.txt"'; expected=docs/rules.txt ;;
+    esac
+    actual="$(bash -c "$prefix; $assignment; printf '%s' \"\$MANDATORY_CONTEXT_FILES\"")"
+    [ "$actual" = "$expected" ] || fail "$entrypoint $value resolved '$actual', expected '$expected'"
+  done
+done
+ok "both script entrypoints default unset/blank to none and preserve explicit lists"
 
 # `none` reaches the gate through the `mandatory_context_files` input, so the
 # input must exist on BOTH entry points that accept inputs (workflow_call and
-# workflow_dispatch) and feed the env var directly — input, else built-in list,
+# workflow_dispatch) and feed the env var directly — input, else none,
 # with no Variable in between (the per-run input is the contract).
 WORKFLOW="$SCRIPT_DIR/../../../../.github/workflows/pipeline-code-review-report.yml"
-_mcf_expr="$(awk '/^ *MANDATORY_CONTEXT_FILES: >-/{f=1;next} f&&/}}/{print;exit} f{print}' "$WORKFLOW" | tr -s ' \n' ' ')"
+_mcf_expr="$(grep '^[[:space:]]*MANDATORY_CONTEXT_FILES:' "$WORKFLOW")"
 case "$_mcf_expr" in
-  *'inputs.mandatory_context_files || '\''.docs/'*) ;;
-  *) fail "pipeline-code-review-report.yml does not map input → built-in list: $_mcf_expr" ;;
+  *'inputs.mandatory_context_files || '\''none'\'' }}'*) ;;
+  *) fail "pipeline-code-review-report.yml does not map input → none: $_mcf_expr" ;;
 esac
 case "$_mcf_expr" in
   *vars.*) fail "pipeline-code-review-report.yml reads a Variable for MANDATORY_CONTEXT_FILES: $_mcf_expr" ;;
