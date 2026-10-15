@@ -32,7 +32,7 @@ This is a unified AI development experience folder that centralizes skills and c
 | `.github/instructions/skills/` | Skill-authoring rules synced from `smooth-devex-template` (currently `skill-secret-handling`) — see LADR-006 |
 | `.claude` → `.agents` | Symbolic link for Claude Code compatibility |
 | `.codex` → `.agents` | Symbolic link for OpenAI Codex compatibility |
-| `CLAUDE.md` → `AGENTS.md` | Symbolic link alias for Claude-compatible root context discovery |
+| *(removed)* | `CLAUDE.md` symlink deleted — Claude Code reads `AGENTS.md` natively |
 
 ### Tool Compatibility Matrix
 
@@ -110,7 +110,7 @@ This is a unified AI development experience folder that centralizes skills and c
 
 ## 📊 Setup Instructions
 
-**Symlinks (`.claude`, `.codex`, `CLAUDE.md`) are committed to git and available immediately after clone, so no setup script is required.**
+**Symlinks (`.claude`, `.codex`) are committed to git and available immediately after clone, so no setup script is required.**
 
 ```bash
 # Verify links are present after clone
