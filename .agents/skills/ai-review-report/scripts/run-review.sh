@@ -537,7 +537,7 @@ assemble_run_artifacts() {
 METADATA_EOF
   return 0
 }
-trap '_rc=$?; assemble_run_artifacts; exit $_rc' EXIT
+trap '_rc=$?; command -v restore_project_config >/dev/null 2>&1 && restore_project_config; assemble_run_artifacts; exit $_rc' EXIT
 # Tells aggregate-reviews.sh that THIS entrypoint assembles ci_temp/run/ for
 # the workflow's upload step, so the run markers it writes (LADR-096/098)
 # promise an artifact that will exist. local-review.sh — which the npm-in-CI
@@ -646,6 +646,17 @@ unset _rtk_enabled
 # into this shell and reaches all child processes (review-in-chunks.sh
 # subshells, aggregate-reviews.sh, opencode-with-fallback.sh).
 . "$LIB_DIR/prepare-opencode-config.sh"
+
+# 5d-bis. Quarantine the repo-under-review's own opencode.json(c) (LADR-103).
+# Project config merges above OPENCODE_CONFIG and loads from the untrusted PR
+# head: newer opencode builds hard-fail on it in CI, and a hostile PR could
+# otherwise override the review agent's permission lockdown. The stand-in is
+# the resolved managed copy (built-in asset, LADR-047 override, or a client
+# file such as .github/assets/opencode.json) — never PR content. Restored by
+# the EXIT trap above; re-quarantined after the Step 6 re-checkout, which
+# rewrites the working tree for non-pull_request events.
+. "$LIB_DIR/quarantine-project-config.sh"
+quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
 # Stop any leftover background service FIRST. opencode v2 runs one shared
@@ -790,10 +801,16 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
     echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
     exit 1
   }
+  # The checkout below restores tracked files — including a quarantined root
+  # opencode.json — and refuses to overwrite our untracked stand-in, so cycle
+  # the quarantine around it (LADR-103): restore, checkout, re-quarantine.
+  # A failed checkout exits into the EXIT trap, which still restores.
+  restore_project_config
   git checkout "FETCH_HEAD" || {
     echo "❌ Failed to checkout FETCH_HEAD" >&2
     exit 1
   }
+  quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
 fi
 
 # --- Step 7: Prepare `upstream` remote + post the all-models-failed review ---
