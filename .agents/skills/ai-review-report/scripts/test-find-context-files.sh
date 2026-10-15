@@ -117,14 +117,12 @@ done <<< "$declared_roots"
 ok "every instructions root the config declares is enumerated by the finder ($(echo "$declared_roots" | tr '\n' ' ' | sed 's/ $//'))"
 
 # The root check above is necessary but not sufficient: it collapses every
-# pattern under a root to that root, so a NEW pattern under an existing root —
-# `.github/instructions/*.instructions.scoped.md`, say — reads as covered while
-# the finder still enumerates only `*.instructions.md` (review 5266192686,
-# finding 2). So every
-# declared glob is also tested BEHAVIOURALLY: a representative fixture is
-# written for it (`*` → `probe`, `**` → `deep/x`), the finder is re-run, and
-# the fixture must be discovered. A control pattern the finder does not
-# enumerate must NOT be discovered, or this check is decoration.
+# pattern under a root to that root, so a NEW pattern under an existing root
+# reads as covered while the finder may still enumerate something else (review
+# 5266192686, finding 2). So every declared glob is also tested BEHAVIOURALLY: a
+# representative fixture is written for it (`*` → `probe`, `**` → `deep/x`), the
+# finder is re-run, and the fixture must be discovered. A control pattern the
+# finder does not enumerate must NOT be discovered, or this check is decoration.
 CONFIG_PATTERNS="$(python3 - "$CONFIG" <<'PYEOF2'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
@@ -153,10 +151,12 @@ while IFS= read -r pat; do
   _probe_paths="${_probe_paths}${f}
 "
 done <<< "$CONFIG_PATTERNS"
-# Control: the old pattern — declared nowhere since LADR-104, and what a reader
-# would assume is still loaded. It must stay undiscovered, or the new glob is
-# decoration.
-CONTROL="$(_fixture_for '.github/instructions/*.instructions.md' control)"
+# Control: `.agents/rules-scoped/**` is declared in no glob and enumerated by no
+# find (it reaches a review only through MANDATORY_CONTEXT_FILES), so the probe
+# must find nothing there — otherwise the loop would pass with a finder that
+# matched everything. The `.github/instructions` negative above covers the old
+# name specifically; this one proves the loop can discriminate at all.
+CONTROL="$(_fixture_for '.agents/rules-scoped/**/*.md' control-control)"  # declared in no glob, enumerated by no find
 mkdir -p "$PROBE_REPO/$(dirname "$CONTROL")"; touch "$PROBE_REPO/$CONTROL"
 # The finder requires MANDATORY_CONTEXT_FILES to be set (absent paths warn and
 # skip), and exits non-zero otherwise — under `set -e` that would end this

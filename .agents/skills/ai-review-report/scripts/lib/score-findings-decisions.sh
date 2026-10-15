@@ -326,12 +326,10 @@ cap_rules() {
   fi
   if ! grep -q '^Source: `' "$src" 2>/dev/null \
      || ! res="$(jq -Rs --argjson max "$max" '
-          # A section counts as a rule when its path sits in a rule TREE (the two
-          # prefixes the finder enumerates) or carries the LADR-104 opt-in name
-          # (an out-of-tree `MANDATORY_CONTEXT_FILES` entry). Order is irrelevant:
-          # the first branch already covers every path under the trees, so the
-          # filename arm only decides out-of-tree entries — it does NOT keep
-          # documentation out of the tier, the finder already does that.
+          # Rule tier = the two trees the finder enumerates, plus the LADR-104
+          # opt-in name for a `MANDATORY_CONTEXT_FILES` entry outside them. The
+          # prefixes already cover every file under those trees, so the filename
+          # arm is not what keeps documentation out of this tier — the finder is.
           def isrule: test("^\\.github/instructions/|^\\.agents/rules(-scoped)?/|\\.instructions\\.scoped\\.md$");
           def marker: "\n[... this file trimmed to fit the decision model context budget]\n";
            def header($p): "\n---\nSource: `" + $p + "`\n";

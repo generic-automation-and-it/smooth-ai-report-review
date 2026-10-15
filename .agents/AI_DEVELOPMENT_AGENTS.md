@@ -33,7 +33,6 @@ This is a unified AI development experience folder that centralizes skills and c
 | `.claude` → `.agents` | Symbolic link for Claude Code compatibility |
 | `.codex` → `.agents` | Symbolic link for OpenAI Codex compatibility |
 | *(removed)* | `CLAUDE.md` symlink deleted — Claude Code reads `AGENTS.md` natively |
-| `opencode.json` → `.agents/opencode.json` | Project config for local OpenCode sessions (instruction globs only, LADR-104); distinct from `.github/opencode.json`, which the gate loads via `OPENCODE_REVIEW_REPORT_CONFIG` |
 
 ### Tool Compatibility Matrix
 
@@ -111,15 +110,14 @@ This is a unified AI development experience folder that centralizes skills and c
 
 ## 📊 Setup Instructions
 
-**Symlinks (`.claude`, `.codex`, `opencode.json` → `.agents/opencode.json`) are committed to git and available immediately after clone, so no setup script is required.**
+**Symlinks (`.claude`, `.codex`) are committed to git and available immediately after clone, so no setup script is required.**
 
 ```bash
 # Verify links are present after clone
-ls -la | grep -E '(\.claude|\.codex|opencode\.json)'
+ls -la | grep -E '(\.claude|\.codex)'
 # Expected output:
 # lrwxr-xr-x ... .claude -> .agents
 # lrwxr-xr-x ... .codex -> .agents
-# lrwxr-xr-x ... opencode.json -> .agents/opencode.json
 ```
 
 **Optional: Run setup script to recreate symlink aliases if needed:**

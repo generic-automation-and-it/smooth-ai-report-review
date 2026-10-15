@@ -40,24 +40,6 @@ missing="$(jq -r --slurpfile repo "$REPO_CONFIG" \
 [ -z "$missing" ] || fail "$REPO_CONFIG_REL drops built-in openai models: $missing"
 echo "✅ $REPO_CONFIG_REL declares every built-in openai model"
 
-# A third copy exists for local sessions: `.agents/opencode.json`, root-symlinked
-# as `opencode.json` so a session in this repo resolves a project config the way
-# `.claude` / `.codex` resolve `.agents`. Nothing else covers it — test-repo-opencode-config.sh
-# compared two files, and a third silent copy is exactly the drift LADR-087
-# warns about ("add to one and you must add to the other"). It carries ONLY the
-# `instructions` globs, so pin those and nothing else.
-LOCAL_CONFIG_REL=".agents/opencode.json"
-LOCAL_CONFIG="$REPO_ROOT/$LOCAL_CONFIG_REL"
-[ -f "$LOCAL_CONFIG" ] || fail "$LOCAL_CONFIG_REL is missing"
-[ -L "$REPO_ROOT/opencode.json" ] || fail "root opencode.json must stay a symlink to $LOCAL_CONFIG_REL"
-[ "$(readlink "$REPO_ROOT/opencode.json")" = "$LOCAL_CONFIG_REL" ] \
-  || fail "root opencode.json points somewhere other than $LOCAL_CONFIG_REL"
-_extra_keys="$(jq -r 'keys - ["$schema", "instructions"] | join(",")' "$LOCAL_CONFIG")"
-[ -z "$_extra_keys" ] || fail "$LOCAL_CONFIG_REL may declare only \$schema and instructions (also: $_extra_keys)"
-diff <(jq -S '.instructions' "$BUILTIN") <(jq -S '.instructions' "$LOCAL_CONFIG") >/dev/null \
-  || fail "$LOCAL_CONFIG_REL instructions differ from the built-in — copy the globs across"
-echo "✅ $LOCAL_CONFIG_REL (root symlinked) carries the built-in instructions globs and nothing else"
-
 # The override must resolve through the real lib and still receive the
 # gateway URL injection (the URL is a Variable, never committed).
 TMP="$(mktemp -d)"

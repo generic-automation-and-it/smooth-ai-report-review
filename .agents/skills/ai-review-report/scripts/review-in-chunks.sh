@@ -893,14 +893,16 @@ EOF
     esac
   done
 
-  # Detect documentation-only chunks (all files are *.md, *.yml, *.yaml, *.json config)
+  # Detect documentation-only chunks. Every branch here is an allowlist arm with
+  # an empty body; only a path matching NONE of them flips the chunk out of the
+  # documentation prompt. Do NOT collapse the list into `*.md`: `*.yml`/`*.yaml`
+  # are what keeps a YAML-only chunk on the documentation prompt instead of the
+  # standard one (LADR-060, and the "silently pass" class it reviews), and
+  # `*.mdc` covers Cursor rule files.
   local is_doc_only=true
   for f in "${files[@]}"; do
     case "$f" in
-      # Any markdown is documentation, so the first branch is subsumed by `*.md`
-      # and is gone: it listed patterns with an empty body, which reads as a
-      # classification rule and silently is not one.
-      *.md) ;;
+      *.md|*.mdc|*.yml|*.yaml) ;;
       *) is_doc_only=false; break ;;
     esac
   done

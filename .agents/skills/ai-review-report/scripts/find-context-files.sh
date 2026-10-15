@@ -58,10 +58,11 @@ done < ci_temp/changed_dirs.txt
 # `assets/opencode.json`'s `instructions` without adding it here ships a rule
 # file that silently never reaches the model.
 #
-# LADR-104: the glob is `*instructions.scoped.md` — the NAME is the opt-in, and
-# a plain `*.instructions.md` file is documentation. Per-chunk scope comes from
-# each file's `applyTo:` frontmatter via filter-context-scope.sh. `.agents/rules`
-# has no suffix convention: every `.md` there is a rule.
+# LADR-104: the `-name` below must stay IDENTICAL to the config's
+# `*.instructions.scoped.md` glob — the NAME is the opt-in, and a plain
+# `*.instructions.md` file is documentation. Per-chunk scope comes from each
+# file's `applyTo:` frontmatter via filter-context-scope.sh. `.agents/rules` has
+# no suffix convention: every `.md` there is a rule.
 #
 # `find` recurses, so one traversal covers BOTH glob forms the config carries
 # (`dir/*.md` and `dir/**/*.md`). The pair exists in the config because v1's
@@ -80,9 +81,7 @@ if [ -d .agents/rules ]; then
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
 fi
 if [ -d .github/instructions ]; then
-  # `-name '*instructions.scoped.md'` is the LADR-104 opt-in; `*.instructions.md`
-  # files are documentation and stay out of the injected set.
-  find .github/instructions -type f -name '*instructions.scoped.md' \
+  find .github/instructions -type f -name '*.instructions.scoped.md' \
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
 fi
 
