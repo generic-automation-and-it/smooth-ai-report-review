@@ -33,6 +33,7 @@ This is a unified AI development experience folder that centralizes skills and c
 | `.claude` → `.agents` | Symbolic link for Claude Code compatibility |
 | `.codex` → `.agents` | Symbolic link for OpenAI Codex compatibility |
 | *(removed)* | `CLAUDE.md` symlink deleted — Claude Code reads `AGENTS.md` natively |
+| `opencode.json` → `.agents/opencode.json` | Project config for local OpenCode sessions (instruction globs only, LADR-104); distinct from `.github/opencode.json`, which the gate loads via `OPENCODE_REVIEW_REPORT_CONFIG` |
 
 ### Tool Compatibility Matrix
 
@@ -105,19 +106,20 @@ This is a unified AI development experience folder that centralizes skills and c
 - **Context**: `smooth-devex-template` PR 85 added a secret-handling rule and checklist for skills. This repo's skills run models that hold every provider key and a write-scoped `GITHUB_TOKEN`, so the rule applies here too, but LADR-005 had removed the whole rule tree.
 - **Decision**: Bring back `.github/instructions/skills/` for rules synced from the template only (#174). The Rule and Checklist sections stay verbatim so later syncs are a straight diff; Reference Pattern and Current Status are rewritten for this repo. No `.agents/rules` symlink and no other rule categories return.
 - **Consequences**:
-  - The review gate loads the rule through its explicit context channel (LADR-087/089/090), which enumerates `.github/instructions/**`; the rule's `applyTo` keeps it to chunks that touch `.agents/skills/**`.
+  - The rule is named `skill-secret-handling.instructions.scoped.md`: the `.scoped.` suffix is the injection opt-in the gate's explicit context channel matches (LADR-104), and its `applyTo` keeps it to chunks that touch `.agents/skills/**`.
   - Current Status is the record of the open checklist gaps (found by the 2026-09-27 security scan). Update it as those gaps close.
 
 ## 📊 Setup Instructions
 
-**Symlinks (`.claude`, `.codex`) are committed to git and available immediately after clone, so no setup script is required.**
+**Symlinks (`.claude`, `.codex`, `opencode.json` → `.agents/opencode.json`) are committed to git and available immediately after clone, so no setup script is required.**
 
 ```bash
 # Verify links are present after clone
-ls -la | grep -E '(\.claude|\.codex)'
+ls -la | grep -E '(\.claude|\.codex|opencode\.json)'
 # Expected output:
 # lrwxr-xr-x ... .claude -> .agents
 # lrwxr-xr-x ... .codex -> .agents
+# lrwxr-xr-x ... opencode.json -> .agents/opencode.json
 ```
 
 **Optional: Run setup script to recreate symlink aliases if needed:**

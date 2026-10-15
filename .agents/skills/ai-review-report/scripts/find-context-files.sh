@@ -58,13 +58,10 @@ done < ci_temp/changed_dirs.txt
 # `assets/opencode.json`'s `instructions` without adding it here ships a rule
 # file that silently never reaches the model.
 #
-# The glob is `*instructions.scoped.md` (LADR-104), not `*.instructions.md`:
-# the NAME is the opt-in. A file earns injection into chunk reviews by being
-# named `*instructions.scoped.md` and declaring its scope in frontmatter
-# (`applyTo:` / `globs:` / `paths:`), which filter-context-scope.sh then applies
-# per chunk. A plain `*.instructions.md` file is repository documentation — read
-# by humans and by any agent that opens the directory — and is deliberately NOT
-# injected, so a repo can keep reference material beside its active rules.
+# LADR-104: the glob is `*instructions.scoped.md` — the NAME is the opt-in, and
+# a plain `*.instructions.md` file is documentation. Per-chunk scope comes from
+# each file's `applyTo:` frontmatter via filter-context-scope.sh. `.agents/rules`
+# has no suffix convention: every `.md` there is a rule.
 #
 # `find` recurses, so one traversal covers BOTH glob forms the config carries
 # (`dir/*.md` and `dir/**/*.md`). The pair exists in the config because v1's

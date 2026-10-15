@@ -31,6 +31,12 @@ touch "$REPO/.github/instructions/root.instructions.scoped.md"
 touch "$REPO/.github/instructions/backend/nested.instructions.scoped.md"
 touch "$REPO/.github/instructions/reference.instructions.md"
 touch "$REPO/.agents/rules/top.md" "$REPO/.agents/rules/backend/nested.md"
+# LADR-104 asymmetry: `.agents/rules/**` has no suffix convention — every .md
+# there is a rule — so an unsuffixed `.instructions.md` MUST still be injected
+# there while the same name under `.github/instructions/` must not. A future
+# edit that adds the `-name '*instructions.scoped.md'` filter to this tree passes
+# every other assertion here; only this fixture catches it.
+touch "$REPO/.agents/rules/legacy.instructions.md"
 touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 
 (
@@ -48,7 +54,8 @@ for expected in \
   .github/instructions/root.instructions.scoped.md \
   .github/instructions/backend/nested.instructions.scoped.md \
   .agents/rules/top.md \
-  .agents/rules/backend/nested.md; do
+  .agents/rules/backend/nested.md \
+  .agents/rules/legacy.instructions.md; do
   grep -Fxq "$expected" "$REPO/ci_temp/context_files.txt" \
     || fail "expected context path missing: $expected"
 done
@@ -60,7 +67,10 @@ ok "custom *_AGENTS.md, mandatory paths, and recursive .agents + GitHub rules ar
 if grep -Fxq '.github/instructions/reference.instructions.md' "$REPO/ci_temp/context_files.txt"; then
   fail "a plain *.instructions.md file was injected — only *instructions.scoped.md opts in (LADR-104)"
 fi
-ok "plain *.instructions.md stays documentation; *instructions.scoped.md opts in"
+ok "plain *.instructions.md stays documentation under .github/instructions; *instructions.scoped.md opts in"
+grep -Fxq '.agents/rules/legacy.instructions.md' "$REPO/ci_temp/context_files.txt" \
+  || fail ".agents/rules/** has no suffix convention — an unsuffixed rule there must still be injected"
+ok "the .agents/rules/** tree keeps injecting every .md (no suffix convention)"
 
 if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
   fail "standard AGENTS.md was duplicated into explicit chunk context"

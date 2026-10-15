@@ -326,9 +326,12 @@ cap_rules() {
   fi
   if ! grep -q '^Source: `' "$src" 2>/dev/null \
      || ! res="$(jq -Rs --argjson max "$max" '
-          # LADR-104: `*instructions.scoped.md` is the injected opt-in; a plain
-          # `*.instructions.md` is documentation and would never reach a chunk, so
-          # matching it as a rule would reserve budget for text the judge is sent twice.
+          # A section counts as a rule when its path sits in a rule TREE (the two
+          # prefixes the finder enumerates) or carries the LADR-104 opt-in name
+          # (an out-of-tree `MANDATORY_CONTEXT_FILES` entry). Order is irrelevant:
+          # the first branch already covers every path under the trees, so the
+          # filename arm only decides out-of-tree entries — it does NOT keep
+          # documentation out of the tier, the finder already does that.
           def isrule: test("^\\.github/instructions/|^\\.agents/rules(-scoped)?/|\\.instructions\\.scoped\\.md$");
           def marker: "\n[... this file trimmed to fit the decision model context budget]\n";
            def header($p): "\n---\nSource: `" + $p + "`\n";

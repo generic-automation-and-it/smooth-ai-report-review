@@ -897,7 +897,9 @@ EOF
   local is_doc_only=true
   for f in "${files[@]}"; do
     case "$f" in
-      *AGENTS.md|*instructions.scoped.md|*.instructions.md|*.instructions.mdc|*CLAUDE.md|*.yml|*.yaml) ;;
+      # Any markdown is documentation, so the first branch is subsumed by `*.md`
+      # and is gone: it listed patterns with an empty body, which reads as a
+      # classification rule and silently is not one.
       *.md) ;;
       *) is_doc_only=false; break ;;
     esac

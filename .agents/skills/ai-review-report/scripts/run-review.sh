@@ -207,7 +207,7 @@ export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
 # unset, we use the reusable workflow's built-in default. find-context-files.sh
 # warns-and-skips on missing paths, so exploratory local runs do not fail.
 if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
-  MANDATORY_CONTEXT_FILES=$'.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.scoped.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.scoped.md'
+  MANDATORY_CONTEXT_FILES=$'.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
 fi
 export MANDATORY_CONTEXT_FILES
 AGENTS_MD_EXEMPT_PATHS="${AGENTS_MD_EXEMPT_PATHS:-.docs/release-notes}"

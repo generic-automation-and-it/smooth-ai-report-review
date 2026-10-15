@@ -5,7 +5,6 @@ These are the authoritative custom instructions for GitHub Copilot in this repos
 ## AI Coder Instructions
 
 - **Load and follow [`AGENTS.md`](../AGENTS.md)** as the single source of project context, conventions, and coding rules. Treat it as your primary instruction set.
-- **Ignore `.claude/`** — it is the Claude Code tool directory and not intended for Copilot.
 - **Ignore `.claude/**`** — Claude Code-specific configuration, hooks, and skills.
 - **Ignore `.codex/**`** — OpenAI Codex-specific configuration.
 

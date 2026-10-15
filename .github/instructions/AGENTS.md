@@ -1,5 +1,14 @@
 # Project rules — `.github/instructions`
 
+## 🎯 TL;DR
+
+A rule file is injected into AI chunk reviews **only when it is named
+`*instructions.scoped.md`** (LADR-104); a plain `*.instructions.md` file is
+documentation. `applyTo:` in its frontmatter then scopes it per chunk. The full
+convention is below; LADR-104 is the decision record.
+
+## System Context
+
 This directory holds the repository's rule files. There are two kinds, and the
 **file name is the opt-in** (LADR-104):
 
@@ -40,3 +49,9 @@ injects them itself.
 - [`.agents/opencode.json`](../../.agents/opencode.json) — declares the
   instruction globs for tooling that honours them (and stays inert, by design,
   until OpenCode v2 wires the array to the prompt).
+
+## Changelog
+
+| Date | Change | Ref |
+|:-----|:-------|:----|
+| 2026-10-15 | Created as the rule index for this directory. Injection switched from `*.instructions.md` to the `*instructions.scoped.md` opt-in; the sibling rule was renamed to match. | LADR-104 |
