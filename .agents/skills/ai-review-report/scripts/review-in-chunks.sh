@@ -893,12 +893,18 @@ EOF
     esac
   done
 
-  # Detect documentation-only chunks (all files are *.md, *.yml, *.yaml, *.json config)
+  # Detect documentation-only chunks. Every branch is an allowlist arm with an
+  # empty body; only a path matching NONE of them flips the chunk out of the
+  # documentation prompt. Do NOT collapse the list into `*.md`: `*.yml`/`*.yaml`
+  # keep YAML that is not CI config on the documentation prompt — CI config is
+  # already diverted earlier to the verification lens (LADR-060, which is why
+  # this test sits behind `is_verification`). `*.instructions.mdc` stays narrow
+  # on purpose: a general `*.mdc` would route Cursor rule files nobody has here
+  # onto the documentation prompt without a decision to that effect.
   local is_doc_only=true
   for f in "${files[@]}"; do
     case "$f" in
-      *AGENTS.md|*.instructions.md|*.instructions.mdc|*CLAUDE.md|*.yml|*.yaml) ;;
-      *.md) ;;
+      *.md|*.instructions.mdc|*.yml|*.yaml) ;;
       *) is_doc_only=false; break ;;
     esac
   done
@@ -1031,7 +1037,7 @@ Review ONLY the files listed above in this chunk. Apply any guidelines from the 
 6. **Performance** — N+1 queries, unnecessary allocations in hot paths, missing async/await, blocking calls on async contexts, inefficient LINQ/collection operations.
 7. **Test coverage** — If test files are in this chunk, verify they meaningfully cover the code changes. Flag missing test cases for new branches, edge cases, or error paths. If no test files are present for significant logic changes, note this as a gap.
 8. **Readability and maintainability** — Is the code clear and self-documenting? Are names descriptive? Is complexity justified? Does it follow established patterns from the context documents?
-9. **Clean Code principles** — Apply the checklist from \`.agents/rules/clean-code-principles.instructions.md\`: meaningful naming (no abbreviations, no misleading types), single-responsibility functions at one abstraction level, no Law of Demeter violations, no hidden side effects, no needless complexity or repetition. Defer to project-specific rules when they conflict.
+9. **Clean Code principles** — Apply the project's own clean-code checklist where the loaded context declares one (in this repo, see \`.github/instructions/AGENTS.md\`): meaningful naming (no abbreviations, no misleading types), single-responsibility functions at one abstraction level, no Law of Demeter violations, no hidden side effects, no needless complexity or repetition. Defer to project-specific rules when they conflict.
 10. **Project-specific standards** — Apply coding standards, patterns, and conventions from the loaded context documents. Context files override general best practices.
 11. **Cross-file consistency** — For files in the same chunk, verify cross-file consistency: model fields reflected in mappers and DTOs, new actions have reducer cases, new interfaces have DI registrations, changed method signatures match all callers in the chunk.
 EOF

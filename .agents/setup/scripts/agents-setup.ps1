@@ -62,9 +62,8 @@ Write-Host "Creating directory symlinks for AI agent tools..." -ForegroundColor 
 $allSuccess = (Create-Symlink ".claude" ".agents" $true) -and $allSuccess
 $allSuccess = (Create-Symlink ".codex" ".agents" $true) -and $allSuccess
 
-# Create file symlinks for context files
-Write-Host "`nCreating file symlinks for context files..." -ForegroundColor Cyan
-$allSuccess = (Create-Symlink "CLAUDE.md" "AGENTS.md") -and $allSuccess
+# No file symlink for context: Claude Code discovers AGENTS.md natively, so the
+# CLAUDE.md alias was retired (root CLAUDE.md is gone).
 
 # Configure git to handle symlinks properly
 if ($allSuccess) {

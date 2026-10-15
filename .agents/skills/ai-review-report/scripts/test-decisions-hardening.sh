@@ -402,7 +402,13 @@ GENERIC="$(head -c 16000 /dev/zero | tr '\0' 'g')"
 {
   printf '# Runtime review instructions (chunk 0)\n\nheader\n'
   printf '\n---\nSource: `.agents/BIG_AGENTS.md`\n\n%s\n' "$GENERIC"
-  printf '\n---\nSource: `.github/instructions/skills/secret.instructions.md`\n\n- [ ] Knowledge artefacts redact to <REDACTED>.\n'
+  printf '\n---\nSource: `.github/instructions/skills/secret.instructions.scoped.md`\n\n- [ ] Knowledge artefacts redact to <REDACTED>.\n'
+  # Out-of-tree rule: a MANDATORY_CONTEXT_FILES entry lives outside both rule
+  # trees, so only the LADR-104 filename arm classifies it. The arm's only
+  # observable effect is TIER ORDER (a short file stays whole in either tier), so
+  # 3c2 asserts this section precedes the trimmed generic one - which it does
+  # only when it was classified as a rule.
+  printf '\n---\nSource: `.docs/nfr/extra.instructions.scoped.md`\n\n- [ ] Out-of-tree rule survives the tier split.\n'
 } > "$TMP_DIR/sectioned_rules.md"
 merged_doc "$TMP_DIR/trim.json" "$F1"
 reset_stub trim
@@ -411,7 +417,10 @@ rules_sent="$(finding_reqs | jq -r '.state.project_rules // ""')"
 check "Test 3b: the rule file after a big generic section reaches the judge whole; the generic one is trimmed" "1|1|1" \
   "$(printf '%s\n' "$rules_sent" | grep -c 'Knowledge artefacts redact to <REDACTED>')|$(printf '%s\n' "$rules_sent" | grep -c 'this file trimmed to fit')|$([ "$(printf '%s' "$rules_sent" | wc -c)" -le 12100 ] && echo 1 || echo 0)"
 check "Test 3c: rule files come first in what is sent" "1" \
-  "$(printf '%s\n' "$rules_sent" | awk '/^Source: /{print; exit}' | grep -c 'secret.instructions.md')"
+  "$(printf '%s\n' "$rules_sent" | awk '/^Source: /{print; exit}' | grep -c 'secret.instructions.scoped.md')"
+check "Test 3c2: an out-of-tree *instructions.scoped.md entry is classified as a rule (LADR-104 filename arm)" "1" \
+  "$(printf '%s\n' "$rules_sent" | awk '/^Source: /{ if (/extra\.instructions\.scoped\.md/) e=NR; if (/BIG_AGENTS\.md/) b=NR }
+        END{ print (e>0 && b>0 && e<b) ? 1 : 0 }')"
 check "Test 3d: the cut is logged and recorded on the decision and in the summary" "1|true|1" \
   "$(grep -c 'finding 1: project rules trimmed to fit the 12000-byte cap (.* bytes; files cut: .agents/BIG_AGENTS.md)' "$TMP_DIR/trim.log")|$(jq -r '.findings[0].decisions.rules_trimmed' "$TMP_DIR/trim.json")|$(jq -r '.decisions_summary.context.findings_with_rules_trimmed' "$TMP_DIR/trim.json")"
 check "Test 3e: rules that fit leave no trimmed mark" "null|null" \

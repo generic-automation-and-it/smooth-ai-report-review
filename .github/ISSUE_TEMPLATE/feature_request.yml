@@ -39,7 +39,7 @@ body:
     attributes:
       label: Constraints checked
       description: |
-        The [Non-Negotiables in CLAUDE.md](https://github.com/generic-automation-and-it/smooth-ai-report-review/blob/main/CLAUDE.md) are load-bearing invariants that a reasonable-looking change often breaks. Tick what applies — an unticked box is fine, it just tells a maintainer where to look.
+        The [Non-Negotiables in AGENTS.md](https://github.com/generic-automation-and-it/smooth-ai-report-review/blob/main/AGENTS.md) are load-bearing invariants that a reasonable-looking change often breaks. Tick what applies — an unticked box is fine, it just tells a maintainer where to look.
       options:
         - label: This would add or change an environment variable the gate reads (must land in **both** workflow packagings in the same commit)
         - label: This would move or rename a script, workflow, or skill folder (paths are hardcoded)

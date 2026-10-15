@@ -11,7 +11,7 @@ alwaysApply: false
 
 How any skill under `.agents/skills/` must handle a secret (API key, token, password, connection string). Updated: 2026-09-27
 
-Synced from the canonical rule in `generic-automation-and-it/smooth-devex-template` (`.github/instructions/skills/skill-secret-handling.instructions.md`, template PR 85). The Rule and the Checklist are kept verbatim; Reference Pattern and Current Status are rewritten for this repo's skills.
+Synced from the canonical rule in `generic-automation-and-it/smooth-devex-template` (`.github/instructions/skills/skill-secret-handling.instructions.md`, template PR 85). Renamed here to `…instructions.scoped.md` — the LADR-104 opt-in that makes the gate inject this rule into a chunk whose files match its `applyTo:`. The template keeps the unsuffixed name; re-apply this rename when syncing. The Rule and the Checklist are kept verbatim; Reference Pattern and Current Status are rewritten for this repo's skills.
 
 ## The Rule
 

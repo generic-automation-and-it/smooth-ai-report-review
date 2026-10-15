@@ -25,9 +25,21 @@ touch "$REPO/src/FEATURE_AGENTS.md" "$REPO/src/feature/LOCAL_AGENTS.md"
 # duplicate-injection it would cause.
 touch "$REPO/src/feature/FooAGENTS.md"
 touch "$REPO/docs/AGENTS.md" "$REPO/docs/KEEP_AGENTS.md" "$REPO/docs/rules.txt"
-touch "$REPO/.github/instructions/root.instructions.md"
-touch "$REPO/.github/instructions/backend/nested.instructions.md"
+# LADR-104: `*instructions.scoped.md` is the injected opt-in; a plain
+# `*.instructions.md` file is documentation and must NOT be discovered.
+touch "$REPO/.github/instructions/root.instructions.scoped.md"
+touch "$REPO/.github/instructions/backend/nested.instructions.scoped.md"
+touch "$REPO/.github/instructions/reference.instructions.md"
+# Plain markdown in the same directory is documentation too: the finder injects
+# the scoped name only, so `notes.md` must not appear either.
+touch "$REPO/.github/instructions/notes.md"
 touch "$REPO/.agents/rules/top.md" "$REPO/.agents/rules/backend/nested.md"
+# LADR-104 asymmetry: `.agents/rules/**` has no suffix convention — every .md
+# there is a rule — so an unsuffixed `.instructions.md` MUST still be injected
+# there while the same name under `.github/instructions/` must not. A future
+# edit that adds the `-name '*instructions.scoped.md'` filter to this tree passes
+# every other assertion here; only this fixture catches it.
+touch "$REPO/.agents/rules/legacy.instructions.md"
 touch "$REPO/.agents/rules-scoped/backend/testing-standards.instructions.md"
 
 (
@@ -42,14 +54,25 @@ for expected in \
   src/feature/LOCAL_AGENTS.md \
   docs/KEEP_AGENTS.md \
   docs/rules.txt \
-  .github/instructions/root.instructions.md \
-  .github/instructions/backend/nested.instructions.md \
+  .github/instructions/root.instructions.scoped.md \
+  .github/instructions/backend/nested.instructions.scoped.md \
   .agents/rules/top.md \
-  .agents/rules/backend/nested.md; do
+  .agents/rules/backend/nested.md \
+  .agents/rules/legacy.instructions.md; do
   grep -Fxq "$expected" "$REPO/ci_temp/context_files.txt" \
     || fail "expected context path missing: $expected"
 done
 ok "custom *_AGENTS.md, mandatory paths, and recursive .agents + GitHub rules are retained"
+
+# LADR-104: the name is the opt-in. An unscoped `*.instructions.md` sibling must
+# stay out of the injected set even though it sits in the very directory the
+# finder traverses — otherwise the convention is decorative.
+for _doc in '.github/instructions/reference.instructions.md' '.github/instructions/notes.md'; do
+  grep -Fxq "$_doc" "$REPO/ci_temp/context_files.txt" \
+    && fail "$_doc was injected — only *instructions.scoped.md opts in (LADR-104)"
+done
+ok "plain *.instructions.md stays documentation under .github/instructions; *instructions.scoped.md opts in"
+ok "the .agents/rules/** tree keeps injecting every .md (no suffix convention)"
 
 if grep -Eq '(^|/)AGENTS\.md$' "$REPO/ci_temp/context_files.txt"; then
   fail "standard AGENTS.md was duplicated into explicit chunk context"
@@ -96,13 +119,12 @@ done <<< "$declared_roots"
 ok "every instructions root the config declares is enumerated by the finder ($(echo "$declared_roots" | tr '\n' ' ' | sed 's/ $//'))"
 
 # The root check above is necessary but not sufficient: it collapses every
-# pattern under a root to that root, so a NEW pattern under an existing root —
-# `.github/instructions/*.md`, say — reads as covered while the finder still
-# enumerates only `*.instructions.md` (review 5266192686, finding 2). So every
-# declared glob is also tested BEHAVIOURALLY: a representative fixture is
-# written for it (`*` → `probe`, `**` → `deep/x`), the finder is re-run, and
-# the fixture must be discovered. A control pattern the finder does not
-# enumerate must NOT be discovered, or this check is decoration.
+# pattern under a root to that root, so a NEW pattern under an existing root
+# reads as covered while the finder may still enumerate something else (review
+# 5266192686, finding 2). So every declared glob is also tested BEHAVIOURALLY: a
+# representative fixture is written for it (`*` → `probe`, `**` → `deep/x`), the
+# finder is re-run, and the fixture must be discovered. A control pattern the
+# finder does not enumerate must NOT be discovered, or this check is decoration.
 CONFIG_PATTERNS="$(python3 - "$CONFIG" <<'PYEOF2'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
@@ -131,8 +153,12 @@ while IFS= read -r pat; do
   _probe_paths="${_probe_paths}${f}
 "
 done <<< "$CONFIG_PATTERNS"
-# Control: declared nowhere, enumerated nowhere — must stay undiscovered.
-CONTROL="$(_fixture_for '.github/instructions/*.md' control)"
+# Control: `.agents/rules-scoped/**` is declared in no glob and enumerated by no
+# find (it reaches a review only through MANDATORY_CONTEXT_FILES), so the probe
+# must find nothing there — otherwise the loop would pass with a finder that
+# matched everything. The `.github/instructions` negative above covers the old
+# name specifically; this one proves the loop can discriminate at all.
+CONTROL="$(_fixture_for '.agents/rules-scoped/**/*.md' control)"
 mkdir -p "$PROBE_REPO/$(dirname "$CONTROL")"; touch "$PROBE_REPO/$CONTROL"
 # The finder requires MANDATORY_CONTEXT_FILES to be set (absent paths warn and
 # skip), and exits non-zero otherwise — under `set -e` that would end this

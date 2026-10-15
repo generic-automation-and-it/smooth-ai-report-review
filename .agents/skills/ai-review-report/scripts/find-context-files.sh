@@ -58,6 +58,12 @@ done < ci_temp/changed_dirs.txt
 # `assets/opencode.json`'s `instructions` without adding it here ships a rule
 # file that silently never reaches the model.
 #
+# LADR-104: the `-name` below must stay IDENTICAL to the config's
+# `*.instructions.scoped.md` glob — the NAME is the opt-in, and a plain
+# `*.instructions.md` file is documentation. Per-chunk scope comes from each
+# file's `applyTo:` frontmatter via filter-context-scope.sh. `.agents/rules` has
+# no suffix convention: every `.md` there is a rule.
+#
 # `find` recurses, so one traversal covers BOTH glob forms the config carries
 # (`dir/*.md` and `dir/**/*.md`). The pair exists in the config because v1's
 # glob engine treated them differently; it is not two different file sets.
@@ -67,15 +73,16 @@ done < ci_temp/changed_dirs.txt
 # per-run; pulling the whole scoped tree into every chunk would duplicate them
 # and inflate prompts for chunks the scope does not apply to.
 #
-# Both trees are consumer-repo paths and are absent from this repo, so each
-# block is existence-guarded. Dot-prefixed context paths are included in every
-# chunk by review-in-chunks.sh.
+# `.agents/rules` is a consumer-repo path and is absent here; `.github/instructions`
+# is this repo's own rule tree (the `*.instructions.scoped.md` below). Each block is
+# existence-guarded. Dot-prefixed context paths are candidates in every chunk,
+# decided by the scope filter.
 if [ -d .agents/rules ]; then
   find .agents/rules -type f -name '*.md' ! -name 'AGENTS.md' \
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
 fi
 if [ -d .github/instructions ]; then
-  find .github/instructions -type f -name '*.instructions.md' \
+  find .github/instructions -type f -name '*.instructions.scoped.md' \
     >> ci_temp/relevant_agents_files.txt 2>/dev/null || true
 fi
 

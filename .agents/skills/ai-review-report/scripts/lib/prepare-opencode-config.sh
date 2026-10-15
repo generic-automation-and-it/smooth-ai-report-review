@@ -139,7 +139,7 @@ _poc_migrate_stale_managed_global_config() {
 # completely inert: no error, no log line, just nothing prepended to the system
 # prompt. That is the LADR-053 false-OK failure shape — the feature asserts
 # exactly what it silently fails to do. Warn loudly rather than fail. The
-# shipped `.github/instructions/**/*.instructions.md` defaults are also
+# shipped `.github/instructions/**/*instructions.scoped.md` defaults are also
 # enumerated explicitly by find-context-files.sh, so they remain effective.
 # Other entries supplied by an LADR-047 override are not loaded by v2 unless
 # the caller also exposes them through AGENTS.md or the explicit context list.
@@ -168,7 +168,7 @@ _poc_warn_v2_instructions_inert() {
   echo "WARNING: opencode ${version} (major ${major}) is installed and the resolved config carries an 'instructions' array (LADR-087)." >&2
   echo "    opencode v2 accepts that key but does NOT resolve its files, globs, or URLs." >&2
   echo "    Ref: https://opencode.ai/v2/docs/instructions/ - 'V2 does not currently resolve its files, glob patterns, or URLs'." >&2
-  echo "    The shipped .github/instructions/**/*.instructions.md rules are loaded through find-context-files.sh; custom entries must use AGENTS.md or another explicit context path." >&2
+  echo "    The shipped .github/instructions/**/*instructions.scoped.md rules are loaded through find-context-files.sh (LADR-104); custom entries must use that naming, AGENTS.md, or another explicit context path." >&2
 }
 
 _poc_main() {
