@@ -220,6 +220,39 @@ grep -Fxq 'context_file_count=0' "$EMPTY_REPO/output" || fail "legacy files synt
 [ ! -s "$EMPTY_REPO/ci_temp/mandatory_context_files.txt" ] || fail "default-none recorded mandatory context"
 ok "no scoped files means no custom context, despite native/config/legacy files"
 
+# Do not use run_finder here: it clears ci_temp and would hide stale-output
+# bugs. A second discovery must replace the first result, including early exits.
+REUSE_REPO="$TMP/reused-repo"
+mkdir -p "$REUSE_REPO/ci_temp" "$REUSE_REPO/.github/instructions" "$REUSE_REPO/docs"
+printf 'src/app.ts\0' > "$REUSE_REPO/ci_temp/changed_files.txt"
+touch "$REUSE_REPO/.github/instructions/old.instructions.scoped.md" "$REUSE_REPO/docs/old.md"
+( cd "$REUSE_REPO" && GITHUB_OUTPUT="$REUSE_REPO/output" MANDATORY_CONTEXT_FILES='docs/old.md' \
+    bash "$FINDER" > "$REUSE_REPO/run.log" 2>&1 )
+grep -Fxq 'docs/old.md' "$REUSE_REPO/ci_temp/context_files.txt" || fail "reuse fixture did not load initial context"
+rm "$REUSE_REPO/.github/instructions/old.instructions.scoped.md"
+( cd "$REUSE_REPO" && GITHUB_OUTPUT="$REUSE_REPO/output" MANDATORY_CONTEXT_FILES=none \
+    bash "$FINDER" > "$REUSE_REPO/run.log" 2>&1 )
+for generated in context_files.txt mandatory_context_files.txt relevant_agents_files.txt; do
+  [ ! -s "$REUSE_REPO/ci_temp/$generated" ] || fail "empty rediscovery retained stale $generated"
+done
+ok "empty rediscovery clears prior scoped and mandatory context without caller cleanup"
+for changed_state in empty missing; do
+  for generated in context_files.txt mandatory_context_files.txt relevant_agents_files.txt; do
+    printf 'docs/old.md\n' > "$REUSE_REPO/ci_temp/$generated"
+  done
+  if [ "$changed_state" = empty ]; then
+    : > "$REUSE_REPO/ci_temp/changed_files.txt"
+  else
+    rm "$REUSE_REPO/ci_temp/changed_files.txt"
+  fi
+  ( cd "$REUSE_REPO" && GITHUB_OUTPUT="$REUSE_REPO/output" MANDATORY_CONTEXT_FILES=none \
+      bash "$FINDER" > "$REUSE_REPO/run.log" 2>&1 )
+  for generated in context_files.txt mandatory_context_files.txt relevant_agents_files.txt; do
+    [ ! -s "$REUSE_REPO/ci_temp/$generated" ] || fail "$changed_state changed-file list retained stale $generated"
+  done
+done
+ok "empty or missing changed-file lists also clear all discovery outputs"
+
 # Exercise the real default assignment from both script entrypoints, without
 # running their model/install/git side effects or reproducing their defaults.
 for entrypoint in run-review.sh local-review.sh; do

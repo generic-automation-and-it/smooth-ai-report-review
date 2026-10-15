@@ -10,6 +10,12 @@ set -e
 
 echo "Looking for .github/instructions/**/*.instructions.scoped.md files..."
 
+# Discovery replaces its previous result, including empty/no-change runs.
+# Consumers read these files directly, not only the GITHUB_OUTPUT flags.
+: > ci_temp/context_files.txt
+: > ci_temp/mandatory_context_files.txt
+: > ci_temp/relevant_agents_files.txt
+
 # Check if we have changed files
 if [ ! -f ci_temp/changed_files.txt ] || [ ! -s ci_temp/changed_files.txt ]; then
   echo "No changed files to analyze"
@@ -21,7 +27,6 @@ fi
 # Automatic custom loading is scoped-instructions-only (LADR-105). Standard
 # AGENTS.md remains owned by native opencode v2 discovery. No ancestor
 # *_AGENTS.md walk or blanket .agents/rules/*.md scan belongs in this channel.
-: > ci_temp/relevant_agents_files.txt
 # v2 still does not resolve the config's `instructions` array (LADR-087).
 # Retain the existing scoped-file compatibility search without changing config
 # globs or expanding discovery to new directories. find covers both root and
@@ -38,7 +43,6 @@ fi
 # Mandatory paths are also recorded separately: the per-chunk scope filter
 # (lib/filter-context-scope.sh) keeps them regardless of any `applyTo` they
 # declare, because the consuming repo named them explicitly.
-: > ci_temp/mandatory_context_files.txt
 MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-none}"
 
 # `none`, as the whole value (any case), declares that the repo under review
