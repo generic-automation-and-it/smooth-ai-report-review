@@ -647,6 +647,17 @@ unset _rtk_enabled
 # subshells, aggregate-reviews.sh, opencode-with-fallback.sh).
 . "$LIB_DIR/prepare-opencode-config.sh"
 
+# 5d-bis. Quarantine the repo-under-review's own opencode.json(c) (LADR-103).
+# Project config merges above OPENCODE_CONFIG and loads from the untrusted PR
+# head: newer opencode builds hard-fail on it in CI, and a hostile PR could
+# otherwise override the review agent's permission lockdown. The stand-in is
+# the resolved managed copy (built-in asset, LADR-047 override, or a client
+# file such as .github/assets/opencode.json) — never PR content. Restored by
+# the EXIT trap above; re-quarantined after the Step 6 re-checkout, which
+# rewrites the working tree for non-pull_request events.
+. "$LIB_DIR/quarantine-project-config.sh"
+quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
+
 # 5e. Warm the SQLite store + provider-agnostic health check.
 # Stop any leftover background service FIRST. opencode v2 runs one shared
 # service per user and binds its config when that service STARTS — a service
