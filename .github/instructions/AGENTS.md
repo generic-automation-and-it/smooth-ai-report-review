@@ -4,9 +4,11 @@
 
 A rule file reaches AI chunk reviews **only when it is named
 `*instructions.scoped.md`** (LADR-104) — or when it lives under `.agents/rules/`,
-where every `.md` is a rule. A plain `*.instructions.md` file is
-documentation. `applyTo:` in its frontmatter then scopes it per chunk. The full
-convention is below; LADR-104 is the decision record.
+where every `.md` is a rule. A plain `*.instructions.md` file is documentation,
+and a path listed in `MANDATORY_CONTEXT_FILES` is injected whatever it is called
+(that list is matched by existence, never by name). `applyTo:` in the rule's
+frontmatter then scopes it per chunk. The full convention is below; LADR-104 is
+the decision record.
 
 ## Rules in this directory
 
