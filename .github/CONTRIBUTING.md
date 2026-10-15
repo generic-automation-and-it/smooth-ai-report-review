@@ -38,7 +38,6 @@ Before changing anything under `.agents/skills/` or `.github/workflows/`:
 
 - [`AGENTS.md`](../AGENTS.md) — the Non-Negotiables. Read them; several are
   load-bearing invariants that a reasonable-looking edit silently breaks.
-.
 - [`.agents/skills/ai-review-report/SKILL.md`](../.agents/skills/ai-review-report/SKILL.md)
   and its companion `AGENTS.md`, which carries the LADR decision log.
 

@@ -35,7 +35,13 @@ run_chunk_for() {
   mkdir -p "$repo/.agents/skills/ai-review-report/scripts/lib" "$repo/bin"
   cp "$SCRIPT_DIR/review-in-chunks.sh" "$repo/.agents/skills/ai-review-report/scripts/"
   local lib
-  for lib in count-changed-files.sh extract-findings-json.sh validate-chunk-timeout.sh build-blame-digest.sh; do
+  # Every lib review-in-chunks.sh calls. It tolerates missing ones today only
+  # because each call site sits AFTER the prompt heredoc is written — an ordering
+  # accident, not a contract, and the missing-lib noise hides which branch ran.
+  for lib in count-changed-files.sh extract-findings-json.sh validate-chunk-timeout.sh \
+             build-blame-digest.sh review-has-shape.sh split-chunk-budget.sh \
+             build-runtime-agents.sh report-error-log.sh filter-context-scope.sh \
+             extract-review-notes.sh; do
     cp "$SCRIPT_DIR/lib/$lib" "$repo/.agents/skills/ai-review-report/scripts/lib/"
   done
   cat > "$repo/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" <<'STUB'
@@ -69,7 +75,9 @@ STUB
       > "$repo/run.log" 2>&1
   ) || true
 
-  ls "$repo"/ci_temp/chunk_*_prompt.txt 2>/dev/null | head -n1
+  # `|| true`: under `set -o pipefail` a no-match `ls` would kill the suite before
+  # any assertion could report why the prompt is missing.
+  ls "$repo"/ci_temp/chunk_*_prompt.txt 2>/dev/null | head -n1 || true
 }
 
 # Case 1: a workflow-only chunk. `*.yml` is in the doc-only allowlist, so before
