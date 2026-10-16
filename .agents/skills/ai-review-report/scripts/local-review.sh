@@ -225,6 +225,29 @@ source "$SCRIPT_DIR/lib/gh-retry.sh"
 # Must be sourced so OPENCODE_CONFIG is exported into this shell.
 . "$SCRIPT_DIR/lib/prepare-opencode-config.sh"
 
+# Quarantine the repo's own opencode.json(c) (LADR-103), but ONLY on GitHub
+# Actions: project config loads from the working tree and newer opencode
+# builds refuse untrusted project config in CI. On a local dev machine the
+# root opencode.json belongs to the developer (providers, permissions) and
+# opencode loads it trusted — leave it alone. (The npm-in-CI packaging runs
+# this script with GITHUB_ACTIONS=true, so it stays covered.)
+# The stand-in is the resolved managed copy. Restored by the EXIT trap,
+# registered before quarantine so early exits are covered too.
+# NOTE: the temp-commit block below must ignore the quarantined paths (they
+# are gate scratch, not review content) — see _qpc_status / _qpc_excludes.
+. "$SCRIPT_DIR/lib/quarantine-project-config.sh"
+on_exit() {
+  # Always restore config, even before the later temp-commit cleanup exists.
+  restore_project_config 2>/dev/null || true
+  if declare -F cleanup_temp_commit >/dev/null; then
+    cleanup_temp_commit
+  fi
+}
+trap on_exit EXIT
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  quarantine_project_config "$REPO_ROOT"
+fi
+
 # Health check (provider-agnostic): use v2's authenticated
 # `opencode api get /api/info` diagnostic (lib/opencode-health.sh). This replaced the old
 # per-provider gateway preflight. NOTE: /api/info confirms opencode itself
@@ -354,11 +377,9 @@ export PATH="${REPO_ROOT}/${WORK_DIR}/bin:$PATH"
 export GITHUB_OUTPUT="${WORK_DIR}/github_output.txt"
 touch "$GITHUB_OUTPUT"
 
-# Set mandatory context files. These resolve against the repo being reviewed.
-# Local runs default to files that exist in this skill's source repo; consumers
-# can override via the MANDATORY_CONTEXT_FILES env variable. Missing paths are
-# warned and skipped so exploratory local runs don't fail on cross-repo defaults.
-MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-.agents/skills/ai-review-report/SKILL.md}"
+# Mandatory context is opt-in, matching CI. Scoped discovery stays enabled.
+# Explicit paths resolve against the reviewed repo; missing ones warn.
+MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-none}"
 _missing_ctx=()
 # `none` as the whole value is the explicit opt-out that find-context-files.sh
 # honours, not a missing file. One shared definition (lib/mandatory-context.sh)
@@ -427,7 +448,17 @@ echo "  HEAD: ${TO_SHA:0:7}"
 TEMP_COMMIT=false
 
 # Check if there are uncommitted changes (staged + unstaged + untracked, excluding ci_temp)
-if [ -n "$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp' -e '^?? \.context/')" ]; then
+# LADR-103: also exclude quarantined project-config paths — the stand-in and
+# the held-aside originals are gate scratch, never review content. A literal
+# match needs dots escaped (opencode.json must not also swallow opencode.jsonc).
+_qpc_status="$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp' -e '^?? \.context/')"
+# Quarantine may create root opencode.json even when only another slot existed.
+for _qpc_p in ${QPC_QUARANTINED:+opencode.json} ${QPC_QUARANTINED:-}; do
+  _qpc_lit="$(printf '%s' "$_qpc_p" | sed 's/\./\\./g')"
+  _qpc_status="$(printf '%s\n' "$_qpc_status" | grep -v -e " ${_qpc_lit}\$" || true)"
+done
+unset _qpc_p _qpc_lit
+if [ -n "$_qpc_status" ]; then
   # Check if there are committed changes on this branch already
   COMMITTED_CHANGES=$(git diff --name-only "${MERGE_BASE}..${TO_SHA}" | wc -l | tr -d ' ')
 
@@ -437,7 +468,16 @@ if [ -n "$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp'
     # ci_temp is gitignored, so git add -A skips it automatically; do NOT name
     # ':!ci_temp' as a pathspec — a gitignored path that exists on disk makes
     # git add exit 1 ("paths are ignored"), which set -e turns into a failure.
-    git add -A -- . ':!.context'
+    # LADR-103: likewise never stage the quarantine stand-in / held-aside
+    # originals — they are gate scratch, not review content. (Repo paths with
+    # spaces are unsupported by design, same as MANDATORY_CONTEXT_FILES.)
+    _qpc_excludes=""
+    for _qpc_p in ${QPC_QUARANTINED:+opencode.json} ${QPC_QUARANTINED:-}; do
+      _qpc_excludes="$_qpc_excludes :!$_qpc_p"
+    done
+    # shellcheck disable=SC2086
+    git add -A -- . ':!.context' $_qpc_excludes
+    unset _qpc_p _qpc_excludes
     git commit -m "temp: local-review snapshot (will be reset)" --no-verify --quiet
     TEMP_COMMIT=true
     TO_SHA="$(git rev-parse HEAD)"
@@ -445,6 +485,7 @@ if [ -n "$(git status --porcelain --ignore-submodules | grep -v -e '^?? ci_temp'
   else
     echo "  ⚠️  Uncommitted changes exist but won't be reviewed (only committed diffs are used). Consider committing or stashing first."
   fi
+unset _qpc_status
 fi
 
 # Create ci_temp symlink NOW (after any temp commit, before CI scripts need it)
@@ -480,7 +521,7 @@ FILES_CHANGED=$(bash "$SCRIPT_DIR/lib/count-changed-files.sh" ci_temp/changed_fi
 echo "  Files changed: $FILES_CHANGED"
 echo ""
 
-# Set up cleanup trap for temp commit
+# Define the later cleanup used by the already-registered EXIT trap.
 cleanup_temp_commit() {
   # Remove ci_temp (symlink or junction). Skip if ci_temp IS the WORK_DIR (real-dir fallback).
   if [ "$WORK_DIR" != "ci_temp" ]; then
@@ -499,7 +540,6 @@ cleanup_temp_commit() {
     echo "  ✅ Working tree restored to original state"
   fi
 }
-trap cleanup_temp_commit EXIT
 
 # --- Step 2: Filter excluded files ---
 echo "🔧 Filtering excluded files..."

@@ -42,6 +42,10 @@ setup_repo() {
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
   cp "${SOURCE_SHAPE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/review-has-shape.sh"
   cp "${SOURCE_RUNTIME_AGENTS_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/build-runtime-agents.sh"
+  cp "$(dirname "$SOURCE_SCRIPT")/find-context-files.sh" "${test_repo}/.agents/skills/ai-review-report/scripts/"
+  for lib in mandatory-context.sh filter-context-scope.sh context-scope-filter.py; do
+    cp "$(dirname "$SOURCE_SCRIPT")/lib/$lib" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/"
+  done
 
   cat > "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << 'EOF'
 #!/bin/bash
@@ -86,6 +90,10 @@ EOF
 
   mkdir -p ci_temp
   printf 'alpha/a.txt\0beta/b.txt\0gamma/c.txt\0' > ci_temp/changed_files.txt
+  mkdir -p docs .github/instructions
+  printf -- '---\napplyTo: "unrelated/**"\n---\nEXPLICIT_MANDATORY_CONTEXT\n' > docs/testing.md
+  printf -- '---\napplyTo: "alpha/**"\n---\nALPHA_SCOPED_RULE\n' > .github/instructions/alpha.instructions.scoped.md
+  printf -- '---\napplyTo: "unrelated/**"\n---\nUNRELATED_SCOPED_RULE\n' > .github/instructions/unrelated.instructions.scoped.md
 }
 
 run_case() {
@@ -103,6 +111,8 @@ run_case() {
   rm -rf ci_temp/chunk_* ci_temp/file_groups* ci_temp/all_context_files.txt ci_temp/semantic_grouping_*
   mkdir -p ci_temp
   printf 'alpha/a.txt\0beta/b.txt\0gamma/c.txt\0' > ci_temp/changed_files.txt
+  GITHUB_OUTPUT="${output_file}" MANDATORY_CONTEXT_FILES='docs/testing.md' \
+    bash .agents/skills/ai-review-report/scripts/find-context-files.sh >/dev/null
 
   local from_sha to_sha
   from_sha="$(git rev-parse HEAD~1)"
@@ -142,6 +152,25 @@ run_case() {
     exit 1
   fi
   echo "✅ ${label}: ${_rt_count} runtime AGENTS.md built (one per chunk)"
+  # Real discovery → chunk selection → scope filtering → runtime instructions.
+  # Mandatory paths outside the chunk ancestry must reach every chunk, while
+  # automatic scoped rules must still obey their frontmatter.
+  local runtime files_list
+  for runtime in ci_temp/chunk_*/AGENTS.md; do
+    files_list="${runtime%/AGENTS.md}_files.txt"
+    grep -q EXPLICIT_MANDATORY_CONTEXT "$runtime" \
+      || { echo "❌ ${label}: non-dot mandatory context was dropped"; exit 1; }
+    if grep -q '^alpha/' "$files_list"; then
+      grep -q ALPHA_SCOPED_RULE "$runtime" \
+        || { echo "❌ ${label}: matching scoped rule was dropped"; exit 1; }
+    elif grep -q ALPHA_SCOPED_RULE "$runtime"; then
+      echo "❌ ${label}: non-matching alpha rule leaked"; exit 1
+    fi
+    if grep -q UNRELATED_SCOPED_RULE "$runtime"; then
+      echo "❌ ${label}: unrelated scoped rule leaked"; exit 1
+    fi
+  done
+  echo "✅ ${label}: mandatory context is global and automatic rules remain scoped"
 }
 
 setup_repo

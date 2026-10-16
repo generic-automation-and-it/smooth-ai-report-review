@@ -75,7 +75,7 @@
 #                         `.agents/skills/ai-review-report` first, then the
 #                         reusable-workflow side-checkout path
 #                         `.smooth-ai-review-tools/.agents/skills/ai-review-report`.
-#   MANDATORY_CONTEXT_FILES  [built-in list] — space-separated paths loaded
+#   MANDATORY_CONTEXT_FILES  [none] — optional space-separated paths loaded
 #                         into every review (see find-context-files.sh), or
 #                         `none` for a repo that has no mandatory context files.
 #   AGENTS_MD_EXEMPT_PATHS  ['.docs/release-notes'] — pipe-separated prefixes
@@ -203,12 +203,8 @@ export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY
 export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY
 export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR
 
-# Mandatory context files — copy-installed callers may set this via env. When
-# unset, we use the reusable workflow's built-in default. find-context-files.sh
-# warns-and-skips on missing paths, so exploratory local runs do not fail.
-if [ -z "${MANDATORY_CONTEXT_FILES:-}" ]; then
-  MANDATORY_CONTEXT_FILES=$'.docs/nfr/PROJECT_SETUP_AGENTS.md\n.agents/skills/code-review-standards/SKILL.md\n.docs/nfr/TOOL_SETUP_AGENTS.md\n.agents/rules-scoped/backend/testing-standards.instructions.md\n.agents/rules-scoped/backend/dotnet-standards.instructions.md'
-fi
+# Mandatory context is opt-in; scoped instruction discovery stays enabled.
+MANDATORY_CONTEXT_FILES="${MANDATORY_CONTEXT_FILES:-none}"
 export MANDATORY_CONTEXT_FILES
 AGENTS_MD_EXEMPT_PATHS="${AGENTS_MD_EXEMPT_PATHS:-.docs/release-notes}"
 export AGENTS_MD_EXEMPT_PATHS
@@ -558,7 +554,7 @@ assemble_run_artifacts() {
 METADATA_EOF
   return 0
 }
-trap '_rc=$?; assemble_run_artifacts; exit $_rc' EXIT
+trap '_rc=$?; command -v restore_project_config >/dev/null 2>&1 && restore_project_config; assemble_run_artifacts; exit $_rc' EXIT
 # Tells aggregate-reviews.sh that THIS entrypoint assembles ci_temp/run/ for
 # the workflow's upload step, so the run markers it writes (LADR-096/098)
 # promise an artifact that will exist. local-review.sh — which the npm-in-CI
@@ -667,6 +663,17 @@ unset _rtk_enabled
 # into this shell and reaches all child processes (review-in-chunks.sh
 # subshells, aggregate-reviews.sh, opencode-with-fallback.sh).
 . "$LIB_DIR/prepare-opencode-config.sh"
+
+# 5d-bis. Quarantine the repo-under-review's own opencode.json(c) (LADR-103).
+# Project config merges above OPENCODE_CONFIG and loads from the untrusted PR
+# head: newer opencode builds hard-fail on it in CI, and a hostile PR could
+# otherwise override the review agent's permission lockdown. The stand-in is
+# the resolved managed copy (built-in asset, LADR-047 override, or a client
+# file such as .github/assets/opencode.json) — never PR content. Restored by
+# the EXIT trap above; re-quarantined after the Step 6 re-checkout, which
+# rewrites the working tree for non-pull_request events.
+. "$LIB_DIR/quarantine-project-config.sh"
+quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
 # Stop any leftover background service FIRST. opencode v2 runs one shared
@@ -811,10 +818,16 @@ if [ "$EVENT_NAME" != "pull_request" ]; then
     echo "❌ Failed to fetch PR head ${head_repo}@${head_ref}" >&2
     exit 1
   }
+  # The checkout below restores tracked files — including a quarantined root
+  # opencode.json — and refuses to overwrite our untracked stand-in, so cycle
+  # the quarantine around it (LADR-103): restore, checkout, re-quarantine.
+  # A failed checkout exits into the EXIT trap, which still restores.
+  restore_project_config
   git checkout "FETCH_HEAD" || {
     echo "❌ Failed to checkout FETCH_HEAD" >&2
     exit 1
   }
+  quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
 fi
 
 # --- Step 7: Prepare `upstream` remote + post the all-models-failed review ---
@@ -1130,7 +1143,7 @@ EOF
 fi
 unset _trivial_skip_enabled
 
-# --- Step 13: Find explicit context (custom *_AGENTS.md + .agents/rules + GitHub rules)
+# --- Step 13: Find scoped instructions and explicitly opted-in context
 # When OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE is truthy
 # (1/true/yes/on), skip the mandatory context file loading AND the AGENTS.md
 # custom-context/rules discovery — the review runs without injected context

@@ -270,8 +270,8 @@ check_structural_quality() {
   local filename
   filename=$(basename "$file")
 
-  # Skip root AGENTS.md and CLAUDE.md (exempt from template requirements)
-  if [[ "$filename" == "AGENTS.md" && "$file" == "AGENTS.md" ]] || [[ "$filename" == "CLAUDE.md" && "$file" == "CLAUDE.md" ]]; then
+  # Skip the root AGENTS.md (exempt from template requirements)
+  if [[ "$filename" == "AGENTS.md" && "$file" == "AGENTS.md" ]]; then
     return 0
   fi
 
