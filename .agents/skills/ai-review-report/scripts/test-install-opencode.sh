@@ -2,6 +2,14 @@
 # Offline regression tests for the shared OpenCode v2 installer.
 set -euo pipefail
 
+# This suite also drives local-review.sh, which requires Bash >= 4. Keep that
+# interpreter when a case clears PATH rather than silently falling back to the
+# system Bash 3.2 on macOS.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  echo 'Requires Bash >= 4. On macOS: brew install bash; run with /opt/homebrew/bin/bash.' >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALLER="$SCRIPT_DIR/lib/install-opencode.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -38,7 +46,7 @@ run_case() {
   : > "$TMP/$name.github_path"
   env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$home" \
     GITHUB_PATH="$TMP/$name.github_path" STUB_CURL_LOG="$TMP/$name.curl" \
-    OPENCODE_CLI_VERSION="$version" bash "$INSTALLER" > "$TMP/$name.out"
+    OPENCODE_CLI_VERSION="$version" "$BASH" "$INSTALLER" > "$TMP/$name.out"
 }
 
 run_case latest ""
@@ -57,7 +65,7 @@ ok "a leading-v 2.x pin is normalized, forwarded, and verified"
 
 if env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP/rejected/home" \
   GITHUB_PATH="$TMP/rejected.github_path" STUB_CURL_LOG="$TMP/rejected.curl" \
-  OPENCODE_CLI_VERSION="1.18.10" bash "$INSTALLER" > "$TMP/rejected.out" 2>&1; then
+  OPENCODE_CLI_VERSION="1.18.10" "$BASH" "$INSTALLER" > "$TMP/rejected.out" 2>&1; then
   fail "a 1.x pin unexpectedly passed the v2-only installer"
 fi
 grep -q 'must pin an OpenCode v2 release' "$TMP/rejected.out" \
@@ -89,7 +97,7 @@ cached_case() {
   : > "$TMP/$name.github_path"
   env -i PATH="$bin:/usr/bin:/bin" HOME="$home" \
     GITHUB_PATH="$TMP/$name.github_path" STUB_CURL_LOG="$TMP/$name.curl" \
-    OPENCODE_CLI_VERSION="$pin" bash "$INSTALLER" > "$TMP/$name.out" 2>&1
+    OPENCODE_CLI_VERSION="$pin" "$BASH" "$INSTALLER" > "$TMP/$name.out" 2>&1
 }
 
 : > "$TMP/cached_v1.curl"
@@ -126,7 +134,7 @@ SHADOWCURL
 chmod +x "$TMP/shadow/bin/curl"
 if env -i PATH="$TMP/shadow/bin:/usr/bin:/bin" HOME="$TMP/shadow/home" \
   GITHUB_PATH="$TMP/shadow.github_path" STUB_CURL_LOG="$TMP/shadow.curl" \
-  OPENCODE_CLI_VERSION="" bash "$INSTALLER" > "$TMP/shadow.out" 2>&1; then
+  OPENCODE_CLI_VERSION="" "$BASH" "$INSTALLER" > "$TMP/shadow.out" 2>&1; then
   fail "a package-managed v1 shadowing the v2 install reported success"
 fi
 grep -q 'not a v2 release' "$TMP/shadow.out" \
@@ -156,7 +164,7 @@ local_case() {
   env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$home" \
     STUB_CURL_LOG="$TMP/local-$name.curl" OPENCODE_CLI_VERSION="$pin" \
     EXPECTED_LOCAL_VERSION="$expected" \
-    bash "$TMP/local/scripts/local-review.sh" > "$TMP/local-$name.out" 2>&1
+    "$BASH" "$TMP/local/scripts/local-review.sh" > "$TMP/local-$name.out" 2>&1
 }
 local_case v1 "1.18.31" "" "2.0.11"
 grep -q 'local prerequisites passed' "$TMP/local-v1.out" \
@@ -194,8 +202,20 @@ ok "local review aborts on an invalid pin before provider resolution"
 # step match as one pipeline.
 _is_raw_install() { # _is_raw_install <file>
   local joined
-  joined="$(sed -e ':a' -e '/\\[[:space:]]*$/{N; s/\\[[:space:]]*\n[[:space:]]*/ /; ba}' \
-      -e '/|[[:space:]]*$/{N; s/|[[:space:]]*\n[[:space:]]*/| /; ba}' "$1")"
+  joined="$(awk '
+    {
+      if (pending != "") { sub(/^[[:space:]]*/, ""); line = pending $0 }
+      else line = $0
+      if (line ~ /\\[[:space:]]*$/) {
+        sub(/\\[[:space:]]*$/, " ", line); pending = line; next
+      }
+      if (line ~ /[|][[:space:]]*$/) {
+        sub(/[|][[:space:]]*$/, "| ", line); pending = line; next
+      }
+      print line; pending = ""
+    }
+    END { if (pending != "") print pending }
+  ' "$1")"
   # Piped form: the installer body handed straight to an interpreter.
   printf '%s\n' "$joined" \
     | grep -qE 'curl[^|]*opencode\.ai/v2/install([^|]*\|)+[[:space:]]*(sudo[[:space:]]+(-E[[:space:]]+)?)?(([^[:space:]|]*/)?env[[:space:]]+)?([^[:space:]|]*/)?(ba|z|da)?sh([[:space:]]|$)' \

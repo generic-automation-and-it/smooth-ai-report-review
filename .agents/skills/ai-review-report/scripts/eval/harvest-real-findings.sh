@@ -210,7 +210,7 @@ n_written=0
 for spec in "$@"; do
   n="${spec%%=*}"; label="${spec#*=}"; reason=""
   case "$label" in *:*) reason="${label#*:}"; label="${label%%:*}" ;; esac
-  [[ "$n" =~ ^[0-9]+$ ]] && [[ "$label" =~ ^(tp|fp)$ ]] && [[ "$reason" =~ ^(|fix|intentional|invalid)$ ]] \
+  [[ "$n" =~ ^[0-9]+$ ]] && [[ "$label" =~ ^(tp|fp)$ ]] && [[ "$reason" =~ ^(fix|intentional|invalid)?$ ]] \
     || { echo "❌ bad label '$spec' (want <n>=tp|fp[:fix|intentional|invalid])" >&2; exit 2; }
   jq -e --argjson n "$n" '[.findings[] | select(.["#"] == $n)] | length == 1' "$merged" >/dev/null \
     || { echo "❌ run $RUN has no finding $n." >&2; exit 2; }

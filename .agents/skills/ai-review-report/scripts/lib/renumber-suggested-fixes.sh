@@ -93,12 +93,15 @@ map="$(jq -r '
 ' "$merged" 2>/dev/null)" || exit 0
 
 tmp="$(mktemp)" || exit 0
-trap 'rm -f "$tmp" "$tmp.counts"' EXIT
+trap 'rm -f "$tmp" "$tmp.counts" "$tmp.map"' EXIT
+printf '%s\n' "$map" > "$tmp.map" || exit 0
 
 # NOTE for editors: this awk program is a single-quoted shell string, so an
 # apostrophe anywhere in its comments terminates the string and the script dies
 # with a syntax error. Use "the anchor" rather than the possessive form.
-awk -v mapdata="$map" -v tol="$TOLERANCE" '
+# A mapping is data, not an awk -v value: BSD awk rejects literal newlines in
+# -v assignments, and awk implementations also interpret backslash escapes.
+awk -F"\t" -v tol="$TOLERANCE" '
   function norm(p) {
     sub(/^\.\//, "", p); sub(/^\//, "", p)
     return p
@@ -192,15 +195,15 @@ awk -v mapdata="$map" -v tol="$TOLERANCE" '
   }
   BEGIN {
     nmap = 0
-    n = split(mapdata, rows, "\n")
-    for (i = 1; i <= n; i++) {
-      if (rows[i] == "") continue
-      split(rows[i], f, "\t")
-      nmap++
-      mnum[nmap] = f[1]; mfile[nmap] = f[2]; mline[nmap] = f[3]
-    }
     in_fixes = 0; in_fence = 0; anchor_state = "ambig"; anchor_num = ""
     changed = 0; remapped = 0; cleared = 0
+  }
+  FILENAME == ARGV[1] {
+    if (NF >= 3) {
+      nmap++
+      mnum[nmap] = $1; mfile[nmap] = $2; mline[nmap] = $3
+    }
+    next
   }
   {
     line = $0
@@ -246,7 +249,7 @@ awk -v mapdata="$map" -v tol="$TOLERANCE" '
     print line
   }
   END { printf("%d %d\n", remapped, cleared) > "/dev/stderr" }
-' "$summary" > "$tmp" 2>"$tmp.counts"
+' "$tmp.map" "$summary" > "$tmp" 2>"$tmp.counts"
 # An awk that died halfway leaves a truncated $tmp, so its status gates
 # everything below. The counts channel is shared with awk diagnostics (a runtime
 # warning prints there too), hence the LAST line only — and anything that is not
@@ -276,6 +279,5 @@ case "$before$after" in *[!0-9]*) exit 0 ;; esac
 [ -s "$tmp" ] || exit 0
 
 mv "$tmp" "$summary" || exit 0
-trap - EXIT
 echo "Renumbered Suggested Fixes against merged findings: repointed=${remapped} unnumbered=${cleared}" >&2
 exit 0

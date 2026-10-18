@@ -638,6 +638,8 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 | `OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT` | `false` | Review PRs while they are still in **DRAFT**. Truthy (`1`/`true`/`yes`/`on`) reviews drafts; falsy (`0`/`false`/`no`/`off`, the default) waits until the PR is marked ready. Set this to `true` on a repo that wants cheap review feedback during draft — useful when a costlier check (e.g. the eval harness) is deliberately reserved for ready PRs. The `run_on_draft` input overrides this Variable when non-empty. |
 | `OPENCODE_ANALYSE_RUN_ON_DRAFT` | `false` | Independent draft switch for `pipeline-ai-analyse.yml`. Truthy lets the autonomous low/medium fixer act on a draft PR; falsy (the default) makes the guard skip drafts. Deliberately separate from the review Variable — reviewing a draft and letting an autonomous fixer commit to one are different risk decisions, so a repo can enable either without the other. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` | `1` (on) | Code graph analysis (LADR-049). Builds a Tree-sitter SQLite knowledge graph via `code-review-graph` and runs risk-scored change detection. Set falsy to disable. |
+| `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS` | `1` (on) | Default-on per-chunk graph hints (LADR-050): up to five changed functions ranked by risk and three inferred test gaps. Set `0`/`false`/`no`/`off` to disable. Missing graph edges do **not** prove missing tests; source verification and quote-the-line evidence remain required. No verdict, grouping or test-edit policy changes. |
+| `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES` | `1024` | Byte ceiling on slice data **including** the truncation marker; fixed heading/guardrails are additional. Whole-line cuts preserve UTF-8. Invalid/nonpositive values fall back to `1024`; tiny caps omit unrenderable slices. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP` | `1` (on) | Trivial-PR skip (LADR-059). A PR whose every changed file is a lockfile/manifest may be skipped after a deterministic allowlist precondition plus an orchestrator-model veto. Never fires for `/ai-review` comments or `workflow_dispatch`. Set falsy to review every PR. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS` | `1` (on) | Per-run artifact upload (LADR-062). Assembles `ci_temp/run/` (report, per-chunk reviews, merged findings, metadata) on every run — including skipped and failed ones — and uploads it. Set falsy to disable. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY` | `1` (on) | Bounded `gh` retry (LADR-078). Gives each GitHub call that could abort the run exactly one retry after a fixed 30s wait, on an allowlist of HTTP-status/network signatures only; writes verify before retrying so a landed mutation is never re-posted. Set falsy to restore fail-fast behaviour. |
@@ -701,6 +703,8 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT` | GitHub **Variable** / workflow `run_on_draft` input (default `false`) | Reviews PRs while they are still in DRAFT when truthy; when falsy — the default in every packaging — the gate waits for `ready_for_review`. Resolution is `run_on_draft` input → this Variable → `false`, so the input wins when non-empty and a repo opts in by setting either. |
 | `OPENCODE_ANALYSE_RUN_ON_DRAFT` | GitHub **Variable** / `run_on_draft` dispatch input (default `false`) | Independent draft switch for the autonomous fixer. When falsy (the default) the analyse guard skips a draft PR (`draft PRs are not auto-fixed unless OPENCODE_ANALYSE_RUN_ON_DRAFT is enabled`) even if the gate reviewed it — so enabling draft *reviews* does not implicitly enable draft *auto-fixes*. The guard reads `.draft` from the PR JSON it already fetches, since a `workflow_run`-triggered `if:` cannot see draft state. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` | GitHub **Variable** / shell (default `1` — on) | Code graph analysis (LADR-049): builds the `code-review-graph` SQLite graph and emits `ci_temp/graph_detect_changes.json`, `graph_risk_summary.md`, `graph_file_risks.txt`. Degrades gracefully — the review proceeds without graph enrichment on failure. Set falsy to skip the build entirely. |
+| `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS` | GitHub **Variable** / shell (default `1` — on) | Uses repo-relative, pre-joined `ci_temp/graph_review_signals.tsv` for risk + inferred test-coverage hints. Explicit falsy values disable enrichment; unset/blank enables it. Optional `graph_evidence` never replaces source evidence or establishes reachability. Artifacts contain actual rendered slices; metadata records `graph_signals` (successfully shipped), `graph_signals_chunks` and `graph_analysis_available` separately. Ordinary `local-review.sh` builds no graph, so this is normally a no-op locally. |
+| `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES` | GitHub **Variable** / shell (default `1024`) | Byte cap on per-chunk slice data, including its marker. Declared in both workflow packagings; heading and guardrails have fixed additional overhead. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP` | GitHub **Variable** / shell (default `1` — on) | Trivial-PR skip (LADR-059). Two-stage: a deterministic lockfile/manifest allowlist precondition, then an orchestrator-model veto — anything other than an explicit `yes`, including a timeout, proceeds with the full review. Never fires for `/ai-review` comments or `workflow_dispatch`. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS` | GitHub **Variable** / shell (default `1` — on) | Per-run artifact assembly (LADR-062). An EXIT trap builds `ci_temp/run/` so skipped and failed runs upload one too. Must be declared in both workflow packagings. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY` | GitHub **Variable** / shell (default `1` — on) | Bounded single retry for GitHub API calls (LADR-078) via `lib/gh-retry.sh`: one attempt, a fixed 30s wait, one retry. Allowlisted HTTP/network signatures only, so an unrecognised error still fails fast; writes snapshot a gate-authored review/comment count and re-read it before retrying so a mutation that landed is never duplicated. |
@@ -795,3 +799,30 @@ Source is auto-detected by scanning the PR's reviews for the Copilot bot. Overri
 - Non-Copilot flow appends to AI Review Notes — it never overwrites existing content.
 
 Full spec: [`.agents/skills/ai-review/SKILL.md`](.agents/skills/ai-review/SKILL.md)
+
+## Running the deterministic tests
+
+The `opencode-v2-regressions` job in `.github/workflows/llm-eval-harness.yml` is
+**blocking** on relevant PRs, including drafts and forks. Its suites must pass;
+they are not expected failures. The separate paid `llm-evals` job is report-only.
+Some test cases intentionally launch failing commands to prove fail-closed
+behavior, but the containing suite must still exit successfully.
+
+Prerequisites: Bash ≥ 4.3, GNU coreutils (including real `timeout` and `comm -z`),
+Git, jq, Node.js, Python 3 and the pinned test requirements. CI prepares a test
+virtualenv explicitly rather than relying on preinstalled PyYAML.
+
+```bash
+# macOS prerequisites (Linux CI already provides Bash and GNU coreutils):
+brew install bash coreutils jq node
+
+python3 -m venv .context/test-venv
+.context/test-venv/bin/python -m pip install \
+  -r .agents/skills/ai-review-report/scripts/requirements-test.txt
+export PATH="$PWD/.context/test-venv/bin:$(brew --prefix)/bin:$PATH"
+bash .agents/skills/ai-review-report/scripts/run-regressions.sh
+```
+
+The runner discovers Homebrew coreutils without changing your shell profile and
+reads the **same explicit test array as CI**. `--list` prints that array. These
+tests use stubbed model/GitHub transports; they need no credentials or paid calls.

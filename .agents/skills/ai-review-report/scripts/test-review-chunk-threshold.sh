@@ -1442,9 +1442,14 @@ STALLSTUB
 chmod +x "${_sfs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
 # A REAL `timeout`, not the recording shim the split harness uses: the watchdog
 # has to signal a process group, and the pass-through shim has none.
-cat > "${_sfs}/bin/timeout" << 'STALLTIMEOUT'
+_sf_real_timeout="$(command -v timeout || command -v gtimeout || true)"
+if [ -z "$_sf_real_timeout" ] || ! "$_sf_real_timeout" --version 2>/dev/null | grep -q 'GNU coreutils'; then
+  echo 'GNU timeout required for stall-routing tests. On macOS: brew install coreutils.' >&2
+  exit 1
+fi
+cat > "${_sfs}/bin/timeout" << STALLTIMEOUT
 #!/usr/bin/env bash
-exec /usr/bin/timeout "$@"
+exec "$_sf_real_timeout" "\$@"
 STALLTIMEOUT
 chmod +x "${_sfs}/bin/timeout"
 (

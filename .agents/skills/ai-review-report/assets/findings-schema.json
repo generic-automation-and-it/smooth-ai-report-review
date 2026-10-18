@@ -96,7 +96,7 @@
           },
           "graph_evidence": {
             "type": "object",
-            "description": "Optional structural evidence from the code knowledge graph (code-review-graph, LADR-049), for findings whose claim rests on call-site or reachability facts rather than on the quoted line alone — 'nothing calls this', 'every caller already guards', 'this is on a critical execution flow'. DEFINED BUT NOT WIRED: no producer populates it and no consumer reads it as of LADR-055; it exists so the Tier 2 evidence-discipline work and LADR-050's per-chunk graph context injection do not need a second schema migration. Do not treat its absence as a defect.",
+            "description": "Optional provenance for structural hints actually supplied to the chunk (LADR-050: changed-function risk and inferred test gaps). Requested only when both graph hints and structured findings are enabled. Never proof of caller completeness, reachability, severity or absent tests, and never a substitute for first_evidence. Currently not used in verdict calculations; absence is never a defect.",
             "additionalProperties": false,
             "properties": {
               "query": {

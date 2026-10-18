@@ -243,4 +243,15 @@ grep -q '^FAILED_SUITE=' "$report" && {
 rm -rf ci_temp
 echo "✓ Test 12: a suite deleting ci_temp does not produce a phantom regression"
 
+# The aggregate CI-list runner is test infrastructure, not another individual
+# test suite. Auto-detecting it would run the entire suite list again inside
+# the gate and could exhaust the whole-gate budget.
+printf '#!/bin/bash\nprintf called > aggregate-was-run\nexit 1\n' > scripts/run-regressions.sh
+git add -A && git commit -qm aggregate-runner-is-not-a-suite
+report="$tmp_dir/report13.txt"
+rc="$(run_gate "$report")"
+[ "$rc" = 0 ] || { echo "FAIL Test13: aggregate runner changed the gate outcome" >&2; exit 1; }
+[ ! -e aggregate-was-run ] || { echo "FAIL Test13: auto-detection executed the aggregate runner" >&2; exit 1; }
+echo "✓ Test 13: aggregate runner is not recursively auto-detected"
+
 echo "✓ run-test-gate.sh tests passed"

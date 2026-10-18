@@ -367,7 +367,7 @@ run_precedence() {
   local name="$1" expected="$2"
   shift 2
   local actual
-  actual="$(env -i "$@" bash -c '
+  actual="$(env -i "$@" "$BASH" -c '
     OPENCODE_REVIEW_REPORT_PROVIDER="${OPENCODE_REVIEW_REPORT_PROVIDER:-OPENAI}"
     OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-gpt-5.6-sol}"
     OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
@@ -441,31 +441,31 @@ echo "=========================================="
 echo "Testing OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE"
 echo "=========================================="
 
-bypass_default="$(env -i bash -c '
+bypass_default="$(env -i "$BASH" -c '
   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
   printf "%s" "$OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE"
 ')"
 check "bypass default is empty when unset" "" "$bypass_default"
 
-bypass_set="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=1 bash -c '
+bypass_set="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=1 "$BASH" -c '
   val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
   printf "%s" "$val"
 ')"
 check "bypass preserves truthy value (1)" "1" "$bypass_set"
 
-bypass_true="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=true bash -c '
+bypass_true="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=true "$BASH" -c '
   val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
   case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
 ')"
 check "bypass truthy 'true' is detected" "bypassed" "$bypass_true"
 
-bypass_false="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=false bash -c '
+bypass_false="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE=false "$BASH" -c '
   val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
   case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
 ')"
 check "bypass 'false' is not bypassed" "normal" "$bypass_false"
 
-bypass_empty="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="" bash -c '
+bypass_empty="$(env -i OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="" "$BASH" -c '
   val="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
   case "${val,,}" in 1|true|yes|on) echo "bypassed" ;; *) echo "normal" ;; esac
 ')"
@@ -740,7 +740,7 @@ cat > "$mock_opencode/opencode" <<'EOF'
 echo "v1.18.9"
 EOF
 chmod +x "$mock_opencode/opencode"
-HOME="$TMP_DIR" PATH="/usr/bin:/bin" bash -c '
+HOME="$TMP_DIR" PATH="/usr/bin:/bin" "$BASH" -c '
   # Fresh shell — opencode is NOT on PATH
   if command -v opencode >/dev/null 2>&1; then
     echo "BUG: opencode was already on PATH"
@@ -1041,8 +1041,13 @@ unset _ladr080_lc
 # scratch cwd (so the ci_temp branch is not taken) with a scratch HOME (so the
 # LADR-071 migration cannot touch the real global config).
 _ladr080_probe() {
-  local version="$1" bin home cwd out
+  local version="$1" bin home cwd out tool rc=0
   bin="$(mktemp -d)"; home="$(mktemp -d)"; cwd="$(mktemp -d)"
+  # Include only the helper tools, never the developer's real opencode. An
+  # empty version case must actually mean "no CLI", not "no mock CLI".
+  for tool in basename cp dirname grep head jq mktemp mv rm; do
+    ln -s "$(command -v "$tool")" "$bin/$tool"
+  done
   # A ci_temp/ in cwd forces the lib's deterministic scratch-path branch. Without
   # it the lib falls back to `mktemp /tmp/opencode.resolved.XXXXXX.json`, whose
   # trailing suffix BSD mktemp does not honour — it creates a LITERAL
@@ -1056,8 +1061,14 @@ _ladr080_probe() {
   # GITHUB_ENV cleared: sourcing the lib under Actions would otherwise persist
   # a temp OPENCODE_CONFIG path into later steps (same trap as
   # test-prepare-opencode-v2-config.sh).
-  out="$(cd "$cwd" && HOME="$home" PATH="$bin:$PATH" GITHUB_ENV= bash -c \
-    ". '$SCRIPT_DIR/lib/prepare-opencode-config.sh'" 2>&1 >/dev/null || true)"
+  out="$(cd "$cwd" && env -i HOME="$home" PATH="$bin" GITHUB_ENV= "$BASH" -c \
+    ". '$SCRIPT_DIR/lib/prepare-opencode-config.sh'" 2>&1 >/dev/null)" || rc=$?
+  if [ "$rc" -ne 0 ] || [ ! -s "$cwd/ci_temp/opencode.resolved.json" ]; then
+    printf 'Config probe failed: %s\n' "$out" >&2
+    rm -rf "$bin" "$home" "$cwd"
+    echo probe-failed
+    return
+  fi
   rm -rf "$bin" "$home" "$cwd"
   if printf '%s' "$out" | grep -q 'does NOT resolve'; then echo warned; else echo silent; fi
 }

@@ -139,12 +139,23 @@ jobs:
             echo "⏭️  No OpenCode v2 review-pipeline files changed — deterministic regressions not required."
           fi
 
+      - name: Prepare deterministic test dependencies
+        if: steps.v2_scope.outputs.relevant == 'true'
+        run: |
+          set -euo pipefail
+          test_env="${RUNNER_TEMP}/review-regression-venv"
+          python3 -m venv "$test_env"
+          "$test_env/bin/python" -m pip install --disable-pip-version-check \
+            -r .agents/skills/ai-review-report/scripts/requirements-test.txt
+          echo "$test_env/bin" >> "$GITHUB_PATH"
+
       - name: Run deterministic OpenCode v2 regressions
         if: steps.v2_scope.outputs.relevant == 'true'
         run: |
           set -euo pipefail
           tests=(
             .agents/skills/ai-review-report/scripts/test-install-opencode.sh
+            .agents/skills/ai-review-report/scripts/test-regression-runner.sh
             .agents/skills/ai-review-report/scripts/test-opencode-health.sh
             .agents/skills/ai-review-report/scripts/test-find-context-files.sh
             .agents/skills/ai-review-report/scripts/test-opencode-v2-plugin.sh
@@ -164,6 +175,19 @@ jobs:
             # is_verification-before-is_doc_only order check, which cannot see the
             # allowlist arms (only test-verification-lens.sh runs the real script).
             .agents/skills/ai-review-report/scripts/test-chunk-prompt-guards.sh
+            # LADR-050: the per-chunk code-graph slice. Unit contract for the
+            # signals TSV and graph-signals-slice.sh (column shape, the test_gaps
+            # join, risk "-" vs 0, all five degradation paths, the 0/3/1 exit
+            # contract, the cap), the end-to-end chunk-prompt proof (block
+            # present, scoped to the chunk, no test-edit instruction, no #+digits,
+            # cap held, byte-identical prompts when the flag is off or the signals
+            # are missing), and the run-artifact copy + packaging parity.
+            # test-code-graph.sh and test-chunk-prompt-budget.sh were unregistered
+            # until now, so neither ever ran in CI.
+            .agents/skills/ai-review-report/scripts/test-code-graph.sh
+            .agents/skills/ai-review-report/scripts/test-graph-signals-slice.sh
+            .agents/skills/ai-review-report/scripts/test-chunk-prompt-budget.sh
+            .agents/skills/ai-review-report/scripts/test-graph-signals-artifact.sh
             # LADR-060: the verification lens is diverted BEFORE the doc-only test,
             # so the static order check cannot see the allowlist arms - only this
             # harness runs the real script (workflow chunk -> lens, markdown AND

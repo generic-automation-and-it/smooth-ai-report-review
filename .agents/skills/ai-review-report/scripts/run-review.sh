@@ -468,6 +468,31 @@ assemble_run_artifacts() {
     cp -r "$WORK_DIR/reviews"/. "$dir/reviews/" 2>/dev/null
   fi
   [ -f "$WORK_DIR/findings.merged.json" ] && cp "$WORK_DIR/findings.merged.json" "$dir/findings.merged.json" 2>/dev/null
+  # LADR-050: record actual per-chunk slices, not merely a truthy toggle and a
+  # nonempty producer file (which may contain only out-of-scope functions).
+  local graph_signals="false"
+  local graph_signals_chunks=0 signals_slice
+  local graph_analysis_available="${GRAPH_ANALYSIS_AVAILABLE:-unknown}"
+  case "$graph_analysis_available" in true|failed|disabled) ;; *) graph_analysis_available=unknown ;; esac
+  if [ -s "$WORK_DIR/graph_review_signals.tsv" ] \
+     && [ "$graph_analysis_available" != failed ] && [ "$graph_analysis_available" != disabled ] \
+     && printf '%s' "${OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS:-1}" | tr '[:upper:]' '[:lower:]' \
+        | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+    for signals_slice in "$WORK_DIR"/chunk_*_graph_signals.md; do
+      [ -s "$signals_slice" ] || continue
+      graph_signals_chunks=$((graph_signals_chunks + 1))
+    done
+    if [ "$graph_signals_chunks" -gt 0 ] \
+       && mkdir -p "$dir/graph" 2>/dev/null \
+       && [ ! -d "$dir/graph/graph_review_signals.tsv" ] \
+       && cp "$WORK_DIR/graph_review_signals.tsv" "$dir/graph/graph_review_signals.tsv" 2>/dev/null; then
+      graph_signals="true"
+      for signals_slice in "$WORK_DIR"/chunk_*_graph_signals.md; do
+        [ -s "$signals_slice" ] || continue
+        cp "$signals_slice" "$dir/graph/$(basename "$signals_slice")" 2>/dev/null || true
+      done
+    fi
+  fi
   # LADR-098: the judge's own context, so /ai-review and ai-analyse can tell
   # whether the gate's decisions are still valid (same Skip Areas) and, when
   # they must re-score, judge with the same per-chunk rules the gate used.
@@ -527,6 +552,9 @@ assemble_run_artifacts() {
   "provider": "${OPENCODE_REVIEW_REPORT_PROVIDER:-unknown}",
   "model": "${SELECTED_MODEL:-unknown}",
   "skip_reason": ${skip_reason_json},
+  "graph_signals": ${graph_signals},
+  "graph_signals_chunks": ${graph_signals_chunks},
+  "graph_analysis_available": "${graph_analysis_available}",
   "decisions_summary": ${decisions_json:-null},
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -1145,9 +1173,9 @@ unset _bypass_mandatory_ctx
 # When OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS is truthy, build the code
 # knowledge graph and run detect-changes to produce risk-scored function-level
 # analysis. The graph data is consumed by:
-#   - Phase 2 (LADR-050): per-chunk graph context injection in review-in-chunks.sh
-#   - Phase 3 (LADR-051): graph-aware chunk grouping (replaces LLM semantic grouping)
-#   - Phase 4 (LADR-052): aggregation enrichment in aggregate-reviews.sh
+#   - LADR-050: per-chunk risk + test-coverage signals in review-in-chunks.sh
+#     (the slice), and ci_temp/run/graph/ for consumers of the run artifact.
+# LADR-051 (grouping) and LADR-052 (aggregation) remain outside this change.
 #
 # Graceful degradation: if the graph build or detect-changes fails, we log a
 # warning and continue without graph enrichment. The chunked review proceeds
@@ -1155,7 +1183,7 @@ unset _bypass_mandatory_ctx
 _graph_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS:-1}"
 # Tokenize the value via tr so pathological inputs (1true, 1on, 11) align
 # with the cache step's `contains()` truthy-set. Three-state result:
-# "true" / "failed" / "disabled" — lets LADR-050/051/052 consumers
+# "true" / "failed" / "disabled" — lets the LADR-050 consumer
 # distinguish "didn't run" from "ran and failed".
 if printf '%s' "${_graph_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   echo ""
@@ -1196,14 +1224,13 @@ else
 fi
 export GRAPH_ANALYSIS_AVAILABLE
 unset _graph_enabled
-# TODO(LADR-050/051/052): GRAPH_ANALYSIS_AVAILABLE is a Phase 1 stub — the
-# per-chunk context injection (LADR-050), graph-aware chunk grouping
-# (LADR-051), and aggregation enrichment (LADR-052) consumers don't exist
-# yet, so this $GITHUB_OUTPUT write is currently a dead signal. Three
-# states: "true" = built and ready, "failed" = enabled but build/detect
-# failed, "disabled" = explicitly off. Land it in the same commit as the
-# first consumer that reads it, or remove the export and the
-# $GITHUB_OUTPUT write if the consumers land elsewhere.
+# LADR-050: GRAPH_ANALYSIS_AVAILABLE now has a consumer — review-in-chunks.sh's
+# graph_signals_enabled() reads it, so the export is live rather than a stub.
+# The diagnostic $GITHUB_OUTPUT write is retained for compatibility. The actual
+# consumer reads the exported variable. Three states: "true" = built and ready,
+# "failed" = enabled but build/detect failed, "disabled" = explicitly off.
+#
+# LADR-051 (grouping) and LADR-052 (aggregation) remain unimplemented here.
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "graph_analysis_available=${GRAPH_ANALYSIS_AVAILABLE}" >> "$GITHUB_OUTPUT"
 fi

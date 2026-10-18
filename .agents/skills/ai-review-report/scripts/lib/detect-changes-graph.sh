@@ -7,6 +7,10 @@
 #   ci_temp/graph_detect_changes.json  — raw JSON from detect-changes (for Phase 2/3)
 #   ci_temp/graph_risk_summary.md      — human-readable risk summary (for aggregation)
 #   ci_temp/graph_file_risks.txt       — per-file risk scores (for chunk grouping)
+#   ci_temp/graph_review_signals.tsv   — LADR-050: per-chunk risk + test-gap signals.
+#                                       Repo-relative, risk-desc, with the test_gaps
+#                                       join already resolved. The ONLY artifact a
+#                                       chunk reviewer reads (lib/graph-signals-slice.sh).
 #
 # Inputs (env vars):
 #   MERGE_BASE_FOR_DIFF — git ref to diff against (set by run-review.sh Step 9)
@@ -33,6 +37,7 @@ if ! command -v code-review-graph >/dev/null 2>&1; then
   : > "$WORK_DIR/graph_detect_changes.json"
   : > "$WORK_DIR/graph_risk_summary.md"
   : > "$WORK_DIR/graph_file_risks.txt"
+  : > "$WORK_DIR/graph_review_signals.tsv"
   exit 0
 fi
 
@@ -41,6 +46,7 @@ if [ ! -d ".code-review-graph" ] || [ ! -f ".code-review-graph/graph.db" ]; then
   : > "$WORK_DIR/graph_detect_changes.json"
   : > "$WORK_DIR/graph_risk_summary.md"
   : > "$WORK_DIR/graph_file_risks.txt"
+  : > "$WORK_DIR/graph_review_signals.tsv"
   exit 0
 fi
 
@@ -87,6 +93,7 @@ else
   : > "$WORK_DIR/graph_detect_changes.json"
   : > "$WORK_DIR/graph_risk_summary.md"
   : > "$WORK_DIR/graph_file_risks.txt"
+  : > "$WORK_DIR/graph_review_signals.tsv"
   exit 0
 fi
 
@@ -116,12 +123,17 @@ ANALYSIS_TIME=$((ANALYSIS_END - ANALYSIS_START))
 #
 # We extract per-file risk scores for chunk grouping and produce a markdown
 # summary for the aggregation prompt.
+#
+# graph_review_signals.tsv is derived from the SAME raw JSON (never mutated —
+# graph_detect_changes.json is consumed as-is by score-findings-decisions.sh and
+# asserted raw by test-code-graph.sh), with paths relativized once here.
 
 # Check if jq is available for JSON parsing
 if ! command -v jq >/dev/null 2>&1; then
   echo "⚠️  jq not available — cannot parse graph JSON (producing empty summaries)" >&2
   : > "$WORK_DIR/graph_risk_summary.md"
   : > "$WORK_DIR/graph_file_risks.txt"
+  : > "$WORK_DIR/graph_review_signals.tsv"
   exit 0
 fi
 
@@ -130,6 +142,7 @@ if [ ! -s "$WORK_DIR/graph_detect_changes.json" ] || ! jq empty "$WORK_DIR/graph
   echo "⚠️  Graph JSON empty or invalid — skipping summary generation" >&2
   : > "$WORK_DIR/graph_risk_summary.md"
   : > "$WORK_DIR/graph_file_risks.txt"
+  : > "$WORK_DIR/graph_review_signals.tsv"
   exit 0
 fi
 
@@ -154,6 +167,84 @@ jq -r --arg root "$REPO_PREFIX" '
 
 FILE_COUNT="$(wc -l < "$WORK_DIR/graph_file_risks.txt" 2>/dev/null | tr -d ' ')"
 echo "  Files with changed functions: ${FILE_COUNT:-0}"
+
+# --- Per-function review signals (LADR-050) -----------------------------------
+# The one artifact a chunk reviewer actually reads. Two signals only — risk and
+# test coverage — because those are the two that survive their own limitations:
+# flow detection is immature for JS/Go and impact "recall 1.0" is circular
+# upstream, so neither may become a citable claim in a posted review.
+#
+# Columns: file_rel, line_start, line_end, name, risk, untested.
+#
+#   file_rel  repo-relative, like graph_file_risks.txt above — this file is the
+#             LADR-050 slice's join key against diff paths.
+#   risk      the raw risk_score, or "-" when absent. NEVER an empty field: an
+#             empty column collapses under IFS and shifts `untested` into
+#             `risk` in every consumer that reads it (the same trap already
+#             handled in score-findings-decisions.sh). `0 // "-"` is correct —
+#             jq treats 0 as truthy, so a genuine 0.0 survives.
+#   untested  joined from test_gaps[] here, once, rather than in each consumer.
+#             Join is by qualified_name (falling back to name) first and by
+#             line_start second. The asymmetry matters: a missed match is a
+#             marker that never appears, while a false match is a coverage
+#             claim a reviewer may act on — so the looser line_start key is only
+#             consulted after the name key has missed.
+#             Ambiguous same-name functions require a line match; a gap on one
+#             overload must not mark every overload in the file as untested.
+#
+# Sorted risk-descending so a consumer can `head -N` for the top N.
+_sig_raw="$WORK_DIR/graph_review_signals.tsv.unsorted"
+# Materialize only complete jq output. The script has pipefail, but keeping the
+# parser and sort separate also lets us warn specifically on schema failures.
+if jq -r --arg root "$REPO_PREFIX" '
+  def safe_text:
+    type == "string" and length > 0 and
+    (test("[\\x00-\\x1f\\x7f`]|#[0-9]|🔴|🟠|🟡|🔵|(?i:issues found|###[[:space:]]*file:)") | not);
+  def relpath:
+    select(safe_text) | ltrimstr($root) |
+    select((test("^/|^[A-Za-z]:|(^|/)\\.\\.?($|/)") | not));
+  def symbol:
+    ((.file_path // .file // "") | ltrimstr($root)) as $file |
+    (.qualified_name // .name // "?") | select(safe_text) |
+    ltrimstr($root) | ltrimstr($file + "::") |
+    select(startswith("/") | not);
+  def line: type == "number" and . > 0 and floor == .;
+  def risk: type == "number" and . >= 0 and . <= 1;
+  ((.test_gaps // [])
+    | map(select(.line_start | line) |
+          { f: (.file | relpath), n: symbol,
+            l: (.line_start | tostring) })) as $gaps
+  | ($gaps | map(.f + "\t" + .n) | INDEX(.)) as $byName
+  | ($gaps | map(.f + "\t" + .l) | INDEX(.)) as $byLine
+  | ((.changed_functions // []) | map({f:(.file_path | relpath), n:symbol}) |
+     group_by(.f + "\t" + .n) |
+     map({key:(.[0].f + "\t" + .[0].n), value:length}) | from_entries) as $nameCounts
+  | (.changed_functions // [])[]
+  | select(.line_start | line)
+  | select((.line_end // .line_start) as $end | ($end | line) and $end >= .line_start)
+  | select(.risk_score == null or (.risk_score | risk))
+  | (.file_path | relpath) as $rel
+  | symbol as $nm
+  | [$rel, .line_start, (.line_end // .line_start), $nm, (.risk_score // "-"),
+     (if (($nameCounts[$rel + "\t" + $nm] == 1 and $byName[$rel + "\t" + $nm]) or
+          $byLine[$rel + "\t" + (.line_start | tostring)])
+      then "true" else "false" end)] | @tsv
+' "$WORK_DIR/graph_detect_changes.json" > "$_sig_raw" 2>/dev/null; then
+  LC_ALL=C sort -t$'\t' -k5,5gr "$_sig_raw" > "$WORK_DIR/graph_review_signals.tsv" || \
+    : > "$WORK_DIR/graph_review_signals.tsv"
+else
+  echo "⚠️  signals TSV generation failed — continuing without per-function signals" >&2
+  : > "$WORK_DIR/graph_review_signals.tsv"
+fi
+rm -f "$_sig_raw"
+
+SIGNALS_COUNT="$(wc -l < "$WORK_DIR/graph_review_signals.tsv" 2>/dev/null | tr -d ' ')"
+# Counted with awk, not `grep -c`. grep exits 1 when it matches nothing, so the
+# `|| echo 0` idiom appends a SECOND zero to the one grep already printed and the
+# line breaks across two — on the all-covered path, which is the common one.
+UNTESTED_COUNT="$(awk -F'\t' '$6 == "true" { n++ } END { print n + 0 }' \
+  "$WORK_DIR/graph_review_signals.tsv" 2>/dev/null || echo 0)"
+echo "  Review signals: ${SIGNALS_COUNT:-0} function(s), ${UNTESTED_COUNT:-0} without test coverage"
 
 # Count high-risk functions (risk >= 0.7)
 HIGH_RISK_COUNT="$(jq '[.changed_functions // [] | .[] | select((.risk_score // 0) >= 0.7)] | length' \
@@ -262,3 +353,4 @@ echo "✓ Graph analysis complete:"
 echo "  JSON: $WORK_DIR/graph_detect_changes.json"
 echo "  Summary: $WORK_DIR/graph_risk_summary.md"
 echo "  File risks: $WORK_DIR/graph_file_risks.txt (${FILE_COUNT:-0} files)"
+echo "  Review signals: $WORK_DIR/graph_review_signals.tsv (${SIGNALS_COUNT:-0} functions)"

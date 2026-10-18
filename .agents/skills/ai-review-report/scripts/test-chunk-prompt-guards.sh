@@ -307,6 +307,94 @@ else
   bad "smell baseline is not in the code-chunk branch (code heading=$_code_heading_line, baseline=$_smell_line)"
 fi
 
+# --- LADR-050: the code-graph slice -----------------------------------------
+# The slice is the first prompt content that hands the model a claim about code
+# it cannot see in the diff. Three properties are load-bearing and none of them
+# is visible at runtime, so they are asserted statically here — this suite is
+# registered in the blocking eval job, so a later edit that breaks one fails CI
+# rather than shipping.
+#
+# 1. Emitted ONLY under the flag. Unconditional, it would tell every repo — one
+#    with no graph, or one running with graph analysis off — that functions have
+#    risk scores and coverage gaps, and cite a block that is not there.
+# 2. Default ON. An explicit false value disables the block; missing graph data
+#    still degrades to the unchanged prompt.
+# 3. The graph_evidence rule that teaches the model to cite it stays inside the
+#    structured-findings guard. Outside it, the model is told to fill a field
+#    that no schema ever asked for — the exact leak this suite exists to catch.
+GRAPH_GUARD_LINE="$(grep -n '^  if graph_signals_enabled; then$' "$TARGET" | head -n1 | cut -d: -f1)"
+GRAPH_BLOCK_LINE="$(grep -n '^## Structural signals (code graph)$' "$TARGET" | head -n1 | cut -d: -f1)"
+if [ -n "$GRAPH_GUARD_LINE" ] && [ -n "$GRAPH_BLOCK_LINE" ] && [ "$GRAPH_GUARD_LINE" -lt "$GRAPH_BLOCK_LINE" ]; then
+  ok "the graph-signals block sits inside the graph_signals_enabled guard"
+else
+  bad "the graph-signals block is emitted unconditionally (guard=$GRAPH_GUARD_LINE, block=$GRAPH_BLOCK_LINE)"
+fi
+
+if grep -q '^graph_signals_enabled() {' "$TARGET"; then
+  ok "graph_signals_enabled() is defined in review-in-chunks.sh"
+else
+  bad "graph_signals_enabled() is missing — the guard has been renamed or removed"
+fi
+
+if grep -q 'OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS:-1' "$TARGET"; then
+  ok "the graph-signals flag defaults to 1 (enabled)"
+else
+  bad "the graph-signals flag must default to 1"
+fi
+
+check_guarded "graph_evidence citation rule" 'graph_evidence` (LADR-050)'
+
+# The field is an object, not a string. Validate the actual prompt example
+# against the existing schema shape instead of trusting explanatory prose.
+_graph_example="$(grep -F '`graph_evidence` (LADR-050)' "$TARGET" | sed -n 's/.*`\({[^`]*}\)`.*/\1/p')"
+if printf '%s' "$_graph_example" | jq -e --slurpfile schema "$SCRIPT_DIR/../assets/findings-schema.json" '
+  . as $value | $schema[0].properties.findings.items.properties.graph_evidence as $spec |
+  $spec.type == "object" and ($value | type) == "object" and
+  ((($value | keys) - ($spec.properties | keys)) | length) == 0 and
+  all($value[]; type == "string")
+' > /dev/null 2>&1; then
+  ok 'graph_evidence example matches its object schema'
+else
+  bad 'graph_evidence prompt example disagrees with the schema'
+fi
+
+# The block must not be able to talk the model into an LADR-045 violation. A
+# coverage gap is a fact about the repo; acting on it by writing a test is
+# ai-analyse's business, and only when that flag is on. In the REVIEWER prompt
+# the phrase can only ever appear as the prohibition itself.
+_GRAPH_BLOCK_SRC="$(sed -n '/^## Structural signals (code graph)$/,/^EOF$/p' "$TARGET")"
+if printf '%s' "$_GRAPH_BLOCK_SRC" | grep -qiE '(add|write|create) a test'; then
+  bad "the graph-signals block instructs a test edit (LADR-045)"
+else
+  ok "the graph-signals block never instructs a test edit"
+fi
+# LADR-067: a posted body may not carry #+digits or GitHub autolinks them.
+if printf '%s' "$_GRAPH_BLOCK_SRC" | grep -qE '#[0-9]+'; then
+  bad "the graph-signals block contains #+digits (LADR-067 autolinks it)"
+else
+  ok "no #+digits in the graph-signals block source"
+fi
+# The block must not imitate the completion signals review-has-shape.sh reads.
+if printf '%s' "$_GRAPH_BLOCK_SRC" | grep -qE '###[[:space:]]*File:|Issues Found'; then
+  bad "the graph-signals block mimics a review-has-shape.sh completion signal"
+else
+  ok "the graph-signals block does not mimic the shape predicate's completion signals"
+fi
+# Severity is the model's call, never the graph's. An emoji in this block would
+# pre-empt it.
+if printf '%s' "$_GRAPH_BLOCK_SRC" | grep -qE '🔴|🟠|🟡|🔵'; then
+  bad "the graph-signals block carries a severity emoji — risk_score is not a severity"
+else
+  ok "no severity emoji in the graph-signals block"
+fi
+# The files must reach the slice NUL-separated: argv would word-split and glob
+# them, and the caller's list is a bash array.
+if grep -qF "printf '%s\0' \"\${files[@]}\"" "$TARGET"; then
+  ok "the slice receives the chunk file list NUL-separated, not as argv"
+else
+  bad "the slice call must pass the chunk files NUL-separated (argv word-splits and globs them)"
+fi
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then

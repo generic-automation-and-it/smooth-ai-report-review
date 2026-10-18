@@ -41,7 +41,8 @@ EOF
 bash "$here/lib/complete-fix-skip-table.sh" "$scratch/scope" "$scratch/model" "$scratch/count" > "$scratch/rows"
 test "$(cat "$scratch/count")" = 0
 test ! -s "$scratch/rows"
-sed -i 's/| \*\*FIX\*\* |/| ✅ FIX |/' "$scratch/model"
+sed 's/| \*\*FIX\*\* |/| ✅ FIX |/' "$scratch/model" > "$scratch/model.next"
+mv "$scratch/model.next" "$scratch/model"
 bash "$here/lib/complete-fix-skip-table.sh" "$scratch/scope" "$scratch/model" "$scratch/count" > "$scratch/rows"
 test "$(cat "$scratch/count")" = 0
 test ! -s "$scratch/rows"
