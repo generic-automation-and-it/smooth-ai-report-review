@@ -224,6 +224,10 @@ source "$SCRIPT_DIR/lib/gh-retry.sh"
 # (Config must be in place before the v2 API diagnostic runs.)
 # Must be sourced so OPENCODE_CONFIG is exported into this shell.
 . "$SCRIPT_DIR/lib/prepare-opencode-config.sh"
+bash "$SCRIPT_DIR/lib/ensure-opencode-models.sh" "$OPENCODE_CONFIG" \
+  "$OPENCODE_REVIEW_REPORT_PROVIDER_ID" "$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY" \
+  "$OPENCODE_REVIEW_REPORT_MODEL_SECONDARY" "$OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR" \
+  || echo "⚠️  Runtime model registration failed — continuing with the prepared config." >&2
 
 # Quarantine the repo's own opencode.json(c) (LADR-103), but ONLY on GitHub
 # Actions: project config loads from the working tree and newer opencode

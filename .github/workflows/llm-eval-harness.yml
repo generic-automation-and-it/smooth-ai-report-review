@@ -160,6 +160,7 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-find-context-files.sh
             .agents/skills/ai-review-report/scripts/test-opencode-v2-plugin.sh
             .agents/skills/ai-review-report/scripts/test-prepare-opencode-v2-config.sh
+            .agents/skills/ai-review-report/scripts/test-prepare-opencode-models.sh
             # LADR-103: the repo-under-review's own opencode.json(c) is held
             # aside and replaced with the managed config for the run
             # (regular files, live and dangling symlinks), then restored

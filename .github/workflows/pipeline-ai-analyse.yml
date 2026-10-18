@@ -396,6 +396,18 @@ jobs:
           echo "ANALYSE_SKILL_DIR=.smooth-ai-review-tools/.agents/skills/ai-analyse" >> "$GITHUB_ENV"
           echo "AI_REVIEW_DIR=.smooth-ai-review-tools/.agents/skills/ai-review" >> "$GITHUB_ENV"
 
+      - name: Resolve provider/model chain
+        run: |
+          set -euo pipefail
+          # Child exports do not reach this shell. GITHUB_ENV carries both IDs
+          # into Initialize OPENCODE, before model registration (LADR-107).
+          bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
+          if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
+            OPENCODE_PROVIDER_SCOPE=analyse bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
+          elif [ -n "${OPENCODE_ANALYSE_PROVIDER:-}" ]; then
+            echo "OPENCODE_ANALYSE_PROVIDER is set but OPENCODE_ANALYSE_MODEL is unset; analyse will inherit the review provider/model."
+          fi
+
       - name: Initialize OPENCODE
         run: |
           set -euo pipefail
@@ -419,6 +431,21 @@ jobs:
             . "${REVIEW_SKILL_DIR}/scripts/lib/prepare-opencode-config.sh"
           else
             bash "${REVIEW_SKILL_DIR}/scripts/lib/setup-opencode-config.sh"
+          fi
+          # Registration precedes the stand-in copy and service binding. The
+          # default-branch YAML can encounter older PR tooling without this lib.
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" ]; then
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" "${OPENCODE_CONFIG:-}" \
+              "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-}" "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}" \
+              "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}" \
+              || echo "⚠️  Review fallback model registration failed — keeping the prepared config." >&2
+            if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
+              bash "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" "${OPENCODE_CONFIG:-}" \
+                "${OPENCODE_ANALYSE_PROVIDER_ID:-}" "${OPENCODE_ANALYSE_MODEL}" \
+                || echo "⚠️  Analyse model registration failed — keeping the prepared config." >&2
+            fi
+          else
+            echo "⚠️  Runtime model registration unavailable in this tooling version — using configured models." >&2
           fi
           # LADR-103: quarantine the PR checkout's own opencode.json(c) — it
           # loads from the untrusted head above OPENCODE_CONFIG and newer
@@ -450,12 +477,6 @@ jobs:
           if [ "$_health_rc" -eq 3 ]; then
             echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
             exit 1
-          fi
-          bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
-          if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
-            OPENCODE_PROVIDER_SCOPE=analyse bash "${REVIEW_SKILL_DIR}/scripts/lib/resolve-provider.sh"
-          elif [ -n "${OPENCODE_ANALYSE_PROVIDER:-}" ]; then
-            echo "OPENCODE_ANALYSE_PROVIDER is set but OPENCODE_ANALYSE_MODEL is unset; analyse will inherit the review provider/model."
           fi
 
       - name: Build analyse prompt

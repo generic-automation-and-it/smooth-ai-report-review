@@ -142,6 +142,10 @@ if [ "$SELFTEST" != "1" ]; then
   # shellcheck source=../lib/resolve-provider.sh
   source "$SKILL_SCRIPTS_DIR/lib/resolve-provider.sh"
   . "$SKILL_SCRIPTS_DIR/lib/prepare-opencode-config.sh"
+  bash "$SKILL_SCRIPTS_DIR/lib/ensure-opencode-models.sh" "$OPENCODE_CONFIG" \
+    "$OPENCODE_REVIEW_REPORT_PROVIDER_ID" "$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY" \
+    "$OPENCODE_REVIEW_REPORT_MODEL_SECONDARY" "$OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR" \
+    || echo "⚠️  Runtime model registration failed — continuing with the prepared config." >&2
   # opencode v2 binds its shared background service's config when the service
   # STARTS, so anything that already warmed one — including the harness
   # workflow's own `opencode stats` — owns the config for the rest of the run

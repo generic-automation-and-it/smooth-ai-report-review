@@ -555,6 +555,8 @@ For a one-run scope override, comment on the PR: `/ai-review --file-limit 5 --ex
 
 OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-review-report/assets/opencode.json`](.agents/skills/ai-review-report/assets/opencode.json)) defines the providers OpenCode can route to. Each provider reads its gateway URL and API key from environment variables (`{env:...}` substitution), so credentials never live in the repo.
 
+**New model? Set the model Variables or free-text input; no roster edit is required.** The gate registers absent requested IDs as `{}` in its run-local config before starting the model service (LADR-107). Local/npm runs, analyse and eval use the same helper. Existing aliases, options, limits, capabilities, disabled entries and credential placeholders are preserved; committed configs are untouched. Use provider-relative IDs such as `kimi-future`, or OpenRouter `vendor/model`—do not add the OpenCode provider prefix. The provider must already exist, and existing family/SDK-surface checks (including the Responses allowlist), model capabilities and upstream availability still apply. Registration warns and skips on missing jq, unsupported JSON/JSONC shapes or write failure. The table below is the shipped roster, not an exhaustive model allowlist.
+
 | Provider | Status | Models | Env vars (gateway URL + key) |
 |---|---|---|---|
 | **Gemini** (`gemini`, `@ai-sdk/google`) | Optional | `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-2.5-flash` | `OPENCODE_REVIEW_REPORT_GEMINI_URL`, `OPENCODE_GEMINI_API_KEY` |
