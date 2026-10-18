@@ -665,11 +665,21 @@ if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true
 fi
 unset _rtk_enabled
 
+# 5c-ter. Resolve before preparing/binding the managed config so requested
+# models can be registered before quarantine and service startup (LADR-107).
+# This is authoritative; the earlier U/K mapping is only a credential fail-fast.
+. "$LIB_DIR/resolve-provider.sh"
+echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID}"
+
 # 5d. Install opencode.json provider config via OPENCODE_CONFIG.
 # The lib must be sourced (not exec'd) so OPENCODE_CONFIG is exported
 # into this shell and reaches all child processes (review-in-chunks.sh
 # subshells, aggregate-reviews.sh, opencode-with-fallback.sh).
 . "$LIB_DIR/prepare-opencode-config.sh"
+bash "$LIB_DIR/ensure-opencode-models.sh" "$OPENCODE_CONFIG" \
+  "$OPENCODE_REVIEW_REPORT_PROVIDER_ID" "$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY" \
+  "$OPENCODE_REVIEW_REPORT_MODEL_SECONDARY" "$OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR" \
+  || echo "⚠️  Runtime model registration failed — continuing with the prepared config." >&2
 
 # 5d-bis. Quarantine the repo-under-review's own opencode.json(c) (LADR-103).
 # Project config merges above OPENCODE_CONFIG and loads from the untrusted PR
@@ -708,12 +718,6 @@ if [ "$_health_rc" -eq 3 ]; then
   echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
   exit 1
 fi
-
-# 5f. Resolve provider → provider-id (gemini / openai / …). This is the
-# authoritative resolver (matches the post-checkout `Resolve provider/model
-# chain` step); the pre-checkout U/K mapping above is just a fail-fast.
-. "$LIB_DIR/resolve-provider.sh"
-echo "Resolved provider: ${OPENCODE_REVIEW_REPORT_PROVIDER} → ${OPENCODE_REVIEW_REPORT_PROVIDER_ID}"
 
 # 5g. Probe the two-tier review chain (PRIMARY → SECONDARY). On a soft-fail
 # (both models unavailable), set all_models_failed=true and post a
