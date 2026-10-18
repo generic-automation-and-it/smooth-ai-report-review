@@ -41,6 +41,12 @@ SOURCE_SPLIT_CHAIN_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib
 SOURCE_SPLIT_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
 # LADR-100: aggregation strips any holistic section a model still writes.
 SOURCE_STRIP_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/strip-holistic-section.sh"
+# LADR-050: the per-chunk graph slice. Copied for the same reason as the libs
+# above — without it review-in-chunks.sh finds no slice lib and silently emits
+# no block, so the harness would pass while testing nothing.
+SOURCE_SLICE_LIB="${REPO_ROOT}/.agents/skills/ai-review-report/scripts/lib/graph-signals-slice.sh"
+# The lib directory itself, for the wholesale copy in setup_repo.
+SOURCE_LIB_DIR="${REPO_ROOT}/.agents/skills/ai-review-report/scripts"
 
 TMP_DIR="$(mktemp -d /tmp/chunk-prompt-budget.XXXXXX)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -64,6 +70,20 @@ setup_repo() {
   cp "${SOURCE_SPLIT_CHAIN_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/run-split-chain.sh"
   cp "${SOURCE_SPLIT_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/split-chunk-budget.sh"
   cp "${SOURCE_STRIP_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/strip-holistic-section.sh"
+  cp "${SOURCE_SLICE_LIB}" "${test_repo}/.agents/skills/ai-review-report/scripts/lib/graph-signals-slice.sh"
+
+  # Every remaining lib, copied wholesale rather than one-by-one. This harness
+  # previously copied a hand-picked subset, and aggregate-reviews.sh grew
+  # dependencies past it (annotate/renumber suggested fixes, review notes,
+  # the decision verdict, the runtime-AGENTS.md builder, the findings renderer):
+  # the summary call died on a missing file and every assertion after it ran
+  # against the failure template instead of the stubbed summary — a silent
+  # wrong-path pass. opencode-with-fallback.sh is the deliberate exception; it is
+  # stubbed immediately below, so copy it aside rather than leaving the stub and
+  # a real transport both in lib/.
+  cp "${SOURCE_LIB_DIR}"/lib/*.sh "${test_repo}/.agents/skills/ai-review-report/scripts/lib/" 2>/dev/null || true
+  cp "${SOURCE_LIB_DIR}"/lib/*.py "${test_repo}/.agents/skills/ai-review-report/scripts/lib/" 2>/dev/null || true
+  rm -f "${test_repo}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
 
   # Stub transport: junk for semantic grouping (forces directory-grouping
   # fallback), a clean APPROVE summary for aggregation, >200 bytes of review
@@ -261,6 +281,7 @@ run_aggregation_case() {
   fi
 
   GITHUB_OUTPUT="${output_file}" \
+  PATH="${test_repo}/bin:${PATH}" \
   bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh "2" "test-model" "full" "aaaaaaa1234" "2" "bbbbbbb5678" "test expertise" "none" > "${run_log}" 2>&1
 
   # The stubbed summary must actually be what aggregated. If the sandbox lacks a
@@ -322,8 +343,231 @@ run_aggregation_case() {
   fi
 }
 
+run_graph_signals_case() {
+  local test_repo="${TMP_DIR}/repo"
+  local cap=1024
+
+  cd "${test_repo}"
+  local from_sha to_sha
+  from_sha="$(git rev-parse HEAD~1)"
+  to_sha="$(git rev-parse HEAD)"
+
+  # A signals TSV covering two of the fixture's changed files: one high-risk and
+  # untested, one low-risk and covered. `giant/big.txt` is deliberately absent
+  # so the "only this chunk's files" filter has something to exclude.
+  cat > "${TMP_DIR}/graph-signals.tsv" <<'TSV'
+huge/f01.txt	1	9	HandleChunk	0.82	true
+huge/f02.txt	1	9	RenderChunk	0.31	false
+giant/elsewhere.txt	1	2	NotInThisChunk	0.99	true
+TSV
+
+  local run_dir prompts=() prompt
+  run_dir=0
+  while [ "${run_dir}" -lt 10 ]; do
+    local label flag with_tsv graph_state=true structured=1
+    case "${run_dir}" in
+      # A: flag on, signals present — the block must appear.
+      0) label="signals-on";  flag=1; with_tsv=1 ;;
+      # B: flag on, no signals file — must degrade to today's prompt, silently.
+      1) label="signals-absent"; flag=1; with_tsv=0 ;;
+      # C: flag off, signals present — must be byte-identical to B.
+      2) label="signals-off"; flag=0; with_tsv=1 ;;
+      3) label="graph-failed"; flag=1; with_tsv=1; graph_state=failed ;;
+      4) label="graph-disabled"; flag=1; with_tsv=1; graph_state=disabled ;;
+      5) label="signals-malformed"; flag=1; with_tsv=1 ;;
+      6) label="slice-missing"; flag=1; with_tsv=1 ;;
+      7) label="sidecar-off"; flag=1; with_tsv=1; structured=0 ;;
+      8) label="default-unset"; flag=unused; with_tsv=1 ;;
+      9) label="default-empty"; flag=""; with_tsv=1 ;;
+    esac
+
+    rm -rf ci_temp/reviews
+    mkdir -p ci_temp/reviews
+    rm -f ci_temp/chunk_*_prompt.txt
+    cp "${TMP_DIR}/graph-signals.tsv" ci_temp/graph_review_signals.tsv
+    [ "${with_tsv}" -eq 1 ] || rm -f ci_temp/graph_review_signals.tsv
+    if [ "$label" = signals-malformed ]; then
+      printf 'huge/f01.txt\tbad\t20\tBad\t0.8\ttrue\n' > ci_temp/graph_review_signals.tsv
+    fi
+    if [ "$label" = slice-missing ]; then
+      mv .agents/skills/ai-review-report/scripts/lib/graph-signals-slice.sh "${TMP_DIR}/slice.saved"
+    fi
+
+    local run_rc=0
+    local flag_env=(env "OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS=$flag")
+    if [ "$label" = default-unset ]; then flag_env=(env -u OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS); fi
+    GITHUB_OUTPUT="${TMP_DIR}/${label}.out" \
+    PATH="${test_repo}/bin:${PATH}" \
+    GRAPH_ANALYSIS_AVAILABLE="$graph_state" \
+    OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS="$structured" \
+    OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES="${cap}" \
+    "${flag_env[@]}" bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh "${from_sha}" "${to_sha}" "test-model" "test expertise" \
+      > "${TMP_DIR}/${label}.log" 2>&1 || run_rc=$?
+    if [ "$label" = slice-missing ]; then
+      mv "${TMP_DIR}/slice.saved" .agents/skills/ai-review-report/scripts/lib/graph-signals-slice.sh
+    fi
+    if [ "$run_rc" -ne 0 ]; then
+      fail "graph signals ${label}: real chunk script failed (rc=${run_rc})"
+      cat "${TMP_DIR}/${label}.log"
+      return
+    fi
+    if find ci_temp/reviews -name 'chunk_*.failed' | grep -q .; then
+      fail "graph signals ${label}: unexpected chunk failure"
+    else
+      pass "graph signals ${label}: review succeeds without failed chunks"
+    fi
+
+    shopt -s nullglob
+    prompts=(ci_temp/chunk_*_prompt.txt)
+    shopt -u nullglob
+    if [ "${#prompts[@]}" -eq 0 ]; then
+      fail "graph signals ${label}: no chunk prompts were generated (see ${TMP_DIR}/${label}.log)"
+      return
+    fi
+    mkdir -p "${TMP_DIR}/${label}.prompts"
+    cp "${prompts[@]}" "${TMP_DIR}/${label}.prompts/"
+    if [ "$label" = sidecar-off ]; then
+      if grep -q graph_evidence "${prompts[@]}"; then
+        fail 'graph signals: graph_evidence leaks with sidecar off'
+      else
+        pass 'graph signals: graph_evidence absent with sidecar off'
+      fi
+    fi
+
+    # Snapshot each prompt's graph block so the three runs can be compared
+    # byte-for-byte rather than by eyeball. Markers delimit the per-prompt
+    # blocks so an all-empty run is distinguishable from a run of separators.
+    : > "${TMP_DIR}/${label}.blocks"
+    for prompt in "${prompts[@]}"; do
+      printf '<<<BLOCK\n' >> "${TMP_DIR}/${label}.blocks"
+      awk '
+        /^## Structural signals \(code graph\)$/ { f = 1 }
+        f && /^## ⚠️ CRITICAL: REVIEW SCOPE/ { f = 0 }
+        f { print }
+      ' "${prompt}" >> "${TMP_DIR}/${label}.blocks"
+      printf 'BLOCK>>>\n' >> "${TMP_DIR}/${label}.blocks"
+    done
+
+    if [ "${run_dir}" -eq 0 ]; then
+      if grep -q '## Structural signals (code graph)' "${prompts[@]}"; then
+        pass "graph signals: the block is present when the flag is on and signals exist"
+      else
+        fail "graph signals: no prompt carries the block despite the flag and a signals file (see ${TMP_DIR}/${label}.log)"
+      fi
+
+      # The block must be scoped to THIS chunk: giant/elsewhere.txt is in the
+      # TSV with the highest risk in the fixture and must not leak into a huge/
+      # chunk. A leak would make the model reason about a file it was not given.
+      if grep -q 'giant/elsewhere.txt' "${TMP_DIR}/${label}.blocks"; then
+        fail "graph signals: the slice leaked a function belonging to another chunk"
+      else
+        pass "graph signals: the slice is scoped to the chunk's own files"
+      fi
+
+      # Both signals must actually render, and the risk number must be carried.
+      if grep -q 'risk 0.82' "${TMP_DIR}/${label}.blocks" \
+         && grep -q 'no test coverage' "${TMP_DIR}/${label}.blocks" \
+         && grep -q 'risk 0.31' "${TMP_DIR}/${label}.blocks"; then
+        pass "graph signals: risk and test-coverage both render, including a covered function"
+      else
+        fail "graph signals: risk or coverage missing from the rendered block"
+      fi
+
+      # LADR-045/LADR-067: the block must never tell the reviewer to write a
+      # test, and must never carry a LADR-067 autolink.
+      if grep -qiE 'add a test|write a test|create a test' "${TMP_DIR}/${label}.blocks"; then
+        fail "graph signals: the block instructs a test edit — LADR-045 would revert it"
+      else
+        pass "graph signals: the block never instructs a test edit"
+      fi
+      if grep -qE '#[0-9]+' "${TMP_DIR}/${label}.blocks"; then
+        fail "graph signals: the block contains #+digits (LADR-067 autolinks it in the posted body)"
+      else
+        pass "graph signals: no #+digits in the block"
+      fi
+
+      # LADR-035: the block is additive but must stay inside its own cap.
+      local over=0 total=0
+      for prompt in "${prompts[@]}"; do
+        local block
+        block="$(awk '
+          /^## Structural signals \(code graph\)$/ { f = 1 }
+          f && /^## ⚠️ CRITICAL: REVIEW SCOPE/ { f = 0 }
+          f { print }
+        ' "${prompt}" | wc -c | tr -d ' ')"
+        total=$((total + block))
+        [ "${block}" -le $((cap + 1024)) ] || over=$((over + 1))
+      done
+      if [ "${over}" -eq 0 ]; then
+        pass "graph signals: every rendered block stays within cap+guardrails (${cap}+1024), total ${total} bytes"
+      else
+        fail "graph signals: ${over} block(s) exceeded cap+disclaimer"
+      fi
+
+      # A covered function must not be dressed as a coverage claim.
+      if awk '/risk 0.31/ && /no test coverage/ { bad=1 } END { exit bad }' "${TMP_DIR}/${label}.blocks"; then
+        pass "graph signals: a covered function is not labelled untested"
+      else
+        fail "graph signals: a covered function (risk 0.31) is labelled 'no test coverage'"
+      fi
+    fi
+
+    run_dir=$((run_dir + 1))
+  done
+
+  # B (flag on, no signals) and C (flag off, signals present) must agree
+  # byte-for-byte. This is the whole fail-open contract: a missing slice, an
+  # unparseable one, or an operator flipping the Variable off must all produce
+  # exactly the prompt this pipeline shipped before LADR-050.
+  # Compare WHOLE prompts. Comparing only empty block extracts passes even
+  # when graph-specific instructions leak elsewhere in the disabled prompt.
+  local baseline="${TMP_DIR}/signals-off.prompts" label prompt base_size with_size
+  for label in default-unset default-empty; do
+    if diff -rq "${TMP_DIR}/signals-on.prompts" "${TMP_DIR}/${label}.prompts" > /dev/null; then
+      pass "graph signals: $label enables identical full prompts to explicit on"
+    else
+      fail "graph signals: $label failed to enable the graph hints by default"
+    fi
+  done
+  for label in signals-absent graph-failed graph-disabled signals-malformed slice-missing; do
+    if diff -rq "$baseline" "${TMP_DIR}/${label}.prompts" > /dev/null; then
+      pass "graph signals: $label produces byte-identical full prompts to flag-off"
+    else
+      fail "graph signals: $label changed the disabled full prompts"
+    fi
+  done
+  for prompt in "$baseline"/*; do
+    base_size="$(wc -c < "$prompt" | tr -d ' ')"
+    with_size="$(wc -c < "${TMP_DIR}/signals-on.prompts/$(basename "$prompt")" | tr -d ' ')"
+    if [ "$with_size" -lt "$base_size" ] || [ "$with_size" -gt $((base_size + cap + 1024)) ]; then
+      fail 'graph signals: additive full-prompt budget exceeded'
+    fi
+  done
+
+  # A graph block alone is not a completed review. Keep the single predicate
+  # unchanged rather than teaching it to accept enrichment as model output.
+  if bash .agents/skills/ai-review-report/scripts/lib/review-has-shape.sh "${TMP_DIR}/signals-on.blocks" > /dev/null 2>&1; then
+    fail 'graph signals: graph context passed as a completed review'
+  else
+    pass 'graph signals: graph-only content cannot pass the review-shape gate'
+  fi
+
+  # "No block at all" means every per-prompt block is empty: the snapshot holds
+  # only its own markers.
+  block_lines() {
+    grep -v -e '^$' -e '^<<<BLOCK$' -e '^BLOCK>>>$' "$1" 2>/dev/null | wc -l | tr -d ' '
+  }
+  if [ "$(block_lines "${TMP_DIR}/signals-absent.blocks")" = "0" ] \
+     && [ "$(block_lines "${TMP_DIR}/signals-off.blocks")" = "0" ]; then
+    pass "graph signals: neither the flag-on run with no signals file nor the flag-off run emits a block"
+  else
+    fail "graph signals: a block was emitted although the signals file was absent or the flag off"
+  fi
+}
+
 setup_repo
 run_budget_case
+run_graph_signals_case
 run_aggregation_case "true" "request_changes" "true" "failed-chunk-fail-closed"
 run_aggregation_case "false" "approve" "false" "clean-approve-passthrough"
 

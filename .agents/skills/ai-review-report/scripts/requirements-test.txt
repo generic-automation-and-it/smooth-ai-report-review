@@ -1,0 +1,2 @@
+# YAML-level assertions in the deterministic, secret-free regression suites.
+PyYAML==6.0.3

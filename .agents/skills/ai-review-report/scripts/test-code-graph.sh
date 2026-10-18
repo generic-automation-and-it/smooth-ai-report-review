@@ -597,6 +597,426 @@ pass "Test 9: PATH re-export makes the pipx-installed binary visible to detect-c
 
 rm -rf .code-review-graph ci_temp
 
+# --- Test 10: graph_review_signals.tsv (LADR-050) ---------------------------
+# The derived artifact the chunk slice reads. Its whole value is that it is
+# pre-joined and repo-relative: raw JSON keeps absolute paths and needs the
+# test_gaps join re-done per consumer, and an empty column in a TSV silently
+# shifts the next one under IFS.
+echo ""
+echo "Test 10: review signals TSV — columns, join, and the empty-risk contract"
+
+mkdir -p .code-review-graph
+echo "fake-db" > .code-review-graph/graph.db
+
+# A fixture that forces every branch: a named match on risk, a named match with
+# NO risk (the "-" column), a line_start-only match (the fallback), a function
+# with no coverage claim, and a test_gaps entry for a function that is not in
+# changed_functions at all.
+cat > "${mock_bin}/code-review-graph" <<'MOCK_EOF'
+#!/bin/bash
+if [ "$1" = "--version" ]; then echo "2.3.6"; exit 0; fi
+if [ "$1" = "detect-changes" ]; then
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  cat <<JSON_EOF
+{
+  "changed_functions": [
+    {"file_path": "$ROOT/src/hot.cs", "line_start": 42, "line_end": 60, "name": "Hot", "risk_score": 0.85},
+    {"file_path": "$ROOT/src/norisk.cs", "line_start": 7, "line_end": 9, "name": "NoRisk"},
+    {"file_path": "$ROOT/src/byline.cs", "line_start": 15, "line_end": 16, "name": "RenamedAway"},
+    {"file_path": "$ROOT/src/zero.cs", "line_start": 1, "line_end": 2, "name": "Zero", "risk_score": 0},
+    {"file_path": "$ROOT/src/nofields.cs", "line_start": 3},
+    {"file_path": "$ROOT/src/qualified.cs", "line_start": 4, "line_end": 6, "qualified_name": "$ROOT/src/qualified.cs::Class::Alpha", "risk_score": 0.5},
+    {"file_path": "/outside/repo.cs", "line_start": 1, "line_end": 2, "name": "Outside", "risk_score": 0.2},
+    {"file_path": "$ROOT/../outside.cs", "line_start": 1, "line_end": 2, "name": "Traversal", "risk_score": 0.2},
+    {"file_path": "$ROOT/src/invalid.cs", "line_start": 1, "line_end": 2, "name": "InvalidRisk", "risk_score": "high"},
+    {"file_path": "$ROOT/src/overload.cs", "line_start": 10, "line_end": 12, "name": "Run", "risk_score": 0.4},
+    {"file_path": "$ROOT/src/overload.cs", "line_start": 20, "line_end": 22, "name": "Run", "risk_score": 0.4}
+  ],
+  "test_gaps": [
+    {"file": "$ROOT/src/hot.cs", "line_start": 42, "name": "Hot"},
+    {"file": "$ROOT/src/norisk.cs", "line_start": 7, "name": "NoRisk"},
+    {"file": "$ROOT/src/byline.cs", "line_start": 15, "name": "TotallyDifferentName"},
+    {"file": "$ROOT/src/ghost.cs", "line_start": 1, "name": "NotAChangedFunction"},
+    {"file": "$ROOT/src/qualified.cs", "line_start": 4, "qualified_name": "$ROOT/src/qualified.cs::Class::Alpha"},
+    {"file": "$ROOT/src/overload.cs", "line_start": 20, "name": "Run"}
+  ],
+  "context_savings": {"saved_percent": 50}
+}
+JSON_EOF
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+
+rm -rf ci_temp && mkdir -p ci_temp
+PATH="${mock_bin}:${PATH}" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test10.out" 2>&1 || {
+    cat "${tmp_dir}/test10.out"; fail "Test 10: detect-changes should succeed"
+}
+
+SIG="ci_temp/graph_review_signals.tsv"
+[ -s "$SIG" ] || { cat "${tmp_dir}/test10.out"; fail "Test 10: graph_review_signals.tsv should be written"; }
+
+# Six columns on every row: an empty field would collapse under IFS and shift
+# `untested` into `risk` in every consumer that reads this file.
+_bad_cols="$(awk -F'\t' 'NF < 6 { print NR": "NF" columns" }' "$SIG")"
+if [ -z "$_bad_cols" ]; then
+  pass "Test 10: every signals row has all 6 tab-separated columns"
+else
+  printf '%s\n' "$_bad_cols" | sed 's/^/     /'
+  fail "Test 10: a signals row has fewer than 6 columns"
+fi
+
+# risk_score absent -> "-", never empty. A genuine 0 must survive as 0, because
+# jq's // treats 0 as truthy but a downstream truthiness check might not.
+_hot_risk="$(awk -F'\t' '$1 == "src/hot.cs" { print $5 }' "$SIG")"
+_norisk_risk="$(awk -F'\t' '$1 == "src/norisk.cs" { print $5 }' "$SIG")"
+_zero_risk="$(awk -F'\t' '$1 == "src/zero.cs" { print $5 }' "$SIG")"
+if [ "$_hot_risk" = "0.85" ] && [ "$_norisk_risk" = "-" ] && [ "$_zero_risk" = "0" ]; then
+  pass "Test 10: risk renders 0.85 / - / 0 (absent is '-', a real zero survives)"
+else
+  fail "Test 10: risk column wrong — hot='${_hot_risk}' norisk='${_norisk_risk}' zero='${_zero_risk}'"
+fi
+
+# untested join: by name for Hot/NoRisk, by line_start fallback for RenamedAway
+# (whose gap name differs), false for Zero, and no row invented for the gap
+# that names a function outside changed_functions.
+_hot_u="$(awk -F'\t' '$1 == "src/hot.cs" { print $6 }' "$SIG")"
+_byline_u="$(awk -F'\t' '$1 == "src/byline.cs" { print $6 }' "$SIG")"
+_zero_u="$(awk -F'\t' '$1 == "src/zero.cs" { print $6 }' "$SIG")"
+if [ "$_hot_u" = "true" ] && [ "$_byline_u" = "true" ] && [ "$_zero_u" = "false" ]; then
+  pass "Test 10: untested joins by name and by line_start fallback, false when uncovered"
+else
+  fail "Test 10: untested join wrong — hot='${_hot_u}' byline='${_byline_u}' zero='${_zero_u}'"
+fi
+grep -q 'src/ghost.cs' "$SIG" && fail "Test 10: a test gap outside changed_functions must not become a row"
+
+# Repo-relative, like graph_file_risks.txt: the slice joins this against diff paths.
+t10_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if grep -qF "${t10_root}/src/" "$SIG"; then
+  cat "$SIG"
+  fail "Test 10: signals paths must be repo-relative, not absolute"
+fi
+
+# Risk-descending: the slice takes head -N, so the order is the contract.
+_first="$(head -1 "$SIG" | cut -f1)"
+if [ "$_first" = "src/hot.cs" ]; then
+  pass "Test 10: rows are sorted risk-descending (0.85 first)"
+else
+  fail "Test 10: first row is '${_first}', expected src/hot.cs (sort is risk DESC)"
+fi
+
+# The three pre-existing artifacts must be untouched by this addition.
+[ -s "ci_temp/graph_file_risks.txt" ] || fail "Test 10: graph_file_risks.txt regressed to empty"
+[ -s "ci_temp/graph_risk_summary.md" ] || fail "Test 10: graph_risk_summary.md regressed to empty"
+[ -s "ci_temp/graph_detect_changes.json" ] || fail "Test 10: graph_detect_changes.json regressed to empty"
+pass "Test 10: signals TSV produced without disturbing the existing three artifacts"
+
+# This is the real vendor qualified_name shape, not a mock's convenient bare
+# name. The TSV itself ships in an artifact: cleaning only the prompt is too late.
+grep -qF "$t10_root" "$SIG" && fail "Test 10: absolute root leaked into the signals artifact"
+awk -F'\t' '$1 == "src/qualified.cs" && $4 == "Class::Alpha" && $6 == "true" { found=1 }
+  END { exit !found }' "$SIG" || fail "Test 10: qualified symbol or its coverage match was lost"
+! grep -qE 'Outside|Traversal|InvalidRisk' "$SIG" || fail "Test 10: unsafe/invalid row entered the artifact"
+pass "Test 10: artifact is repo-relative throughout, qualified names survive, invalid rows are omitted"
+awk -F'\t' '$1 == "src/overload.cs" {
+  if ($2 == 10 && $6 == "false") covered=1
+  if ($2 == 20 && $6 == "true") gap=1
+} END { exit !(covered && gap) }' "$SIG" || fail 'Test 10: duplicate symbol names misattribute a coverage gap'
+pass 'Test 10: same-name functions do not borrow each other’s coverage gaps'
+
+# Raw vendor JSON must remain byte-identical, not just parseable and nonempty.
+PATH="${mock_bin}:${PATH}" "${mock_bin}/code-review-graph" detect-changes --base origin/main > "${tmp_dir}/test10.raw"
+cmp -s "${tmp_dir}/test10.raw" ci_temp/graph_detect_changes.json || fail "Test 10: raw vendor JSON was changed"
+pass "Test 10: raw vendor JSON is byte-identical"
+
+# Zero gaps is the discriminating count case: grep -c prints 0 AND returns 1,
+# so a careless `|| echo 0` produces two zeroes and splits the log message.
+jq '.test_gaps = []' ci_temp/graph_detect_changes.json > "${tmp_dir}/covered.json"
+cat > "${mock_bin}/code-review-graph" <<MOCK_EOF
+#!/bin/bash
+cat "${tmp_dir}/covered.json"
+MOCK_EOF
+PATH="${mock_bin}:${PATH}" MERGE_BASE_FOR_DIFF=origin/main \
+  bash "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test10_covered.out" 2>&1
+rows="$(wc -l < "$SIG" | tr -d ' ')"
+grep -qx "  Review signals: ${rows} function(s), 0 without test coverage" "${tmp_dir}/test10_covered.out" || \
+  fail 'Test 10: zero-gap count must be one complete log line'
+! grep -q 'true$' "$SIG" || fail 'Test 10: no-gap input gained an untested marker'
+pass 'Test 10: all-covered input preserves false markers and one zero count'
+
+rm -rf .code-review-graph ci_temp
+
+# --- Test 11: the signals file exists on every degraded path ----------------
+# Five early returns in detect-changes-graph.sh, five chances to leave a
+# consumer reading a file that was never created. Missing ≠ empty is invisible
+# downstream: the slice treats both as "nothing to say", so a later edit can drop
+# one truncation without any test noticing.
+echo ""
+echo "Test 11: graph_review_signals.tsv is truncated on every degradation path"
+
+_paths=0
+# (a) no CLI on PATH
+rm -rf ci_temp
+env -i PATH="/usr/bin:/bin" HOME="$HOME" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" >/dev/null 2>&1 || true
+[ -f "ci_temp/graph_review_signals.tsv" ] || fail "Test 11: signals file missing when the CLI is not on PATH"
+_paths=$((_paths + 1))
+# (b) no graph DB
+rm -rf ci_temp && mkdir -p .code-review-graph && echo "fake-db" > .code-review-graph/graph.db && rm .code-review-graph/graph.db
+env -i PATH="${mock_bin}:/usr/bin:/bin" HOME="$HOME" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" >/dev/null 2>&1 || true
+[ -f "ci_temp/graph_review_signals.tsv" ] || fail "Test 11: signals file missing when the graph DB is absent"
+_paths=$((_paths + 1))
+# (c) detect-changes itself fails
+cat > "${mock_bin}/code-review-graph" <<'MOCK_EOF'
+#!/bin/bash
+[ "$1" = "--version" ] && { echo "2.3.6"; exit 0; }
+[ "$1" = "detect-changes" ] && { echo "boom" >&2; exit 1; }
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+rm -rf ci_temp && mkdir -p .code-review-graph && echo "fake-db" > .code-review-graph/graph.db
+PATH="${mock_bin}:${PATH}" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" >/dev/null 2>&1 || true
+[ -f "ci_temp/graph_review_signals.tsv" ] || fail "Test 11: signals file missing when detect-changes fails"
+_paths=$((_paths + 1))
+# (d) jq unavailable — the graph RAN and produced JSON, but nothing can parse
+# it out. This is the only degraded path that needs a working CLI on PATH and
+# still no jq, so the PATH keeps mock_bin and drops everything else. Invoking
+# bash by absolute path matters: env -i with a stripped PATH cannot resolve the
+# bare name `bash`, and rc 127 there is indistinguishable from a script bug.
+cat > "${mock_bin}/code-review-graph" <<'MOCK_EOF'
+#!/bin/bash
+[ "$1" = "--version" ] && { echo "2.3.6"; exit 0; }
+if [ "$1" = "detect-changes" ]; then
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  printf '{"changed_functions":[{"file_path":"%s/src/a.cs","line_start":1,"line_end":2,"name":"A","risk_score":0.5}],"test_gaps":[]}\n' "$ROOT"
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+echo "fake-db" > .code-review-graph/graph.db
+mkdir -p "${tmp_dir}/nojq_bin"
+for t in awk sort head cat mkdir mktemp rm wc tr git grep sed basename dirname date; do
+  p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "${tmp_dir}/nojq_bin/$t" 2>/dev/null || true
+done
+rm -rf ci_temp
+env -i PATH="${mock_bin}:${tmp_dir}/nojq_bin" HOME="$HOME" MERGE_BASE_FOR_DIFF="origin/main" \
+  "$(command -v bash)" "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test11_nojq.out" 2>&1 || true
+if ! grep -q "jq not available" "${tmp_dir}/test11_nojq.out"; then
+  cat "${tmp_dir}/test11_nojq.out"
+  fail "Test 11: the no-jq path was not reached — this case is testing the wrong branch"
+fi
+[ -f "ci_temp/graph_review_signals.tsv" ] || fail "Test 11: signals file missing when jq is unavailable"
+_paths=$((_paths + 1))
+# (e) invalid JSON
+cat > "${mock_bin}/code-review-graph" <<'MOCK_EOF'
+#!/bin/bash
+[ "$1" = "--version" ] && { echo "2.3.6"; exit 0; }
+[ "$1" = "detect-changes" ] && { printf 'not json at all'; exit 0; }
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+rm -rf ci_temp && mkdir -p .code-review-graph && echo "fake-db" > .code-review-graph/graph.db
+PATH="${mock_bin}:${PATH}" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" >/dev/null 2>&1 || true
+[ -f "ci_temp/graph_review_signals.tsv" ] || fail "Test 11: signals file missing when the graph JSON is invalid"
+_paths=$((_paths + 1))
+
+# (f) jq present but failing. Distinct from (d): the graph ran, the JSON is
+# valid, and the PARSER is what breaks. This is the path that must not leave a
+# half-written artifact behind — a pipeline's exit status is its last command's,
+# so `jq … | sort > out || : > out` never reaches the fallback when jq dies.
+mkdir -p "${tmp_dir}/badjq_bin"
+for t in awk sort head cat mkdir mktemp rm wc tr git grep sed basename dirname date; do
+  p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "${tmp_dir}/badjq_bin/$t" 2>/dev/null || true
+done
+real_jq="$(command -v jq)"
+cat > "${tmp_dir}/badjq_bin/jq" <<MOCK_EOF
+#!/bin/bash
+for arg in "\$@"; do
+  case "\$arg" in
+    *'def safe_text:'*)
+      printf 'src/partial.cs\t1\t2\tPartial\t0.5\ttrue\n'
+      exit 3 ;;
+  esac
+done
+exec "$real_jq" "\$@"
+MOCK_EOF
+chmod +x "${tmp_dir}/badjq_bin/jq"
+cat > "${mock_bin}/code-review-graph" <<'MOCK_EOF'
+#!/bin/bash
+[ "$1" = "--version" ] && { echo "2.3.6"; exit 0; }
+if [ "$1" = "detect-changes" ]; then
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  printf '{"changed_functions":[{"file_path":"%s/src/a.cs","line_start":1,"line_end":2,"name":"A","risk_score":0.5}],"test_gaps":[]}\n' "$ROOT"
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+rm -rf ci_temp && mkdir -p .code-review-graph && echo "fake-db" > .code-review-graph/graph.db
+rc_f=0
+env -i PATH="${mock_bin}:${tmp_dir}/badjq_bin" HOME="$HOME" MERGE_BASE_FOR_DIFF="origin/main" \
+  "$(command -v bash)" "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test11_badjq.out" 2>&1 || rc_f=$?
+if [ "${rc_f}" -ne 0 ]; then
+  cat "${tmp_dir}/test11_badjq.out"
+  fail "Test 11: a failing jq must not abort the run (rc=${rc_f})"
+fi
+[ -f "ci_temp/graph_review_signals.tsv" ] || fail "Test 11: signals file missing when jq fails"
+grep -q 'signals TSV generation failed' "${tmp_dir}/test11_badjq.out" || \
+  fail 'Test 11: failed-jq fixture never reached signals generation'
+# Empty, not partial: the failing-jq path must produce a zero-byte file.
+if [ -s "ci_temp/graph_review_signals.tsv" ]; then
+  fail "Test 11: a failing jq left a partially-written signals file"
+fi
+# The operator-visible count must stay on ONE line. `grep -c … || echo 0`
+# printed its own 0 and then a second one, breaking the line in two — on the
+# all-covered path, which is the common one.
+if grep -qx '  Review signals: 0 function(s), 0 without test coverage' "${tmp_dir}/test11_badjq.out"; then
+  pass "Test 11: the signals count line is not split across lines"
+else
+  cat "${tmp_dir}/test11_badjq.out"
+  fail "Test 11: the signals count line is broken across lines (the grep -c || echo 0 defect)"
+fi
+_paths=$((_paths + 1))
+
+rm -rf .code-review-graph ci_temp
+pass "Test 11: signals file exists on all ${_paths} degradation paths (empty = fail-open)"
+
+# --- Test 12: graph-signals-slice.sh ---------------------------------------
+# Offline by contract, so no opencode and no gh: the chunk reviewer is handed a
+# static fragment and never gets to run this itself (LADR-029 denies it bash).
+echo ""
+echo "Test 12: graph-signals-slice.sh — selection, contract and cap"
+
+SLICE="${LIB_DIR}/graph-signals-slice.sh"
+[ -f "$SLICE" ] || fail "Test 12: lib/graph-signals-slice.sh is missing"
+
+printf 'file_rel\tline_start\tline_end\tname\trisk\tuntested\n' > "${tmp_dir}/sig.tsv"
+printf 'src/a.cs\t10\t20\tAlpha\t0.85\ttrue\n'   >> "${tmp_dir}/sig.tsv"
+printf 'src/b.cs\t5\t6\tBeta\t-\tfalse\n'       >> "${tmp_dir}/sig.tsv"
+printf 'src/c.cs\t1\t2\tGamma\t0.4\ttrue\n'     >> "${tmp_dir}/sig.tsv"
+printf 'other/z.cs\t1\t2\tZed\t0.99\ttrue\n'     >> "${tmp_dir}/sig.tsv"
+
+# Chunk membership, NUL-separated on stdin.
+out="$(printf 'src/a.cs\0src/b.cs\0src/c.cs\0' | bash "$SLICE" "${tmp_dir}/sig.tsv")"
+rc=$?
+if [ "${rc}" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'src/a.cs:10' \
+   && printf '%s' "$out" | grep -q 'risk 0.85' \
+   && printf '%s' "$out" | grep -q 'no test coverage' \
+   && ! printf '%s' "$out" | grep -q 'other/z.cs'; then
+  pass "Test 12: the slice keeps only the chunk's files and renders risk + coverage"
+else
+  printf '%s\n' "$out" | sed 's/^/     /'
+  fail "Test 12: slice selection/rendering wrong (rc=${rc})"
+fi
+
+# A function with no risk_score must not render "risk -" — that reads as a score.
+if printf '%s' "$out" | grep -q '^`src/b.cs:5` Beta$'; then
+  pass "Test 12: a function with no risk_score renders without a risk fragment"
+else
+  fail "Test 12: a missing risk_score must render bare, not as 'risk -'"
+fi
+
+# A covered function must never carry the coverage label.
+if printf '%s' "$out" | awk '/src\/b\.cs/ && /no test coverage/ { bad = 1 } END { exit bad ? 1 : 0 }'; then
+  pass "Test 12: a covered function is not labelled untested"
+else
+  fail "Test 12: a covered function (untested=false) is labelled untested"
+fi
+
+# Nothing to say -> exit 3, not 0 and not 1. The caller treats 0 as "emit".
+# Each probe captures its own status: this suite runs under `set -e`, where a
+# deliberate non-zero exit would abort the run before the assertion that is
+# ABOUT that exit code ever executed.
+slice_rc() { local rc=0; "$@" >/dev/null 2>&1 || rc=$?; printf '%s' "$rc"; }
+
+rc="$(printf 'src/absent.cs\0' | { slice_rc bash "$SLICE" "${tmp_dir}/sig.tsv"; })"
+[ "$rc" = "3" ] || fail "Test 12: exit code for 'no rows' must be 3 (got ${rc})"
+rc="$(printf '' | { slice_rc bash "$SLICE" "${tmp_dir}/sig.tsv"; })"
+[ "$rc" = "3" ] || fail "Test 12: exit code for 'no files given' must be 3 (got ${rc})"
+: > "${tmp_dir}/empty.tsv"
+rc="$(printf 'src/a.cs\0' | { slice_rc bash "$SLICE" "${tmp_dir}/empty.tsv"; })"
+[ "$rc" = "3" ] || fail "Test 12: exit code for an empty signals file must be 3 (got ${rc})"
+rc="$(slice_rc bash "$SLICE" "${tmp_dir}/does-not-exist.tsv" < /dev/null)"
+[ "$rc" = "1" ] || fail "Test 12: exit code for a missing signals file must be 1 (got ${rc})"
+pass "Test 12: exit contract is 0 rows / 3 nothing-to-say / 1 unusable"
+
+# A malformed row (too few columns) must be skipped, not rendered with a
+# shifted coverage flag.
+printf 'src/a.cs\t10\t20\tAlpha\n' > "${tmp_dir}/short.tsv"
+rc="$(printf 'src/a.cs\0' | { slice_rc bash "$SLICE" "${tmp_dir}/short.tsv"; })"
+[ "$rc" = "1" ] || fail "Test 12: a malformed matching row must be unusable (got ${rc})"
+pass "Test 12: a malformed row rejects the slice rather than rendering shifted columns"
+
+# The cap is real, and says what was cut. A bare ellipsis would read as a
+# citation truncation, which is a different lie. 400 chunk files, so the slice
+# has far more rows than the cap can hold.
+: > "${tmp_dir}/big.tsv"
+: > "${tmp_dir}/big_files"
+i=0
+while [ "${i}" -lt 400 ]; do
+  printf 'src/f%03d.cs\t%d\t%d\tAVeryLongFunctionNameToForceTheCap\t0.%03d\ttrue\n' "${i}" "$((i + 1))" "$((i + 40))" "${i}" >> "${tmp_dir}/big.tsv"
+  printf 'src/f%03d.cs\0' "${i}" >> "${tmp_dir}/big_files"
+  i=$((i + 1))
+done
+big_out="$(OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES=512 \
+  bash "$SLICE" "${tmp_dir}/big.tsv" < "${tmp_dir}/big_files")"
+big_bytes="$(printf '%s' "$big_out" | wc -c | tr -d ' ')"
+if [ "${big_bytes}" -le 512 ] && printf '%s' "$big_out" | grep -q 'truncated'; then
+  pass "Test 12: the cap holds (${big_bytes} ≤ 512) including the truncation marker"
+else
+  fail "Test 12: cap not enforced (${big_bytes} bytes for a 512-byte cap) or no truncation marker"
+fi
+
+# A nonsense cap must fall back to the default, not become an unbounded slice.
+bad_out="$(printf 'src/a.cs\0' | OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES="not-a-number" bash "$SLICE" "${tmp_dir}/sig.tsv")"
+if [ "$?" -eq 0 ] && printf '%s' "$bad_out" | grep -q 'src/a.cs:10'; then
+  pass "Test 12: a non-numeric cap falls back to the default instead of disabling the slice"
+else
+  fail "Test 12: a non-numeric cap must fall back to the default"
+fi
+
+# The rendered slice must never name a file the chunk did not ask about, and
+# must never carry an absolute path (LADR-067's posted-body rule, upstream of it).
+if printf '%s' "$out" | grep -qE '(/Users/|/home/|/tmp/)'; then
+  fail "Test 12: the slice rendered an absolute path"
+else
+  pass "Test 12: no absolute path in the rendered slice"
+fi
+
+# The `name` column is qualified_name, which the real CLI renders as
+# "<absolute repo prefix>/<repo-relative path>::<symbol>". Emitting it raw put a
+# ~70-character /home/runner/work/... prefix in front of every function in the
+# prompt — the exact leak the repo-relative contract exists to prevent, and the
+# reason a mock fixture with bare names cannot be trusted on its own.
+printf 'file_rel\tline_start\tline_end\tname\trisk\tuntested\n' > "${tmp_dir}/qname.tsv"
+printf 'src/a.cs\t10\t20\t/srv/checkout/repo/src/a.cs::Alpha\t0.85\ttrue\n' >> "${tmp_dir}/qname.tsv"
+printf 'src/b.cs\t5\t6\tBeta\t0.4\tfalse\n'                                       >> "${tmp_dir}/qname.tsv"
+qout="$(printf 'src/a.cs\0src/b.cs\0' | bash "$SLICE" "${tmp_dir}/qname.tsv")"
+if printf '%s' "$qout" | grep -q '`src/a.cs:10` Alpha' \
+   && printf '%s' "$qout" | grep -q '`src/b.cs:5` Beta' \
+   && ! printf '%s' "$qout" | grep -qE '/srv/checkout|::'; then
+  pass "Test 12: a qualified_name's absolute prefix and :: separator are stripped"
+else
+  printf '%s\n' "$qout" | sed 's/^/     /'
+  fail "Test 12: qualified_name leaked an absolute path or its :: separator"
+fi
+
+# Offline: no transport and no gh reachable from this lib. Comments are stripped
+# first — the header documents the guarantee by naming the very commands it
+# forbids, so a naive grep would flag the contract as the violation.
+if grep -v '^[[:space:]]*#' "$SLICE" | grep -qE '\bopencode\b|\bgh\b|curl '; then
+  fail "Test 12: graph-signals-slice.sh references opencode/gh/curl — it must stay offline"
+else
+  pass "Test 12: the slice lib is offline (no opencode/gh/curl)"
+fi
+
 # --- Cleanup ------------------------------------------------------------------
 rm -rf .code-review-graph ci_temp
 

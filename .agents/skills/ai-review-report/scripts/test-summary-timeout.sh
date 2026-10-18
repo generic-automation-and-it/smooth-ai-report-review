@@ -39,11 +39,15 @@ has() { # has <file> <fixed-string> → 1/0
   if [ -f "$1" ] && grep -qF -- "$2" "$1" 2>/dev/null; then echo 1; else echo 0; fi
 }
 
-REAL_TIMEOUT="$(command -v timeout || true)"
-if [ -z "$REAL_TIMEOUT" ]; then
-  echo "❌ GNU timeout not found — cannot test a timeout"
+REAL_TIMEOUT="$(command -v timeout || command -v gtimeout || true)"
+if [ -z "$REAL_TIMEOUT" ] || ! "$REAL_TIMEOUT" --version 2>/dev/null | grep -q 'GNU coreutils'; then
+  echo '❌ GNU timeout required. On macOS: brew install coreutils.'
   exit 1
 fi
+# Part 1 deliberately calls the command by its normal name. Homebrew may only
+# expose gtimeout, so make that exact GNU binary available in the isolated PATH.
+mkdir -p "$TMP_DIR/bin"
+ln -s "$REAL_TIMEOUT" "$TMP_DIR/bin/timeout"
 
 # --- The stub opencode ---------------------------------------------------------
 # Records every call (model + epoch second). Models named in STUB_HANG never

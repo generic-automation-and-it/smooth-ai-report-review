@@ -32,6 +32,8 @@ printf 'v1\n' > src/obstruct.test.ts   # tracked test the run will replace with 
 printf 'v1\n' > scripts/test-review-chunk-threshold.sh  # test- prefix .sh — must be matched/reverted
 printf 'v1\n' > scripts/test-helper.py                  # test- prefix .py — must be matched/reverted
 printf 'v1\n' > scripts/test-helper-data.txt            # NOT a test (no matching extension) — must survive
+printf 'v1\n' > scripts/run-regressions.sh
+printf 'v1\n' > scripts/requirements-test.txt
 # Eval harness (LADR-045 extension). None of these match any test-filename rule;
 # they are caught only by the `evals?/` directory segment. The manifest is the
 # one that matters most: it carries the must-catch recall label, so a fixer able
@@ -66,6 +68,8 @@ printf 'v2\n' > src/brand.spec.js      # new test file — revert (delete)
 printf 'v2\n' > scripts/test-review-chunk-threshold.sh  # test- prefix .sh edit — revert
 printf 'v2\n' > scripts/test-helper.py                  # test- prefix .py edit — revert
 printf 'v2\n' > scripts/test-helper-data.txt            # non-test extension — keep
+printf 'v2\n' > scripts/run-regressions.sh
+printf 'v2\n' > scripts/requirements-test.txt
 printf 'v2\n' > scripts/test-new-untracked.sh           # new untracked test- prefix .sh — revert (delete)
 # Eval edits — all must be reverted via the `evals?/` directory segment.
 printf 'v2\n' > scripts/eval/AGENTS.md                  # the file the PR #111 bad run actually edited
@@ -106,6 +110,8 @@ assert_absent src/brand.spec.js
 # test- prefix patterns (LADR-057):
 assert_content scripts/test-review-chunk-threshold.sh v1  # test- prefix .sh matched + reverted
 assert_content scripts/test-helper.py v1                  # test- prefix .py matched + reverted
+assert_content scripts/run-regressions.sh v1
+assert_content scripts/requirements-test.txt v1
 assert_absent scripts/test-new-untracked.sh               # untracked test- prefix .sh removed
 # Eval harness (LADR-045 extension) — reverted via the `evals?/` dir segment:
 assert_content scripts/eval/AGENTS.md v1
@@ -124,7 +130,7 @@ assert_content src/evaluate.ts v2                         # "evaluate" is not an
 assert_content src/evaluation/report.ts v2                # "evaluation/" is not "eval/" or "evals/"
 
 # Reverted list on stdout must name each reverted path and nothing else.
-for p in src/app.test.ts __tests__/thing.js app/tests/handler_test.py java/WidgetTest.java vitest.config.ts src/widget.test.e2e.ts __tests__/deleteme_test.js src/obstruct.test.ts src/brand.spec.js scripts/test-review-chunk-threshold.sh scripts/test-helper.py \
+for p in src/app.test.ts __tests__/thing.js app/tests/handler_test.py java/WidgetTest.java vitest.config.ts src/widget.test.e2e.ts __tests__/deleteme_test.js src/obstruct.test.ts src/brand.spec.js scripts/test-review-chunk-threshold.sh scripts/test-helper.py scripts/run-regressions.sh scripts/requirements-test.txt \
          scripts/eval/AGENTS.md scripts/eval/run-evals.sh scripts/eval/lib/score-review.sh \
          scripts/eval/corpus/must-catch/MC-001/manifest.json scripts/eval/corpus/must-catch/MC-001/after/Handler.cs \
          evals/top-level.json; do
@@ -141,10 +147,14 @@ echo "✓ default mode reverts test/eval edits, preserves the rest"
 git checkout -q -- .
 printf 'v2\n' > src/app.test.ts
 printf 'v2\n' > src/app.js
+printf 'v2\n' > scripts/run-regressions.sh
+printf 'v2\n' > scripts/requirements-test.txt
 out_allow="$(OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX="true" bash "$HELPER" 2>/dev/null)"
 [ -z "$out_allow" ] || { echo "FAIL: allow mode should revert nothing, got '$out_allow'" >&2; exit 1; }
 assert_content src/app.test.ts v2
 assert_content src/app.js v2
+assert_content scripts/run-regressions.sh v2
+assert_content scripts/requirements-test.txt v2
 echo "✓ allow mode (OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX=true) preserves test edits"
 
 echo "✓ filter-test-self-fix tests passed"

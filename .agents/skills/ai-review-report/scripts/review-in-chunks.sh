@@ -78,6 +78,23 @@ structured_findings_enabled() {
   printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
 }
 
+# LADR-050: code-graph risk and inferred coverage hints, enabled by default.
+# Explicit 0/false/no/off disables them; graph availability and evidence guards
+# still apply. The slice has its own byte cap and never decides the verdict.
+#
+# It is also gated on the graph having actually run. GRAPH_ANALYSIS_AVAILABLE is
+# exported by run-review.sh (LADR-049) but is unset under local-review.sh, which
+# builds no graph at all — so "unset" must mean "no opinion", not "disabled",
+# or the local path would go dark for a second, invisible reason.
+graph_signals_enabled() {
+  local v="${OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS:-1}"
+  local g="${GRAPH_ANALYSIS_AVAILABLE:-}"
+  case "$g" in
+    failed|disabled) return 1 ;;
+  esac
+  printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
+}
+
 # LADR-102: per-chunk stall detection. Same tokenized truthy test as the
 # structured-findings gate above, so a pathological value like `1true` lands on
 # the same side of the line everywhere. DEFAULT ON, matching
@@ -304,6 +321,8 @@ echo ""
 
 # Create reviews directory
 mkdir -p ci_temp/reviews
+# Per-run audit data must not survive a previous run with more chunks.
+rm -f ci_temp/chunk_*_graph_signals.md 2>/dev/null || true
 
 # Group files by parent directory and include related test files
 echo "Grouping files by directory and matching test files..."
@@ -1142,6 +1161,50 @@ ${_blame_inline}
 ${_blame_truncated}
 \`\`\`
 EOF
+  fi
+
+  # LADR-050: code-graph signals for THIS chunk — risk and test coverage only.
+  #
+  # Placed after blame, before REVIEW SCOPE. It has its own additive budget;
+  # the diff budgets below remain unchanged
+  # (LADR-035). The slice is data, computed by a lib the `review` agent cannot
+  # run (LADR-029 denies it bash).
+  #
+  # Three gates, all fail-open, none of which can fail a chunk (LADR-031):
+  # the opt-in flag, an available graph, and a non-empty slice. Absence is the
+  # normal case — a chunk of docs or a repo the graph could not parse gets no
+  # block and no mention that one was expected.
+  local _sig_slice="" _sig_lib
+  local _sig_file="ci_temp/chunk_${chunk_num}_graph_signals.md"
+  rm -f "$_sig_file" 2>/dev/null || true
+  if graph_signals_enabled; then
+    _sig_lib="$(dirname "${BASH_SOURCE[0]}")/lib/graph-signals-slice.sh"
+    if [ -f "$_sig_lib" ]; then
+      # Files go NUL-separated on stdin: this is a bash array and its members may
+      # contain spaces or globs. Exit 3 is "nothing to say", not a failure.
+      _sig_slice="$(printf '%s\0' "${files[@]}" \
+        | OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES="${OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES:-1024}" \
+          bash "$_sig_lib" 2>/dev/null)" || _sig_slice=""
+    fi
+    if [ -n "$_sig_slice" ]; then
+      cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
+
+## Structural signals (code graph)
+
+${_sig_slice}
+
+These are structural hints, not defects or exhaustive coverage measurements. A risk score is not a severity. "No test coverage detected by graph" means no covering test edge was found; dynamic calls, conventions and unsupported constructs may hide real tests. Verify the source before reporting a gap; neither signal alone justifies a Critical or High. Quote-the-line evidence is still required. Do not infer reachability or caller completeness from these two signals.
+EOF
+      # Per-chunk audit data, never a verdict channel. Reset above on retry so
+      # a later empty slice cannot inherit a previous attempt's enrichment.
+      printf '%s\n' "$_sig_slice" > "$_sig_file" 2>/dev/null || true
+      if structured_findings_enabled; then
+        cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
+
+- `graph_evidence` (LADR-050): optionally record an object for hints that informed this finding, e.g. `{"query":"changed_functions","target":"<function>","result_summary":"risk <score>"}`. Include only signals actually shown. It cannot replace `first_evidence`; verify gaps against repository tests, never against the graph alone. Omit when no hint applies.
+EOF
+      fi
+    fi
   fi
 
   cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
