@@ -1217,6 +1217,19 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: Existing copied consumer workflows with hardcoded legacy fallbacks must remove those lists or set their Variable to `none`; upstream defaults cannot override an explicitly passed list. Legacy context can still be opted in explicitly. Tests derive only scoped fixtures from the config and pin default-none behavior independently from retained scoped discovery. The config array and the custom loader are distinct contracts, not identical file sets.
 - **See also**: LADR-087, LADR-089, LADR-090, LADR-104.
 
+### LADR-106: Maintainability smell baseline (Fowler Ch.3) as Low-only judgement calls in code chunks
+
+- **Date**: 2026-10-18
+- **Status**: Accepted
+- **Context**: Code chunks had a vague Readability/Clean-Code focus with no concrete maintainability taxonomy, so such findings were inconsistent. An external review skill carries a fixed 12-smell Fowler baseline that applies even when a repo documents nothing, with repo-overrides and judgement-call semantics.
+- **Decision**:
+  - Code chunks only (the standard `else` branch of `review-in-chunks.sh`) carry the 12-smell baseline: Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, Refused Bequest — each stated as what-it-is → fix.
+  - Three rules bind it, stated field-agnostically in the prompt so the structured-findings toggle needs no change: a documented repo standard always wins and suppresses a conflicting smell; each smell is a labelled judgement call (`possible X`), never a hard violation; anything the toolchain enforces is skipped.
+  - Severity is capped at Low: at most Low with a `file:line` anchor and a concrete maintenance cost, otherwise omitted. Smells are advisory under the LADR-058 Advisory test and flow through the existing located-advisory route (Low under Issues Found), so no new schema field, sidecar change, merge rule or verdict path is needed.
+  - Migration, verification-mechanism, documentation-only and sync chunks never apply the baseline — they keep their own prompts.
+- **Consequences**: Prompt grows ~1.5 KB in code chunks only. Precision risk is bounded by the Low cap and the omit-without-location rule; if Low noise rises, tighten the maintenance-cost sentence, never raise the cap. `test-chunk-prompt-guards.sh` pins the baseline to the code-chunk branch, the Low-only cap, the repo-overrides rule and the judgement-call/tooling rules.
+- **See also**: LADR-058, LADR-055, LADR-046, LADR-060.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1237,6 +1250,7 @@ Editing-time "I would have gotten this wrong" warnings — the counterpart to SK
   - "Nothing breaks, but…" caps at 🔵 Low, and the non-findings catalogue outranks it. Because the catalogue outranks everything, phrase an entry as "never give it a severity under **Issues Found**", not "never emit X" (which deletes any later "report X here" rule).
   - Advisories route by location: with a `file:line` → Low under Issues Found **and** a `findings` object with `autofix_class: "advisory"`; without one → `residual_risks`/`testing_gaps` **only**. Never both.
   - A prompt addition edits every existing rule: grep for the concept and reconcile every hit; conflicting pairs are resolved silently by the model and no test sees it.
+  - Smell baseline (LADR-106) lives only in the code-chunk `else` branch, states rules field-agnostically (no schema field names — the located-advisory route already classifies it), and never raises the Low cap.
 - **Passing checks are not findings** — "No issue", "consistent", "verified for consistency" never go under Issues or into the recommendation count; useful confirmations belong in Positive Highlights.
 - **Exploration is prompt-bounded** (LADR-076): the webfetch fail-fast (unquoted heredoc — escape backticks) and the ~20-tool-call budget (quoted heredoc) are load-bearing; softening either reopens the exit-124 class. Reconcile any DR-015 webfetch mandate against the fail-fast in the same edit.
 - **Web is off by default and the prompt must agree with the resolved config** (LADR-094). The `review` agent denies `webfetch`, `websearch` **and `execute`** (v2 Code Mode has its own `fetch`); `analyse` denies `execute` too. The four web-dependent prompt lines come from `CHUNK_WEB_TOOLS`, read from the **resolved** `$OPENCODE_CONFIG`; web allowed or config unknown must reproduce the pre-LADR-094 prompt byte-for-byte. Any new line mentioning `webfetch` goes in those variables, never a heredoc.
