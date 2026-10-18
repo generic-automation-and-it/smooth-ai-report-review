@@ -265,6 +265,48 @@ for _prompt in "$TARGET" "$AGGREGATE"; do
   fi
 done
 
+# --- Maintainability smell baseline (LADR-106) ---
+# Code chunks only carry the fixed Fowler baseline as Low-only judgement calls.
+# Pinned here so a reword that drops the cap, the repo-override, or the branch
+# placement is a visible failure, not silent prompt drift.
+if grep -qF 'Maintainability smell baseline (Fowler' "$TARGET"; then
+  ok "chunk prompt carries the Fowler smell baseline"
+else
+  bad "chunk prompt lost the Fowler smell baseline (LADR-106)"
+fi
+for _smell in 'Mysterious Name' 'Duplicated Code' 'Feature Envy' 'Data Clumps' 'Primitive Obsession' 'Repeated Switches' 'Shotgun Surgery' 'Divergent Change' 'Speculative Generality' 'Message Chains' 'Middle Man' 'Refused Bequest'; do
+  if grep -qF "$_smell" "$TARGET"; then
+    ok "smell baseline names $_smell"
+  else
+    bad "smell baseline lost entry: $_smell"
+  fi
+done
+if grep -qF 'Never raise a smell above' "$TARGET"; then
+  ok "smell baseline caps severity at Low"
+else
+  bad "smell baseline lost the Low-only cap"
+fi
+if grep -qF 'a documented repo standard always wins' "$TARGET"; then
+  ok "smell baseline keeps the repo-overrides rule"
+else
+  bad "smell baseline lost the repo-overrides rule"
+fi
+if grep -qF 'judgement call' "$TARGET" && grep -qF 'toolchain already enforces' "$TARGET"; then
+  ok "smell baseline keeps judgement-call and skip-tooling rules"
+else
+  bad "smell baseline lost the judgement-call/skip-tooling rules"
+fi
+# Placement: the baseline must sit in the plain code-chunk branch (heading
+# `## 🔍 REVIEW INSTRUCTIONS` with no paren suffix), not in the
+# migration/verification/documentation/sync branches.
+_code_heading_line="$(grep -n '^## 🔍 REVIEW INSTRUCTIONS$' "$TARGET" | head -n1 | cut -d: -f1)"
+_smell_line="$(grep -n 'Maintainability smell baseline (Fowler' "$TARGET" | head -n1 | cut -d: -f1)"
+if [ -n "$_code_heading_line" ] && [ -n "$_smell_line" ] && [ "$_smell_line" -gt "$_code_heading_line" ]; then
+  ok "smell baseline sits in the code-chunk branch"
+else
+  bad "smell baseline is not in the code-chunk branch (code heading=$_code_heading_line, baseline=$_smell_line)"
+fi
+
 echo ""
 echo "=========================================="
 if [ "$fail" -gt 0 ]; then
