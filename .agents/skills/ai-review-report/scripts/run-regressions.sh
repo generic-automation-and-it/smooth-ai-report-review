@@ -22,7 +22,7 @@ if [ "$(uname -s)" = Darwin ] && command -v brew >/dev/null 2>&1; then
   coreutils="$(brew --prefix coreutils 2>/dev/null || true)"
   if [ -d "$coreutils/libexec/gnubin" ]; then export PATH="$coreutils/libexec/gnubin:$PATH"; fi
 fi
-for tool in git jq python3 node timeout sort comm; do
+for tool in git jq python3 timeout sort comm; do
   command -v "$tool" >/dev/null 2>&1 || { echo "Missing test prerequisite: $tool" >&2; exit 2; }
 done
 if ! timeout --version 2>/dev/null | grep -q 'GNU coreutils' || ! comm --version >/dev/null 2>&1; then
@@ -52,7 +52,7 @@ suites = shlex.split(match.group(1), comments=True)
 if not suites or len(suites) != len(set(suites)):
     raise SystemExit("Empty or duplicate blocking test list")
 for suite in suites:
-    if not re.fullmatch(r"\.agents/skills/[a-z-]+/scripts/(?:eval/)?test-[a-z0-9-]+\.sh", suite):
+    if not re.fullmatch(r"(?:\.agents/skills/[a-z-]+/)?scripts/(?:eval/)?test-[a-z0-9-]+\.sh", suite):
         raise SystemExit(f"Not an offline test harness: {suite}")
     print(suite)
 PY
