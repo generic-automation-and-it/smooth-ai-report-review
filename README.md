@@ -223,7 +223,7 @@ PREV_SAVE="$(git rev-parse --git-dir)/ci-prev-workflow.yml"
 OLD_RO=""
 if [ -f "$WF" ]; then
   cp "$WF" "$PREV_SAVE"
-  OLD_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$PREV_SAVE" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//')"
+  OLD_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$PREV_SAVE" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//' || true)"
 fi
 
 mkdir -p .github/workflows
@@ -301,10 +301,10 @@ For a non-default local provider, export `OPENCODE_REVIEW_REPORT_PROVIDER`, the 
 
 ### Copy-install (vendor everything)
 
-Use this **instead of Steps 1–2** only when the target repo must edit the gate or skills in place. It copies both workflows and installs all four skills into `.agents/skills` (the path the workflows call); Steps 3–4 below apply afterwards exactly the same. Run it **from the target repo's root**; on an update it keeps your previous `runs-on` and prints the old→new workflow diff.
+Use this **instead of Steps 1–2** only when the target repo must edit the gate or skills in place. It copies both workflows and installs all four skills into `.agents/skills` (the path the workflows call); Steps 3–4 below apply afterwards exactly the same. Run it **from the target repo's root**; on an update it keeps your previous `runs-on` (label or `${{ … }}` expression) and prints the old→new workflow diff.
 
 ```bash
-set -e
+set -eo pipefail   # pipefail: a failed installer download must stop the run, not pipe nothing into bash
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "✗ run this inside the target git repository"; exit 1; }
 cd "$ROOT"
 RAW="https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main"
@@ -313,7 +313,7 @@ PREV_SAVE="$(git rev-parse --git-dir)/ci-prev-workflow.yml"
 OLD_RO=""
 if [ -f "$WF" ]; then
   cp "$WF" "$PREV_SAVE"
-  OLD_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$PREV_SAVE" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//')"
+  OLD_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$PREV_SAVE" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//' || true)"
 fi
 
 mkdir -p .github/workflows .agents/skills
@@ -322,8 +322,11 @@ curl -fsSL "$RAW/.github/workflows/pipeline-ai-analyse.yml" -o .github/workflows
 rm -f .github/workflows/pipline-code-review-report.yml   # legacy typo'd name from older installs
 curl -fsSL "$RAW/scripts/install-skills.sh" | bash -s -- -a
 
+# Carry over any customised runs-on — a plain label or an expression — unless it is
+# the default or already what the new gate ships.
+NEW_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$WF" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//' || true)"
 case "$OLD_RO" in
-  ''|ubuntu-latest|*'{{'*) ;;
+  ''|ubuntu-latest|"$NEW_RO") ;;
   *) OLD_RO="$OLD_RO" perl -i -pe 'if(!$d && /^(\s*)runs-on:/){$_="$1runs-on: $ENV{OLD_RO}\n";$d=1}' "$WF"
      echo "↻ carried over previous runs-on: $OLD_RO" ;;
 esac
