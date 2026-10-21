@@ -21,12 +21,14 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # REPO_ROOT is the repo being reviewed. By default it is derived from the script
-# location (this script lives at .agents/skills/ai-review-report/scripts, so four
-# levels up is the repo root), which is correct for copy-installed / in-repo use.
-# When the skill is consumed as the npm package (e.g. run from node_modules/ in a
-# GitHub Actions job) that math points at the package, not the repo under review,
-# so allow an explicit override — set it to $GITHUB_WORKSPACE in CI.
-REPO_ROOT="${OPENCODE_REVIEW_REPORT_REPO_ROOT:-$(cd "$SCRIPT_DIR/../../../.." && pwd)}"
+# location (this script lives at <agent-dir>/skills/ai-review-report/scripts, so
+# four levels up is the repo root), which is correct for copy-installed / in-repo
+# use. A machine-wide install (scripts/install-skills.sh -g) lives outside any
+# repo, so lib/resolve-repo-root.sh falls back to the current directory's work
+# tree. OPENCODE_REVIEW_REPORT_REPO_ROOT overrides both.
+# shellcheck source=lib/resolve-repo-root.sh
+. "$SCRIPT_DIR/lib/resolve-repo-root.sh"
+REPO_ROOT="${OPENCODE_REVIEW_REPORT_REPO_ROOT:-$(resolve_review_repo_root "$SCRIPT_DIR")}"
 
 # Credentials come from the shell environment. Export the selected provider's
 # OPENCODE_REVIEW_REPORT_<P>_URL + OPENCODE_<P>_API_KEY before running (e.g. in your shell
@@ -233,8 +235,8 @@ bash "$SCRIPT_DIR/lib/ensure-opencode-models.sh" "$OPENCODE_CONFIG" \
 # Actions: project config loads from the working tree and newer opencode
 # builds refuse untrusted project config in CI. On a local dev machine the
 # root opencode.json belongs to the developer (providers, permissions) and
-# opencode loads it trusted — leave it alone. (The npm-in-CI packaging runs
-# this script with GITHUB_ACTIONS=true, so it stays covered.)
+# opencode loads it trusted — leave it alone. (A CI job that runs this script
+# sets GITHUB_ACTIONS=true, so it stays covered.)
 # The stand-in is the resolved managed copy. Restored by the EXIT trap,
 # registered before quarantine so early exits are covered too.
 # NOTE: the temp-commit block below must ignore the quarantined paths (they
