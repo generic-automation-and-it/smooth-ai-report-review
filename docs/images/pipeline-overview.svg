@@ -252,7 +252,7 @@
   <!-- Five consumption channels badge -->
   <g transform="translate(355, 494)">
     <rect x="0" y="0" width="250" height="24" rx="12" fill="#21262d" stroke="#30363d" stroke-width="1"/>
-    <text x="125" y="16" text-anchor="middle" fill="#8b949e" font-size="10">5 ways to consume: reusable workflow · plugins · npm</text>
+    <text x="125" y="16" text-anchor="middle" fill="#8b949e" font-size="10">5 ways to consume: workflow · installer · plugin</text>
   </g>
   </g>
 </svg>

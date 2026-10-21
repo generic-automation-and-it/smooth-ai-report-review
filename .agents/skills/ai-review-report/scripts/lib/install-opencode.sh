@@ -5,7 +5,7 @@
 #   - The review gate entrypoint (run-review.sh)
 #   - pipeline-ai-analyse.yml (Initialize OPENCODE step)
 #   - llm-eval-harness.yml (Install opencode step)
-#   - .docs/examples/npm-review-report-gha.yml (consumer template)
+#   - local-review.sh (local and installed-skill runs)
 #
 # Contract (LADR-048): every workflow YAML or consumer-facing example that
 # installs opencode delegates to this script — no inline

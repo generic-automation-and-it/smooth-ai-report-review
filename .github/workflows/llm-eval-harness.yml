@@ -131,7 +131,7 @@ jobs:
           # test-recommend-fix-skip.sh exercises their decision scripts
           # (LADR-097): without them a PR touching only those scripts passed
           # this required job without running the suite that tests them.
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|\.github/opencode\.json$|README\.md$|index\.js$|opencode-plugin\.js$|package\.json$|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|\.github/opencode\.json$|README\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
@@ -158,7 +158,6 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-regression-runner.sh
             .agents/skills/ai-review-report/scripts/test-opencode-health.sh
             .agents/skills/ai-review-report/scripts/test-find-context-files.sh
-            .agents/skills/ai-review-report/scripts/test-opencode-v2-plugin.sh
             .agents/skills/ai-review-report/scripts/test-prepare-opencode-v2-config.sh
             .agents/skills/ai-review-report/scripts/test-prepare-opencode-models.sh
             # LADR-103: the repo-under-review's own opencode.json(c) is held
@@ -254,6 +253,10 @@ jobs:
             # fixture (real merge + scorer, curl shim), and the guards that keep
             # it from ever moving the eval verdict.
             .agents/skills/ai-review-report/scripts/eval/test-decisions-report.sh
+            # The one-command skills installers (bash; the PowerShell port and
+            # cross-port parity cases skip with a stated reason when pwsh is
+            # absent, as on ubuntu-latest).
+            scripts/test-install-skills.sh
           )
           for test_script in "${tests[@]}"; do
             echo "::group::${test_script}"

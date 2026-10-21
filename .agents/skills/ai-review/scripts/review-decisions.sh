@@ -30,7 +30,7 @@
 #
 # The scorer lives in the ai-review-report skill (its sibling folder in every
 # install shape: in-repo, copy-install, the Claude Code plugin whose source is
-# the whole repo, and the npm plugin's .agents/skills links). Set
+# the whole repo, and scripts/install-skills.sh -a, per repo or -g). Set
 # AI_REVIEW_REPORT_DIR to point elsewhere.
 set -uo pipefail
 
@@ -44,7 +44,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPORT_DIR="${AI_REVIEW_REPORT_DIR:-$SCRIPT_DIR/../../ai-review-report}"
 LIB="$REPORT_DIR/scripts/lib"
 if [ ! -f "$LIB/recommend-fix-skip.sh" ]; then
-  echo "⚠️  --usedecisions needs the ai-review-report skill's decision scorer (scripts/lib/recommend-fix-skip.sh), which is not installed next to ai-review (looked in ${REPORT_DIR}). Install the smooth-ai-review-report plugin or set AI_REVIEW_REPORT_DIR. Continuing without decision-model recommendations."
+  echo "⚠️  --usedecisions needs the ai-review-report skill's decision scorer (scripts/lib/recommend-fix-skip.sh), which is not installed next to ai-review (looked in ${REPORT_DIR}). Install it (scripts/install-skills.sh -a, or the smooth-ai-review-report plugin) or set AI_REVIEW_REPORT_DIR. Continuing without decision-model recommendations."
   exit 0
 fi
 for tool in gh jq curl; do

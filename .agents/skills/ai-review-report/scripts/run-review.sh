@@ -564,8 +564,8 @@ METADATA_EOF
 trap '_rc=$?; command -v restore_project_config >/dev/null 2>&1 && restore_project_config; assemble_run_artifacts; exit $_rc' EXIT
 # Tells aggregate-reviews.sh that THIS entrypoint assembles ci_temp/run/ for
 # the workflow's upload step, so the run markers it writes (LADR-096/098)
-# promise an artifact that will exist. local-review.sh — which the npm-in-CI
-# path runs with GITHUB_RUN_ID set — never sets it and uploads nothing.
+# promise an artifact that will exist. local-review.sh — even when a CI job
+# runs it with GITHUB_RUN_ID set — never sets it and uploads nothing.
 export _REVIEW_RUN_ARTIFACT=1
 
 # --- Step 5: Provider / model resolution + opencode health probe --------------

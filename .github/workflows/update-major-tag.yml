@@ -22,7 +22,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          major="$(node -p "require('./package.json').version.split('.')[0]")"
+          major="$(jq -r '.version | split(".")[0]' .claude-plugin/plugin.json)"
+          case "$major" in ''|*[!0-9]*) echo "::error::.claude-plugin/plugin.json has no semver version (got '${major}')." >&2; exit 1 ;; esac
           floating_tag="v${major}"
           default_branch="$(gh api repos/${{ github.repository }} --jq .default_branch)"
           sha="$(gh api repos/${{ github.repository }}/git/ref/heads/${default_branch} --jq .object.sha)"
