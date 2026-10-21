@@ -31,7 +31,7 @@ effort: high          # review analysis, fix/skip judgment and code fixes across
 
 Analyze AI PR review feedback and execute fix/skip decisions.
 
-> **Script location.** Every `.agents/skills/ai-review/...` path in this document assumes the skill is installed in the repository (copy-install or this repo itself). When this skill runs from the **Claude Code plugin** (`smooth-ai-review`), the repository has no `.agents/skills/ai-review` tree — substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review` for `.agents/skills/ai-review` in every script invocation (e.g. `"${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh" detect <pr>`).
+> **Script location.** Every `.agents/skills/ai-review/...` path in this document assumes the skill is installed in the repository (copy-install or this repo itself). When this skill runs from the **Claude Code plugin** (`smooth-ai-review`), the repository has no `.agents/skills/ai-review` tree — substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review` for `.agents/skills/ai-review` in every script invocation (e.g. `"${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-review/scripts/copilot-review.sh" detect <pr>`). Installed with `scripts/install-skills.sh` into `.claude/skills` or `.codex/skills`, or machine-wide with `-g` (linked into `~/.claude/skills`, `~/.codex/skills` or `~/.config/opencode/skills`), use this skill's own folder — the directory holding this `SKILL.md` — in place of `.agents/skills/ai-review`.
 
 ## Invocation
 

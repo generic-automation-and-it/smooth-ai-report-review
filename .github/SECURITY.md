@@ -38,7 +38,8 @@ scripts that run with repository credentials. The highest-value reports concern:
 - Anything that could exfiltrate `GITHUB_TOKEN` or a provider API key, or widen the
   workflow permissions actually granted at run time.
 - Supply-chain weaknesses in the install paths (`install-opencode.sh`,
-  `build-code-graph.sh`, `install-rtk.sh`) or in the npm package.
+  `build-code-graph.sh`, `install-rtk.sh`) or in the skills installers
+  (`scripts/install-skills.sh`, `scripts/install-skills.ps1`).
 - A path that lets untrusted input reach `pipeline-ai-analyse.yml`, which commits and
   pushes autonomously.
 

@@ -26,12 +26,11 @@ Implementation details and decisions live in [`.agents/skills/ai-review-report/S
 |---|---|---|
 | [Reusable workflow](#use-as-a-reusable-workflow) | The CI gate via a ~80-line caller workflow; scripts fetched at run time, version-pinned | Repos that want the gate with minimal footprint and easy upgrades (`@v2`) |
 | [Local-job packaging](#local-job-packaging-allowed-actions-restricted-consumers) | A consumer-side job whose only `uses:` entries are `actions/checkout` and `actions/cache` (both GitHub-owned); the gate's code is fetched at a pinned SHA. Same behavior as the reusable workflow. | Repos under `allowed_actions: "selected"` whose `generic-automation-and-it` is not on the allow-list |
+| [Skills installer](#install-the-skills-one-command) | The skills for **Claude Code, Codex and OpenCode** from one `curl \| bash` (or `irm \| iex`): into the repo's skills folder, or once per machine with `-g`. `ai-review` + `git-commit-review-push` by default, `-a` adds `ai-review-report` + `ai-analyse` — **not** the CI gate | Developers on any of the three tools; no marketplace, no registry token |
 | [Claude Code plugins](#install-as-a-claude-code-plugin) | A core plugin (`ai-review`, `git-commit-review-push`) plus optional plugins for `ai-review-report` and `ai-analyse` — **not** the CI gate | Developers who want the follow-up workflows by default and can opt into the heavier report/analyse skills only when needed |
-| [opencode plugin (npm)](#install-as-an-opencode-plugin-npm) | The same four skills for **opencode** users — linked into `.agents/skills/` at startup, nothing vendored (GitHub Packages registry: needs a one-time `read:packages` PAT per developer) | Repos/developers driving the skills from opencode instead of Claude Code |
-| [npm package in GitHub Actions](#use-in-github-actions-via-npm) | The **same npm package**, but `npm install`ed in a GHA job and run straight from `node_modules/` (no vendoring, no side checkout) | Repos that want to run the review generator in CI pinned via a package manager / lockfile |
 | [Copy-install](#copy-install-vendor-everything) | Workflow + skills copied into the repo; everything editable in place | Repos that customize the gate or vendor everything |
 
-The channels coexist: a repo can use the reusable workflow for CI while developers install the plugin for `/ai-review`. To set up a repo end-to-end (gate + skills + credentials), follow [Install into another repo (AI-agent driven)](#install-into-another-repo-ai-agent-driven) — its default path is the reusable workflow + the plugin at project scope.
+The channels coexist: a repo can use the reusable workflow for CI while developers install the skills for `/ai-review` — pick **one** skills channel per tool, or Claude Code lists each skill twice. To set up a repo end-to-end (gate + skills + credentials), follow [Install into another repo (AI-agent driven)](#install-into-another-repo-ai-agent-driven) — its default path is the reusable workflow + the plugin at project scope.
 
 ## Use as a reusable workflow
 
@@ -63,7 +62,7 @@ How it works:
 - **Secrets**: map the provider keys explicitly under `secrets:` (the [caller template](.docs/examples/code-review-caller.yml) lists all seven `OPENCODE_*_API_KEY` names; only the selected provider's must exist). The explicit form works whether your repo is in the **same** org as the gate or a **different** one. `secrets: inherit` is a shorter shortcut but GitHub only honors it **same-org/enterprise** — a cross-org caller using `inherit` fails immediately with a "workflow file issue" startup error.
 - **Variables**: `vars.OPENCODE_REVIEW_REPORT_*` resolve against **your** repo/org automatically — configure them exactly as in [GitHub configuration](#github-configuration); Steps 3–4 of the installer section apply unchanged. If you also copy in the optional autonomous analyse workflow, it reads `OPENCODE_ANALYSE_PROVIDER`, `OPENCODE_ANALYSE_MODEL`, `OPENCODE_ANALYSE_MAX_INCREMENTAL`, `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX`, and `OPENCODE_ANALYSE_RUN_ON_DRAFT` from the consuming repo too.
 - **Inputs**: `runner` (default `ubuntu-latest`; set `self-hosted` for private-network gateways), `tools_ref`, `mandatory_context_files` / `agents_md_exempt_paths` (override the context lists without editing any workflow), `disable_claude_code`, `disable_agents_md_check`, `bypass_mandatory_context_file`, `opencode_config` (repo-relative custom `opencode.json`, LADR-047), `rtk_version`, `file_limit`, `exclude_deleted`, `exclude_generated_paths`, `run_on_draft` (review PRs while still in DRAFT — default `false`; set truthy, or set the `OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT` Variable, to opt in), plus the dispatch passthroughs `pr_number` / `model` / `model_preset`.
-- **Versioning**: pin `@v2` (floating major) or an exact tag/SHA. v2 is the OpenCode-v2 breaking line; v1 consumers stay on the former CLI/context/plugin contracts. The source repo maintains the floating major tag via `.github/workflows/update-major-tag.yml` on every merge to `main` (and via manual dispatch when a repair/repoint is needed) — the tag name is derived automatically from the major component of `package.json`'s version. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
+- **Versioning**: pin `@v2` (floating major) or an exact tag/SHA. v2 is the OpenCode-v2 breaking line; v1 consumers stay on the former CLI/context/plugin contracts. The source repo maintains the floating major tag via `.github/workflows/update-major-tag.yml` on every merge to `main` (and via manual dispatch when a repair/repoint is needed) — the tag name is derived automatically from the major component of `.claude-plugin/plugin.json`'s version. The `model_preset` dropdown options in your caller must match the preset mapping in the called workflow — when a release adds presets, update your caller to expose them.
 
 ## Local-job packaging (allowed-actions-restricted consumers)
 
@@ -125,6 +124,42 @@ The local-job packaging is **technically compliant** with `allowed_actions: "sel
 
 If your org admin can add the allow-list entry, prefer the [reusable workflow](#use-as-a-reusable-workflow) — it is materially easier to audit (one `uses:` line, one org-level review) and matches the policy's intent.
 
+## Install the skills (one command)
+
+`scripts/install-skills.sh` (macOS/Linux: bash, `git`, `python3`) and `scripts/install-skills.ps1` (PowerShell 7.2+, `git`) install the review skills for Claude Code, Codex and OpenCode. Same installer shape as [smooth-devex-template](https://github.com/generic-automation-and-it/smooth-devex-template) and [smooth-ai-product-context-memory](https://github.com/generic-automation-and-it/smooth-ai-product-context-memory); each keeps its own state, so all three coexist.
+
+Into the repo you stand in (its first existing `.agents/skills`, `.claude/skills` or `.codex/skills`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.sh | bash
+```
+
+```powershell
+irm https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.ps1 | iex
+```
+
+Once per machine, linked into every tool that is installed (`~/.claude/skills`, `~/.codex/skills`, `~/.config/opencode/skills`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.sh | bash -s -- -g
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.ps1))) -g
+```
+
+| Switch | Effect |
+|---|---|
+| *(none)* | `ai-review` + `git-commit-review-push` into the repo |
+| `-a` | also `ai-review-report` + `ai-analyse` (stays on for later runs) |
+| `-g` | install into `~/.smooth-ai-review` and link into each tool |
+| `-g --uninstall` (`-g -Uninstall`) | remove the links it made; the store and your flags stay |
+
+- **Re-run to update.** State lives in `_smooth-ai-review-shared/installation.json` beside the skills (per repo) or `~/.smooth-ai-review/installation.json` (`-g`). Set a skill's `installed` to `false` to keep your local edits; set a tool under `harnesses` to `false` (`-g`) to unlink it.
+- **`-a` per repo replaces the reusable gate's tooling.** The reusable workflow and the analyse workflow run a local `.agents/skills/ai-review-report` instead of the copy they fetch at the pinned ref, so keep it current (re-run) or leave it out. The installer warns when that applies.
+- **Skills only** — no CI gate, rules or hooks. Installed copies leave out each skill's `AGENTS.md`, tests and the eval corpus.
+- Overrides: `SKILLS_BRANCH` (e.g. `v2`), `SKILLS_REPO`, `SKILLS_ROOT`, `SMOOTH_AI_REVIEW_HOME`. Full contract: [`scripts/SKILLS_INSTALLER.md`](scripts/SKILLS_INSTALLER.md).
+
 ## Install as a Claude Code plugin
 
 This repo's Claude marketplace is intentionally split:
@@ -153,48 +188,6 @@ Notes:
 - When running from the plugin, skill scripts live under the plugin install dir: substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/<skill>` wherever a skill doc says `.agents/skills/<skill>` (the `ai-review` skill documents this in its SKILL.md).
 - The marketplace entries load skills straight from `.agents/skills/` (the canonical location) via explicit `skills` paths in `.claude-plugin/marketplace.json` — no `skills/` symlink involved, so the plugin install works on Windows without symlink support.
 
-## Install as an opencode plugin (npm)
-
-OpenCode has no skill marketplace — it discovers skills only from fixed directories (`.agents/skills/`, `.claude/skills/`, `.opencode/skills/`) — but it auto-installs npm plugins. The package **`@generic-automation-and-it/smooth-ai-review` v2** implements the OpenCode v2 plugin contract: at startup it links the four skills into your repo's `.agents/skills/`, so native discovery (and every `.agents/skills/...` path the skill docs reference) just works, with nothing vendored. It ships **skills only and declares no dependencies** — it does not install or bundle the opencode CLI, which you install yourself. Package major v1 is for OpenCode v1 and does not execute on OpenCode v2.
-
-The package is hosted on the **GitHub Packages npm registry**, which [requires authentication even for public packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry) — each developer needs a one-time setup:
-
-1. Create a GitHub personal access token (classic) with the **`read:packages`** scope.
-2. Add the registry mapping + token to your **user** `~/.npmrc` (not the repo's — the token must never be committed):
-
-   ```ini
-   @generic-automation-and-it:registry=https://npm.pkg.github.com
-   //npm.pkg.github.com/:_authToken=ghp_YOUR_TOKEN
-   ```
-
-Then add one line to the consuming repo's `opencode.json`:
-
-```json
-{ "plugins": ["@generic-automation-and-it/smooth-ai-review"] }
-```
-
-How it works:
-- opencode `bun install`s the package at startup (cached in `~/.cache/opencode/`) — Bun honors the `~/.npmrc` registry + token mapping. The plugin then creates `.agents/skills/{ai-review-report,ai-review,ai-analyse,git-commit-review-push}` as directory links into that cache (junction links — no admin rights needed on Windows).
-- **Vendored copies always win**: if a skill already exists as a real directory (copy-install), the plugin never touches it. Stale links (e.g. after a package update moved the cache) are re-pointed automatically.
-- Your `git status` stays clean: the link paths are appended to `.git/info/exclude` (local-only — your `.gitignore` is never edited).
-- The package ships the skills **without** the eval harness (`scripts/eval/` is excluded).
-- Like the Claude Code plugin, this installs **skills only** — pair it with the [reusable workflow](#use-as-a-reusable-workflow) for the CI gate (the gate itself never needs this plugin; in reusable mode it fetches its own scripts).
-- If the skills don't appear in the very first session after install, restart opencode once — the links are created at session init.
-
-## Use in GitHub Actions via npm
-
-The [opencode plugin package](#install-as-an-opencode-plugin-npm) `@generic-automation-and-it/smooth-ai-review` ships the full skill trees (`.agents/skills/…`, minus the eval harness) in its tarball — not just the opencode startup hook. That means you can `npm install` it in a GitHub Actions job and run the review scripts straight out of `node_modules/`, with **nothing vendored** into your repo and **no side checkout**. This is a distinct consumption path from the [reusable workflow](#use-as-a-reusable-workflow) (which fetches scripts into `.smooth-ai-review-tools/` at run time); the reusable workflow stays the recommended default and needs no registry auth.
-
-Ready-to-copy workflow: [`.docs/examples/npm-review-report-gha.yml`](.docs/examples/npm-review-report-gha.yml). It installs the package + the opencode CLI, then runs the `ai-review-report` generator (`local-review.sh --pr <n> --post`) against the PR.
-
-Key points specific to the npm-in-CI path:
-- **Registry auth.** The package lives on the GitHub Packages npm registry, which requires a token even though it's public. Same-org runs can use the run-scoped `GITHUB_TOKEN` (grant `packages: read` in the workflow's `permissions:`). Cross-org runs must supply a classic PAT with the `read:packages` scope as a secret — the example reads `PACKAGES_READ_TOKEN` and falls back to `GITHUB_TOKEN`.
-- **Repo-root override.** The scripts normally derive the repo under review from their own location. Run from `node_modules/`, that would point at the package, so set **`OPENCODE_REVIEW_REPORT_REPO_ROOT: ${{ github.workspace }}`** (see the [Environment variables](#environment-variables) table). The example does this.
-- **Prerequisites** match [Using Local Report](#using-local-report): install the OpenCode v2 CLI through the shared `lib/install-opencode.sh` used by the ready-to-copy workflow, plus `jq` and `gh` (both preinstalled on `ubuntu-latest`) and the selected provider's credentials/model vars — configure them exactly as for the gate.
-- **Versioning.** Pin an exact v2 version (`npm i @generic-automation-and-it/smooth-ai-review@2.0.0`) for reproducible reviews; the runtime publish numbering makes every published version immutable.
-- **`ai-analyse`** ships in the same tarball (its `SKILL.md`/`AGENTS.md` plus the shared `ai-review-report/scripts/lib/` helpers it reuses — it has no standalone scripts of its own). Its autonomous fix loop is orchestrated by `.github/workflows/pipeline-ai-analyse.yml`, so consume it by copy-installing that workflow rather than a single CLI entrypoint.
-- Like the plugins, this installs **review tooling only** — it does not register the `/ai-review` or `/ai-analyse` skills into Claude Code/opencode; use the plugin channels for that.
-
 ## Install into another repo (AI-agent driven)
 
 These steps are written for an **AI coding agent running in the _target_ repo**. Point it at this README — best via the **raw** URL (`https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/README.md`), which returns clean Markdown; a `blob/…#install-into-another-repo-ai-agent-driven` link also works but serves HTML.
@@ -210,7 +203,7 @@ The default install vendors **nothing**: the CI gate comes in as a thin [reusabl
 2. **Local follow-up tooling**: the `smooth-ai-review` plugin (the core `ai-review` + `git-commit-review-push` skills) enabled at **project scope** in `.claude/settings.json` — collaborators who trust the repo folder are prompted to install it automatically.
 3. **Optional local extras**: if the repo also wants the local review generator and/or autonomous fixer in Claude Code, enable `smooth-ai-review-report` and/or `smooth-ai-analyse` from the same marketplace.
 
-**Choosing a different channel:** Steps 1–2 are the default (reusable workflow + plugin). If the target repo needs a different shape — an allow-list-restricted org, an opencode-driven team, or a package-manager-pinned CI job — pick the channel from [Five ways to consume this repo](#five-ways-to-consume-this-repo) first; each row links a ready-to-copy example under `.docs/examples/`.
+**Choosing a different channel:** Steps 1–2 are the default (reusable workflow + plugin). If the target repo needs a different shape — an allow-list-restricted org, or developers on Codex/OpenCode — pick the channel from [Five ways to consume this repo](#five-ways-to-consume-this-repo) first (for skills outside Claude Code: [the skills installer](#install-the-skills-one-command)).
 
 ### Step 1 — install the review gate (reusable-workflow caller)
 
@@ -308,122 +301,39 @@ For a non-default local provider, export `OPENCODE_REVIEW_REPORT_PROVIDER`, the 
 
 ### Copy-install (vendor everything)
 
-Use this **instead of Steps 1–2** only when the target repo must edit the gate or skills in place. It copies the full workflows plus the three review skills out of this repo; Steps 3–4 below apply afterwards exactly the same.
-
-**What gets installed:**
-1. The gate workflow → `.github/workflows/pipeline-code-review-report.yml`.
-2. The autonomous analyse workflow → `.github/workflows/pipeline-ai-analyse.yml`.
-3. The `ai-review-report` skill → `<skills-dir>/ai-review-report/`, **excluding `scripts/eval/`** (the eval harness is for developing this skill, not for running the gate).
-4. The `ai-review` skill → `<skills-dir>/ai-review/` (the local `/ai-review` companion that **consumes** a posted review and applies fix/skip decisions).
-5. The `ai-analyse` skill → `<skills-dir>/ai-analyse/` (the autonomous low/medium fixer used by the analyse workflow and discoverable as `/ai-analyse`).
-
-> **One skills dir, no per-agent copies or symlinks.** All review skills install into a single `<skills-dir>`, chosen by priority — the first existing of `.agents/skills`, `.ai/skills`, `.claude/skills`, `.codex/skills`; if none exist, `.agents/skills`. Because the workflows call scripts by path, when `<skills-dir>` is **not** `.agents/skills` the script repoints hardcoded `.agents/skills/ai-review…` and `.agents/skills/ai-analyse…` references to the chosen dir; target-repo context paths (`.agents/rules/…`, `.docs/…`, `code-review-standards`) are left untouched. The scripts find their own siblings by relative path, so they work unchanged from any of these dirs.
-
-Run this **from the target repo's root**. It refuses to run anywhere else, detects whether the gate already exists (→ `update`) or not (→ `install`), copies the files, and verifies the result — failing loudly on a partial copy. On **update** it finds a prior gate under either the canonical `pipeline-…` or the legacy `pipline-…` filename, carries over your existing `runs-on`, replaces the legacy name with the canonical one, and prints the old→new workflow diff for review.
+Use this **instead of Steps 1–2** only when the target repo must edit the gate or skills in place. It copies both workflows and installs all four skills into `.agents/skills` (the path the workflows call); Steps 3–4 below apply afterwards exactly the same. Run it **from the target repo's root**; on an update it keeps your previous `runs-on` and prints the old→new workflow diff.
 
 ```bash
 set -e
-
-# Preflight: must be inside the target git repo, with git available.
-command -v git >/dev/null || { echo "✗ git not found"; exit 1; }
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "✗ run this inside the target git repository"; exit 1; }
 cd "$ROOT"
-
-WF=".github/workflows/pipeline-code-review-report.yml"    # canonical gate name
-ANALYSE_WF=".github/workflows/pipeline-ai-analyse.yml"    # autonomous low/medium fixer
-WF_OLD=".github/workflows/pipline-code-review-report.yml" # legacy typo'd name from older installs
-
-# Pick the ONE skills dir to install into, by priority: the first that already
-# exists, else .agents. No per-agent copies or symlinks are created.
-DEST=".agents"
-for d in .agents .ai .claude .codex; do
-  if [ -d "$d/skills" ]; then DEST="$d"; break; fi
-done
-echo "Skills dir: $DEST/skills"
-
-# Find an existing gate (canonical OR legacy name) and stash it for delta analysis.
-PREV=""
-for w in "$WF" "$WF_OLD"; do [ -f "$w" ] && { PREV="$w"; break; }; done
+RAW="https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main"
+WF=".github/workflows/pipeline-code-review-report.yml"
 PREV_SAVE="$(git rev-parse --git-dir)/ci-prev-workflow.yml"
-[ -n "$PREV" ] && cp "$PREV" "$PREV_SAVE"
-
-# Detect install vs update: update if a prior gate OR skill tree exists.
-if [ -n "$PREV" ] || [ -d "$DEST/skills/ai-review-report" ] || [ -d "$DEST/skills/ai-review" ] || [ -d "$DEST/skills/ai-analyse" ]; then
-  MODE="update"
-else
-  MODE="install"
-fi
-echo "Mode: $MODE"
-
-# Fetch the source (public repo; --depth 1 is enough).
-SRC="$(mktemp -d)"
-git clone --depth 1 https://github.com/generic-automation-and-it/smooth-ai-report-review.git "$SRC"
-
-# On update, remove existing skill trees first so files deleted upstream don't linger.
-if [ "$MODE" = update ]; then
-  rm -rf "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" "$DEST/skills/ai-analyse"
-fi
-
-# 1) workflows → canonical names; drop any legacy typo'd gate so there's exactly one gate.
-mkdir -p .github/workflows
-cp "$SRC/$WF" "$WF"
-cp "$SRC/$ANALYSE_WF" "$ANALYSE_WF"
-[ -f "$WF_OLD" ] && rm -f "$WF_OLD"
-
-# 2) the three review skills — into the chosen dir
-mkdir -p "$DEST/skills"
-cp -R "$SRC/.agents/skills/ai-review-report" "$DEST/skills/"
-cp -R "$SRC/.agents/skills/ai-review"        "$DEST/skills/"
-cp -R "$SRC/.agents/skills/ai-analyse"       "$DEST/skills/"
-
-# exclude the eval harness — not needed to run the gate
-rm -rf "$DEST/skills/ai-review-report/scripts/eval"
-
-# 3) when NOT installing under .agents, repoint the gate's hardcoded skill paths
-#    (the workflow's refs + prepare-opencode-config.sh's opencode.json path) at $DEST.
-#    Scoped to the literal '.agents/skills/ai-review' so target-repo context paths
-#    (.agents/rules/…, .docs/…, code-review-standards) are left untouched.
-if [ "$DEST" != ".agents" ]; then
-  command -v perl >/dev/null || { echo "✗ perl needed to repoint paths for $DEST/skills"; exit 1; }
-  # The 'unless' guard skips the workflow's reusable-mode lines (the
-  # .smooth-ai-review-tools side-checkout path) — dead code in a copy-install,
-  # and rewriting them would corrupt the fetched-tooling path.
-  find "$WF" "$ANALYSE_WF" "$DEST/skills/ai-review-report" "$DEST/skills/ai-review" "$DEST/skills/ai-analyse" -type f \
-    -exec perl -i -pe "unless (m{\.smooth-ai-review-tools}) { s{\.agents/skills/ai-review}{$DEST/skills/ai-review}g; s{\.agents/skills/ai-analyse}{$DEST/skills/ai-analyse}g; }" {} +
-fi
-
-# 4) update only: carry over the previous gate's runs-on (e.g. self-hosted) and show the delta
-#    so the agent can ask the operator which other prior customizations to re-introduce.
-if [ "$MODE" = update ] && [ -n "$PREV" ]; then
-  command -v perl >/dev/null || { echo "✗ perl needed to preserve runs-on"; exit 1; }
+OLD_RO=""
+if [ -f "$WF" ]; then
+  cp "$WF" "$PREV_SAVE"
   OLD_RO="$(grep -m1 -E '^[[:space:]]*runs-on:' "$PREV_SAVE" | sed -E 's/^[[:space:]]*runs-on:[[:space:]]*//')"
-  if [ -n "$OLD_RO" ]; then
-    OLD_RO="$OLD_RO" perl -i -pe 'if(!$d && /^(\s*)runs-on:/){$_="$1runs-on: $ENV{OLD_RO}\n";$d=1}' "$WF"
-    echo "↻ carried over previous runs-on: $OLD_RO"
-  fi
-  echo "=== Δ previous gate ($PREV) → new gate (runs-on already merged) ==="
-  diff -u "$PREV_SAVE" "$WF" || true
-  echo "(previous workflow saved at $PREV_SAVE)"
 fi
 
-rm -rf "$SRC"
+mkdir -p .github/workflows .agents/skills
+curl -fsSL "$RAW/$WF" -o "$WF"
+curl -fsSL "$RAW/.github/workflows/pipeline-ai-analyse.yml" -o .github/workflows/pipeline-ai-analyse.yml
+rm -f .github/workflows/pipline-code-review-report.yml   # legacy typo'd name from older installs
+curl -fsSL "$RAW/scripts/install-skills.sh" | bash -s -- -a
 
-# Verify — fail loudly on a partial copy instead of reporting success.
-# Assert a deep runtime script too (not just SKILL.md): the gate's first call is
-# prepare-opencode-config.sh, so a truncated copy must fail HERE, not on the runner.
-test -f "$WF" \
- && test -f "$ANALYSE_WF" \
- && test -f "$DEST/skills/ai-review-report/SKILL.md" \
- && test -f "$DEST/skills/ai-review/SKILL.md" \
- && test -f "$DEST/skills/ai-analyse/SKILL.md" \
- && test -f "$DEST/skills/ai-review-report/scripts/lib/prepare-opencode-config.sh" \
- && test ! -e "$DEST/skills/ai-review-report/scripts/eval" \
- && echo "✓ $MODE complete ($DEST/skills)" || { echo "✗ install incomplete — check output above"; exit 1; }
+case "$OLD_RO" in
+  ''|ubuntu-latest|*'{{'*) ;;
+  *) OLD_RO="$OLD_RO" perl -i -pe 'if(!$d && /^(\s*)runs-on:/){$_="$1runs-on: $ENV{OLD_RO}\n";$d=1}' "$WF"
+     echo "↻ carried over previous runs-on: $OLD_RO" ;;
+esac
+[ -f "$PREV_SAVE" ] && { diff -u "$PREV_SAVE" "$WF" || true; }
+test -f .agents/skills/ai-review-report/scripts/lib/prepare-opencode-config.sh \
+  && test -f .agents/skills/ai-analyse/SKILL.md \
+  && echo "✓ copy-install complete" || { echo "✗ install incomplete — check output above"; exit 1; }
 ```
 
-**Then message the operator using `$MODE`:**
-- `install` → "**Installed** the AI review gate and analyse workflow (`ai-review-report`, `ai-review`, and `ai-analyse` under `$DEST/skills`)."
-- `update` → "**Updated** the existing AI review gate." The block printed an old→new workflow **diff** and already carried over your previous `runs-on`. **Present that diff to the operator as a table** — columns `id | change` — and **ask which of the remaining old customizations to re-introduce** into the new workflow before committing (the freshly-copied file is canonical otherwise; a legacy `pipline-…` gate is replaced by the canonical `pipeline-…` name). Then have them review `git diff` before committing — an update can change workflow steps, scripts, or the `opencode.json` provider config.
+If a diff was printed, **present it to the operator as a table** — columns `id | change` — and ask which earlier customizations to re-introduce before committing. Commit the workflows, `.agents/skills/` and its `_smooth-ai-review-shared/installation.json`; re-run the block to update.
 
 > **Mandatory context defaults to `none` (LADR-105)** in CI, local runs and standalone discovery. Unset/blank no longer adds product-repo files automatically. Explicit space-separated paths can still opt in through `mandatory_context_files` (reusable call/manual dispatch) or the `MANDATORY_CONTEXT_FILES` Variable in the local-job packaging; missing paths **warn-and-skip**. Existing copied workflows with a legacy fallback list must remove it or set their Variable to `none`—upgrading tooling alone cannot override an explicitly supplied list.
 >
@@ -547,7 +457,7 @@ For a one-run scope override, comment on the PR: `/ai-review --file-limit 5 --ex
 - **Allow GitHub Actions to approve PRs.** Enable repo (or org) **Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests."** Without it, a clean full review fails when the gate tries to approve (`GitHub Actions is not permitted to approve pull requests`). An org-level policy can force this off and overrides the repo toggle.
 - Gateway config for the selected provider (default `OPENAI`): the API key as a GitHub **Secret** (`OPENCODE_OPENAI_API_KEY`) and the gateway URL as a **Variable** (`OPENCODE_REVIEW_REPORT_OPENAI_URL`); optional **Variables** `OPENCODE_REVIEW_REPORT_PROVIDER` (to switch provider), `OPENCODE_REVIEW_REPORT_MODEL_*` (to retune the model chain), and `OPENCODE_CLI_VERSION` (pin OPENCODE CLI; unset = reuse an existing v2 installation, or install the latest v2 release when none is available) without editing the workflow. See [Environment variables](#environment-variables) for the complete list and [Providers](#providers) for the per-provider breakdown.
 
-> **Breaking v2 migration:** set the `OPENCODE_CLI_VERSION` repo/org Variable to a specific **2.x** release (for example `2.0.11`). A stale 1.x pin now fails fast. Unset means "any v2": on a fresh GitHub-hosted runner that is the latest v2 release, but on a machine that already has a v2 binary on `PATH` (local runs, self-hosted runners) the installer keeps it as is, so an unpinned install can quietly stay on an older 2.x — another reason to pin. All four install paths — the gate, `ai-analyse`, the eval harness, and the npm consumer template — honor the pin through the shared v2 installer ([`lib/install-opencode.sh`](.agents/skills/ai-review-report/scripts/lib/install-opencode.sh) — see LADR-087). Standard `AGENTS.md` stays native; the custom loader materializes only `.github/instructions/**/*.instructions.scoped.md`, independently of the default-none mandatory list (LADR-105). Config instruction globs remain unchanged but are inert on v2. RTK remains installed and version-visible on v2, but plugin initialization is bypassed until the installed release advertises `--opencode-v2`; that future integration activates automatically.
+> **Breaking v2 migration:** set the `OPENCODE_CLI_VERSION` repo/org Variable to a specific **2.x** release (for example `2.0.11`). A stale 1.x pin now fails fast. Unset means "any v2": on a fresh GitHub-hosted runner that is the latest v2 release, but on a machine that already has a v2 binary on `PATH` (local runs, self-hosted runners) the installer keeps it as is, so an unpinned install can quietly stay on an older 2.x — another reason to pin. All install paths — the gate, `ai-analyse`, the eval harness and `local-review.sh` — honor the pin through the shared v2 installer ([`lib/install-opencode.sh`](.agents/skills/ai-review-report/scripts/lib/install-opencode.sh) — see LADR-087). Standard `AGENTS.md` stays native; the custom loader materializes only `.github/instructions/**/*.instructions.scoped.md`, independently of the default-none mandatory list (LADR-105). Config instruction globs remain unchanged but are inert on v2. RTK remains installed and version-visible on v2, but plugin initialization is bypassed until the installed release advertises `--opencode-v2`; that future integration activates automatically.
 
 > **Version-pin Variable naming convention.** `OPENCODE_CLI_VERSION` (no `REVIEW_REPORT_` prefix) pins the opencode core binary the gate actually runs. `OPENCODE_TOOL_<NAME>_VERSION` pins ancillary tools the gate installs alongside it — `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` (LADR-049), `OPENCODE_TOOL_RTK_VERSION` (LADR-054), future additions. Behaviour toggles like `OPENCODE_REVIEW_REPORT_ENABLE_RTK` stay in the gate-level `OPENCODE_REVIEW_REPORT_*` namespace — they are review-gate config, not tool pins.
 
@@ -555,7 +465,7 @@ For a one-run scope override, comment on the PR: `/ai-review --file-limit 5 --ex
 
 OpenCode is provider-agnostic — the committed config ([`.agents/skills/ai-review-report/assets/opencode.json`](.agents/skills/ai-review-report/assets/opencode.json)) defines the providers OpenCode can route to. Each provider reads its gateway URL and API key from environment variables (`{env:...}` substitution), so credentials never live in the repo.
 
-**New model? Set the model Variables or free-text input; no roster edit is required.** The gate registers absent requested IDs as `{}` in its run-local config before starting the model service (LADR-107). Local/npm runs, analyse and eval use the same helper. Existing aliases, options, limits, capabilities, disabled entries and credential placeholders are preserved; committed configs are untouched. Use provider-relative IDs such as `kimi-future`, or OpenRouter `vendor/model`—do not add the OpenCode provider prefix. The provider must already exist, and existing family/SDK-surface checks (including the Responses allowlist), model capabilities and upstream availability still apply. Registration warns and skips on missing jq, unsupported JSON/JSONC shapes or write failure. The table below is the shipped roster, not an exhaustive model allowlist.
+**New model? Set the model Variables or free-text input; no roster edit is required.** The gate registers absent requested IDs as `{}` in its run-local config before starting the model service (LADR-107). Local runs, analyse and eval use the same helper. Existing aliases, options, limits, capabilities, disabled entries and credential placeholders are preserved; committed configs are untouched. Use provider-relative IDs such as `kimi-future`, or OpenRouter `vendor/model`—do not add the OpenCode provider prefix. The provider must already exist, and existing family/SDK-surface checks (including the Responses allowlist), model capabilities and upstream availability still apply. Registration warns and skips on missing jq, unsupported JSON/JSONC shapes or write failure. The table below is the shipped roster, not an exhaustive model allowlist.
 
 | Provider | Status | Models | Env vars (gateway URL + key) |
 |---|---|---|---|
@@ -725,12 +635,12 @@ Complete reference for every environment variable the pipeline reads. **Selector
 | `OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE` | GitHub **Variable** (default empty) / workflow input | When truthy (`1`/`true`), bypasses both the AGENTS.md validation checks and the mandatory context file loading. Leave unset/empty or `0`/`false` to keep the standard behaviour. The workflow input overrides the Variable when non-empty; the Variable is used when the input is null/empty. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS` | GitHub **Variable** / shell (default `1` — on) | Structured findings (LADR-055). When on, each chunk review emits a machine-readable JSON sidecar alongside its markdown; the sidecars are deduplicated across chunks, a finding claiming confidence ≥ 75 without quoting its motivating line is demoted, findings below the actionable anchor are suppressed and counted, and the posted **Issues Summary** is rendered from the merged result with stable `#` numbers and a chunk back-reference per finding. The markdown grammar (severity headers, emoji, `[VERIFIED]`/`[SPECULATIVE]`) is identical either way, so nothing downstream changes shape. Set to a falsy value (`0`/`false`/`no`/`off`) to revert the chunk prompt and the summary to their pre-LADR-055 behaviour. Requires nothing extra to be installed — Python is used if present and skipped gracefully if not. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` / `OPENCODE_REVIEW_REPORT_DECISIONS_{PROVIDER,MODEL,MODE,MIN_PROBABILITY,TIMEOUT}` | GitHub **Variables** / shell (defaults `0`, `OPENCODE-GO-DECISIONS`, provider default, `annotate`, `0.5`, `20`) | Decision-model scoring (LADR-093). Declared in **both** workflow packagings; `local-review.sh` honours the same names. Requires structured findings (it scores their merged document). The key is the selected decision provider's existing Secret (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`). |
-| `OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT` | GitHub **Variable** / shell (default `1`) | Decision-model code context (LADR-098): the enclosing function at the reviewed commit and the hunks of other changed files a finding names. Declared in both gate packagings and the npm example, forwarded to `pipeline-ai-analyse.yml`; read by `local-review.sh` and `/ai-review --usedecisions` too. Falsy → diff hunk only. |
+| `OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT` | GitHub **Variable** / shell (default `1`) | Decision-model code context (LADR-098): the enclosing function at the reviewed commit and the hunks of other changed files a finding names. Declared in both gate packagings, forwarded to `pipeline-ai-analyse.yml`; read by `local-review.sh` and `/ai-review --usedecisions` too. Falsy → diff hunk only. |
 | `OPENCODE_ANALYSE_ENABLE_DECISIONS` / `OPENCODE_ANALYSE_DECISIONS_{PROVIDER,MODEL,MODE,MIN_PROBABILITY,TIMEOUT}` | GitHub **Variables** (defaults `0`; provider, model and timeout fall back to the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*` — the model only together with the provider; `annotate`; `0.5`) | Decision-model FIX/SKIP support for `pipeline-ai-analyse.yml` (LADR-097/098). `ENABLE` is never inherited from the gate. `filter` withholds a Medium/Low finding the model recommends skipping at `P(skip)` ≥ the threshold with a found hunk, and lists it in the summary comment; it never adds a finding. Gate answers are reused when still valid. |
 | `AI_REVIEW_REPORT_DIR` | shell (default: the `ai-review-report` skill next to `ai-review`) | Where `/ai-review --usedecisions` (`.agents/skills/ai-review/scripts/review-decisions.sh`) finds the decision scorer. Needed only when the two skills are installed in different places. |
 | `OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT` | GitHub **Variable** / shell (default `450`) | Seconds a single chunk review may take. The budget wraps the entire model chain, so when it fires the fallback model is never reached and the chunk fail-closes to REQUEST_CHANGES — raise it rather than lowering it. Raised from a hardcoded 300 after structured findings (LADR-055) roughly tripled per-chunk model output. |
 | `GITHUB_TOKEN` | GitHub Actions (or `gh auth` locally) | Posting reviews/comments and reading PR metadata. |
-| `OPENCODE_REVIEW_REPORT_REPO_ROOT` | shell / workflow `env:` (default: derived from script location) | Overrides the repo `local-review.sh` reviews. Only needed when the script runs from outside its skill tree — e.g. the [npm-in-GitHub-Actions](#use-in-github-actions-via-npm) path, where you set it to `${{ github.workspace }}`. |
+| `OPENCODE_REVIEW_REPORT_REPO_ROOT` | shell / workflow `env:` (default: the skill's own work tree, else the current directory's) | Overrides the repo `local-review.sh` reviews. A `-g` install (outside any repo) already reviews the repo you run it from; set this only to review somewhere else. |
 | `OPENCODE_REVIEW_REPORT_PROVIDER_ID` | **Derived** | The opencode.json provider key: `gemini` / `github-copilot` / `openai` / `anthropic` / `go-openai` / `go-anthropic` / `go-responses` / `openrouter`. |
 | `OPENCODE_ANALYSE_PROVIDER_ID` / `OPENCODE_ANALYSE_GATEWAY_URL` | **Derived** | Analyse-only provider id + gateway URL, computed only when `OPENCODE_ANALYSE_MODEL` is set. The analyse API key stays in its provider-specific Secret and is not written to `$GITHUB_ENV`. |
 | `OPENCODE_REVIEW_REPORT_GATEWAY_URL` / `OPENCODE_GATEWAY_API_KEY` | **Derived** | The selected provider's URL + key, copied to generic names for the credential presence check. (Health is checked separately and provider-agnostically through v2's `opencode api get /api/info` — `lib/opencode-health.sh` — so there is no derived per-provider health URL.) |
@@ -811,12 +721,12 @@ Some test cases intentionally launch failing commands to prove fail-closed
 behavior, but the containing suite must still exit successfully.
 
 Prerequisites: Bash ≥ 4.3, GNU coreutils (including real `timeout` and `comm -z`),
-Git, jq, Node.js, Python 3 and the pinned test requirements. CI prepares a test
+Git, jq, Python 3 and the pinned test requirements (PowerShell 7 optional: without it the installer's `.ps1` cases are skipped). CI prepares a test
 virtualenv explicitly rather than relying on preinstalled PyYAML.
 
 ```bash
 # macOS prerequisites (Linux CI already provides Bash and GNU coreutils):
-brew install bash coreutils jq node
+brew install bash coreutils jq
 
 python3 -m venv .context/test-venv
 .context/test-venv/bin/python -m pip install \

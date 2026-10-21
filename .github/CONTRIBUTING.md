@@ -87,8 +87,8 @@ evals casually.
 - Target `main`. Fill in the PR template — in particular **Skip Areas / Known
   Issues**, which the gate reads to avoid re-raising findings you have intentionally
   accepted.
-- Keep versions in lockstep when you bump them: `package.json` and
-  `.claude-plugin/plugin.json` must match, and a `vX.Y.Z` release tag must match both.
+- `.claude-plugin/plugin.json` is the version manifest: a `vX.Y.Z` release tag must
+  match it, and `update-major-tag.yml` moves the floating `vN` tag from its major.
 
 ## Responding to the review
 

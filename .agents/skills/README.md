@@ -47,6 +47,10 @@ Skills do not pin a model, and do not switch model per tool or provider — the 
 
 `effort` governs the agent that *drives* a skill. The models the review gate itself calls are unrelated: they are chosen per provider by the gate's GitHub Variables (`OPENCODE_REVIEW_REPORT_MODEL_*`) or `--model`.
 
+## Installing
+
+Outside this repo the skills are installed with `scripts/install-skills.sh` / `.ps1` (per repo, or `-g` machine-wide for Claude Code, Codex and OpenCode; `-a` adds `ai-review-report` and `ai-analyse`) or the Claude Code marketplace. Installed copies leave out each skill's `AGENTS.md`, tests and `scripts/eval/` — runtime behaviour must not depend on them. See `scripts/SKILLS_INSTALLER.md`.
+
 ## About Skills
 
 Each skill is a directory containing:

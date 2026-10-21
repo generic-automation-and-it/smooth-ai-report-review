@@ -29,7 +29,7 @@ body:
         - ai-review (/ai-review fix-skip executor)
         - ai-analyse (autonomous low/medium fixer)
         - git-commit-review-push
-        - Consumption path (reusable workflow / local job / plugin / npm / copy-install)
+        - Consumption path (reusable workflow / local job / Claude plugin / install-skills / copy-install)
         - Docs
         - Not sure
     validations:

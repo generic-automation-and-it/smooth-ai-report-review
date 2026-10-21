@@ -336,7 +336,7 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 ### LADR-038: npm/opencode Plugin Channel — Skills Linked into `.agents/skills/` at Startup
 
 - **Date**: 2026-06-11
-- **Status**: Accepted; V1 entrypoint superseded by LADR-087 for package major v2
+- **Status**: Superseded by LADR-108 — the npm package, its publish workflow and the npm-in-CI example are removed; text kept as history. (V1 entrypoint had been superseded by LADR-087 for package major v2.)
 - **Context**: opencode finds skills only in fixed directories (`.opencode/skills/`, `.claude/skills/`, `.agents/skills/`) but auto-installs npm plugin packages from its config.
 - **Decision**:
   - Package `@generic-automation-and-it/smooth-ai-review` (`files`: plugin entry + `.agents/skills/` minus `scripts/eval/`) links each skill into the consumer's `.agents/skills/<name>` — the same path contract as the gate and SKILL.md.
@@ -1247,6 +1247,21 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: Compatible provider-relative model Variables/free-text inputs no longer require roster edits; OpenRouter vendor/model slugs remain literal. Provider availability, family/surface checks (including the Responses allowlist), disabled models and model-specific capability requirements still apply. This is not new support for provider-qualified inputs or a wildcard bypass. Offline unit/fault/integration tests in `test-prepare-opencode-models.sh` exercise all four entrypoints and join the blocking CI array; stubs prove wiring, not live model availability.
 - **See also**: LADR-026, LADR-027, LADR-047, LADR-071, LADR-087, LADR-103.
 
+### LADR-108: One-command skills installer replaces the npm channel
+
+- **Date**: 2026-10-21
+- **Status**: Accepted. Supersedes LADR-038.
+- **Context**: The npm package (`@generic-automation-and-it/smooth-ai-review` on GitHub Packages) needed a `read:packages` PAT per developer even though it is public, reached only OpenCode, carried an undocumented-entrypoint trap (`index.js`, LADR-087), a publish workflow and a version-lockstep guard. smooth-devex-template and smooth-ai-product-context-memory ship skills through `scripts/install-skills.{sh,ps1}` instead (one `curl | bash`, per repo or `-g` machine-wide into Claude Code, Codex and OpenCode), built to the shared installer recipe (`smooth-devex-template/docs/wiki/installer-recipe.md`).
+- **Decision**:
+  - Remove `index.js`, `opencode-plugin.js`, `package.json`, `.npmrc`, `npm-publish.yml`, `.docs/examples/npm-review-report-gha.yml` and `test-opencode-v2-plugin.sh`. The Claude Code marketplace stays. `update-major-tag.yml` reads the major version from `.claude-plugin/plugin.json`, now the only version manifest.
+  - Add `scripts/install-skills.sh` / `.ps1` with `scripts/test-install-skills.sh` (blocking CI array). Skills only: this repo owns no rules or hooks, so none of the recipe's config-file editing is built (no Codex `AGENTS.md` block, `hooks.json` merge or `opencode.json` edit) — symlinks and the manifest are the only things written outside the store. Port it from smooth-ai-product-context-memory when a rule or hook is owned.
+  - Core (`ai-review`, `git-commit-review-push`) installs by default; `ai-review-report` and `ai-analyse` need `-a`. A per-repo `.agents/skills/ai-review-report` makes the reusable gate and the analyse workflow run that copy instead of their pinned tooling, so it must be an explicit choice; the installer warns when it lands beside a reusable-workflow caller.
+  - Own state and store (`_smooth-ai-review-shared/`, `~/.smooth-ai-review`), distinct from both sibling installers, so neither purges the other's links.
+  - Installed copies drop the skill's own `AGENTS.md`, `test-*`, `tests/`, `run-regressions.sh`, `requirements-test.txt`, `scripts/eval/` and `__pycache__/`.
+  - `local-review.sh` resolves `REPO_ROOT` through `lib/resolve-repo-root.sh`: four levels up when that is a work-tree top (in-repo, per-repo installs), else the current directory's work tree (a `-g` install), else fail. `OPENCODE_REVIEW_REPORT_REPO_ROOT` still overrides.
+- **Consequences**: No registry auth, one channel for three tools. Consumers of the npm package keep their pinned version but get no updates; a stale npm-plugin link at `.agents/skills/<skill>` is replaced by the installed copy. Running the review generator in a consumer's own CI job is the local-job packaging (`.docs/examples/code-review-local.yml`), not a package install.
+- **See also**: LADR-037, LADR-038, LADR-087.
+
 ### LADR-050: Default-on per-chunk risk and inferred test-coverage hints
 
 - **Date**: 2026-10-18
@@ -1312,7 +1327,6 @@ Editing-time "I would have gotten this wrong" warnings — the counterpart to SK
   Verify by probe only inside a git repo — without a git root v2 does no walk-up.
 - **Every `--log-level` value is lowercase** (LADR-087): v2 rejects `WARN` before any model call, with a stack trace that looks like a provider error.
 - **A cached or shadowing v1 `opencode` never satisfies the installer** (LADR-087). v1 and v2 share the command name; `install-opencode.sh` requires major ≥ 2 both for the cached-binary short-circuit (including unpinned runs) and after install (a brew/npm v1 earlier on PATH shadows a good v2 install). It fails loudly and names the migration guide.
-- **The npm plugin's published entry is `index.js`** (LADR-087): v2 ignores `main`/`exports` and skips other entries with no error. Root `index.js` re-exports `opencode-plugin.js`, is in `files`, and is `main`.
 
 - **Chunk completeness: structure decides, never length** (`lib/review-has-shape.sh`; LADR-087 amending LADR-029/077). The 200-byte floor was calibrated against v1's stdout narration; do not reintroduce or re-tune it. `review-in-chunks.sh` gates on `chunk_review_has_shape` (0 bytes keeps its own diagnosis). The predicate must prove the template was *completed*, never merely opened — a bare heading (e.g. `### 📄 File:`) is never evidence.
 - **Predicate: transport and chunk gate ask the same question** via the one shared lib (a test greps both). A transport accept that the gate later rejects spends the LADR-002 fallback and fail-closes with rescue unused. `OPENCODE_OUTPUT_SHAPE_CHECK` is declared only by the two chunk-review invocations (summary, grouping, trivial-PR and analyse keep the pure byte floor); when set it is **authoritative in both directions**, invoked through `bash`; a set-but-missing path warns and degrades to the floor.
@@ -1426,7 +1440,8 @@ No backend test projects: the gate's tests are offline shell harnesses under `sc
 | L0 | `scripts/test-diff-base.sh` | resolved merge-base, never a guessed base (LADR-075) |
 | L0 | `scripts/test-gh-retry.sh` | one bounded `gh` retry (LADR-078) |
 | L0 | `scripts/test-context-scope.sh`, `scripts/test-find-context-files.sh`, `scripts/test-build-runtime-agents.sh` | context discovery, scope filter, runtime AGENTS.md (LADR-087/089/090) |
-| L0 | `scripts/test-install-opencode.sh`, `scripts/test-opencode-health.sh`, `scripts/test-prepare-opencode-v2-config.sh`, `scripts/test-opencode-with-fallback-targets.sh`, `scripts/test-opencode-v2-plugin.sh` | OpenCode v2 install, binding and transport (LADR-087) |
+| L0 | `scripts/test-install-opencode.sh`, `scripts/test-opencode-health.sh`, `scripts/test-prepare-opencode-v2-config.sh`, `scripts/test-opencode-with-fallback-targets.sh` | OpenCode v2 install, binding and transport (LADR-087) |
+| L0 | `../../../scripts/test-install-skills.sh` (repo root) | skills installer, both ports and their parity, `lib/resolve-repo-root.sh` (LADR-108) |
 | L0 | `scripts/test-prepare-opencode-models.sh` | absent-only runtime model registration, atomic failure/no-op contracts, four entrypoint initialization flows and analyse step handoff (LADR-107) |
 | L0 | `scripts/test-install-rtk.sh`, `scripts/test-check-versions.sh`, `scripts/test-minimize-reviews.sh`, `scripts/test-balance-fences.sh`, `scripts/test-validate-agents-md-disable.sh` | RTK, version notices, review minimisation, fence hygiene, AGENTS.md check toggle |
 | L0 | `scripts/eval/test-evals.sh`, `scripts/eval/test-decisions-report.sh` | eval harness structure and the decision measurement (no paid calls) |

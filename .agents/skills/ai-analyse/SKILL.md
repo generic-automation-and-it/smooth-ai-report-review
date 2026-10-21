@@ -25,7 +25,7 @@ effort: xhigh         # unattended: per-finding fix/skip judgment + edits with n
 
 Autonomously process low/medium findings from the OpenCode Review Report.
 
-> **Script location.** Every `.agents/skills/ai-analyse/...` path in this document assumes the skill is installed in the repository. When this skill runs from the Claude Code plugin (`smooth-ai-review`), substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-analyse` for `.agents/skills/ai-analyse` in script paths.
+> **Script location.** Every `.agents/skills/ai-analyse/...` path in this document assumes the skill is installed in the repository. When this skill runs from the Claude Code plugin (`smooth-ai-review`), substitute `${CLAUDE_PLUGIN_ROOT}/.agents/skills/ai-analyse` for `.agents/skills/ai-analyse` in script paths. Installed with `scripts/install-skills.sh -a` elsewhere (another skills folder, or `-g`), use the directory holding this `SKILL.md` instead.
 
 ## Invocation
 
