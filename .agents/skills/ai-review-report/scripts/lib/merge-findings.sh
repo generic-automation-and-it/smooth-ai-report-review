@@ -19,7 +19,7 @@
 # a heredoc.
 #
 # Python is a soft dependency. The gate runs on ubuntu-latest where python3 is
-# always present, but the local-job and npm-in-CI packagings guarantee nothing,
+# always present, but the local-job packaging and local runs guarantee nothing,
 # so an absent interpreter degrades to "no merged document" exactly like an
 # absent sidecar — same as lib/build-code-graph.sh and lib/install-rtk.sh treat
 # their own tools.

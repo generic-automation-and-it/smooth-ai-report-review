@@ -660,7 +660,7 @@ marker() { # marker <artifacts flag> <run id> [assembled] → what the block app
 }
 check "Test 7b: the run-id marker is written whenever an artifact is uploaded, scored or not" "<!-- ai-review-report run-id=4242 -->" \
   "$(marker 1 4242)"
-check "Test 7c: …and never with artifacts off, a non-numeric id, or outside run-review.sh (npm-in-CI via local-review.sh)" "||" \
+check "Test 7c: …and never with artifacts off, a non-numeric id, or outside run-review.sh (local-review.sh in CI)" "||" \
   "$(marker 0 4242)|$(marker 1 'x -->')|$(marker 1 4242 0)"
 check "Test 7c2: run-review.sh announces that it assembles the artifact; local-review.sh does not" "1|0" \
   "$(grep -c '^export _REVIEW_RUN_ARTIFACT=1$' "$RUN_REVIEW")|$(grep -c '_REVIEW_RUN_ARTIFACT' "$LOCAL_REVIEW" || true)"
@@ -670,8 +670,6 @@ check "Test 7e: run-review.sh asks fix_skip and passes the reviewed revision and
   "$(awk '/Step 17.6/{f=1} f && /_DECISIONS_ASK_FIX_SKIP=1|_DECISIONS_SOURCE_REV="\$\{head_sha\}"|_DECISIONS_GRAPH_JSON="\$WORK_DIR\/graph_detect_changes.json"/{n++} f && /score-findings-decisions\.sh" \\$/{print n; exit}' "$RUN_REVIEW")"
 check "Test 7f: local-review.sh asks fix_skip and passes the reviewed revision" "2" \
   "$(awk '/Step 5c/{f=1} f && /_DECISIONS_ASK_FIX_SKIP=1|_DECISIONS_SOURCE_REV="\$\{TO_SHA\}"/{n++} f && /score-findings-decisions\.sh" \\$/{print n; exit}' "$LOCAL_REVIEW")"
-check "Test 7g: the npm example forwards the code-context Variable" "1" \
-  "$(grep -c 'OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT: \${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT }}' "$REPO_ROOT/.docs/examples/npm-review-report-gha.yml")"
 
 # --- 8. the eval records and reports fix_skip --------------------------------------------
 echo ""
