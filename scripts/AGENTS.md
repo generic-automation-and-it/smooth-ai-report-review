@@ -40,6 +40,8 @@ C4Context
 - **The gate-precedence warning keys on the literal reusable-workflow `uses:` path** in `.github/workflows/*.y*ml` and fires only when `ai-review-report` landed in `.agents/skills` — the only path the gate's `[ -f ]` check looks at.
 - **The skills ship no symlinks; a copy is plain `cp -R` / `Copy-Item -Recurse`.** Adding one needs the sibling installers' link materialisation first; the harness fails until then.
 - **Pruning is a runtime list:** skill `AGENTS.md`, `test-*`, `tests/`, `run-regressions.sh`, `requirements-test.txt`, `scripts/eval/`, `__pycache__/`. Any runtime file named `test-*` would be silently dropped — the harness checks every `lib/` path an installed script names still exists.
+- **A credential-bearing `SKILLS_REPO` is refused before logging or cloning** (`reject_credential_url` / `Assert-NoCredentialUrl`): any userinfo on http(s)/ftp(s), or `user:pass@` elsewhere; `ssh://git@host` passes. The error never echoes the URL — git argv is visible to other processes.
+- **Loops over manifest names skip the empty line** (`|| continue`): with every skill off, `<<<` still yields one empty line.
 - **`enabled` on a link record is a status, not a control** — recomputed every `-g` run; `harnesses.<tool>: false` is the control.
 - **`ai-review --usedecisions` resolves `../../ai-review-report` through the tool folder**, so under `-g` it works only when `-a` linked the sibling; `local-review.sh` under `-g` reviews the cwd's work tree (`lib/resolve-repo-root.sh`).
 - **Link targets must compare as identical strings across ports** (`$GLB_ROOT/skills/<name>` vs `Join-Path`); a trailing slash on `SMOOTH_AI_REVIEW_HOME` is stripped, or the on-disk purge would miss links.
@@ -57,3 +59,4 @@ Registered in the blocking `opencode-v2-regressions` array in `.github/workflows
 | Date | Change | Ref |
 |------|--------|-----|
 | 2026-10-21 | Created with the skills installers; npm channel removed. | LADR-108 |
+| 2026-10-21 | Credential-URL refusal, explicit empty-name skip, all-skills-off and credential cases in the harness (PR review). | LADR-108 |

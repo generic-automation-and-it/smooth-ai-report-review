@@ -35,7 +35,7 @@ From a checkout: `scripts/install-skills.sh [-a] [-g [--uninstall]]`, `./scripts
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SKILLS_REPO` | the upstream GitHub repo | clone source (URL or local path) |
+| `SKILLS_REPO` | the upstream GitHub repo | clone source (URL or local path); a URL with embedded credentials (`user:pass@`, or any `token@` on http(s)) is refused and never echoed — use a credential helper or `gh auth login` |
 | `SKILLS_BRANCH` | `main` | branch or tag to clone (`v2` follows the reusable workflow's major tag); empty = remote default |
 | `SKILLS_ROOT` | *(searched)* | force the per-repo skills folder; refused with `-g` |
 | `SMOOTH_AI_REVIEW_HOME` | `~/.smooth-ai-review` | the `-g` store; must be absolute |
@@ -151,7 +151,7 @@ bash scripts/test-install-skills.sh
 No network: the clone source is a fixture repository built from this checkout's working tree. Every case
 runs in a throwaway `HOME` with the tool-location variables cleared. The bash port runs under `/bin/bash`
 (3.2 on macOS). The `.ps1` and cross-port parity cases are skipped with a stated reason when `pwsh` is
-absent, as on the `ubuntu-latest` runner of the blocking `opencode-v2-regressions` job. Verified: 101/101
-on macOS (bash 3.2, pwsh 7.6), 53/53 in `ubuntu:24.04` without pwsh. Load-bearing lines (the on-disk purge,
+absent, as on the `ubuntu-latest` runner of the blocking `opencode-v2-regressions` job. Verified: 113/113
+on macOS (bash 3.2, pwsh 7.6), 59/59 in `ubuntu:24.04` without pwsh. Load-bearing lines (the on-disk purge,
 `enabled` recompute, flag preservation, corrupt-manifest refusal, pruning, uninstall's target check) were
 each broken in a copy and a case went red.

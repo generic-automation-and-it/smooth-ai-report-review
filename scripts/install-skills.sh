@@ -260,8 +260,28 @@ INSTALL_TMP=""
 cleanup() { [ -z "$INSTALL_TMP" ] || rm -rf "$INSTALL_TMP"; }
 trap cleanup EXIT INT TERM HUP
 
+# reject_credential_url URL — refuse a clone source that embeds a secret before it is logged or passed to
+# git (argv is visible to other processes). Any userinfo on an http(s)/ftp(s) URL is a token or password;
+# elsewhere only `user:password@` is. `ssh://git@host` and scp-style `git@host:path` carry no secret.
+# The URL itself is never echoed.
+reject_credential_url() {
+  local scheme rest authority userinfo
+  case "$1" in *://*) ;; *) return 0 ;; esac
+  scheme="${1%%://*}"
+  rest="${1#*://}"
+  authority="${rest%%/*}"
+  case "$authority" in *@*) ;; *) return 0 ;; esac
+  userinfo="${authority%@*}"
+  case "$(printf '%s' "$scheme" | tr 'A-Z' 'a-z')" in
+    http | https | ftp | ftps) ;;
+    *) case "$userinfo" in *:*) ;; *) return 0 ;; esac ;;
+  esac
+  die "SKILLS_REPO embeds credentials in its URL — remove them and authenticate with a git credential helper or 'gh auth login' instead"
+}
+
 clone_source() {
   local url="$SKILLS_REPO"
+  reject_credential_url "$url"
   INSTALL_TMP="$(mktemp -d)"
   # git ignores --depth for a bare local path; file:// makes it apply.
   case "$url" in
@@ -360,7 +380,8 @@ run_repo_install() {
   names="$(installed_names "$skills")"
   [ -n "$names" ] || log "No skills marked installed:true — nothing to update."
   while IFS= read -r name; do
-    [ -n "$name" ] && install_skill "$name" "$skills_root"
+    [ -n "$name" ] || continue
+    install_skill "$name" "$skills_root"
   done <<< "$names"
   warn_gate_precedence "$skills_root" "$names"
 
@@ -440,7 +461,8 @@ run_global_install() {
   names="$(installed_names "$skills")"
   [ -n "$names" ] || log "No skills marked installed:true — nothing to update."
   while IFS= read -r name; do
-    [ -n "$name" ] && install_skill "$name" "$GLB_ROOT/skills"
+    [ -n "$name" ] || continue
+    install_skill "$name" "$GLB_ROOT/skills"
   done <<< "$names"
 
   for tool in $HARNESSES; do
@@ -455,7 +477,8 @@ run_global_install() {
       continue
     fi
     while IFS= read -r name; do
-      [ -n "$name" ] && link_skill "$dir/skills/$name" "$GLB_ROOT/skills/$name" "$tool-skill"
+      [ -n "$name" ] || continue
+      link_skill "$dir/skills/$name" "$GLB_ROOT/skills/$name" "$tool-skill"
     done <<< "$names"
   done
 

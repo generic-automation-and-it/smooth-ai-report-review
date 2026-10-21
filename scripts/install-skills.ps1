@@ -192,7 +192,20 @@ function Write-Manifest {
 # Source clone and copy (G4)
 # ---------------------------------------------------------------------------
 
+function Assert-NoCredentialUrl {
+    # Mirrors reject_credential_url() in install-skills.sh: any userinfo on an http(s)/ftp(s) URL, or a
+    # user:password userinfo elsewhere, is refused before it is logged or passed to git. Never echoes the URL.
+    param([string] $Url)
+    if ($Url -notmatch '^([A-Za-z][A-Za-z0-9+.-]*)://([^/]*)@') { return }
+    $scheme = $Matches[1].ToLowerInvariant()
+    $userinfo = $Matches[2]
+    if ($scheme -in 'http', 'https', 'ftp', 'ftps' -or $userinfo.Contains(':')) {
+        Fail "SKILLS_REPO embeds credentials in its URL - remove them and authenticate with a git credential helper or 'gh auth login' instead"
+    }
+}
+
 function Invoke-SourceClone {
+    Assert-NoCredentialUrl $SkillsRepo
     $script:TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('install-skills-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $script:TempRoot -Force | Out-Null
     $repo = Join-Path $script:TempRoot 'repo'

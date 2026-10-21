@@ -254,6 +254,39 @@ EOF
   run "$p" "$r" -g && no "$p: relative SMOOTH_AI_REVIEW_HOME refused" || ok "$p: relative SMOOTH_AI_REVIEW_HOME refused"
   RUN_ENV=()
 
+  # A clone source with embedded credentials is refused before it is logged or cloned, and never echoed.
+  for url in 'https://user:s3cr3t@example.invalid/x.git' 'https://s3cr3t@example.invalid/x.git' 'ssh://git:s3cr3t@example.invalid/x.git'; do
+    RUN_ENV=(SKILLS_REPO="$url")
+    if run "$p" "$r"; then no "$p: credential URL refused ($url)"; else
+      check "$p: credential URL refused, secret never printed ($url)" "1|0" \
+        "$(grep -c 'embeds credentials' "$scratch/out" || true)|$(grep -c 's3cr3t' "$scratch/out" || true)"
+    fi
+  done
+  RUN_ENV=(SKILLS_REPO='ssh://git@example.invalid/x.git' GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='false')
+  run "$p" "$r" || true
+  check "$p: a user-only ssh URL is not treated as a credential" "0" "$(grep -c 'embeds credentials' "$scratch/out" || true)"
+  RUN_ENV=()
+
+  # Every skill switched off still completes and rewrites the manifest (an empty name list must not abort).
+  r="$(new_repo "$p-alloff")"
+  run "$p" "$r" || no "$p: all-off setup install"
+  m="$r/.agents/skills/_smooth-ai-review-shared/installation.json"
+  python3 - "$m" <<'EOF2'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for s in d["skills"]:
+    s["installed"] = False
+d["updated"] = "2000-01-01T00:00:00Z"
+json.dump(d, open(sys.argv[1], "w"), indent=2)
+EOF2
+  if run "$p" "$r"; then
+    check "$p: all skills off still reconciles and rewrites the manifest" \
+      "ai-analyse=false ai-review=false ai-review-report=false git-commit-review-push=false|rewritten" \
+      "$(flags "$m")|$(grep -q '2000-01-01' "$m" && echo stale || echo rewritten)"
+  else
+    no "$p: all skills off exits 0" "$(cat "$scratch/out")"
+  fi
+
   echo "== $p: global"
   local home="$scratch/home-$p" store gm
   rm -rf "$home"; mkdir -p "$home/.claude" "$home/.codex/skills/.system"
@@ -315,6 +348,22 @@ print(any(l["enabled"] for l in d["links"] if l["type"] == "codex-skill"))' "$gm
     "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("%d|%s" % (len(d["links"]), str(d["harnesses"]["codex"]).lower()))' "$gm")|$(flags "$gm")"
   run "$p" "$r" -g || no "$p: reinstall exits 0"
   check "$p: reinstall relinks" "$store/skills/ai-review" "$(readlink "$home/.claude/skills/ai-review")"
+
+  # All skills off under -g with a tool turned off: still exits 0, still purges that tool's links.
+  python3 - "$gm" <<'EOF2'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for s in d["skills"]:
+    s["installed"] = False
+d["harnesses"]["claude-code"] = False
+json.dump(d, open(sys.argv[1], "w"), indent=2)
+EOF2
+  if run "$p" "$r" -g; then
+    check "$p: -g with every skill off still purges a turned-off tool" "absent" \
+      "$([ -L "$home/.claude/skills/ai-review" ] && echo present || echo absent)"
+  else
+    no "$p: -g with every skill off exits 0" "$(cat "$scratch/out")"
+  fi
 
   printf '{oops' > "$gm"
   run "$p" "$r" -g && no "$p: corrupt global manifest fails" || check "$p: corrupt global manifest fails, file untouched" "{oops" "$(cat "$gm")"
