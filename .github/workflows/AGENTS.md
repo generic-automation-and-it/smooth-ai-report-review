@@ -2,11 +2,11 @@
 
 ## TL;DR
 
-GitHub Actions here are the product surface for the review gate, eval PR gate, and package publishing; edits must preserve cross-repo reuse, env-injected credentials, and script path coupling.
+GitHub Actions here are the product surface for the review gate, eval PR gate, and major-tag maintenance; edits must preserve cross-repo reuse, env-injected credentials, and script path coupling.
 
 ## Non-Negotiables
 
-- Route review-gate script calls through `REVIEW_SKILL_DIR`. The literal `.agents/skills/ai-review-report` path is the copy-install rewrite anchor; reusable workflow mode must keep the `.smooth-ai-review-tools` side checkout path intact.
+- Route review-gate script calls through `REVIEW_SKILL_DIR`. The literal `.agents/skills/ai-review-report` path is where copy-install and `install-skills.sh -a` place the skill, and a local copy there wins over fetched tooling; reusable workflow mode must keep the `.smooth-ai-review-tools` side checkout path intact.
 - Route analyse workflow calls through resolved skill dirs too: `REVIEW_SKILL_DIR` for shared opencode libs, `ANALYSE_SKILL_DIR` for `ai-analyse/SKILL.md`, and `AI_REVIEW_DIR` for `copilot-review.sh summary`.
 - `pipeline-ai-analyse.yml` is name-coupled to `pipeline-code-review-report.yml`: `workflow_run.workflows` must equal the gate's `name: OpenCode Review Report`. A gate rename requires an analyse workflow edit and an actionlint pass in the same commit.
 - Do not add `workflow_call` as a runtime `github.event_name` branch. In called workflows, the `github` context is the caller event context, so PR-triggered callers still see `pull_request`.
@@ -73,7 +73,7 @@ C4Context
 
 | Date | Change | Ref |
 |------|--------|-----|
-| 2026-10-21 | `npm-publish.yml` removed with the npm channel; `update-major-tag.yml` reads `.claude-plugin/plugin.json`; the blocking regression job covers root `scripts/` and runs `scripts/test-install-skills.sh`. | LADR-108 |
+| 2026-10-21 | `npm-publish.yml` removed with the npm channel; `update-major-tag.yml` reads `.claude-plugin/plugin.json`; the blocking regression job covers root `scripts/` and runs `scripts/test-install-skills.sh`; TL;DR and path-anchor wording updated. | LADR-108 |
 | 2026-09-27 | `OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT` in both gate packagings, the npm example and the analyse job; analyse judges the reviewed revision and uploads `ai-analyse-run-<id>`; new tests in the blocking job. | LADR-098 |
 | 2026-09-27 | `pipeline-ai-analyse.yml`: optional decision-model FIX/SKIP support — six `OPENCODE_ANALYSE_*DECISIONS*` Variables, scoring + scope filter in `Build analyse prompt`, summary reporting. | LADR-097 |
 | 2026-09-24 | Six decision-model Variables in both gate packagings' `env:` (npm example forwards them and the two reused keys). No new Secret, no new input. | LADR-093 |
