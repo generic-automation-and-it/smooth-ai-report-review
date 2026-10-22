@@ -129,7 +129,7 @@ grep -q '^REPO_ROOT="${OPENCODE_REVIEW_REPORT_REPO_ROOT:-$(resolve_review_repo_r
 # Per-port contract
 # ---------------------------------------------------------------------------
 port_cases() {
-  local p="$1" r out m before after
+  local p="$1" r out m before after profile_name home_d profile_before
 
   echo "== $p: per-repo"
 
@@ -145,7 +145,7 @@ port_cases() {
     "ai-analyse=false ai-review=true ai-review-report=false git-commit-review-push=true" "$(flags "$m")"
   check "$p: only core skills land on disk" "_smooth-ai-review-shared ai-review git-commit-review-push" \
     "$(ls "$r/.agents/skills" | tr '\n' ' ' | sed 's/ $//')"
-  check "$p: manifest keys in fixed order" "updated skills" \
+  check "$p: manifest keys in fixed order" "updated decisions_enabled skills" \
     "$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))))' "$m")"
   python3 -c 'import json,sys,re; assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", json.load(open(sys.argv[1]))["updated"])' "$m" \
     && ok "$p: updated is ISO-8601 UTC" || no "$p: updated is ISO-8601 UTC"
@@ -244,9 +244,11 @@ EOF
     run sh "$r" --uninstall && no "$p: --uninstall without -g refused" || ok "$p: --uninstall without -g refused"
     run sh "$r" -x && no "$p: unknown option refused" || ok "$p: unknown option refused"
     run sh "$r" -g --uninstall -a && no "$p: -a with --uninstall refused" || ok "$p: -a with --uninstall refused"
+    run sh "$r" -g --uninstall -d && no "$p: -d with --uninstall refused" || ok "$p: -d with --uninstall refused"
   else
     run ps1 "$r" -Uninstall && no "$p: -Uninstall without -g refused" || ok "$p: -Uninstall without -g refused"
     run ps1 "$r" -g -Uninstall -a && no "$p: -a with -Uninstall refused" || ok "$p: -a with -Uninstall refused"
+    run ps1 "$r" -g -Uninstall -d && no "$p: -d with -Uninstall refused" || ok "$p: -d with -Uninstall refused"
   fi
   RUN_ENV=(SKILLS_ROOT="$r/.agents/skills")
   run "$p" "$r" -g && no "$p: -g with SKILLS_ROOT refused" || ok "$p: -g with SKILLS_ROOT refused"
@@ -287,6 +289,44 @@ EOF2
     no "$p: all skills off exits 0" "$(cat "$scratch/out")"
   fi
 
+  # Decision env vars — per-repo.
+  echo "== $p: decisions (per-repo)"
+  r="$(new_repo "$p-decisions")"
+  home_d="$scratch/home-$p"
+  # Detect profile path the installer will use.
+  case "$(uname -s)" in Darwin) profile_name=".zshrc" ;; Linux) profile_name=".bashrc" ;; *) profile_name="" ;; esac
+
+  if [ -n "$profile_name" ]; then
+    rm -rf "$home_d"; mkdir -p "$home_d"
+    m="$r/.agents/skills/_smooth-ai-review-shared/installation.json"
+
+    run "$p" "$r" || no "$p: decisions: first install exits 0" "$(cat "$scratch/out")"
+    check "$p: decisions: first install writes ENABLED=false in profile" "1" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_ENABLED=false' "$home_d/$profile_name" 2>/dev/null || echo 0)"
+    check "$p: decisions: manifest records decisions_enabled=false" "false" \
+      "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["decisions_enabled"]).lower())' "$m")"
+
+    # -d flips to true.
+    run "$p" "$r" -d || no "$p: decisions: -d exits 0" "$(cat "$scratch/out")"
+    check "$p: decisions: -d writes ENABLED=true in profile" "1" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_ENABLED=true' "$home_d/$profile_name" 2>/dev/null || echo 0)"
+    check "$p: decisions: manifest records decisions_enabled=true after -d" "true" \
+      "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["decisions_enabled"]).lower())' "$m")"
+
+    # -d is sticky: re-run without -d keeps true.
+    run "$p" "$r" || no "$p: decisions: re-run without -d exits 0" "$(cat "$scratch/out")"
+    check "$p: decisions: saved true survives a run without -d" "true" \
+      "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["decisions_enabled"]).lower())' "$m")"
+    check "$p: decisions: profile still has ENABLED=true" "1" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_ENABLED=true' "$home_d/$profile_name" 2>/dev/null || echo 0)"
+
+    # Idempotent: block appears only once.
+    check "$p: decisions: env block appears exactly once" "1" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_BASE_URL' "$home_d/$profile_name" 2>/dev/null || echo 0)"
+  else
+    skip "$p: decisions (per-repo)" "unsupported OS for profile detection"
+  fi
+
   echo "== $p: global"
   local home="$scratch/home-$p" store gm
   rm -rf "$home"; mkdir -p "$home/.claude" "$home/.codex/skills/.system"
@@ -302,13 +342,13 @@ EOF2
   check "$p: -g leaves a real folder at a link path alone" "operator" "$(cat "$home/.claude/skills/git-commit-review-push/SKILL.md")"
   check "$p: -g never touches Codex .system" "codex" "$(cat "$home/.codex/skills/.system/keep")"
   check "$p: -g writes no per-repo state" "" "$(ls -A "$r/.agents/skills")"
-  check "$p: -g manifest keys in fixed order" "updated harnesses skills links" \
+  check "$p: -g manifest keys in fixed order" "updated decisions_enabled harnesses skills links" \
     "$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))))' "$gm")"
   check "$p: -g records each link once, enabled" "claude-code-skill:ai-review:True codex-skill:ai-review:True codex-skill:git-commit-review-push:True" \
     "$(python3 -c '
 import json, os, sys
 d = json.load(open(sys.argv[1]))
-print(" ".join(sorted("%s:%s:%s" % (l["type"], os.path.basename(l["path"]), l["enabled"]) for l in d["links"])))' "$gm")"
+print(" ".join(sorted("%s:%s:%s" % (l["type"], os.path.basename(l["path"]), l["enabled"]) for l in d["links"] if l["type"] != "profile-edit")))' "$gm")"
 
   before="$(cat "$gm" | grep -v '"updated"')"
   run "$p" "$r" -g || no "$p: -g re-run exits 0"
@@ -348,6 +388,29 @@ print(any(l["enabled"] for l in d["links"] if l["type"] == "codex-skill"))' "$gm
     "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("%d|%s" % (len(d["links"]), str(d["harnesses"]["codex"]).lower()))' "$gm")|$(flags "$gm")"
   run "$p" "$r" -g || no "$p: reinstall exits 0"
   check "$p: reinstall relinks" "$store/skills/ai-review" "$(readlink "$home/.claude/skills/ai-review")"
+
+  # Decision env vars under -g: written to profile, uninstall strips them.
+  if [ -n "$profile_name" ]; then
+    check "$p: -g writes decision env vars to profile" "1" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_ENABLED' "$home/$profile_name" 2>/dev/null || echo 0)"
+    check "$p: -g manifest records decisions_enabled" "true" \
+      "$(python3 -c 'import json,sys; print(str("decisions_enabled" in json.load(open(sys.argv[1]))).lower())' "$gm")"
+    # Uninstall strips the profile block. The run() helper always sets HOME=$scratch/home-$p — the
+    # profile lives there, not under a separate uhome, so we override SMOOTH_AI_REVIEW_HOME only and
+    # check the profile under the test HOME. A fresh store means the manifest records the profile-edit.
+    local ustore="$scratch/store-$p-uninstall-decisions"
+    rm -rf "$ustore" "$home/$profile_name"
+    RUN_ENV=(SMOOTH_AI_REVIEW_HOME="$ustore")
+    run "$p" "$r" -g || true
+    RUN_ENV=()
+    check "$p: uninstall-round-trip: profile written" "1" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_ENABLED' "$home/$profile_name" 2>/dev/null || echo 0)"
+    RUN_ENV=(SMOOTH_AI_REVIEW_HOME="$ustore")
+    if [ "$p" = sh ]; then run sh "$r" -g --uninstall; else run ps1 "$r" -g -Uninstall; fi || true
+    RUN_ENV=()
+    check "$p: uninstall strips decision env block from profile" "0" \
+      "$(grep -c 'SMOOTH_REPORT_DECISIONS_ENABLED' "$home/$profile_name" 2>/dev/null || true)"
+  fi
 
   # All skills off under -g with a tool turned off: still exits 0, still purges that tool's links.
   python3 - "$gm" <<'EOF2'

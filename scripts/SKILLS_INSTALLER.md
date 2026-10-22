@@ -16,20 +16,21 @@ cut down to what this repo owns: **skills only**. Requirement IDs below (A1, B2,
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.sh | bash
-curl -fsSL https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.sh | bash -s -- -g -a
+curl -fsSL https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.sh | bash -s -- -g -a -d
 ```
 
 ```powershell
 irm https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.ps1 | iex
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.ps1))) -g -a
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/generic-automation-and-it/smooth-ai-report-review/main/scripts/install-skills.ps1))) -g -a -d
 ```
 
-From a checkout: `scripts/install-skills.sh [-a] [-g [--uninstall]]`, `./scripts/install-skills.ps1 [-a] [-g [-Uninstall]]`.
+From a checkout: `scripts/install-skills.sh [-a] [-d] [-g [--uninstall]]`, `./scripts/install-skills.ps1 [-a] [-d] [-g [-Uninstall]]`.
 
 | Switch | Effect |
 |---|---|
 | *(none)* | install the core skills into this repo |
 | `-a` | also install the optional skills, and keep them on for later runs |
+| `-d` | enable decision validation (`SMOOTH_REPORT_DECISIONS_ENABLED=true` in shell profile) |
 | `-g` | install once per machine and link into each tool |
 | `--uninstall` / `-Uninstall` | with `-g` only: remove the links this installer made |
 
@@ -80,6 +81,7 @@ The skills contain no symlinks (the harness asserts it), so a copy is self-conta
 ```json
 {
   "updated": "2026-10-21T13:02:24Z",
+  "decisions_enabled": false,
   "skills": [
     { "name": "ai-analyse", "installed": false },
     { "name": "ai-review", "installed": true },
@@ -135,6 +137,33 @@ outside any repo it reviews the current directory's work tree (`lib/resolve-repo
 
 **Claude Code plugin users.** The marketplace plugins and a `-g` install both register the same skill
 names; pick one per tool, or set `harnesses.claude-code` to `false`.
+
+## Decision validation
+
+Every run writes `SMOOTH_REPORT_DECISIONS_*` env vars to the user's shell profile if they are not already
+present. The default value of `SMOOTH_REPORT_DECISIONS_ENABLED` is `false`; passing `-d` sets it to `true`.
+Once set, the value is saved in the manifest's `decisions_enabled` field and reused on later runs (sticky).
+
+| OS | Profile |
+|---|---|
+| macOS | `~/.zshrc` |
+| Linux | `~/.bashrc` |
+| Windows (PowerShell) | `$PROFILE.CurrentUserAllHosts` (typically `Documents\PowerShell\Microsoft.PowerShell_profile.ps1`) |
+
+The env block is appended after a backup snapshot (`<profile>.bak-<timestamp>`). If the block is already
+present and only the `ENABLED` value differs (e.g. a subsequent `-d` run), only that line is updated. In
+global mode the profile edit is tracked as a `profile-edit` link record, so `--uninstall` restores from
+the snapshot or strips the marker-guarded block.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SMOOTH_REPORT_DECISIONS_ENABLED` | `false` | Must be `true` to activate decision validation |
+| `SMOOTH_REPORT_DECISIONS_BASE_URL` | `http://127.0.0.1:1234` | OpenJEV service base URL |
+| `SMOOTH_REPORT_DECISIONS_PATH` | `/v1/systemone` | API endpoint path |
+| `SMOOTH_REPORT_DECISIONS_MODEL` | `openjev` | Model name to request |
+| `SMOOTH_REPORT_DECISIONS_MIN_PROBABILITY` | `0.60` | Minimum probability (0–1) for a fix to be kept |
+| `SMOOTH_REPORT_DECISIONS_MAX_ATTEMPTS` | `3` | Retry count on timeout or connection failure |
+| `SMOOTH_REPORT_DECISIONS_TIMEOUT` | `60` | Per-request timeout in seconds |
 
 ## Windows
 

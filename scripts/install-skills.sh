@@ -16,7 +16,8 @@
 # pipeline-code-review-report.yml prefers a local .agents/skills/ai-review-report over the tooling it
 # fetches at the pinned ref, so a vendored copy silently takes over the gate and drifts.
 #
-# Switches: -a include the optional skills, -g global install, --uninstall (needs -g), --help.
+# Switches: -a include the optional skills, -d enable decision validation, -g global install,
+#           --uninstall (needs -g), --help.
 #
 # The owned lists live in OWNED_CORE / OWNED_OPTIONAL below AND in install-skills.ps1;
 # test-install-skills.sh holds the two ports to each other.
@@ -48,11 +49,12 @@ log() { echo "install-skills: $*" >&2; }
 
 usage() {
   cat <<'EOF'
-Usage: install-skills.sh [-a] [-g [--uninstall]]
+Usage: install-skills.sh [-a] [-d] [-g [--uninstall]]
 
   (none)        install ai-review and git-commit-review-push into this repo's skills folder
                 (.agents/skills, else .claude/skills, else .codex/skills)
   -a            also install ai-review-report and ai-analyse
+  -d            enable decision validation (sets SMOOTH_REPORT_DECISIONS_ENABLED=true in shell profile)
   -g            install once into ~/.smooth-ai-review and link into Claude Code, Codex, OpenCode
   --uninstall   with -g: remove the links this installer made (the store is kept)
 
@@ -100,6 +102,7 @@ list_owned_skills() {
 # ---------------------------------------------------------------------------
 
 DO_OPTIONAL=0
+DO_DECISIONS=0
 DO_GLOBAL=0
 DO_UNINSTALL=0
 
@@ -108,10 +111,11 @@ parse_arguments() {
   for arg in "$@"; do
     case "$arg" in
       -a) DO_OPTIONAL=1 ;;
+      -d) DO_DECISIONS=1 ;;
       -g) DO_GLOBAL=1 ;;
       --uninstall) DO_UNINSTALL=1 ;;
       --help | -\?) usage; exit 0 ;;
-      *) die "unknown option: $arg (use -a, -g, --uninstall, --help)" ;;
+      *) die "unknown option: $arg (use -a, -d, -g, --uninstall, --help)" ;;
     esac
   done
   if [ "$DO_GLOBAL" = "0" ] && [ "$DO_UNINSTALL" = "1" ]; then
@@ -119,6 +123,9 @@ parse_arguments() {
   fi
   if [ "$DO_UNINSTALL" = "1" ] && [ "$DO_OPTIONAL" = "1" ]; then
     die "-a has no meaning with --uninstall"
+  fi
+  if [ "$DO_UNINSTALL" = "1" ] && [ "$DO_DECISIONS" = "1" ]; then
+    die "-d has no meaning with --uninstall"
   fi
 }
 
@@ -211,11 +218,12 @@ LINKS=()
 write_manifest() {
   local links=""
   if [ "${#LINKS[@]}" -gt 0 ]; then links="$(printf '%s\n' "${LINKS[@]}")"; fi
-  python3 - "$1" "$2" "${3:-}" "$links" <<'PYEOF'
+  python3 - "$1" "$2" "${3:-}" "$links" "$DECISIONS_ENABLED" <<'PYEOF'
 import json, os, sys
 from datetime import datetime, timezone
-path, skills, harnesses, links_raw = sys.argv[1:5]
-data = {"updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+path, skills, harnesses, links_raw, decisions_enabled = sys.argv[1:6]
+data = {"updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "decisions_enabled": decisions_enabled == "true"}
 if harnesses:
     data["harnesses"] = json.loads(harnesses)
 data["skills"] = json.loads(skills)
@@ -250,6 +258,97 @@ with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n")
 os.replace(tmp, path)
 PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# Decision validation env vars
+# ---------------------------------------------------------------------------
+
+DECISIONS_ENABLED="false"
+
+# check_decisions_enabled JSON — returns "true", "false", or "missing" from the decisions_enabled field.
+check_decisions_enabled() {
+  local json="$1"
+  if [ -z "$json" ]; then printf 'missing'; return; fi
+  printf '%s' "$json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if 'decisions_enabled' not in data:
+    print('missing')
+elif data['decisions_enabled']:
+    print('true')
+else:
+    print('false')
+"
+}
+
+# resolve_decisions EXISTING_JSON — resolve DECISIONS_ENABLED from -d, saved preference, or default.
+resolve_decisions() {
+  local existing_decisions
+  existing_decisions="$(check_decisions_enabled "$1")"
+  if [ "$DO_DECISIONS" = "1" ]; then
+    DECISIONS_ENABLED="true"
+    log "Decisions enabled via -d"
+  elif [ "$existing_decisions" != "missing" ]; then
+    DECISIONS_ENABLED="$existing_decisions"
+    log "Decisions preference saved ($DECISIONS_ENABLED)"
+  else
+    DECISIONS_ENABLED="false"
+  fi
+}
+
+# backup_inplace FILE — snapshot a file before editing it. Echoes the backup path.
+backup_inplace() {
+  local src="$1" bak
+  bak="$src.bak-$(date +%Y%m%dT%H%M%S)"
+  if [ -f "$src" ]; then
+    cp "$src" "$bak"
+    printf '%s\n' "$bak"
+  fi
+}
+
+# write_decisions_env — write SMOOTH_REPORT_DECISIONS_* env vars to the user's shell profile.
+# Always writes the block (discoverable); ENABLED value comes from DECISIONS_ENABLED.
+# Idempotent: if the block exists with the same ENABLED value, no-op. If ENABLED differs, update it.
+write_decisions_env() {
+  local profile="" backup_path="" enabled_val="$DECISIONS_ENABLED"
+  case "$(uname -s)" in
+    Darwin) profile="$HOME/.zshrc" ;;
+    Linux)  profile="$HOME/.bashrc" ;;
+    *)      log "Unknown OS — env vars not written to profile"; return 0 ;;
+  esac
+  mkdir -p "$(dirname "$profile")"
+  if grep -q "SMOOTH_REPORT_DECISIONS" "$profile" 2>/dev/null; then
+    if grep -q "SMOOTH_REPORT_DECISIONS_ENABLED=$enabled_val" "$profile" 2>/dev/null; then
+      log "Decision env vars already in $profile (ENABLED=$enabled_val) — skipped"
+      return 0
+    fi
+    backup_path="$(backup_inplace "$profile")"
+    if [ "$DO_GLOBAL" = "1" ]; then
+      LINKS+=("profile-edit	$profile	${backup_path:-}")
+    fi
+    # Update only the ENABLED line. sed -i varies between macOS and GNU; use a temp file for portability.
+    sed "s/SMOOTH_REPORT_DECISIONS_ENABLED=.*/SMOOTH_REPORT_DECISIONS_ENABLED=$enabled_val/" "$profile" > "$profile.tmp"
+    mv "$profile.tmp" "$profile"
+    log "Updated SMOOTH_REPORT_DECISIONS_ENABLED=$enabled_val in $profile"
+    return 0
+  fi
+  backup_path="$(backup_inplace "$profile")"
+  if [ "$DO_GLOBAL" = "1" ]; then
+    LINKS+=("profile-edit	$profile	${backup_path:-}")
+  fi
+  cat >> "$profile" <<ENVEOF
+
+# Smooth AI Report Review — Decision Validation (added by install-skills)
+export SMOOTH_REPORT_DECISIONS_ENABLED=$enabled_val
+export SMOOTH_REPORT_DECISIONS_BASE_URL=http://127.0.0.1:1234
+export SMOOTH_REPORT_DECISIONS_PATH=/v1/systemone
+export SMOOTH_REPORT_DECISIONS_MODEL=openjev
+export SMOOTH_REPORT_DECISIONS_MIN_PROBABILITY=0.60
+export SMOOTH_REPORT_DECISIONS_MAX_ATTEMPTS=3
+export SMOOTH_REPORT_DECISIONS_TIMEOUT=60
+ENVEOF
+  log "Wrote decision env vars to $profile (ENABLED=$enabled_val)"
 }
 
 # ---------------------------------------------------------------------------
@@ -375,6 +474,7 @@ run_repo_install() {
   log "Skills root: $skills_root"
 
   existing="$(json_read "$manifest")" || die "cannot read $manifest — fix or delete it, then re-run"
+  resolve_decisions "$existing"
   clone_source
   skills="$(reconcile_skills "$existing" "$(catalog_for "$skills_root")")"
   names="$(installed_names "$skills")"
@@ -384,6 +484,7 @@ run_repo_install() {
     install_skill "$name" "$skills_root"
   done <<< "$names"
   warn_gate_precedence "$skills_root" "$names"
+  write_decisions_env
 
   # Written last (B3).
   mkdir -p "$skills_root/$STATE_DIR_NAME"
@@ -453,6 +554,7 @@ link_skill() {
 run_global_install() {
   local existing harnesses skills names tool dir name
   existing="$(json_read "$GLOBAL_MANIFEST")" || die "cannot read $GLOBAL_MANIFEST — fix or delete it, then re-run"
+  resolve_decisions "$existing"
   mkdir -p "$GLB_ROOT/skills"
   clone_source
 
@@ -482,11 +584,13 @@ run_global_install() {
     done <<< "$names"
   done
 
+  write_decisions_env
   write_manifest "$GLOBAL_MANIFEST" "$skills" "$harnesses"
   log "Done. State: $GLOBAL_MANIFEST"
 }
 
 # Remove exactly the recorded links that still point where recorded (F8); keep the store and the flags.
+# profile-edit records: restore from backup if it exists, otherwise strip the marker-guarded block.
 run_global_uninstall() {
   local existing records kind link target
   [ -f "$GLOBAL_MANIFEST" ] || { log "No global install at $GLOBAL_MANIFEST — nothing to uninstall"; return 0; }
@@ -496,6 +600,37 @@ for r in d.get('links', []) or []:
     print('%s\t%s\t%s' % (r.get('type', ''), r.get('path', ''), r.get('detail', '')))")"
   while IFS=$'\t' read -r kind link target; do
     [ -n "$link" ] || continue
+    if [ "$kind" = "profile-edit" ]; then
+      if [ -n "$target" ] && [ -f "$target" ]; then
+        cp "$target" "$link"
+        rm -f "$target"
+        log "Restored $link from backup"
+      elif [ -f "$link" ]; then
+        # No backup: strip the marker-guarded decision env block.
+        python3 - "$link" <<'STRIPEOF'
+import sys
+path = sys.argv[1]
+with open(path, encoding='utf-8') as f:
+    lines = f.readlines()
+out = []
+i = 0
+while i < len(lines):
+    if 'Smooth AI Report Review' in lines[i] and 'Decision Validation' in lines[i]:
+        if out and out[-1].strip() == '':
+            out.pop()
+        i += 1
+        while i < len(lines) and ('SMOOTH_REPORT_DECISIONS' in lines[i] or lines[i].strip() == ''):
+            i += 1
+        continue
+    out.append(lines[i])
+    i += 1
+with open(path, 'w', encoding='utf-8') as f:
+    f.writelines(out)
+STRIPEOF
+        log "Removed decision env block from $link"
+      fi
+      continue
+    fi
     if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
       rm -f "$link"
       log "Removed $link"
