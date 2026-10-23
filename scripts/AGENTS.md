@@ -11,6 +11,7 @@ One-command skills installers (`install-skills.sh` / `install-skills.ps1`) that 
 - **Own state, never a sibling's.** Store `~/.smooth-ai-review`, per-repo state `_smooth-ai-review-shared/`. Purge only links whose target is under our store; a real folder or a link elsewhere is never touched.
 - **Corrupt manifest = hard error; manifest written last.** Empty, whitespace-only, unparseable or non-object JSON fails the run and is left as is — never reset flags from defaults.
 - **Skills only — no tool config edits.** This repo owns no rules or hooks, so neither port reads or writes `~/.codex/AGENTS.md`, `hooks.json` or `opencode.json`. Owning one means porting smooth-ai-product-context-memory's config-edit machinery (own markers, snapshots, uninstall that removes only its own entries), not improvising it.
+- **Profile edits are the one exception to "no config edits".** `write_decisions_env` / `Write-DecisionsEnv` appends `SMOOTH_REPORT_DECISIONS_*` to the shell profile with a backup snapshot; in global mode a `profile-edit` link record tracks the edit so `--uninstall` restores from the snapshot or strips the marker-guarded block. The comment-line sentinel is `Smooth AI Report Review` + `Decision Validation`.
 - **The bash port stays bash 3.2-safe** (`/bin/bash` on macOS): no `${v,,}`, `mapfile` or associative arrays; `"${arr[@]+…}"` for possibly-empty arrays under `set -u`.
 
 ## System Context
@@ -45,12 +46,13 @@ C4Context
 - **`enabled` on a link record is a status, not a control** — recomputed every `-g` run; `harnesses.<tool>: false` is the control.
 - **`ai-review --usedecisions` resolves `../../ai-review-report` through the tool folder**, so under `-g` it works only when `-a` linked the sibling; `local-review.sh` under `-g` reviews the cwd's work tree (`lib/resolve-repo-root.sh`).
 - **Link targets must compare as identical strings across ports** (`$GLB_ROOT/skills/<name>` vs `Join-Path`); a trailing slash on `SMOOTH_AI_REVIEW_HOME` is stripped, or the on-disk purge would miss links.
+- **`-d` is sticky.** Once set, `decisions_enabled: true` is saved in the manifest and reused on later runs without `-d`. The env block is always written (with `ENABLED=false` by default) so the vars are discoverable. Only the `ENABLED` line is updated when `-d` flips the value; the rest of the block is never duplicated.
 
 ## Test References
 
 | Tier | Path | Covers |
 |---|---|---|
-| L0 | `test-install-skills.sh` | both ports per-repo and `-g`: ownership, manifest reconcile/corruption, root search, pruning, link replacement, gate warning, harness flags, uninstall, cross-port parity, `lib/resolve-repo-root.sh` |
+| L0 | `test-install-skills.sh` | both ports per-repo and `-g`: ownership, manifest reconcile/corruption, root search, pruning, link replacement, gate warning, harness flags, uninstall, decisions env vars (`-d`, sticky, idempotent, profile write/strip, manifest field), cross-port parity, `lib/resolve-repo-root.sh` |
 
 Registered in the blocking `opencode-v2-regressions` array in `.github/workflows/llm-eval-harness.yml`; `.agents/skills/ai-review-report/scripts/run-regressions.sh` runs the same list locally. `.ps1` and parity cases skip with a stated reason when `pwsh` is absent (as on `ubuntu-latest`).
 
@@ -60,3 +62,4 @@ Registered in the blocking `opencode-v2-regressions` array in `.github/workflows
 |------|--------|-----|
 | 2026-10-21 | Created with the skills installers; npm channel removed. | LADR-108 |
 | 2026-10-21 | Credential-URL refusal, explicit empty-name skip, all-skills-off and credential cases in the harness (PR review). | LADR-108 |
+| 2026-10-22 | `-d` flag and `SMOOTH_REPORT_DECISIONS_*` profile write; `backup_inplace`, `profile-edit` link records, uninstall strip; manifest `decisions_enabled` field; test cases for both ports. | — |

@@ -33,6 +33,8 @@
 param(
     [Alias('a')]
     [switch] $All,
+    [Alias('d')]
+    [switch] $Decisions,
     [Alias('g')]
     [switch] $Global,
     [switch] $Uninstall
@@ -156,7 +158,7 @@ function Write-Manifest {
     # Fixed key order, ISO-8601 UTC. With Harnesses, the recorded links are merged by (type, path) and each
     # record's `enabled` is recomputed from disk.
     param([string] $Path, $Skills, $HarnessMap = $null, $Links = $null)
-    $data = [ordered]@{ updated = (Get-UtcStamp) }
+    $data = [ordered]@{ updated = (Get-UtcStamp); decisions_enabled = [bool]$script:DecisionsEnabled }
     if ($null -ne $HarnessMap) { $data['harnesses'] = $HarnessMap }
     $data['skills'] = @($Skills)
     if ($null -ne $HarnessMap) {
@@ -186,6 +188,128 @@ function Write-Manifest {
     $tmp = "$Path.tmp"
     [System.IO.File]::WriteAllText($tmp, (($data | ConvertTo-Json -Depth 10) + "`n"), $Utf8NoBom)
     Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+# ---------------------------------------------------------------------------
+# Decision validation env vars
+# ---------------------------------------------------------------------------
+
+function Get-DecisionsEnabled {
+    # Returns the decisions_enabled value from existing JSON, or $null if not present.
+    # Manifests are read with ConvertFrom-Json -AsHashtable, so use hashtable lookup.
+    param([object] $ExistingJson)
+    if ($null -eq $ExistingJson) { return $null }
+    if ($ExistingJson -is [System.Collections.IDictionary] -and $ExistingJson.Contains('decisions_enabled')) {
+        return [bool] $ExistingJson['decisions_enabled']
+    }
+    return $null
+}
+
+function Resolve-Decisions {
+    # Resolve DecisionsEnabled from -d, saved preference, or default.
+    param([object] $ExistingJson)
+    $saved = Get-DecisionsEnabled -ExistingJson $ExistingJson
+    if ($script:DoDecisions) {
+        $script:DecisionsEnabled = $true
+        Write-Info 'Decisions enabled via -d'
+    } elseif ($null -ne $saved) {
+        $script:DecisionsEnabled = $saved
+        Write-Info "Decisions preference saved ($($script:DecisionsEnabled))"
+    } else {
+        $script:DecisionsEnabled = $false
+    }
+}
+
+function Backup-Inplace {
+    # Snapshot a file before editing it. Returns the backup path.
+    param([string] $Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $stamp = Get-Date -Format 'yyyyMMddTHHmmss'
+    $bak = "$Path.bak-$stamp"
+    Copy-Item -LiteralPath $Path -Destination $bak -Force
+    return $bak
+}
+
+function Write-DecisionsEnv {
+    # Write SMOOTH_REPORT_DECISIONS_* env vars to the user's shell profile.
+    # Always writes the block (discoverable); ENABLED value comes from $script:DecisionsEnabled.
+    # Idempotent: if the block exists with the same ENABLED value, no-op. If ENABLED differs, update it.
+    $enabledVal = if ($script:DecisionsEnabled) { 'true' } else { 'false' }
+
+    if ($IsWindows -or (-not $IsLinux -and -not $IsMacOS)) {
+        # Windows: PowerShell profile
+        $profilePath = $PROFILE.CurrentUserAllHosts
+        if (-not $profilePath) {
+            $profilePath = Join-Path $env:USERPROFILE 'Documents\PowerShell\Microsoft.PowerShell_profile.ps1'
+        }
+        if ((Test-Path -LiteralPath $profilePath -PathType Leaf) -and
+            (Select-String -LiteralPath $profilePath -Pattern 'SMOOTH_REPORT_DECISIONS' -Quiet)) {
+            if (Select-String -LiteralPath $profilePath -Pattern "SMOOTH_REPORT_DECISIONS_ENABLED = '$enabledVal'" -Quiet) {
+                Write-Info "Decision env vars already in $profilePath (ENABLED=$enabledVal) - skipped"
+                return
+            }
+            $backup = Backup-Inplace -Path $profilePath
+            if ($Global) { $script:Links.Add([ordered]@{ type = 'profile-edit'; path = $profilePath; detail = if ($backup) { $backup } else { '' } }) }
+            $content = Get-Content -LiteralPath $profilePath -Raw
+            $content = $content -replace "SMOOTH_REPORT_DECISIONS_ENABLED = '[^']*'", "SMOOTH_REPORT_DECISIONS_ENABLED = '$enabledVal'"
+            [System.IO.File]::WriteAllText($profilePath, $content, $Utf8NoBom)
+            Write-Info "Updated SMOOTH_REPORT_DECISIONS_ENABLED=$enabledVal in $profilePath"
+            return
+        }
+    } else {
+        # macOS/Linux: zshrc or bashrc
+        $profilePath = if ($IsMacOS) { Join-Path $HOME '.zshrc' } else { Join-Path $HOME '.bashrc' }
+        if ((Test-Path -LiteralPath $profilePath -PathType Leaf) -and
+            (Select-String -LiteralPath $profilePath -Pattern 'SMOOTH_REPORT_DECISIONS' -Quiet)) {
+            if (Select-String -LiteralPath $profilePath -Pattern "SMOOTH_REPORT_DECISIONS_ENABLED=$enabledVal" -Quiet) {
+                Write-Info "Decision env vars already in $profilePath (ENABLED=$enabledVal) - skipped"
+                return
+            }
+            $backup = Backup-Inplace -Path $profilePath
+            if ($Global) { $script:Links.Add([ordered]@{ type = 'profile-edit'; path = $profilePath; detail = if ($backup) { $backup } else { '' } }) }
+            $content = Get-Content -LiteralPath $profilePath -Raw
+            $content = $content -replace 'SMOOTH_REPORT_DECISIONS_ENABLED=\S+', "SMOOTH_REPORT_DECISIONS_ENABLED=$enabledVal"
+            [System.IO.File]::WriteAllText($profilePath, $content, $Utf8NoBom)
+            Write-Info "Updated SMOOTH_REPORT_DECISIONS_ENABLED=$enabledVal in $profilePath"
+            return
+        }
+    }
+
+    # Block not present: append it.
+    $profileDir = Split-Path $profilePath -Parent
+    if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) {
+        New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+    }
+    $backup = Backup-Inplace -Path $profilePath
+    if ($Global) { $script:Links.Add([ordered]@{ type = 'profile-edit'; path = $profilePath; detail = if ($backup) { $backup } else { '' } }) }
+
+    if ($IsWindows -or (-not $IsLinux -and -not $IsMacOS)) {
+        $envBlock = @"
+
+# Smooth AI Report Review - Decision Validation (added by install-skills)
+`$env:SMOOTH_REPORT_DECISIONS_ENABLED = '$enabledVal'
+`$env:SMOOTH_REPORT_DECISIONS_BASE_URL = 'http://127.0.0.1:1234'
+`$env:SMOOTH_REPORT_DECISIONS_PATH = '/v1/systemone'
+`$env:SMOOTH_REPORT_DECISIONS_MODEL = 'openjev'
+`$env:SMOOTH_REPORT_DECISIONS_MIN_PROBABILITY = '0.60'
+`$env:SMOOTH_REPORT_DECISIONS_MAX_ATTEMPTS = '3'
+`$env:SMOOTH_REPORT_DECISIONS_TIMEOUT = '60'
+"@
+    } else {
+        $envBlock = @"
+
+# Smooth AI Report Review - Decision Validation (added by install-skills)
+export SMOOTH_REPORT_DECISIONS_ENABLED=$enabledVal
+export SMOOTH_REPORT_DECISIONS_BASE_URL=http://127.0.0.1:1234
+export SMOOTH_REPORT_DECISIONS_PATH=/v1/systemone
+export SMOOTH_REPORT_DECISIONS_MODEL=openjev
+export SMOOTH_REPORT_DECISIONS_MIN_PROBABILITY=0.60
+export SMOOTH_REPORT_DECISIONS_MAX_ATTEMPTS=3
+export SMOOTH_REPORT_DECISIONS_TIMEOUT=60
+"@
+    }
+    Add-Content -LiteralPath $profilePath -Value $envBlock -Encoding UTF8
+    Write-Info "Wrote decision env vars to $profilePath (ENABLED=$enabledVal)"
 }
 
 # ---------------------------------------------------------------------------
@@ -312,12 +436,14 @@ function Invoke-RepoInstall {
     Write-Info "Skills root: $skillsRoot"
 
     $existing = Read-Manifest $manifest
+    Resolve-Decisions -ExistingJson $existing
     Invoke-SourceClone
     $skills = Build-Skills -Existing $existing -Catalog (Get-Catalog $skillsRoot)
     $names = @(Get-InstalledNames $skills)
     if ($names.Count -eq 0) { Write-Info 'No skills marked installed:true - nothing to update.' }
     foreach ($name in $names) { Install-Skill -Name $name -DestRoot $skillsRoot }
     Write-GatePrecedenceWarning -SkillsRoot $skillsRoot -Names $names
+    Write-DecisionsEnv
 
     New-Item -ItemType Directory -Path (Split-Path -Parent $manifest) -Force | Out-Null
     Write-Manifest -Path $manifest -Skills $skills
@@ -385,6 +511,7 @@ function New-SkillLink {
 
 function Invoke-GlobalInstall {
     $existing = Read-Manifest $script:GlobalManifest
+    Resolve-Decisions -ExistingJson $existing
     $store = Join-Path $script:GlbRoot 'skills'
     New-Item -ItemType Directory -Path $store -Force | Out-Null
     Invoke-SourceClone
@@ -409,6 +536,7 @@ function Invoke-GlobalInstall {
         }
     }
 
+    Write-DecisionsEnv
     Write-Manifest -Path $script:GlobalManifest -Skills $skills -HarnessMap $harnessMap -Links $script:Links
     Write-Info "Done. State: $($script:GlobalManifest)"
 }
@@ -423,6 +551,32 @@ function Invoke-GlobalUninstall {
         if ($rec -isnot [System.Collections.IDictionary]) { continue }
         $path = [string] $rec['path']
         if (-not $path) { continue }
+        $typ = [string] (Get-Entry $rec 'type')
+        if ($typ -eq 'profile-edit') {
+            $detail = [string] (Get-Entry $rec 'detail')
+            if ($detail -and (Test-Path -LiteralPath $detail -PathType Leaf)) {
+                Copy-Item -LiteralPath $detail -Destination $path -Force
+                Remove-Item -LiteralPath $detail -Force
+                Write-Info "Restored $path from backup"
+            } elseif (Test-Path -LiteralPath $path -PathType Leaf) {
+                # No backup: strip the marker-guarded decision env block.
+                $lines = Get-Content -LiteralPath $path
+                $output = [System.Collections.Generic.List[string]]::new()
+                for ($i = 0; $i -lt $lines.Count; $i++) {
+                    if ($lines[$i] -like '*Smooth AI Report Review*' -and $lines[$i] -like '*Decision Validation*') {
+                        if ($output.Count -gt 0 -and $output[$output.Count - 1].Trim() -eq '') { $output.RemoveAt($output.Count - 1) }
+                        $i++
+                        while ($i -lt $lines.Count -and ($lines[$i] -like '*SMOOTH_REPORT_DECISIONS*' -or $lines[$i].Trim() -eq '')) { $i++ }
+                        $i--
+                        continue
+                    }
+                    $output.Add($lines[$i])
+                }
+                [System.IO.File]::WriteAllLines($path, $output, $Utf8NoBom)
+                Write-Info "Removed decision env block from $path"
+            }
+            continue
+        }
         if ((Get-LinkTarget $path) -eq [string] $rec['detail']) {
             (Get-Item -LiteralPath $path -Force).Delete()
             Write-Info "Removed $path"
@@ -442,7 +596,11 @@ function Invoke-GlobalUninstall {
 
 if ($Uninstall -and -not $Global) { Fail '-Uninstall only applies to the global install - use: install-skills.ps1 -g -Uninstall' }
 if ($Uninstall -and $All) { Fail '-a has no meaning with -Uninstall' }
+if ($Uninstall -and $Decisions) { Fail '-d has no meaning with -Uninstall' }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail 'git is required' }
+
+$script:DoDecisions = [bool]$Decisions
+$script:DecisionsEnabled = $false
 
 try {
     if ($Global) {
