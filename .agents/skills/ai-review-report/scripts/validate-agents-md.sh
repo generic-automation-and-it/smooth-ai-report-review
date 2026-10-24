@@ -136,9 +136,9 @@ NEW_FILES=()
 # In CI the workflow has already resolved the correct comparison range
 # (merge-base/base SHA -> head SHA). Use that first so this script does not
 # depend on a particular remote ref being present as origin/<base>.
-BASE_SHA="${BASE_SHA:-}"
-HEAD_SHA="${HEAD_SHA:-}"
-BASE_REF="${BASE_REF:-main}"
+BASE_SHA="${BASE_SHA:-${BASE_SHA_FOR_VALIDATION:-}}"
+HEAD_SHA="${HEAD_SHA:-${HEAD_SHA_FOR_VALIDATION:-}}"
+BASE_REF="${BASE_REF:-${BASE_REF_FOR_VALIDATION:-main}}"
 
 if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
   && git rev-parse --verify "$BASE_SHA^{commit}" >/dev/null 2>&1 \
@@ -147,7 +147,7 @@ if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
   while IFS= read -r -d '' file; do
     NEW_FILES+=("$file")
   done < ci_temp/new_files_from_range.txt
-elif git diff --cached --name-only --diff-filter=A 2>/dev/null | grep -q .; then
+elif [ -n "$(git diff --cached --name-only --diff-filter=A 2>/dev/null)" ]; then
   # Local/testing path where the caller explicitly staged new files.
   git diff --cached --name-only --diff-filter=A 2>/dev/null > ci_temp/new_files_cached.txt
   while IFS= read -r file; do
@@ -244,7 +244,7 @@ check_template_compliance() {
 
   # Check for TL;DR section (flexible matching)
   # Matches: "## 🎯 TL;DR", "## TL;DR", "## 🎯 Quick Context", "## Quick Context", etc.
-  if ! echo "$content" | grep -qE "^##[[:space:]]*(🎯[[:space:]]*)?(TL;DR|Quick Context)"; then
+  if ! grep -qE "^##[[:space:]]*(🎯[[:space:]]*)?(TL;DR|Quick Context)" <<< "$content"; then
     MISSING_SECTIONS+=("## 🎯 TL;DR")
   fi
 
@@ -279,12 +279,12 @@ check_structural_quality() {
   content=$(cat "$file")
 
   # 1. Changelog section must always be present
-  if ! echo "$content" | grep -qE "^## (📝 )?Changelog"; then
+  if ! grep -qE "^## (📝 )?Changelog" <<< "$content"; then
     QUALITY_ISSUES_LIST+=("Missing required '## Changelog' section")
   fi
 
   # 2. Anti-pattern: (src: path) annotations
-  if echo "$content" | grep -qE '\(src:[[:space:]]'; then
+  if grep -qE '\(src:[[:space:]]' <<< "$content"; then
     QUALITY_ISSUES_LIST+=("Contains '(src: path)' annotations (anti-pattern)")
   fi
 
@@ -327,7 +327,9 @@ check_structural_quality() {
   done <<< "$content"
 
   # 4. Anti-pattern: Empty sections with N/A content
-  if echo "$content" | grep -A1 "^## " | grep -qE "^[[:space:]]*(N/A\.?|None\.?|Not applicable\.?|-|—)[[:space:]]*$"; then
+  local heading_context
+  heading_context="$(grep -A1 "^## " <<< "$content" || true)"
+  if grep -qE "^[[:space:]]*(N/A\.?|None\.?|Not applicable\.?|-|—)[[:space:]]*$" <<< "$heading_context"; then
     QUALITY_ISSUES_LIST+=("Contains section(s) with 'N/A' or 'None' (anti-pattern: omit empty sections)")
   fi
 
