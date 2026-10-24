@@ -1262,9 +1262,9 @@ if [ "$review_type" = "full" ] \
    && [ "${_bypass_agents_md,,}" != "true" ] \
    && [ "${_bypass_agents_md,,}" != "yes" ] \
    && [ "${_bypass_agents_md,,}" != "on" ]; then
-  BASE_SHA_FOR_VALIDATION="${from_sha}" \
-  HEAD_SHA_FOR_VALIDATION="${head_sha}" \
-  BASE_REF_FOR_VALIDATION="${base_ref}" \
+  BASE_SHA="${from_sha}" \
+  HEAD_SHA="${head_sha}" \
+  BASE_REF="${base_ref}" \
   bash "$SCRIPT_DIR/validate-agents-md.sh" "full"
 else
   echo "validation_passed=true" >> "$GITHUB_OUTPUT"

@@ -198,6 +198,13 @@ jobs:
             # drives real `timeout` kills, scaled 1/100 for the e2e part).
             .agents/skills/ai-review-report/scripts/test-summary-timeout.sh
             .agents/skills/ai-review-report/scripts/test-run-review.sh
+            # #207: the AGENTS.md validator's caller/validator env contract,
+            # renames grandfathered rather than template-checked as new, and the
+            # pipefail/grep -q hazard that turned a matched heading into a
+            # missing section on a large file. test-validate-agents-md-disable.sh
+            # was unregistered until now, so the disable toggle never ran in CI.
+            .agents/skills/ai-review-report/scripts/test-validate-agents-md.sh
+            .agents/skills/ai-review-report/scripts/test-validate-agents-md-disable.sh
             .agents/skills/ai-review-report/scripts/test-install-rtk.sh
             .agents/skills/ai-review-report/scripts/test-check-versions.sh
             # The LADR-055 structured-findings contract: the merge algorithm,
