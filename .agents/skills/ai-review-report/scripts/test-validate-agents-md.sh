@@ -109,6 +109,34 @@ printf '## TL;DR\nx\n\n## Key Behaviors\nN/A\n\n## Changelog\n\n| Date | Change 
 run_validator "${na_dir}" "${TMP_DIR}/na.out" >"${TMP_DIR}/na.log" 2>&1
 check "empty N/A section still fails structural quality" "false" "$(read_validation_passed "${TMP_DIR}/na.out")"
 
+# --- Large file: the anti-pattern checks still match after the herestring move
+# The issue names this as blast radius: the same `echo "$content" | grep -q`
+# shape sat on the `(src: path)` and N/A checks, where a broken pipe silently
+# turned a real anti-pattern into a pass on a 64 KB+ file.
+anti_dir="${TMP_DIR}/anti-large"
+mkdir -p "${anti_dir}/ci_temp" "${anti_dir}/src/Anti"
+printf 'src/Anti/AGENTS.md\0' > "${anti_dir}/ci_temp/changed_files.txt"
+{
+  printf '## TL;DR\nlarge anti-pattern fixture\n\n(src: src/Example.cs)\n\n'
+  head -c 150000 /dev/zero | tr '\0' 'x'
+  printf '\n\n## Key Behaviors\nN/A\n\n## Changelog\n\n| Date | Change | Ref |\n|---|---|---|\n'
+  head -c 5000 /dev/zero | tr '\0' 'y'
+} > "${anti_dir}/src/Anti/AGENTS.md"
+
+run_validator "${anti_dir}" "${TMP_DIR}/anti-large.out" >"${TMP_DIR}/anti-large.log" 2>&1
+if grep -q "Contains '(src: path)' annotations" "${TMP_DIR}/anti-large.log"; then
+  src_flagged="yes"
+else
+  src_flagged="no"
+fi
+check "large file still flags the (src: path) anti-pattern" "yes" "${src_flagged}"
+if grep -q "Contains section(s) with 'N/A' or 'None'" "${TMP_DIR}/anti-large.log"; then
+  na_flagged="yes"
+else
+  na_flagged="no"
+fi
+check "large file still flags the empty N/A section" "yes" "${na_flagged}"
+
 # --- Rename fixture: a rename is grandfathered, not treated as new -----------
 # The renamed file deliberately has no ## Changelog, so a misclassification as
 # "new" fails the quality gate while correct grandfathering passes.
