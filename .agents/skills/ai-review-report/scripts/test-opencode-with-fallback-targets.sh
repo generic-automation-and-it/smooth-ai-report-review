@@ -568,6 +568,27 @@ predicate_case accept "per-severity form with all four tiers" \
   '**Issues Found:**\n- \xf0\x9f\x94\xb4 Critical: None found\n- \xf0\x9f\x9f\xa0 High Priority: None found\n- \xf0\x9f\x9f\xa1 Medium Priority: None found\n- \xf0\x9f\x94\xb5 Low Priority: None found\n'
 predicate_case accept "per-severity form with a middle tier omitted but Low present" \
   '**Issues Found:**\n- Critical: None found\n- Low Priority: None found\n'
+# gf-ipc-smart-card PR 86, run 41102516902: gpt-6-sol numbered the four tier
+# lines (`1. 🔴 Critical: None found` … `4. 🔵 Low Priority: None found`), the
+# predicate knew only `-`/`*` bullets, and three complete clean chunks were
+# rejected, re-asked into the same shape and timed out. An ordered-list marker
+# is a bullet; the end-of-line anchor and the Low-tier rule still decide.
+predicate_case accept "numbered per-severity form with all four tiers" \
+  '### \xf0\x9f\x93\x84 File: \x60AGENTS.md\x60\n\n**Issues Found:**\n\n1. \xf0\x9f\x94\xb4 Critical: None found\n2. \xf0\x9f\x9f\xa0 High Priority: None found\n3. \xf0\x9f\x9f\xa1 Medium Priority: None found\n4. \xf0\x9f\x94\xb5 Low Priority: None found\n'
+predicate_case accept "numbered per-severity form with paren markers" \
+  '**Issues Found:**\n1) \xf0\x9f\x94\xb4 [VERIFIED] Critical: None found\n2) \xf0\x9f\x94\xb5 [VERIFIED] Low Priority: None found.\n'
+predicate_case accept "numbered tiers above a Low finding" \
+  '**Issues Found:**\n1. \xf0\x9f\x94\xb4 Critical: None found\n2. \xf0\x9f\x9f\xa0 High Priority: None found\n3. \xf0\x9f\x94\xb5 Low Priority: the changelog row (line 106) is unlisted\n'
+predicate_case accept "numbered list placeholder" \
+  '**Issues Found:**\n1. None found.\n'
+predicate_case accept "numbered list placeholder with one closing note" \
+  '**Issues Found:**\n1. None found. (The pin change is deliberate.)\n'
+predicate_case reject "numbered per-severity form truncated after Medium" \
+  '**Issues Found:**\n1. \xf0\x9f\x94\xb4 Critical: None found\n2. \xf0\x9f\x9f\xa0 High Priority: None found\n3. \xf0\x9f\x9f\xa1 Medium Priority: None found\n'
+predicate_case reject "numbered tier cut off mid-sentence" \
+  '**Issues Found:**\n1. \xf0\x9f\x94\xb4 Critical: None found yet, continuing to read the handler\n'
+predicate_case reject "a numbered narration item ending in none found" \
+  '**Issues Found:**\n1. Checked callers; none found.'
 
 # Review 5263305644, finding 2. Scoping to the last section cannot see a file
 # the model never mentioned: file A's complete section is then the last one

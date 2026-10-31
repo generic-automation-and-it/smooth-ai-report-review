@@ -309,7 +309,14 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
     on && ($0 ~ /^#/ || $0 ~ /^[[:space:]]*\*\*[^*]+\*\*/) { on = 0 }
     on { print }
   ' "$_rhs_sec" 2>/dev/null)"
-  _rhs_ph_compact='^[[:space:]]*[-*][[:space:]]*none found[.]?[[:space:]]*$'
+  # A list item's marker: a `-`/`*` bullet or an ordered `1.`/`1)`. Models
+  # number the tier lines too, and a bullet-only marker rejected gpt-6-sol's
+  # complete `1. 🔴 Critical: None found` … `4. 🔵 Low Priority: None found`
+  # on three chunks of consumer PR 86, run 41102516902, through the re-ask and
+  # the retry sweep. The marker says nothing about completion; the `$` anchor
+  # and the Low-tier rule below still decide that.
+  _rhs_item='([-*]|[0-9]+[.)])'
+  _rhs_ph_compact="^[[:space:]]*${_rhs_item}[[:space:]]*none found[.]?[[:space:]]*\$"
   # The placeholder CLOSED by a period and then annotated by one parenthetical
   # that is itself closed at end of line — "None found. (The pin change is
   # deliberate and changelog'd.)". Models justify a clean verdict this way, and
@@ -348,11 +355,11 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
   # continuing to read the handler" still fails, since "yet" is alphanumeric and
   # cannot be a separator, and no further token follows to reach the anchor.
   # Only a run of complete tier placeholders can satisfy the whole line.
-  _rhs_ph_tier="^[[:space:]]*([-*][[:space:]]*)?${_rhs_ph_tok}([^[:alnum:]]*${_rhs_ph_tok})*[[:space:]]*$"
+  _rhs_ph_tier="^[[:space:]]*(${_rhs_item}[[:space:]]*)?${_rhs_ph_tok}([^[:alnum:]]*${_rhs_ph_tok})*[[:space:]]*$"
   # Same chain, but it must CONTAIN a low-tier token. Keeping the chain shape on
   # both sides is what stops "…Critical: None found - low confidence, still
   # reading" from passing the pair test on a truncated line.
-  _rhs_ph_low="^[[:space:]]*([-*][[:space:]]*)?(${_rhs_ph_tok}[^[:alnum:]]*)*${_rhs_ph_low_tok}([^[:alnum:]]*${_rhs_ph_tok})*[[:space:]]*$"
+  _rhs_ph_low="^[[:space:]]*(${_rhs_item}[[:space:]]*)?(${_rhs_ph_tok}[^[:alnum:]]*)*${_rhs_ph_low_tok}([^[:alnum:]]*${_rhs_ph_tok})*[[:space:]]*$"
   # ...OR a low tier carrying a REAL finding rather than the placeholder.
   #
   # The paired test exists to prove the model emitted all four tiers, i.e. that
@@ -415,7 +422,7 @@ _rhs_section_ok() { # _rhs_section_ok <section-file>
   if [ -n "$_rhs_issues" ]; then
     if printf '%s\n' "$_rhs_issues" | grep -qiE "$_rhs_ph_compact" \
        || printf '%s\n' "$_rhs_issues" | grep -qiE 'issues found[^[:alnum:]]{0,8}none found[.]?[[:space:]]*$' \
-       || printf '%s\n' "$_rhs_issues" | grep -qiE "^[[:space:]]*[-*][[:space:]]*${_rhs_ph_note}" \
+       || printf '%s\n' "$_rhs_issues" | grep -qiE "^[[:space:]]*${_rhs_item}[[:space:]]*${_rhs_ph_note}" \
        || printf '%s\n' "$_rhs_issues" | grep -qiE "issues found[^[:alnum:]]{0,8}${_rhs_ph_note}"; then
       return 0
     fi
