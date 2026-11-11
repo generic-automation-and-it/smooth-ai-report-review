@@ -7,8 +7,10 @@
 # read from STDIN to avoid quoting/newline breakage.
 #
 # Subcommands:
-#   detect <pr>                 Print COPILOT if the PR's review or review comments are
-#                               authored by the Copilot reviewer bot, else OTHER.
+#   detect <pr> [review-id]     Print COPILOT if the selected review's author is the
+#                               Copilot reviewer bot, else OTHER. With no review id
+#                               (legacy form), any Copilot review or review comment
+#                               on the PR counts.
 #   threads <pr>                Print the PR's review threads as JSON: each node has
 #                               { id, isResolved, comments:[{ databaseId, path, author, body }] }.
 #                               The agent maps each parsed issue to a comment databaseId + thread id.
@@ -55,15 +57,22 @@ repo_owner() { gh repo view --json owner -q .owner.login; }
 repo_name()  { gh repo view --json name  -q .name; }
 
 cmd_detect() {
-  local pr="$1"
-  # Check both the formal reviews and the inline review comments for a Copilot-bot author.
-  # Assign the gh calls first (unmasked, on their own lines so `set -e` sees the command
-  # substitution status) so genuine auth/network/repo errors abort here instead of being
-  # swallowed into an empty match that would silently misreport OTHER.
-  local hit reviews comments
-  reviews="$(gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/reviews" -q '.[].user.login')"
-  comments="$(gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/comments" -q '.[].user.login')"
-  hit="$(printf '%s\n%s\n' "$reviews" "$comments" | grep -Ei "$COPILOT_LOGINS_RE" | head -n1 || true)"
+  local pr="$1" review_id="${2:-}" hit author reviews comments
+  # The selected review decides the route. Scanning the whole PR would let any
+  # historical Copilot review misroute an OpenCode/Gemini review, which skips the
+  # mandatory Skip Areas bullets. The legacy PR-wide scan remains for callers
+  # that do not resolve a review id.
+  if [ -n "$review_id" ]; then
+    author="$(gh api "repos/{owner}/{repo}/pulls/${pr}/reviews/${review_id}" -q '.user.login')"
+    hit="$(printf '%s\n' "$author" | grep -Ei "$COPILOT_LOGINS_RE" || true)"
+  else
+    # Assign the gh calls first (unmasked, on their own lines so `set -e` sees the
+    # command substitution status) so genuine auth/network/repo errors abort here
+    # instead of being swallowed into an empty match that would misreport OTHER.
+    reviews="$(gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/reviews" -q '.[].user.login')"
+    comments="$(gh api --paginate "repos/{owner}/{repo}/pulls/${pr}/comments" -q '.[].user.login')"
+    hit="$(printf '%s\n%s\n' "$reviews" "$comments" | grep -Ei "$COPILOT_LOGINS_RE" | head -n1 || true)"
+  fi
   if [ -n "$hit" ]; then echo "COPILOT"; else echo "OTHER"; fi
 }
 

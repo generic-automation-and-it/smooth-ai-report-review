@@ -704,6 +704,33 @@ jobs:
             "${fallback_secondary}" \
             -- ci_temp/analyse_prompt.md | tee ci_temp/analyse_out.md
 
+      # The analyse agent edits the PR checkout, and the tooling tree (fetched
+      # `.smooth-ai-review-tools/` or the in-repo skill tree) sits inside that
+      # workspace. `Commit fixes` runs scripts from those paths with
+      # GITHUB_TOKEN and the optional PAT, so refuse to enter it if the agent
+      # changed them.
+      - name: Verify pinned tooling is unmodified
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.hooksPath
+          GIT_CONFIG_VALUE_0: /dev/null
+        run: |
+          set -euo pipefail
+          tool_dirty=""
+          case "$REVIEW_SKILL_DIR" in
+            .smooth-ai-review-tools*)
+              tool_dirty="$(git -C .smooth-ai-review-tools status --porcelain --untracked-files=all --ignored)"
+              ;;
+            *)
+              tool_dirty="$(git status --porcelain -- "$REVIEW_SKILL_DIR" "$ANALYSE_SKILL_DIR" "$AI_REVIEW_DIR")"
+              ;;
+          esac
+          if [ -n "$tool_dirty" ]; then
+            echo "::error::review tooling changed during ai-analyse; refusing to run it with credentials" >&2
+            printf '%s\n' "$tool_dirty" >&2
+            exit 1
+          fi
+
       - name: Commit fixes
         id: commit
         env:

@@ -1263,6 +1263,24 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: No registry auth, one channel for three tools. Consumers of the npm package keep their pinned version but get no updates; a stale npm-plugin link at `.agents/skills/<skill>` is replaced by the installed copy. Running the review generator in a consumer's own CI job is the local-job packaging (`.docs/examples/code-review-local.yml`), not a package install.
 - **See also**: LADR-037, LADR-038, LADR-087.
 
+### LADR-109: Review posting pins `commit_id` to the reviewed SHA
+
+- **Date**: 2026-11-11
+- **Status**: Accepted (`lib/post-review.sh`; both entrypoints)
+- **Context**: `gh pr review` always targets the PR's current head and has no commit selector. On cbm-renderer PR #91 review 5860640019 the body named `ddb2d36` while GitHub attached the review to `2d05106`: the head had advanced while the run was in flight and the run was superseded by concurrency. The PR then showed a blocking verdict against a commit the review never saw, and the next run skipped that commit as already blocked.
+- **Decision**: Post through `POST /pulls/{n}/reviews` with `commit_id` set to the SHA the run reviewed (`lib/post-review.sh`, used by every post site in `run-review.sh` and `local-review.sh`). `gh pr review` is no longer used. The bounded `gh_retry` verify and counters are unchanged.
+- **Consequences**: A superseded run's review stays attached to the commit it judged, so the body and the anchor cannot disagree. It does not by itself clear a blocking state — Step 16's incremental rule still requires a full review; the attribution is simply honest.
+- **See also**: LADR-078.
+
+### LADR-110: The analyse agent cannot edit the tooling its credential-bearing step executes
+
+- **Date**: 2026-11-11
+- **Status**: Accepted (`assets/opencode.json`, `.github/opencode.json`, `pipeline-ai-analyse.yml`; pinned by `test-repo-opencode-config.sh`)
+- **Context**: The `analyse` agent runs with `edit: allow` over the PR checkout, and the tooling tree (fetched `.smooth-ai-review-tools/`, or the in-repo `.agents/skills/**` tree) sits inside it. `Commit fixes` then runs `quarantine-project-config.sh`, `filter-test-self-fix.sh` and `run-test-gate.sh` from those paths with `GITHUB_TOKEN` and the optional PAT. Staging exclusions hide edits from the commit but not from execution.
+- **Decision**: The agent's `edit` permission becomes a path map that denies `.smooth-ai-review-tools/`, `.context/`, `ci_temp/`, `.git` and `.env*`. A `Verify pinned tooling is unmodified` step runs after the model and before `Commit fixes`; any change to the fetched or in-repo tooling tree fails the job. Both config files carry the same permission map (LADR-047 parity).
+- **Consequences**: Agent-edited tooling never runs beside credentials. A self-fix whose legitimate target is the tooling tree fails closed rather than being pushed; that is deliberate — the failure names the dirty paths in the job log and nothing is pushed.
+- **See also**: LADR-042, LADR-045, LADR-047, LADR-078.
+
 ### LADR-050: Default-on per-chunk risk and inferred test-coverage hints
 
 - **Date**: 2026-10-18
@@ -1442,6 +1460,9 @@ No backend test projects: the gate's tests are offline shell harnesses under `sc
 | L0 | `scripts/test-strip-holistic-section.sh` | no holistic section reaches the body; the prompt and the sync no longer use one (LADR-100) |
 | L0 | `scripts/test-diff-base.sh` | resolved merge-base, never a guessed base (LADR-075) |
 | L0 | `scripts/test-gh-retry.sh` | one bounded `gh` retry (LADR-078) |
+| L0 | `scripts/test-post-review.sh` | review posting pins `commit_id` to the reviewed SHA and every post site uses the helper (LADR-109) |
+| L0 | `scripts/test-analyse-tooling-verify.sh` | the analyse workflow's tooling verify step, executed from its YAML body in both modes (LADR-110) |
+| L0 | `../ai-review/scripts/test-copilot-review.sh` | source detection follows the selected review; legacy PR-wide scan fallback |
 | L0 | `scripts/test-context-scope.sh`, `scripts/test-find-context-files.sh`, `scripts/test-build-runtime-agents.sh` | context discovery, scope filter, runtime AGENTS.md (LADR-087/089/090) |
 | L0 | `scripts/test-install-opencode.sh`, `scripts/test-opencode-health.sh`, `scripts/test-prepare-opencode-v2-config.sh`, `scripts/test-opencode-with-fallback-targets.sh` | OpenCode v2 install, binding and transport (LADR-087) |
 | L0 | `../../../scripts/test-install-skills.sh` (repo root) | skills installer, both ports and their parity, `lib/resolve-repo-root.sh` (LADR-108) |
@@ -1473,6 +1494,8 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-11-11 | Review posting uses `lib/post-review.sh` with `commit_id` pinned to the reviewed SHA; `gh pr review` no longer posts. | LADR-109 |
+| 2026-11-11 | `analyse` edit fence denies tooling/scratch/`.git`/`.env` paths; `Verify pinned tooling is unmodified` fails before the credential-bearing commit step. `test-repo-opencode-config.sh` pins the fence; `test-analyse-tooling-verify.sh` runs the real step in both modes. | LADR-110 |
 | 2026-10-24 | AGENTS.md validator: caller env names aligned (`BASE_SHA`/`HEAD_SHA`/`BASE_REF`, legacy aliases accepted); `echo \| grep -q` pipelines replaced by herestrings so pipefail cannot turn a match into a missing section. | #207 |
 | 2026-09-27 | Reduced to the AGENTS.md quality standard: LADRs to Context/Decision/Consequences, superseded LADRs as stubs, Key Behaviors to rules + LADR refs, non-standard sections folded in; incident narrative left to git history. Stale text corrected against the code: tooling step names and `v2` refs (LADR-037/043), `prepare-opencode-config.sh` in place of the retired installer and its `is_ours` guard (LADR-071), partial-coverage rendering (LADR-055/058 → LADR-064), the v2 `instructions` array (LADR-070 → LADR-087), four skills. | docs |
 | 2026-08-02 | An autonomous `ai-analyse` pass applied a verified-looking false positive (a wrong measurement "fix"); severity alone cannot tell it from a correct Medium — hence the route-based selection plan. Treat `[ai-analyse]` commits touching factual claims as needing a human read. | LADR-055 |

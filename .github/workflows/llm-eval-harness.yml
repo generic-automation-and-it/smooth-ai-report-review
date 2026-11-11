@@ -198,6 +198,14 @@ jobs:
             # drives real `timeout` kills, scaled 1/100 for the e2e part).
             .agents/skills/ai-review-report/scripts/test-summary-timeout.sh
             .agents/skills/ai-review-report/scripts/test-run-review.sh
+            # LADR-109: the review is posted with commit_id pinned to the
+            # reviewed SHA, never the PR head at post time.
+            .agents/skills/ai-review-report/scripts/test-post-review.sh
+            # LADR-110: the workflow's tooling verify step, executed from its
+            # real YAML body against clean and dirty trees in both modes.
+            .agents/skills/ai-review-report/scripts/test-analyse-tooling-verify.sh
+            # The selected review's author decides Copilot vs other routing.
+            .agents/skills/ai-review/scripts/test-copilot-review.sh
             # #207: the AGENTS.md validator's caller/validator env contract,
             # renames grandfathered rather than template-checked as new, and the
             # pipefail/grep -q hazard that turned a matched heading into a

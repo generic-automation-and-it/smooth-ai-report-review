@@ -110,6 +110,10 @@ source "$LIB_DIR/parse-review-comment-options.sh"
 # because the first wrapped call is the PR-metadata read in Step 3.
 # shellcheck disable=SC1091
 source "$LIB_DIR/gh-retry.sh"
+# Commit-pinned review posting (LADR-109). `gh pr review` anchors to the PR's
+# current head, which can advance while a review is in flight.
+# shellcheck disable=SC1091
+source "$LIB_DIR/post-review.sh"
 
 # --- Step 0: env-var contract resolution --------------------------------------
 # Each variable below is read once at script entry. Precedence is:
@@ -876,9 +880,8 @@ Both review models failed to respond, typically caused by token quota exhaustion
 *Automated check by OpenCode CLI Code Review*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
-    gh pr review "${pr_number}" \
-    --request-changes \
-    --body-file "$WORK_DIR/all_models_failed_review.md"
+    post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
+    "$WORK_DIR/all_models_failed_review.md"
   exit 0
 fi
 
@@ -1068,9 +1071,8 @@ This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **
 *Automated check by OpenCode CLI Code Review*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
-    gh pr review "${pr_number}" \
-    --request-changes \
-    --body-file "$WORK_DIR/too_many_files_review.md"
+    post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
+    "$WORK_DIR/too_many_files_review.md"
   exit 0
 fi
 
@@ -1090,9 +1092,8 @@ if [ "$FILES_CHANGED" -eq 0 ]; then
 *Automated review check by OpenCode CLI Code Review*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
-    gh pr review "${pr_number}" \
-    --comment \
-    --body-file "$WORK_DIR/skip_comment.md"
+    post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" COMMENT \
+    "$WORK_DIR/skip_comment.md"
   exit 0
 fi
 
@@ -1290,9 +1291,8 @@ $(cat "$WORK_DIR/agents_validation_message.md")
 *Automated validation by OpenCode CLI Code Review*
 EOF
     gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
-      gh pr review "${pr_number}" \
-      --request-changes \
-      --body-file "$WORK_DIR/validation_review.md"
+      post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
+      "$WORK_DIR/validation_review.md"
   fi
   exit 0
 fi
@@ -1561,7 +1561,7 @@ if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
   rm -f "$WORK_DIR/review_before_chunks.md" "$WORK_DIR/review_after_chunks.md" "$WORK_DIR/review_comment_compact.md"
 fi
 
-# Map machine-readable action to gh CLI flag.
+# Map machine-readable action to the REST review event token.
 REVIEW_ACTION="$(grep '^review_action=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 if [ -z "$REVIEW_ACTION" ]; then
   echo "❌ aggregation produced no review_action — failing closed (not approving)." >&2
@@ -1570,26 +1570,25 @@ fi
 case "$REVIEW_ACTION" in
   comment)
     if [ "$review_type" = "incremental" ]; then
-      REVIEW_ACTION_FLAG="--comment"
+      REVIEW_EVENT="COMMENT"
     else
-      REVIEW_ACTION_FLAG="--approve"
+      REVIEW_EVENT="APPROVE"
     fi
     ;;
-  request_changes) REVIEW_ACTION_FLAG="--request-changes" ;;
+  request_changes) REVIEW_EVENT="REQUEST_CHANGES" ;;
   approve)
     if [ "$review_type" = "incremental" ]; then
-      REVIEW_ACTION_FLAG="--comment"
+      REVIEW_EVENT="COMMENT"
     else
-      REVIEW_ACTION_FLAG="--approve"
+      REVIEW_EVENT="APPROVE"
     fi
     ;;
-  *) REVIEW_ACTION_FLAG="--comment" ;;
+  *) REVIEW_EVENT="COMMENT" ;;
 esac
-echo "Posting review: ${REVIEW_ACTION_FLAG}"
+echo "Posting review: ${REVIEW_EVENT}"
 gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
-  gh pr review "${pr_number}" \
-  "${REVIEW_ACTION_FLAG}" \
-  --body-file "$WORK_DIR/review_comment.md"
+  post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" "${REVIEW_EVENT}" \
+  "$WORK_DIR/review_comment.md"
 
 echo ""
 echo "✅ Review posted successfully"

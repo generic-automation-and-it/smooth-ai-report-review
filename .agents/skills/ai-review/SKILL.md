@@ -62,11 +62,11 @@ Examples:
 The skill must determine whether the review being processed is a **GitHub Copilot agent review** or a review from another source (e.g. an OpenCode CLI agent, Gemini, or a generic AI reviewer). The source decides where execute results land — see [Execute → Result routing](#result-routing).
 
 1. **Explicit switch**: `--source=copilot` or `--source=other`.
-2. **Auto-detect** when no switch is given (the default): run the helper and use its verdict —
+2. **Auto-detect** when no switch is given (the default): run the helper with the review resolved in step 1 and use its verdict —
    ```bash
-   .agents/skills/ai-review/scripts/copilot-review.sh detect <pr>   # prints COPILOT or OTHER
+   .agents/skills/ai-review/scripts/copilot-review.sh detect <pr> <review-id>   # prints COPILOT or OTHER
    ```
-   It scans the PR's reviews and inline review comments for the Copilot reviewer bot (login `Copilot` / `copilot-pull-request-reviewer[bot]`). `COPILOT` → Copilot flow; `OTHER` → other.
+   It checks the **selected review's author** for the Copilot reviewer bot (login `Copilot` / `copilot-pull-request-reviewer[bot]`). Always pass the review id: scanning the whole PR makes any historical Copilot review misroute an OpenCode/Gemini review to the Copilot flow, which suppresses the mandatory Skip Areas bullets. With no id the helper keeps the legacy PR-wide scan. `COPILOT` → Copilot flow; `OTHER` → other.
 
 > **GitHub plumbing lives in `scripts/copilot-review.sh`.** All deterministic GitHub calls (detect, fetch threads, reply, resolve, post summary) are subcommands of that script. The skill keeps the *judgment* — parsing the review, fix/skip decisions, and the text of every reply/summary. Reply and summary bodies are piped to the script via STDIN, so multi-line markdown is safe.
 
@@ -105,7 +105,7 @@ With `--usedecisions`, analyse also asks the gate's structured decision model (T
 **Workflow:**
 
 1. **Resolve PR number and review ID** from arguments
-2. **Detect review source** (Copilot vs other) per [Review source selection](#invocation)
+2. **Detect review source** (Copilot vs other) per [Review source selection](#invocation), passing the resolved review ID to `detect`
 3. **Fetch review body** using `gh api` or `az repos pr` CLI
    - **Copilot flow (GitHub):** also pull the inline review comments and their threads so each parsed issue can be tied back to a specific Copilot comment:
      ```bash
@@ -150,7 +150,7 @@ With `--usedecisions`, analyse also asks the gate's structured decision model (T
 
 **Workflow:**
 
-1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) per [Review source selection](#invocation) so execute routes results correctly even when run as a standalone command or after `--fix` analysis
+1. **Load review context** — Fetch latest AI review and **re-detect review source** (Copilot vs other) per [Review source selection](#invocation), passing the resolved review ID, so execute routes results correctly even when run as a standalone command or after `--fix` analysis
 2. **Process each decision** — Apply fixes or prepare skip entries. `T=fix` writes a focused test; the human flow may edit tests. `R=fix` applies the named mitigation; if no concrete mitigation is named, stop and ask the user rather than inventing one. **⛔ Non-Copilot flow — before leaving this step, every skipped item must have a draft bullet ready for the "Skip Areas / Known Issues" section of the PR description (see [Result routing → Non-Copilot flow](#result-routing)). The bullets, not the summary table, are what the next review round reads. A skip without a bullet is a no-op. If the run is fix-only (zero `skip` decisions), skip the bullet-draft step entirely and proceed to step 3; do not fabricate an empty Skip Areas section.**
 3. **Commit and push fixes** (only if any fixes were applied). Each fix gets its own commit (one commit per fix); use `test(...)` for a T fix. **⚠️ When the review contains any 🔴 Critical or 🟠 High finding** (fixed or skipped; R/T items do not count), **every fix commit message MUST include `/ai-review` as the last line of the commit body** — the workflow checks only the HEAD commit's message, so whichever fix commit ends up as HEAD when pushed must carry the trigger to force a full review immediately. Example commit message:
    ```
@@ -216,7 +216,7 @@ Do **all** of the following, in order:
 3. **Verify the edit landed** — immediately after `gh pr edit`, re-fetch the body, extract the Skip Areas section, and grep **that section** (not the full body — the appended fix/skip summary table contains the same `<file>:<line>` anchor and would mask a missing bullet):
    ```bash
    gh pr view <pr> --json body -q .body \
-     | awk 'BEGIN{f=0; IGNORECASE=1} /^##[[:space:]]*(Skip Areas|Known Issues|Known Skip Areas|Areas to Skip)/{f=1; next} /^## /{f=0} f' \
+     | awk 'tolower($0) ~ /^##[[:space:]]*(skip areas|known issues|known skip areas|areas to skip)/{f=1; next} /^## /{f=0} f' \
      | grep -F "**skip reason:** <one-sentence reason from the bullet>"
    ```
    Use the `**skip reason:** …` tail (or one full bullet line quoted verbatim) as the grep anchor — that token is unique to the new bullet format and does **not** appear in the appended summary table. If the grep comes back empty, **this is a hard failure** — the skill has reproduced the known production bug. Re-fetch the body once more to rule out a transient GitHub read-path lag; if the second fetch also lacks the bullet, re-run step 2 and re-write. Do not proceed to step 6 ("Report completion") until the bullet's `**skip reason:**` substring is present in the Skip Areas section of the live PR description.
