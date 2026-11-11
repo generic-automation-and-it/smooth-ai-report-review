@@ -84,6 +84,17 @@ with tempfile.TemporaryDirectory() as tmp:
     assert '| 1. | FIX | Medium | a.sh | one | mechanical |' in posted
     print('mixed scope and posted completeness: PASS')
 
+    # A note glued above the header must not swallow the table into a list item
+    # (gf-ipc-smart-card PR 111): the posted table starts its own block.
+    (scratch / 'ci_temp/analyse_out.md').write_text(
+        '1. The Understanding store is absent; proceeding from the runbooks.\n'
+        '| # | Decision | Priority | File | Summary | Reason |\n'
+        '|---|----------|----------|------|---------|--------|\n'
+        '| 1. | FIX | Medium | a.sh | one | mechanical |\n')
+    posted = invoke(summary, scratch, mixed)
+    assert 'proceeding from the runbooks.\n\n| # | Decision |' in posted, posted
+    print('model note above the table is fenced off: PASS')
+
     # A free-form orchestrator summary has work even without item identifiers.
     shutil.rmtree(scratch / 'ci_temp')
     unnumbered = dict(env, MEDIUM_SECTION='- 🟡 First unnumbered finding\n- 🟡 Second unnumbered finding',

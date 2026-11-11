@@ -679,6 +679,7 @@ jobs:
             echo "## Required output"
             echo ""
             echo "Edit files as needed, then print only the FIX/SKIP markdown table and a short note if no file changes were made. Do not run git."
+            echo "Start your output with the table's header row; put any note after the table, never before it."
             echo "The table must contain only Medium and Low findings. Do not add a row (neither FIX nor SKIP) for any Critical or High finding — omit them entirely, even if they appear in Suggested Fixes."
             echo "Give exactly one row to every in-scope finding and R/T item; quote each identifier verbatim."
           } > ci_temp/analyse_prompt.md
@@ -1047,7 +1048,14 @@ jobs:
               echo "</details>"
             fi
             echo ""
-            cat ci_temp/analyse_out.md
+            # Model output is untrusted markdown: a note glued to the table header
+            # renders the whole table as list text. The formatter fences each table
+            # with blank lines; [ -f ]-guarded for PR checkouts that predate it.
+            if [ -f "${ANALYSE_SKILL_DIR}/scripts/lib/format-fix-skip-output.sh" ]; then
+              bash "${ANALYSE_SKILL_DIR}/scripts/lib/format-fix-skip-output.sh" ci_temp/analyse_out.md
+            else
+              cat ci_temp/analyse_out.md
+            fi
             testing_gap_count=0
             for c in ci_temp/filter_reports/medium_testing_gaps.count ci_temp/filter_reports/low_testing_gaps.count; do
               [ -s "$c" ] || continue
