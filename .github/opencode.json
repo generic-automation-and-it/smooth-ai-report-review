@@ -169,7 +169,17 @@
       "permission": {
         "skill": "deny",
         "task": "deny",
-        "edit": "allow",
+        "edit": {
+          "*": "allow",
+          "*.smooth-ai-review-tools/*": "deny",
+          "*.context/*": "deny",
+          "*ci_temp/*": "deny",
+          "*.git": "deny",
+          "*.git/*": "deny",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
         "bash": "deny",
         "webfetch": "deny",
         "websearch": "deny",

@@ -35,6 +35,14 @@ if ! diff <(jq -S 'del(.provider.openai.models)' "$BUILTIN") \
 fi
 echo "✅ $REPO_CONFIG_REL matches the built-in outside provider.openai.models"
 
+# LADR-110: the analyse agent must not edit the tooling/scratch trees that the
+# credential-bearing `Commit fixes` step later executes.
+for path in '*.smooth-ai-review-tools/*' '*.context/*' '*ci_temp/*' '*.git/*' '*.env' '*.env.*'; do
+  jq -e --arg p "$path" '.agent.analyse.permission.edit[$p] == "deny"' "$BUILTIN" >/dev/null \
+    || fail "built-in analyse edit fence is missing $path"
+done
+echo "✅ analyse edit fence denies tooling, scratch, .git and .env paths"
+
 missing="$(jq -r --slurpfile repo "$REPO_CONFIG" \
   '(.provider.openai.models | keys) - ($repo[0].provider.openai.models | keys) | .[]' "$BUILTIN")"
 [ -z "$missing" ] || fail "$REPO_CONFIG_REL drops built-in openai models: $missing"

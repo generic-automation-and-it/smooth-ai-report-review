@@ -303,8 +303,9 @@ jobs:
 
       - name: Run review gate
         env:
-          # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
-          # `gh api`, all of which require GITHUB_TOKEN. Forward it explicitly;
+          # run-review.sh posts reviews through the REST API (`lib/post-review.sh`)
+          # and comments via `gh pr comment` / `gh api`, all of which require
+          # GITHUB_TOKEN. Forward it explicitly;
           # the runner does not auto-inject into bare `run:` shells.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Forward the workflow's dispatch input (the reusable-workflow

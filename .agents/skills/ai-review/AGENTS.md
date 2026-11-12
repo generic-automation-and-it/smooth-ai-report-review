@@ -61,6 +61,8 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 8. **Analyse is read-only unless `--fix` is explicit.** A review's imperative wording never selects execute. `--fix` runs analyse first, then applies every AI Coder FIX/SKIP recommendation via the full execute routing; it is distinct from `--usedecisions` and does not turn model recommendations into human decision labels. Explicit per-item decisions still select execute without `--fix`.
 
+9. **Source detection follows the selected review.** `copilot-review.sh detect <pr> <review-id>` checks that review's author; the PR-wide scan is a legacy fallback for callers that resolved no review id. Scanning all history let any older Copilot review misroute an OpenCode/Gemini review to the Copilot flow, which suppresses the mandatory Skip Areas bullets. The analyse and execute modes pass the resolved review id.
+
 ## Environment Variables
 
 `review-decisions.sh` (`--usedecisions`) reads the CI gate's decision variables unchanged — `OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER`, `_MODEL`, `_MIN_PROBABILITY`, `_TIMEOUT` — plus the selected provider's key (`OPENCODE_GO_OPENAI_API_KEY` / `OPENCODE_OPENROUTER_API_KEY`), and the optional `AI_REVIEW_REPORT_DIR` override. `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` is not consulted: the switch is the opt-in. The key is never read by the helper itself: it is inherited by ai-review-report's `score-findings-decisions.sh`, the only process that uses it, which hands it to curl through a 0600 header file (`.github/instructions/skills/skill-secret-handling.instructions.scoped.md`). `gh` uses the developer's own authentication. Since LADR-098 the helper also calls ai-review-report's `lib/review-diff.sh` (the diff as of the reviewed commit — it prints the reason and exits 0 without recommendations when that diff cannot be fetched) and passes the reviewed sha as `--rev`; it reads the always-on `run-id=` marker as well as the older `run=` one. Its temp directory (`${TMPDIR}/ai-review-decisions-<pr>.*`) is left in place on purpose: the printed `decisions.json` path is for the agent to read.
@@ -74,6 +76,7 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
   scripts/
     copilot-review.sh         — GitHub REST/GraphQL plumbing for Copilot review routing
     review-decisions.sh       — `--usedecisions`: decision-model FIX/SKIP recommendations (LADR-097)
+    test-copilot-review.sh    — offline detect-routing harness (selected review vs legacy scan)
 ```
 
 ## macOS Compatibility
@@ -84,6 +87,7 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-11-11 | `copilot-review.sh detect <pr> <review-id>` checks the selected review's author; the PR-wide scan stays as a fallback. Skip Areas verification uses portable `tolower()` instead of gawk-only `IGNORECASE`. `scripts/test-copilot-review.sh` pins both routes. | — |
 | 2026-10-01 | Analyse is read-only by default; explicit `--fix` applies all AI Coder recommendations through execute while decision labels stay human-only. | |
 | 2026-09-30 | R/T/P/H execute grammar, R/T fix rules and text-based cross-round skip guidance. | ai-review-report LADR-101 |
 | 2026-09-27 | `--usedecisions` judges the diff as of the reviewed commit, reuses the gate's fix/skip answers when still valid, and finds the run via the always-on `run-id=` marker. | ai-review-report LADR-098 |

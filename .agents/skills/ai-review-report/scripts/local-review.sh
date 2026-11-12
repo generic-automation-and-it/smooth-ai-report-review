@@ -221,6 +221,8 @@ source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # post at the end of this script.
 # shellcheck source=lib/gh-retry.sh
 source "$SCRIPT_DIR/lib/gh-retry.sh"
+# shellcheck source=lib/post-review.sh
+source "$SCRIPT_DIR/lib/post-review.sh"
 
 # Install opencode.json so the selected provider resolves, THEN health-check.
 # (Config must be in place before the v2 API diagnostic runs.)
@@ -745,21 +747,23 @@ if [ -f ci_temp/final_review.md ]; then
     echo "📤 Posting review to PR #${PR_NUMBER}..."
 
     REVIEW_ACTION=$(grep '^review_action=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
+    # Local runs have no GITHUB_REPOSITORY; resolve the slug from the checkout.
+    POST_REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 
     case "$REVIEW_ACTION" in
       approve)
         gh_retry --verify gh_count_gate_reviews "$PR_NUMBER" -- \
-          gh pr review "$PR_NUMBER" --approve --body-file ci_temp/final_review.md
+          post_review "$POST_REPO" "$PR_NUMBER" "$TO_SHA" APPROVE ci_temp/final_review.md
         echo "✅ Posted as APPROVE"
         ;;
       request_changes)
         gh_retry --verify gh_count_gate_reviews "$PR_NUMBER" -- \
-          gh pr review "$PR_NUMBER" --request-changes --body-file ci_temp/final_review.md
+          post_review "$POST_REPO" "$PR_NUMBER" "$TO_SHA" REQUEST_CHANGES ci_temp/final_review.md
         echo "✅ Posted as REQUEST_CHANGES"
         ;;
       *)
         gh_retry --verify gh_count_gate_reviews "$PR_NUMBER" -- \
-          gh pr review "$PR_NUMBER" --comment --body-file ci_temp/final_review.md
+          post_review "$POST_REPO" "$PR_NUMBER" "$TO_SHA" COMMENT ci_temp/final_review.md
         echo "✅ Posted as COMMENT"
         ;;
     esac

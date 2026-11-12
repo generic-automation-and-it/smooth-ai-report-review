@@ -668,8 +668,9 @@ jobs:
 
       - name: Run review gate
         env:
-          # run-review.sh posts reviews via `gh pr review` / `gh pr comment` /
-          # `gh api`, all of which require GITHUB_TOKEN. The runner only
+          # run-review.sh posts reviews through the REST API (`lib/post-review.sh`)
+          # and comments via `gh pr comment` / `gh api`, all of which require
+          # GITHUB_TOKEN. The runner only
           # auto-injects GITHUB_TOKEN into step env when the step declares
           # it explicitly; bare `run:` shells see the bare runner env which
           # does NOT include it. Forward secrets.GITHUB_TOKEN here.
