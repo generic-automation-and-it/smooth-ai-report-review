@@ -468,6 +468,8 @@ jobs:
           OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}
           # Structured findings (LADR-055) — mirrors the reusable workflow's env var.
           OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+          # Finding permalinks (LADR-112) — mirrors the reusable workflow's env var.
+          OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS || '1' }}
           # Trivial-PR skip (LADR-059) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
           # Run artifacts (LADR-062) — mirrors the reusable workflow.

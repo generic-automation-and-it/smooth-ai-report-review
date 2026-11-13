@@ -1540,6 +1540,15 @@ if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
     fi
   } > "$WORK_DIR/review_comment_compact.md"
   COMPACT_SIZE="$(wc -c < "$WORK_DIR/review_comment_compact.md" | tr -d ' ')"
+  # LADR-112: drop the finding permalinks before truncation can cut the Issues
+  # Summary mid-list. Losing the links is cosmetic; losing findings is not.
+  if [ "$((COMPACT_SIZE + MARKER_BYTES))" -gt "$MAX_BODY_SIZE" ]; then
+    bash "$SCRIPT_DIR/lib/strip-finding-links.sh" < "$WORK_DIR/review_comment_compact.md" > "$WORK_DIR/review_comment_unlinked.md" \
+      && mv "$WORK_DIR/review_comment_unlinked.md" "$WORK_DIR/review_comment_compact.md"
+    rm -f "$WORK_DIR/review_comment_unlinked.md"
+    COMPACT_SIZE="$(wc -c < "$WORK_DIR/review_comment_compact.md" | tr -d ' ')"
+    echo "  Finding links stripped from the compact body: ${COMPACT_SIZE} characters"
+  fi
   if [ "$((COMPACT_SIZE + MARKER_BYTES))" -le "$MAX_BODY_SIZE" ]; then
     mv "$WORK_DIR/review_comment_compact.md" "$WORK_DIR/review_comment.md"
   else

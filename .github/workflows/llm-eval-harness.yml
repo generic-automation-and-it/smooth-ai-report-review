@@ -221,6 +221,13 @@ jobs:
             # asserts its own call sites in aggregate-reviews.sh, so a refactor
             # that drops one is caught here rather than in a posted review.
             .agents/skills/ai-review-report/scripts/test-merge-findings.sh
+            # LADR-112: head-SHA permalinks on rendered findings - URL shape and
+            # encoding, every no-link condition, the body-size strip rung's lib,
+            # and scorer / shape-check parity on linked bodies.
+            .agents/skills/ai-review-report/scripts/test-finding-links.sh
+            # LADR-112: /ai-review strips the per-commit link before writing
+            # Skip Areas bullets, so LADR-101 cross-round matching stays stable.
+            .agents/skills/ai-review/scripts/test-skip-bullet-format.sh
             # LADR-100: no holistic section — a model that still writes one
             # (marker or heading) has it stripped, fence-aware, and the sync
             # takes no holistic input.

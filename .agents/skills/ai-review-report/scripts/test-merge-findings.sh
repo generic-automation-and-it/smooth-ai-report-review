@@ -21,6 +21,10 @@ EXTRACT_SH="$SCRIPT_DIR/lib/extract-findings-json.sh"
 RENDER_SH="$SCRIPT_DIR/lib/render-findings-summary.sh"
 SCORE_SH="$SCRIPT_DIR/eval/lib/score-review.sh"
 ANALYSE_SCOPE_SH="$SCRIPT_DIR/lib/extract-ai-analyse-scope.sh"
+# LADR-112 links read these from the environment. The goldens below are the
+# pre-link body, so a runner that sets them (Actions always sets
+# GITHUB_REPOSITORY) must not flip them; test-finding-links.sh owns the linked shape.
+unset GITHUB_REPOSITORY GITHUB_SERVER_URL OPENCODE_REVIEW_REPORT_DIFF_TO_SHA OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS
 
 TMP_DIR="$(mktemp -d)"
 # SUITE_COMPLETED is flipped to 1 on the last line. Without this, a `set -e`

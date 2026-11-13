@@ -1316,6 +1316,20 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: Stage 0 changes no prompt text; existing fixtures and production prompts stay byte-identical. Intent and decision-record recall become measurable once fixtures carry the new files. Each later item needs its Variable in both packagings and `local-review.sh`, a row in README "Context sources" when it adds a data source, and its builder inside `review-in-chunks.sh` so the eval harness reaches it.
 - **See also**: LADR-031, LADR-033, LADR-035, LADR-050, LADR-062, LADR-067, LADR-076, LADR-083, LADR-094, LADR-101, LADR-106.
 
+### LADR-112: Head-SHA permalinks on rendered findings, presentation only
+
+- **Date**: 2026-11-13
+- **Status**: Accepted, default on (`OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1` in both packagings; `local-review.sh` exports it). Item A of LADR-111.
+- **Context**: A reader of the posted review had to find each `file:line` by hand, and a later push moved the line under it. The posted finding line is a parser contract: `lib/review-findings-to-json.sh` (frozen), `ai-analyse`'s `filter-failing-test-findings.sh`, `eval/lib/score-review.sh` and `lib/review-has-shape.sh` all read it.
+- **Decision**:
+  - `lib/render-findings-summary.sh` `bullet()` appends ` · [open](<server>/<repo>/blob/<sha>/<path>#L<line>)` as the **last** segment, after `chunk_ref` and `decision_suffix`, before the why line. The label and the `` `file:line` `` span stay byte-identical; the frozen parser's discarded `(?<rest>.*)` group absorbs the suffix.
+  - Inputs come from the renderer's environment, so `aggregate-reviews.sh`'s positional call is unchanged: `GITHUB_SERVER_URL` (default `https://github.com`, trailing slash trimmed), `GITHUB_REPOSITORY` (the base repo, also for forks: head commits are reachable there through `refs/pull/<n>/head`), `OPENCODE_REVIEW_REPORT_DIFF_TO_SHA`. Each is validated (scheme+host, `owner/repo`, hex SHA); any failure renders no link.
+  - Only numbered findings with a positive-integer line and a repo-relative path link; each path segment is URI-encoded. Ranges, blank or zero lines, absolute, `..` or Windows paths (the chunk prompt asks for absolute `read_file` paths, LADR-090), T/R/P items and suppressed findings never link. With structured findings off the orchestrator writes the summary and no links appear.
+  - Body-size ladder: when the compact body is still over the limit, `lib/strip-finding-links.sh` removes the suffixes and the body is re-measured; head/tail truncation runs only if it is still over. No new Variable.
+  - `/ai-review` strips a trailing ` · [open](…)` before writing Skip Areas bullets or summary-table rows, because a per-commit SHA would change the text LADR-101 matches across rounds.
+- **Consequences**: About 110 bytes per linked finding. `#L<n>` appears only inside a URL, never as prose (LADR-067). If a consumer ever trips on the suffix, change the renderer, never the frozen parser. Local reviews stay link-free until stage 8 resolves the repo slug for pushed commits.
+- **See also**: LADR-055, LADR-067, LADR-068, LADR-093, LADR-101, LADR-109, LADR-111.
+
 ### LADR-050: Default-on per-chunk risk and inferred test-coverage hints
 
 - **Date**: 2026-10-18
@@ -1495,6 +1509,7 @@ No backend test projects: the gate's tests are offline shell harnesses under `sc
 | L0 | `scripts/test-strip-holistic-section.sh` | no holistic section reaches the body; the prompt and the sync no longer use one (LADR-100) |
 | L0 | `scripts/test-diff-base.sh` | resolved merge-base, never a guessed base (LADR-075) |
 | L0 | `scripts/test-gh-retry.sh` | one bounded `gh` retry (LADR-078) |
+| L0 | `scripts/test-finding-links.sh`, `../ai-review/scripts/test-skip-bullet-format.sh` | finding permalinks: URL shape, no-link conditions, strip lib, consumer parity; skip bullets drop the link (LADR-112) |
 | L0 | `scripts/test-post-review.sh` | review posting pins `commit_id` to the reviewed SHA and every post site uses the helper (LADR-109) |
 | L0 | `scripts/test-analyse-tooling-verify.sh` | the analyse workflow's tooling verify step, executed from its YAML body in both modes (LADR-110) |
 | L0 | `../ai-review/scripts/test-copilot-review.sh` | source detection follows the selected review; legacy PR-wide scan fallback |
@@ -1529,6 +1544,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-11-13 | Numbered findings carry a head-SHA ` · [open](…)` link (default on); body-size ladder strips links before truncating; `/ai-review` strips them from skip bullets. | LADR-112 |
 | 2026-11-13 | Adoption umbrella for al-pr-review strengths: items A–E and L1–L3 with flags/defaults, shared fail-open rules, rejected items. Eval fixtures may carry `pr_description.md` / `linked_issues.json`; `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` exported to chunk prompts. | LADR-111 |
 | 2026-11-11 | Review posting uses `lib/post-review.sh` with `commit_id` pinned to the reviewed SHA; `gh pr review` no longer posts. | LADR-109 |
 | 2026-11-11 | `analyse` edit fence denies tooling/scratch/`.git`/`.env` paths; `Verify pinned tooling is unmodified` fails before the credential-bearing commit step. `test-repo-opencode-config.sh` pins the fence; `test-analyse-tooling-verify.sh` runs the real step in both modes. | LADR-110 |

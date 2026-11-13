@@ -481,6 +481,10 @@ jobs:
       # to fall back to the orchestrator's free-text Issues Summary — the
       # markdown grammar is identical either way, so nothing downstream breaks.
       OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
+      # Finding permalinks (LADR-112) — on by default. Appends a link pinned to
+      # the reviewed commit to each numbered finding in the rendered Issues
+      # Summary. Presentation only; set falsy (0/false/no/off) to omit it.
+      OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS || '1' }}
       # Trivial-PR skip (LADR-059) — on by default. A deterministic
       # lockfile/manifest-only precondition plus an orchestrator-model veto may
       # skip the whole review. Never fires for `/ai-review` comments or
