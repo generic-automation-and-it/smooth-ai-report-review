@@ -620,8 +620,10 @@ FINDINGS_SYNCED_DECISION=""
 # than manufacturing an APPROVE, and the decision block at the end of this
 # script uses it when the sync did not run. Nothing rewrites pr_summary.md after
 # this point — the splice and the sync both edit pr_summary_main.md — so one
-# parse is enough.
-ORCHESTRATOR_ACTION=$(grep -i "^\*\*MACHINE_READABLE_ACTION:\*\*" ci_temp/pr_summary.md \
+# parse is enough. A list marker before the field (`10. **MACHINE_…`) is
+# accepted: a model that numbers every line otherwise parsed as no action, and
+# the sync then upgraded a deliberate COMMENT into a real APPROVE (issue #222).
+ORCHESTRATOR_ACTION=$(grep -iE '^[[:space:]]*([-*+][[:space:]]+|[0-9]+[.)][[:space:]]+)?\*\*MACHINE_READABLE_ACTION:\*\*' ci_temp/pr_summary.md \
   | tail -1 \
   | sed -n 's/^.*\*\*MACHINE_READABLE_ACTION:\*\*[[:space:]]*\[\{0,1\}\([A-Za-z_][A-Za-z_]*\)\]\{0,1\}.*$/\1/p' \
   | tr '[:upper:]' '[:lower:]' \

@@ -1490,6 +1490,94 @@ if [ -f "$AGG_SH" ]; then
     "$(awk '/lib\/renumber-suggested-fixes\.sh/{r=NR} /lib\/annotate-suggested-fixes\.sh/{if (r && NR > r) {print 1; exit}}' "$AGG_SH")"
 fi
 
+# --- Test 29: list-prefixed orchestrator output (issue #222) -----------------
+# Consumer run 43411932088 (orchestrator gpt-6-terra) numbered every line of its
+# Recommendation, wrote one `Issue counts:` line instead of the five
+# `Count of …` lines, and labelled the fix `Issue 1)`. The merge had suppressed
+# that Low, so every rewrite had to fire — and none did: the posted body said
+# `Low: 1 (finding 1)` over an Issues Summary that said `None found`.
+if [ -x "$SYNC_SH" ] && command -v jq >/dev/null 2>&1; then
+  cat > "$TMP_DIR/s29-empty.json" <<'EJ'
+{"status":"complete","merged_chunks":[0,1,2],"findings":[],"pre_existing_findings":[],"suppressed_findings":[{"severity":"low","file":"docs/runbooks/emma-registration.md","line":282}],"residual_risks":[],"testing_gaps":[],"malformed_findings":0,"demoted_no_quote":0}
+EJ
+  cat > "$TMP_DIR/s29-rec.md" <<'RM'
+## 🎯 Recommendation
+
+7. **Issue counts:** 🔴 Critical: 0; 🟠 High: 0; 🟡 Medium: 0; 🔵 Low: 1 (finding 1); 🗂️ Pre-existing: 0.
+8. **Decision:** REQUEST CHANGES
+9. **Rationale:** Following policy: Only 0 medium and 1 low priority issues found - approving. Reviews were static.
+10. **MACHINE_READABLE_ACTION:** REQUEST_CHANGES
+RM
+  bash "$SYNC_SH" "$TMP_DIR/s29-empty.json" "$TMP_DIR/s29-rec.md" >/dev/null 2>&1 || true
+  check "Test 29a: a numbered Rationale is rewritten, prefix kept" "1" \
+    "$(grep -cF '9. **Rationale:** Following policy: Only 0 medium and 0 low priority issue(s) found - approving.' "$TMP_DIR/s29-rec.md" || true)"
+  check "Test 29b: a numbered Decision is rewritten, prefix kept" "1" \
+    "$(grep -cF '8. **Decision:** APPROVE' "$TMP_DIR/s29-rec.md" || true)"
+  check "Test 29c: a numbered MACHINE_READABLE_ACTION is rewritten, prefix kept" "1" \
+    "$(grep -cF '10. **MACHINE_READABLE_ACTION:** APPROVE' "$TMP_DIR/s29-rec.md" || true)"
+  check "Test 29d: a one-line Issue counts summary is rewritten from the merged set" "1" \
+    "$(grep -cF '7. **Issue counts:** 🔴 Critical: 0; 🟠 High: 0; 🟡 Medium: 0; 🔵 Low: 0; 🗂️ Pre-existing: 0' "$TMP_DIR/s29-rec.md" || true)"
+  check "Test 29e: no stale count or finding number survives in the Recommendation" "0" \
+    "$(grep -cE 'Low: 1|finding 1|1 low' "$TMP_DIR/s29-rec.md" || true)"
+
+  # The COMMENT guarantee (Test 26i) rides on the caller parsing the
+  # orchestrator's own action; a numbered line used to parse as nothing, so the
+  # sync upgraded a deliberate COMMENT into a real APPROVE.
+  printf '## 🎯 Recommendation\n3. **Decision:** COMMENT\n4. **MACHINE_READABLE_ACTION:** COMMENT\n' > "$TMP_DIR/s29-comment.md"
+  parse_line="$(grep -n '^ORCHESTRATOR_ACTION=\$(grep' "$AGG_SH" | cut -d: -f1)"
+  parse_cmd="$(sed -n "${parse_line},$((parse_line + 4))p" "$AGG_SH" | sed 's#ci_temp/pr_summary.md#"$1"#')"
+  parsed="$(bash -c "$parse_cmd"'
+printf "%s" "$ORCHESTRATOR_ACTION"' _ "$TMP_DIR/s29-comment.md")"
+  check "Test 29f: the caller parses a numbered MACHINE_READABLE_ACTION" "comment" "$parsed"
+  check "Test 29f2: so a numbered COMMENT is preserved, not upgraded" "comment" \
+    "$(SYNC_ORIGINAL_ACTION="$parsed" bash "$SYNC_SH" "$TMP_DIR/s29-empty.json" "$TMP_DIR/s29-comment.md" 2>/dev/null)"
+else
+  echo "⏭️  sync-recommendation-from-findings.sh or jq missing — skipping Test 29a-f"
+fi
+
+if [ -f "$RENUM_SH" ] && command -v jq >/dev/null 2>&1; then
+  cat > "$TMP_DIR/s29-fixes.md" <<'FM'
+## 📝 Suggested Fixes
+
+### `docs/runbooks/emma-registration.md:282`
+
+6. **Issue 1)**: Clarify the two legacy host-network ports. (🔵 Low Priority)
+
+### `AGENTS.md:85`
+
+7. **Issue 3)**: Bullet still says "at a pinned SHA" (🟡 Medium Priority)
+```markdown
+see Issue 3) in the fence
+```
+
+### `.github/workflows/pipeline-ai-analyse.yml:83`
+
+8. **Issue 1)**: covers Issue 1) and Issue 2) together
+
+## 🎯 Recommendation
+Issue 3) stays as written outside the section.
+FM
+  bash "$RENUM_SH" "$TMP_DIR/s28.json" "$TMP_DIR/s29-fixes.md" 2>/dev/null || true
+  check "Test 29g: an Issue N) for a suppressed anchor loses its number" "1" \
+    "$(grep -cF '6. **Issue (no numbered finding)**: Clarify the two legacy host-network ports.' "$TMP_DIR/s29-fixes.md" || true)"
+  check "Test 29h: an Issue N) for a surviving anchor is repointed (3 -> 1)" "1" \
+    "$(grep -cF '7. **Issue 1)**: Bullet still says' "$TMP_DIR/s29-fixes.md" || true)"
+  check "Test 29i: fenced code keeps its Issue N)" "1" \
+    "$(grep -cF 'see Issue 3) in the fence' "$TMP_DIR/s29-fixes.md" || true)"
+  check "Test 29j: a line naming several Issue N) is left whole" "1" \
+    "$(grep -cF '8. **Issue 1)**: covers Issue 1) and Issue 2) together' "$TMP_DIR/s29-fixes.md" || true)"
+  check "Test 29k: outside Suggested Fixes stays verbatim" "1" \
+    "$(grep -cF 'Issue 3) stays as written outside the section.' "$TMP_DIR/s29-fixes.md" || true)"
+  cp "$TMP_DIR/s29-fixes.md" "$TMP_DIR/s29-fixes-again.md"
+  bash "$RENUM_SH" "$TMP_DIR/s28.json" "$TMP_DIR/s29-fixes-again.md" 2>/dev/null || true
+  check "Test 29l: the Issue N) rewrite is idempotent" "" \
+    "$(diff "$TMP_DIR/s29-fixes.md" "$TMP_DIR/s29-fixes-again.md")"
+  check "Test 29m: LADR-067 — nothing autolinks" "0" \
+    "$(grep -cE '#[0-9]' "$TMP_DIR/s29-fixes.md" || true)"
+else
+  echo "⏭️  renumber-suggested-fixes.sh or jq missing — skipping Test 29g-m"
+fi
+
 echo ""
 echo "=========================================="
 echo "Results: $pass passed, $fail failed"
