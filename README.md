@@ -587,6 +587,16 @@ Set these under repo (or org) **Settings → Secrets and variables → Actions**
 
 > **One-click manual switch (no Variables to change):** a `workflow_dispatch` (manual) run also offers a **model preset** dropdown. Picking *Anthropic Claude Opus 4.8*, *Anthropic Claude Sonnet 4.6*, *Anthropic Claude Haiku 4.5*, *OpenAI GPT-5.5*, *OpenCode DeepSeek V4 Pro*, *OpenCode GLM-5.1*, *OpenCode MiniMax m3*, *OpenCode Qwen3.7 Plus*, *OpenRouter DeepSeek V4 Pro*, *OpenRouter Qwen3.7 Plus*, *OpenRouter GLM-5.1*, or *OpenRouter MiniMax M3* overrides the provider **and** all three model tiers (primary/secondary/orchestrator) with that single model for that one run — taking precedence over both the free-text `model` input and the `OPENCODE_REVIEW_REPORT_*` Variables. The preset still needs the matching provider's API-key Secret configured. Leave the dropdown on *(repository default)* to use the configured Variables.
 
+## Context sources
+
+What the chunk reviewer can see beyond the diff, what each source needs, and what happens without it. Every source fails open: a missing source omits its block and the review still runs (LADR-111).
+
+| Source | Requires | Enabled by | On absence |
+|---|---|---|---|
+| Native `AGENTS.md` (root and nested) | `AGENTS.md` files in the reviewed repo; OpenCode v2 | Always on (LADR-087) | The model sees no repo-level guidance |
+| Scoped rules (`.github/instructions/**/*.instructions.scoped.md`) | Matching files whose `applyTo:` covers a chunk's files | Always on; `bypass_mandatory_context_file` skips injection (LADR-104/105) | The per-chunk runtime `AGENTS.md` carries no project rules |
+| Code graph risk and test-coverage hints | `pip` install of `code-review-graph`, a git checkout, a supported language | `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` and `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS` (both default `1`) | No graph slice in the prompt; the run artifact records graph availability (LADR-049/050) |
+
 ## Environment variables
 
 Complete reference for every environment variable the pipeline reads. **Selector + credentials + model chain** are what you configure; **derived** vars are computed at runtime by [`lib/resolve-provider.sh`](.agents/skills/ai-review-report/scripts/lib/resolve-provider.sh) (CI: written to `$GITHUB_ENV`; local: exported by `local-review.sh`) — you never set them by hand.

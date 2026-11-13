@@ -282,7 +282,13 @@ run_fixture() {
     git diff --name-only -z "$from_sha..$to_sha" > ci_temp/changed_files.txt
     printf '%s\n' "$DR_STANDARDS_DEST" > ci_temp/context_files.txt
 
+    # Optional PR-prose inputs (LADR-111). The destination names are the ones the
+    # entrypoints write and review-in-chunks.sh reads; absent files create nothing.
+    [ -f "$fdir/pr_description.md" ] && cp "$fdir/pr_description.md" ci_temp/pr_description.txt
+    [ -f "$fdir/linked_issues.json" ] && cp "$fdir/linked_issues.json" ci_temp/linked_issues.json
+
     export OPENCODE_MODEL_ID="$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY"
+    export OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full
     export GITHUB_OUTPUT="$sandbox/ci_temp/github_output.txt"
     : > "$GITHUB_OUTPUT"
 

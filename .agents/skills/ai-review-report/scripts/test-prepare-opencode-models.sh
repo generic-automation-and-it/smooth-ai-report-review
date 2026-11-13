@@ -173,7 +173,7 @@ exec "{jq}" "$@"
         assets.mkdir()
         shutil.copyfile(scripts.parent / "assets/opencode.json", assets / "opencode.json")
         original_builtin = (assets / "opencode.json").read_bytes()
-        for filename in ("prepare-opencode-config.sh", "resolve-provider.sh", "quarantine-project-config.sh", "gh-retry.sh"):
+        for filename in ("prepare-opencode-config.sh", "resolve-provider.sh", "quarantine-project-config.sh", "gh-retry.sh", "post-review.sh"):
             shutil.copyfile(scripts / "lib" / filename, lib / filename)
         shutil.copyfile(helper, lib / "ensure-opencode-models.real.sh")
         if not older:
