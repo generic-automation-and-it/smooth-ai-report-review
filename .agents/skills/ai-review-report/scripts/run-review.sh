@@ -1399,6 +1399,9 @@ if [ -n "${ORCH_PROBE_PID:-}" ]; then
   fi
 fi
 
+# Script-to-script contract (LADR-111): chunk prompts may gate rules on full vs
+# incremental. Not a GitHub Variable; unset or any other value means "unknown".
+export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="$review_type"
 bash "$SCRIPT_DIR/review-in-chunks.sh" \
   "${from_sha}" \
   "${head_sha}" \

@@ -1281,6 +1281,41 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: Agent-edited tooling never runs beside credentials. A self-fix whose legitimate target is the tooling tree fails closed rather than being pushed; that is deliberate — the failure names the dirty paths in the job log and nothing is pushed.
 - **See also**: LADR-042, LADR-045, LADR-047, LADR-078.
 
+### LADR-111: Adopt al-pr-review's reviewer strengths as flag-gated, fail-open context passes
+
+- **Date**: 2026-11-13
+- **Status**: Accepted as the umbrella; items land one stage at a time (LADR-112–117). Stage 0 adds the eval fixture inputs and the review-type export only.
+- **Context**: A comparison with the external `al-pr-review` skill (`LEGO/automated-logistics-agent-plugins@caa8d43`, `plugins/al-pr-review`) found it the better *reviewer* (context richness, human control) and this gate the better *system* (determinism, scale, failure semantics, testability, automation). The gate runs in CI with no ticketing-system access, and its PR bodies and issues are often generated from the diff, so "delivered / missing / extra" checks against them are circular. Every borrowed item must keep the system properties, and the posted body is parsed by `ai-review`, `ai-analyse`, the eval scorer and the decision model. Sources: the local comparison report and the merged adoption plan for Feature 212 (both kept outside the repo).
+- **Decision**:
+  - **Adopted, one flag each so eval can A/B them in isolation:**
+    - A — head-SHA permalinks on numbered findings, `OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS` (default `1`; presentation only).
+    - B — PR-intent context from the PR body and up to 3 same-repo linked issues authored by OWNER/MEMBER/COLLABORATOR, `OPENCODE_REVIEW_REPORT_ENABLE_INTENT_CONTEXT` (default `0`). Intent is an untrusted claim, never ground truth. Only a contradiction quoted from both sides may be a numbered finding: 🟡 Medium `[VERIFIED]` (owner decision, option A), higher only when it is independently a code defect. "Extra" and "missing" go to `residual_risks`.
+    - C — deterministic reuse hints from existing code, `OPENCODE_REVIEW_REPORT_ENABLE_REUSE_HINTS` (default `0`; ≤ 🔵 Low).
+    - D — decision-record index, `OPENCODE_REVIEW_REPORT_ENABLE_DECISION_RECORDS` (default `0`; contradiction ≤ 🟡 Medium, "needs a record" → R).
+    - E — sibling-caller sweep for symptom fixes, `OPENCODE_REVIEW_REPORT_ENABLE_CALLER_SWEEP` (default `0`; P items only).
+    - Low priority, last: L1 permalinks in local reviews of pushed commits (reuses A's flag); L2 pipeline-cost residual risks for workflow files, `OPENCODE_REVIEW_REPORT_ENABLE_PIPELINE_COST_HINTS` (default `0`, R only); L3 a README section on when to use which reviewer.
+  - **Shared rules for every item:**
+    - Fail open: a missing, failed or timed-out source omits its block and writes one log line. It never writes `chunk_<n>.failed`, never changes the exit code or verdict, and never blocks posting.
+    - Degrade is reported in `metadata.json` and the log only; the posted body stays byte-stable.
+    - New data blocks total ≤ 6 KB per chunk (intent 3 KB + reuse slice 1 KB + records index 2 KB), additive to the LADR-035 diff budget.
+    - Advisory leads (C, D, E) share at most 4 of the ~20 tool calls per chunk (LADR-076 is amended when C lands).
+    - Flags off ⇒ chunk prompts and posted body byte-identical. Model-input items (B–E) flip on only through a LADR amendment recording paid-eval evidence.
+    - Every R item an adopted class emits says it needs human judgement and names no mechanical code change, because `ai-analyse` FIXes mechanical R items.
+    - The frozen consumer contract holds: `lib/review-findings-to-json.sh`, `merge-findings.py`, the schema and the aggregation prompt do not change.
+  - **Stage 0 plumbing:** `run-evals.sh` copies an optional fixture `pr_description.md` → `ci_temp/pr_description.txt` and `linked_issues.json` → `ci_temp/linked_issues.json`. `run-review.sh` exports `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` (`full` / `incremental`) before `review-in-chunks.sh`; `local-review.sh` and the eval harness export `full`. It is a script-to-script variable, not a GitHub Variable; unset or any other value means "unknown".
+  - **Rejected or deferred, with the reason:**
+    - Human control (ask before posting, ask-levels) — the gate is autonomous by design; human control lives in `/ai-review execute`, Skip Areas, trigger choice and draft opt-in.
+    - Persona voice and tone — the body is read by parsers; persona *content* (scope creep, reuse, symptom fixes) is adopted as rules B, C and E.
+    - Jira / MCP / `acli` — new secrets and no ticketing access in CI.
+    - Context7, API guidelines, `deep` mode — web access (LADR-094) or unbounded latency.
+    - Pipeline cost as numbered findings — deferred: it dilutes LADR-060's fidelity question, and at Medium `ai-analyse` would edit CI workflows on cost grounds. Only the R-only variant (L2) ships.
+    - Links on T/R/P lines — `/ai-review` copies their text into Skip Areas bullets, so a per-commit SHA would churn LADR-101 matching.
+    - Links in `/ai-review`'s read-only analysis table — no consumer needs them.
+    - Complexity-ladder `delete` / `yagni` / `shrink` — duplicates the LADR-106 smells.
+    - "Patterns followed" lines and a Questions section — duplicate Positive Highlights and `[SPECULATIVE]`.
+- **Consequences**: Stage 0 changes no prompt text; existing fixtures and production prompts stay byte-identical. Intent and decision-record recall become measurable once fixtures carry the new files. Each later item needs its Variable in both packagings and `local-review.sh`, a row in README "Context sources" when it adds a data source, and its builder inside `review-in-chunks.sh` so the eval harness reaches it.
+- **See also**: LADR-031, LADR-033, LADR-035, LADR-050, LADR-062, LADR-067, LADR-076, LADR-083, LADR-094, LADR-101, LADR-106.
+
 ### LADR-050: Default-on per-chunk risk and inferred test-coverage hints
 
 - **Date**: 2026-10-18
@@ -1494,6 +1529,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-11-13 | Adoption umbrella for al-pr-review strengths: items A–E and L1–L3 with flags/defaults, shared fail-open rules, rejected items. Eval fixtures may carry `pr_description.md` / `linked_issues.json`; `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` exported to chunk prompts. | LADR-111 |
 | 2026-11-11 | Review posting uses `lib/post-review.sh` with `commit_id` pinned to the reviewed SHA; `gh pr review` no longer posts. | LADR-109 |
 | 2026-11-11 | `analyse` edit fence denies tooling/scratch/`.git`/`.env` paths; `Verify pinned tooling is unmodified` fails before the credential-bearing commit step. `test-repo-opencode-config.sh` pins the fence; `test-analyse-tooling-verify.sh` runs the real step in both modes. | LADR-110 |
 | 2026-10-24 | AGENTS.md validator: caller env names aligned (`BASE_SHA`/`HEAD_SHA`/`BASE_REF`, legacy aliases accepted); `echo \| grep -q` pipelines replaced by herestrings so pipefail cannot turn a match into a missing section. | #207 |

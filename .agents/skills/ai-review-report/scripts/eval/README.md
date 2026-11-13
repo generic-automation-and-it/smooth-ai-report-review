@@ -64,6 +64,15 @@ Create `corpus/{must-not-flag|must-catch}/<id>/`:
 - `before/<...>` *(optional)* — pre-change tree, for modify/delete fixtures
   (e.g. `DR-013`, `MC-003`). The harness commits `before/`, then `after/`, and
   reviews the diff between them.
+- `pr_description.md` *(optional)* — PR body for the fixture. Copied to
+  `ci_temp/pr_description.txt`, so its `## AI Review Notes` / `## Skip Areas`
+  sections reach the chunk prompt exactly as in production.
+- `linked_issues.json` *(optional)* — linked-issue payload, copied to
+  `ci_temp/linked_issues.json` for context builders that read it. Without either
+  file nothing is created and the fixture behaves as before.
+
+Every fixture run exports `OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full`, matching a
+first review in CI.
 
 The harness combines the canonical DR standards corpus snapshot
 (`corpus/context/code-review-standards.md` +

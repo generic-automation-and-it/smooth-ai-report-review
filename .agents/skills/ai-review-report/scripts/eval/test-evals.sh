@@ -246,6 +246,33 @@ else
   ok "no text-grep detection of chunk failure (LADR-031 channel respected)"
 fi
 
+# Case K2: optional PR-prose fixture inputs (LADR-111). SELFTEST returns before
+# the sandbox exists, so the copy placement can only be pinned statically: after
+# the head commit and ci_temp creation, before the real chunk review runs, under
+# the exact names review-in-chunks.sh / later builders read.
+echo "Case K2: optional pr_description.md / linked_issues.json reach ci_temp"
+_line_of() { { grep -nF -- "$1" "$RUNNER" || true; } | head -n1 | cut -d: -f1; }
+head_line="$(_line_of 'git commit -q -m "head"')"
+mkdir_line="$(_line_of 'mkdir -p ci_temp ci_temp/reviews')"
+review_line="$(_line_of 'bash "$REVIEW_SCRIPT"')"
+for _pair in 'pr_description.md|ci_temp/pr_description.txt' 'linked_issues.json|ci_temp/linked_issues.json'; do
+  _src="${_pair%%|*}"; _dst="${_pair#*|}"
+  _copy="$({ grep -nE "^[[:space:]]*\[ -f \"\\\$fdir/${_src}\" \] && cp \"\\\$fdir/${_src}\" ${_dst}\$" "$RUNNER" || true; } | head -n1 | cut -d: -f1)"
+  if [ -n "$_copy" ] && [ -n "$head_line" ] && [ -n "$mkdir_line" ] && [ -n "$review_line" ] \
+     && [ "$_copy" -gt "$head_line" ] && [ "$_copy" -gt "$mkdir_line" ] && [ "$_copy" -lt "$review_line" ]; then
+    ok "optional $_src is copied to $_dst inside the sandbox, before the chunk review"
+  else
+    bad "optional $_src copy missing or misplaced (copy=$_copy head=$head_line mkdir=$mkdir_line review=$review_line)"
+  fi
+done
+type_line="$({ grep -nE '^[[:space:]]*export OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full$' "$RUNNER" || true; } | head -n1 | cut -d: -f1)"
+if [ -n "$type_line" ] && [ -n "$review_line" ] && [ "$type_line" -lt "$review_line" ]; then
+  ok "run_fixture exports OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full before the chunk review"
+else
+  bad "run_fixture must export OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full before review-in-chunks.sh"
+fi
+unset -f _line_of
+
 # Case L: forbidden_claim rescoping. A must-not-flag fixture fails only when a
 # flagged finding matches the DR claim; a true finding about something else is
 # counted and reported, not blocking. Before this, ANY Critical/High/Medium
