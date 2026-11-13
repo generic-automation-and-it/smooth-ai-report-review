@@ -148,6 +148,17 @@ jobs:
           "$test_env/bin/python" -m pip install --disable-pip-version-check \
             -r .agents/skills/ai-review-report/scripts/requirements-test.txt
           echo "$test_env/bin" >> "$GITHUB_PATH"
+          # ubuntu-26.04 defaults to uutils coreutils and ships GNU only as
+          # gnu-prefixed binaries; the suites need GNU timeout/comm -z.
+          if ! timeout --version 2>/dev/null | grep -q 'GNU coreutils'; then
+            gnu_bin="${RUNNER_TEMP}/gnu-coreutils"
+            mkdir -p "$gnu_bin"
+            dpkg -L gnu-coreutils | grep '^/usr/bin/gnu' | while read -r tool; do
+              name="$(basename "$tool")"
+              ln -sf "$tool" "$gnu_bin/${name#gnu}"
+            done
+            echo "$gnu_bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Run deterministic OpenCode v2 regressions
         if: steps.v2_scope.outputs.relevant == 'true'
