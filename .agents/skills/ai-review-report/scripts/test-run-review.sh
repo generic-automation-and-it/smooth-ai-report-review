@@ -1162,6 +1162,75 @@ check "local-review.sh exports its REVIEW_TYPE (full) before review-in-chunks.sh
   "yes" "$(awk '/^REVIEW_TYPE="full"$/{t=NR} /^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="\$REVIEW_TYPE"$/{e=NR} /^bash "\$SCRIPT_DIR\/review-in-chunks.sh"/{c=NR} END{print (t && e && c && t < e && e < c) ? "yes" : "no"}' "$SCRIPT_DIR/local-review.sh")"
 unset _rt_line _rt_det _rt_chunks _rt_stmt _rt
 
+# ── Body-size ladder strips finding links before truncating (LADR-112) ──────
+# Runs the real ladder block, extracted from run-review.sh, against fixture
+# bodies: links are stripped only when the compact body is still over, the whole
+# Issues Summary survives when that suffices, and truncation runs only after.
+echo ""
+echo "Testing body-size ladder link-strip rung"
+_ladder="$TMP_DIR/ladder.sh"
+awk '/^MAX_BODY_SIZE=65000$/{f=1} /^# Map machine-readable action/{f=0} f' "$RUN_REVIEW" > "$_ladder"
+check "the ladder block is extractable" "yes" "$([ -s "$_ladder" ] && grep -q 'strip-finding-links.sh' "$_ladder" && echo yes || echo no)"
+_body() { # <findings> <link bytes per finding> <detail bytes> <out>
+  python3 - "$@" <<'PY'
+import sys
+n, link, detail, out = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+lines = ["## 🔍 Issues Summary", "", "### 🟡 Medium Priority Issues", ""]
+for i in range(1, n + 1):
+    line = f"{i}. 🟡 [VERIFIED] Medium Priority: finding number {i} — `src/f{i}.sh:{i}` (chunk 0)"
+    if link:
+        line += " · [open](https://github.com/o/r/blob/" + "a" * 40 + "/src/f" + str(i) + ".sh" + "x" * link + f"#L{i})"
+    lines.append(line)
+lines += ["", "### 📊 Coverage", "", "- END-OF-SUMMARY", "", "## 📂 Detailed Chunk Reviews", "", "d" * detail, ""]
+open(out, "w").write("\n".join(lines))
+PY
+}
+_run_ladder() { # <body> → prints the posted body path
+  local wd="$TMP_DIR/ladder-$1"
+  rm -rf "$wd"; mkdir -p "$wd"; cp "$2" "$wd/review_comment.md"
+  WORK_DIR="$wd" SCRIPT_DIR="$SCRIPT_DIR" GITHUB_REPOSITORY=o/r bash "$_ladder" > "$wd/log" 2>&1
+  printf '%s' "$wd/review_comment.md"
+}
+# 300 findings: ~29 KB unlinked, ~74 KB linked, plus a 40 KB detail section.
+_body 300 100 40000 "$TMP_DIR/fits-unlinked.md"
+_out="$(_run_ladder fits "$TMP_DIR/fits-unlinked.md")"
+check "an over-limit body that fits without links keeps every finding" "300" "$(grep -cE '^[0-9]+\. ' "$_out")"
+check "…has its links stripped" "0" "$(grep -c '\[open\]' "$_out" || true)"
+check "…is not truncated" "0" "$(grep -c 'Review truncated' "$_out" || true)"
+check "…keeps the Coverage tail of the Issues Summary" "1" "$(grep -c 'END-OF-SUMMARY' "$_out")"
+# 900 findings: still over without links → truncation still runs.
+_body 900 100 0 "$TMP_DIR/too-big.md"
+_out="$(_run_ladder big "$TMP_DIR/too-big.md")"
+check "a body still over the limit without links is truncated" "1" "$(grep -c 'Review truncated' "$_out")"
+check "…from its unlinked form" "0" "$(grep -c '\[open\]' "$_out" || true)"
+check "…and fits the limit" "yes" "$([ "$(wc -c < "$_out")" -le 65000 ] && echo yes || echo no)"
+# Under the limit after compaction with links intact → links stay.
+_body 50 100 70000 "$TMP_DIR/small.md"
+_out="$(_run_ladder small "$TMP_DIR/small.md")"
+check "a compact body under the limit keeps its links" "50" "$(grep -c '\[open\]' "$_out")"
+unset -f _body _run_ladder
+unset _ladder _out
+
+# ── LADR-111 adoption Variables reach both packagings and local runs ────────
+# Each adopted item's flag must be declared in the reusable workflow, the
+# local-job caller and local-review.sh in the same change (repo AGENTS.md).
+# Later stages append their Variable here, with its default.
+echo ""
+echo "Testing LADR-111 adoption Variables in both packagings and local-review.sh"
+_adoption_vars=(
+  "OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1"
+)
+for _entry in "${_adoption_vars[@]}"; do
+  _var="${_entry%%=*}"; _def="${_entry#*=}"
+  for _file in "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml" "$REPO_ROOT/.docs/examples/code-review-local.yml"; do
+    check "$_var defaults to '$_def' in ${_file#"$REPO_ROOT"/}" "1" \
+      "$(grep -cF "$_var: \${{ vars.$_var || '$_def' }}" "$_file" || true)"
+  done
+  check "$_var defaults to '$_def' in local-review.sh" "1" \
+    "$(grep -cF "export $_var=\"\${$_var:-$_def}\"" "$SCRIPT_DIR/local-review.sh" || true)"
+done
+unset _adoption_vars _entry _var _def _file
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="

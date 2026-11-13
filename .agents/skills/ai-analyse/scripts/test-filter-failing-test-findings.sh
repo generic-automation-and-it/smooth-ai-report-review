@@ -234,4 +234,29 @@ joined_count="$(grep -cE '^[[:space:]]*- ' "$all" || true)"
 grep -q 'is failing here$' "$all" || { echo "FAIL: medium bullet was glued to the low bullet" >&2; cat "$all" >&2; exit 1; }
 echo "✓ medium and low reports stay on separate lines"
 
+# ── LADR-112: a permalink suffix changes no keep/withhold decision ──
+# The link repeats the file path (here a tests/ path) and adds only
+# `open`, `blob`, the server and the SHA, none of which may tip the
+# failing-test heuristics either way.
+plain="${tmp_dir}/plain.md"; linked="${tmp_dir}/linked.md"
+cat > "$plain" <<'EOF'
+1. 🟡 [VERIFIED] Medium Priority: FooTests.Bar is failing after this change — `tests/FooTests.cs:12` (chunk 1)
+   - The suite is red.
+2. 🟡 [VERIFIED] Medium Priority: Add a test for the empty branch — `tests/helpers/test_util.py:7` (chunk 2)
+3. 🔵 [SPECULATIVE] Low Priority: Simplify the error message — `src/app.sh:3` (chunk 1)
+EOF
+sed -E 's@^([0-9]+\. .* — `([^`:]+):([0-9]+)`.*)$@\1 · [open](https://github.com/o/r/blob/0123456789abcdef/\2#L\3)@' "$plain" > "$linked"
+grep -c '\[open\]' "$linked" | grep -qx 3 || { echo "FAIL: linked fixture lacks links" >&2; cat "$linked" >&2; exit 1; }
+out_plain="$(bash "$HELPER" "${tmp_dir}/w-plain" < "$plain" 2>/dev/null)"
+out_linked="$(bash "$HELPER" "${tmp_dir}/w-linked" < "$linked" 2>/dev/null | sed -E 's/ · \[open\]\([^)]*\)$//')"
+[ "$out_plain" = "$out_linked" ] || {
+  echo "FAIL: linked body kept a different finding set" >&2
+  echo "  plain:  $out_plain" >&2; echo "  linked: $out_linked" >&2; exit 1
+}
+[ "$(sed -E 's/ · \[open\]\([^)]*\)$//' "${tmp_dir}/w-linked")" = "$(cat "${tmp_dir}/w-plain")" ] || {
+  echo "FAIL: linked body withheld a different finding set" >&2; exit 1
+}
+grep -q 'FooTests.Bar is failing' "${tmp_dir}/w-linked" || { echo "FAIL: the failing-test finding was not withheld when linked" >&2; exit 1; }
+echo "✓ permalink suffix changes no keep/withhold decision"
+
 echo "✓ filter-failing-test-findings tests passed"
