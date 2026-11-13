@@ -638,7 +638,7 @@ echo ""
 # --- Step 5: Run chunked review ---
 echo "🚀 Starting chunked review..."
 echo ""
-export OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full
+export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="$REVIEW_TYPE"
 bash "$SCRIPT_DIR/review-in-chunks.sh" \
   "$FROM_SHA" \
   "$TO_SHA" \

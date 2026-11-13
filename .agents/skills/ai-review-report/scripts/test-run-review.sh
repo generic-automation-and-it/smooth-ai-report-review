@@ -1147,19 +1147,19 @@ unset -f _health_wiring
 # ── Review-type export for chunk prompts (LADR-111) ─────────────────────────
 echo ""
 echo "Testing OPENCODE_REVIEW_REPORT_REVIEW_TYPE export"
-_rt_line="$(grep -nE '^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="\$review_type"$' "$RUN_REVIEW" | head -n1 | cut -d: -f1)"
-_rt_det="$(grep -nF '. "$DETERMINE_REVIEW_FILE"' "$RUN_REVIEW" | head -n1 | cut -d: -f1)"
-_rt_chunks="$(grep -nF 'bash "$SCRIPT_DIR/review-in-chunks.sh"' "$RUN_REVIEW" | head -n1 | cut -d: -f1)"
+_rt_line="$({ grep -nE '^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="\$review_type"$' "$RUN_REVIEW" || true; } | head -n1 | cut -d: -f1)"
+_rt_det="$({ grep -nF '. "$DETERMINE_REVIEW_FILE"' "$RUN_REVIEW" || true; } | head -n1 | cut -d: -f1)"
+_rt_chunks="$({ grep -nF 'bash "$SCRIPT_DIR/review-in-chunks.sh"' "$RUN_REVIEW" || true; } | head -n1 | cut -d: -f1)"
 check "run-review.sh exports the review type after it is decided and before review-in-chunks.sh" \
   "ordered" "$([ -n "$_rt_line" ] && [ -n "$_rt_det" ] && [ -n "$_rt_chunks" ] \
     && [ "$_rt_det" -lt "$_rt_line" ] && [ "$_rt_line" -lt "$_rt_chunks" ] && echo ordered || echo "det=$_rt_det export=$_rt_line chunks=$_rt_chunks")"
-_rt_stmt="$(sed -n "${_rt_line:-0}p" "$RUN_REVIEW")"
+_rt_stmt="$([ -n "$_rt_line" ] && sed -n "${_rt_line}p" "$RUN_REVIEW")" || true
 for _rt in full incremental; do
   check "review type $_rt exports OPENCODE_REVIEW_REPORT_REVIEW_TYPE=$_rt" \
     "$_rt" "$(review_type="$_rt" bash -c "$_rt_stmt"'; printenv OPENCODE_REVIEW_REPORT_REVIEW_TYPE')"
 done
-check "local-review.sh exports OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full before review-in-chunks.sh" \
-  "yes" "$(awk '/^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE=full$/{e=NR} /^bash "\$SCRIPT_DIR\/review-in-chunks.sh"/{c=NR} END{print (e && c && e < c) ? "yes" : "no"}' "$SCRIPT_DIR/local-review.sh")"
+check "local-review.sh exports its REVIEW_TYPE (full) before review-in-chunks.sh" \
+  "yes" "$(awk '/^REVIEW_TYPE="full"$/{t=NR} /^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="\$REVIEW_TYPE"$/{e=NR} /^bash "\$SCRIPT_DIR\/review-in-chunks.sh"/{c=NR} END{print (t && e && c && t < e && e < c) ? "yes" : "no"}' "$SCRIPT_DIR/local-review.sh")"
 unset _rt_line _rt_det _rt_chunks _rt_stmt _rt
 
 # ── Final report ───────────────────────────────────────────────────────────
