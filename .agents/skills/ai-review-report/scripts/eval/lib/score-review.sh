@@ -43,7 +43,10 @@ input="${1:-/dev/stdin}"
 # and a trailing period, then matches a small set of empty phrasings.
 _is_none() {
   local s
-  s="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+  # LC_ALL=C: GNU tr lowercases byte by byte, and macOS libc maps a UTF-8 lead
+  # byte such as 0xC2 (the middle dot in ` · [open](…)`, LADR-112) as Latin-1,
+  # which BSD sed then rejects, leaving s empty and a real finding read as none.
+  s="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
         | sed -E 's/[`*"'"'"']//g; s/^[[:space:]]+//; s/[[:space:]]+$//; s/\.+$//')"
   [ -z "$s" ] && return 0
   case "$s" in
