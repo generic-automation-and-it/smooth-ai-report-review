@@ -647,12 +647,35 @@ code_context_for() {
     cap_copy "$part" "$part.cut" "$source_max" "source excerpt"
     cat "$part.cut" >> "$out.raw"
   fi
-  # 1b. Caller sites of the enclosing function (LADR-120). The judge is asked
-  # whether an upstream guard prevents the failure; the enclosing function alone
-  # cannot answer it. Edges come from the existing code graph and are HINTS
-  # (LADR-050): an edge is not proof of a call path, and an absent edge is not
-  # proof of absence. Fail-open — no graph JSON, no function name, no CLI, a
-  # failed or timed-out query, or a non-ok status all omit the block.
+  # 2. Other changed files the finding names (a cross-file claim's other half).
+  jq -r --argjson i "$idx" '.findings[$i]
+    | [ .title, .why_it_matters, .first_evidence,
+        ((.evidence // []) | if type == "array" then join(" ") else tostring end) ]
+    | map(. // "") | join(" ")' "$merged" > "$text" 2>/dev/null || : > "$text"
+  while IFS= read -r df; do
+    [ -n "$df" ] && [ "$df" != "$f" ] || continue
+    is_sensitive_path "$df" && continue
+    grep -qF -- "$df" "$text" || continue
+    # ERE-escape the path; `/` is not special in ERE, and escaping it makes
+    # GNU grep >= 3.8 warn "stray \ before /" on every call.
+    dl="$(grep -oE -- "$(printf '%s' "$df" | sed 's/[][\.*^$+?(){}|]/\\&/g'):[0-9]+" "$text" | head -n 1 | sed 's/.*://')"
+    printf '\nHunk of `%s`, another changed file this finding names:\n' "$df" >> "$out.raw"
+    hunk "$df" "${dl:-0}" > "$part"
+    cap_copy "$part" "$part.cut" "$named_max" "hunk"
+    cat "$part.cut" >> "$out.raw"
+    named=$((named + 1))
+    [ "$named" -lt "$MAX_NAMED_FILES" ] || break
+  done < "$work/diff_files.txt"
+  rm -f "$part" "$part.cut"
+  # 3. Caller sites of the enclosing function (LADR-120). Appended AFTER the
+  # source excerpt and every named-file hunk on purpose: the optional block must
+  # take only the room that remains, so enabling it can never push existing
+  # cross-file evidence out of the prefix cap. The judge is asked whether an
+  # upstream guard prevents the failure; the enclosing function alone cannot
+  # answer it. Edges come from the existing code graph and are HINTS (LADR-050):
+  # an edge is not proof of a call path, and an absent edge is not proof of
+  # absence. Fail-open — no graph JSON, no function name, no CLI, a failed or
+  # timed-out query, or a non-ok status all omit the block.
   if [ "$caller_context_on" = true ] && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
      && command -v code-review-graph >/dev/null 2>&1; then
     local qout qrc=0 callers_max used room header_bytes caller_header_fmt
@@ -674,8 +697,8 @@ code_context_for() {
         | .[0:5] | join("\n")' > "$work/f_${idx}.callers" 2>/dev/null || : > "$work/f_${idx}.callers"
       if [ -s "$work/f_${idx}.callers" ]; then
         # The whole block — header, sites and cap_copy's truncation marker —
-        # must fit the share, or the header alone could displace the named-file
-        # hunks that follow. Reserve both before choosing the site cap.
+        # must fit the share, or the header alone could displace evidence that
+        # is already in the context. Reserve both before choosing the site cap.
         # Kept as a FORMAT, not as a captured string: command substitution strips
         # the trailing newline, which would glue the first site onto the header.
         caller_header_fmt='\nCaller sites of `%s` (graph-derived hints: an edge is not proof of a call path, and an absent edge is not proof of absence):\n'
@@ -696,26 +719,6 @@ code_context_for() {
       info "caller context: query for '${fname}' unavailable — omitted"
     fi
   fi
-  # 2. Other changed files the finding names (a cross-file claim's other half).
-  jq -r --argjson i "$idx" '.findings[$i]
-    | [ .title, .why_it_matters, .first_evidence,
-        ((.evidence // []) | if type == "array" then join(" ") else tostring end) ]
-    | map(. // "") | join(" ")' "$merged" > "$text" 2>/dev/null || : > "$text"
-  while IFS= read -r df; do
-    [ -n "$df" ] && [ "$df" != "$f" ] || continue
-    is_sensitive_path "$df" && continue
-    grep -qF -- "$df" "$text" || continue
-    # ERE-escape the path; `/` is not special in ERE, and escaping it makes
-    # GNU grep >= 3.8 warn "stray \ before /" on every call.
-    dl="$(grep -oE -- "$(printf '%s' "$df" | sed 's/[][\.*^$+?(){}|]/\\&/g'):[0-9]+" "$text" | head -n 1 | sed 's/.*://')"
-    printf '\nHunk of `%s`, another changed file this finding names:\n' "$df" >> "$out.raw"
-    hunk "$df" "${dl:-0}" > "$part"
-    cap_copy "$part" "$part.cut" "$named_max" "hunk"
-    cat "$part.cut" >> "$out.raw"
-    named=$((named + 1))
-    [ "$named" -lt "$MAX_NAMED_FILES" ] || break
-  done < "$work/diff_files.txt"
-  rm -f "$part" "$part.cut"
   [ -s "$out.raw" ] || { rm -f "$out.raw"; return 1; }
   cap_copy "$out.raw" "$out" "$max" "code context"
   rm -f "$out.raw"

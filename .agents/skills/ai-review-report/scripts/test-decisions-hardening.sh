@@ -325,6 +325,10 @@ merged_doc "$TMP_DIR/cc_hunk.json" "$F1"
 ctx="$(ctx_of "gate alpha")"
 check "Test 2o: the caller block and the named-file hunk coexist" "1|1" \
   "$(printf '%s\n' "$ctx" | grep -c 'Caller sites of `a.do_thing`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `src/b.sh`')"
+# Ordering is the guarantee: the optional block comes after the evidence that
+# already existed, so enabling it cannot displace that evidence.
+check "Test 2o2: caller sites are appended after the named-file hunk" "1" \
+  "$(printf '%s\n' "$ctx" | awk '/Hunk of `src\/b.sh`/ { h = NR } /Caller sites of/ { c = NR } END { print (h && c && c > h) ? 1 : 0 }')"
 
 # Without a timeout utility the optional query is omitted, never run unbounded.
 check "Test 2p: no timeout utility → the query is omitted, and only the bounded call remains" "1|1" \
