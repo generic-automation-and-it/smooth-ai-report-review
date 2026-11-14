@@ -44,13 +44,16 @@ read_validation_passed() {
 }
 
 # Runs the validator in $1, writing GITHUB_OUTPUT to $2, with any remaining
-# arguments passed as NAME=value pairs (the validator's env contract).
+# arguments passed as NAME=value pairs (the validator's env contract). The
+# check now defaults off, so these enforcement cases opt back in; a caller
+# passing the same name still wins.
 run_validator() {
   local dir="$1" output_file="$2"
   shift 2
   (
     cd "${dir}"
-    env "$@" GITHUB_OUTPUT="${output_file}" "${BASH_BIN}" "${SOURCE_SCRIPT}" full
+    env OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK=0 "$@" \
+      GITHUB_OUTPUT="${output_file}" "${BASH_BIN}" "${SOURCE_SCRIPT}" full
   )
 }
 

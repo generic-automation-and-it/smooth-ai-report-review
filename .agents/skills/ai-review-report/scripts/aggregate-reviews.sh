@@ -908,6 +908,18 @@ if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
 EOF
 fi
 
+# Docs check is off by default (DISABLE=1). Nudge, don't block: keeping AI
+# agent contextual knowledge current is still good practice, governed by
+# setting OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK=0.
+case "${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}" in
+  [Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|1)
+    cat >> ci_temp/final_review.md << 'EOF'
+
+> 📚 **Docs check is off** — keeping AI agent contextual knowledge (AGENTS.md / Understandings) current is still good practice; set `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK=0` to govern it.
+EOF
+    ;;
+esac
+
 cat >> ci_temp/final_review.md << EOF
 
 ---

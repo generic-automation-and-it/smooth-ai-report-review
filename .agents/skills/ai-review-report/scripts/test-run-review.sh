@@ -373,7 +373,7 @@ run_precedence() {
     OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
     OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
     OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
-    OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
+    OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}"
     OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
     printf "%s|%s|%s|%s|%s|%s|%s" \
       "$OPENCODE_REVIEW_REPORT_PROVIDER" \
@@ -389,15 +389,15 @@ run_precedence() {
 
 # Default path: all unset → literal defaults.
 run_precedence "defaults when env unset" \
-  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100"
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|1|100"
 
 # Env override: caller-provided value wins over default.
 run_precedence "caller env wins over default (provider)" \
-  "ANTHROPIC|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100" \
+  "ANTHROPIC|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|1|100" \
   OPENCODE_REVIEW_REPORT_PROVIDER=ANTHROPIC
 
 run_precedence "caller env wins over default (all model tiers)" \
-  "OPENAI|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5|1|0|100" \
+  "OPENAI|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5|1|1|100" \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=claude-opus-4-8 \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=claude-sonnet-4-6 \
   OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=claude-haiku-4-5
@@ -412,7 +412,7 @@ run_precedence "caller env wins over default (claude code + agents md + file cou
 # This is the gate the workflow relies on: an unset Variable resolves to '' in
 # the env: block, but run-review.sh still picks a usable default.
 run_precedence "empty string falls through to default" \
-  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100" \
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|1|100" \
   OPENCODE_REVIEW_REPORT_PROVIDER= \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY= \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY= \
