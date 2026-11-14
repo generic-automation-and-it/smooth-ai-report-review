@@ -251,6 +251,89 @@ merged_doc "$TMP_DIR/ctx_n.json" "$F2"
 (cd "$SB" && scorer "$TMP_DIR/ctx_n.json" >/dev/null 2>&1)
 check "Test 2h: no revision and no named file → no code_context key at all" "<none>" "$(ctx_of "badfs gate")"
 
+# --- 2b. caller context (LADR-120) ------------------------------------------------------
+echo ""
+echo "--- caller context ---"
+cat > "$BIN/code-review-graph" <<'SHIM'
+#!/bin/bash
+[ -n "${CRG_MARKER:-}" ] && printf '%s\n' "$*" >> "$CRG_MARKER"
+case "${CRG_MODE:-ok}" in
+  ok) printf '%s' '{"status":"ok","results":[{"name":"caller_fn","qualified_name":"b.caller_fn","file_path":"src/b.sh","line_start":5,"line_end":9}]}' ;;
+  fail) exit 2 ;;
+  notfound) printf '%s' '{"status":"not_found","results":[]}' ;;
+esac
+SHIM
+chmod +x "$BIN/code-review-graph"
+# CI's runner carries a real timeout; macOS does not, and the scorer now OMITS
+# the optional query when none exists. The shim keeps the "on" path exercised
+# identically on both hosts.
+cat > "$BIN/timeout" <<'SHIM'
+#!/bin/bash
+shift
+exec "$@"
+SHIM
+chmod +x "$BIN/timeout"
+
+reset_stub cc_on
+merged_doc "$TMP_DIR/cc_on.json" "$F1"
+(cd "$SB" && CRG_MODE=ok _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_on.json" >/dev/null 2>&1)
+ctx="$(ctx_of "gate alpha")"
+check "Test 2i: caller context on → the request carries labelled caller sites" "1|1|1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'Caller sites of `a.do_thing` (graph-derived hints: an edge is not proof of a call path')|$(printf '%s\n' "$ctx" | grep -c '^src/b.sh:5 caller_fn$')|$(printf '%s\n' "$ctx" | grep -c 'not proof of absence')"
+check "Test 2i2: the enclosing function is still sent alongside the callers" "1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_off
+merged_doc "$TMP_DIR/cc_off.json" "$F1"
+(cd "$SB" && _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  scorer "$TMP_DIR/cc_off.json" >/dev/null 2>&1)
+check "Test 2j: caller context off → no caller block (request unchanged)" "0|1" \
+  "$(ctx_of "gate alpha" | grep -c 'Caller sites of')|$(ctx_of "gate alpha" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_fail
+merged_doc "$TMP_DIR/cc_fail.json" "$F1"
+(cd "$SB" && CRG_MODE=fail _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_fail.json" >/dev/null 2>&1)
+check "Test 2k: a failed query omits the sites and leaves the rest of the context" "0|1" \
+  "$(ctx_of "gate alpha" | grep -c 'Caller sites of')|$(ctx_of "gate alpha" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_notfound
+merged_doc "$TMP_DIR/cc_nf.json" "$F1"
+(cd "$SB" && CRG_MODE=notfound _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_nf.json" >/dev/null 2>&1)
+check "Test 2l: a non-ok status omits the sites" "0|1" \
+  "$(ctx_of "gate alpha" | grep -c 'Caller sites of')|$(ctx_of "gate alpha" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_nograph
+: > "$TMP_DIR/cc_calls"
+merged_doc "$TMP_DIR/cc_ng.json" "$F1"
+(cd "$SB" && CRG_MARKER="$TMP_DIR/cc_calls" _DECISIONS_SOURCE_REV="$HEAD_SHA" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_ng.json" >/dev/null 2>&1)
+check "Test 2m: without the graph there is no function name, so no query is made" "0" \
+  "$(wc -l < "$TMP_DIR/cc_calls" | tr -d ' ')"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+check "Test 2n: the Variable is declared in both packagings, run-review and local-review" "1|1|1|1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0' "$RUN_REVIEW")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0' "$LOCAL_REVIEW")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:.*|| .0.' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:.*|| .0.' "$REPO_ROOT/docs/examples/code-review-local.yml")"
+
+# The block must not displace the named-file hunk that follows it: the header,
+# the sites and cap_copy's truncation marker all fit the share.
+reset_stub cc_hunk
+merged_doc "$TMP_DIR/cc_hunk.json" "$F1"
+(cd "$SB" && CRG_MODE=ok _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_hunk.json" >/dev/null 2>&1)
+ctx="$(ctx_of "gate alpha")"
+check "Test 2o: the caller block and the named-file hunk coexist" "1|1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'Caller sites of `a.do_thing`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `src/b.sh`')"
+# Ordering is the guarantee: the optional block comes after the evidence that
+# already existed, so enabling it cannot displace that evidence.
+check "Test 2o2: caller sites are appended after the named-file hunk" "1" \
+  "$(printf '%s\n' "$ctx" | awk '/Hunk of `src\/b.sh`/ { h = NR } /Caller sites of/ { c = NR } END { print (h && c && c > h) ? 1 : 0 }')"
+
+# Without a timeout utility the optional query is omitted, never run unbounded.
+check "Test 2p: no timeout utility → the query is omitted, and only the bounded call remains" "1|1" \
+  "$(grep -c 'no timeout utility available — query omitted' "$SCORER")|$(grep -c 'timeout 5 code-review-graph query callers_of' "$SCORER")"
+
 # Budget order: context gives way before the hunk is trimmed. The fixtures are
 # sized against the scorer's budget (40,000 bytes): ~22 KB of hunk plus 10 KB of
 # rules fits on its own, and does not with a full code context.
@@ -287,6 +370,17 @@ merged_doc "$TMP_DIR/big_fn.json" '{"#":1,"title":"big","severity":"medium","fil
   bash "$SCORER" "$TMP_DIR/big_fn.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big_diff.txt" > /dev/null 2>&1)
 check "Test 2k: a function too long for the source budget keeps its name and shows the lines around the finding" "1|1|0" \
   "$(ctx_of big | grep -c 'Enclosing function `huge` (lines 1-130 of `src/c.sh`, code-graph risk 0.5), lines 50-70 around the finding')|$(ctx_of big | grep -c '^    60 | ')|$(ctx_of big | grep -c '^     1 | ')"
+# Over budget WITH caller hints: the optional hints give way first, so the
+# source excerpt and the hunk are preserved exactly as without them.
+reset_stub big_callers
+merged_doc "$TMP_DIR/big_cc.json" '{"#":1,"title":"big","severity":"medium","file":"src/c.sh","line":45,"why_it_matters":"w","verified":true,"chunks":[0]}'
+(cd "$BIG" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
+  _DECISIONS_RETRY_DELAY=0 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph_big.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 CRG_MODE=ok \
+  bash "$SCORER" "$TMP_DIR/big_cc.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big_diff.txt" "$TMP_DIR/big_rules.md" > "$TMP_DIR/big_cc.log" 2>&1)
+check "Test 2k2: caller hints are dropped first, source evidence and hunk preserved" "1|0|1|1|yes" \
+  "$(grep -c 'caller hints dropped to fit' "$TMP_DIR/big_cc.log")|$(ctx_of big | grep -c 'Caller sites of')|$(ctx_of big | grep -c 'of `src/c.sh`')|$(ctx_of big | grep -c '^    45 | added line 045')|$(s="$(finding_reqs | head -n 1 | wc -c | tr -d ' ')"; [ "$s" -le 40000 ] && echo yes || echo "no ($s)")"
+
 # No room at all (rules at their cap): the context is dropped, THEN the hunk trimmed.
 head -c 13000 /dev/zero | tr '\0' 'r' > "$TMP_DIR/cap_rules.md"
 BIG2="$TMP_DIR/big2"

@@ -64,6 +64,9 @@
 #   OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION  [0] — verify each merged
 #                         75/100 finding's quoted line against the tree at the
 #                         reviewed revision; a miss is demoted to 50 (LADR-119).
+#   OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT  [0] — add caller sites of the
+#                         finding's enclosing function to the decision model's
+#                         code context, labelled graph-derived hints (LADR-120).
 #   OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS  [0]  — decision-model scoring of the
 #                         merged findings (LADR-093). Off → Step 17.6 is a no-op.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER  [OPENCODE-GO-DECISIONS] — or
@@ -192,6 +195,12 @@ export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
 # head_sha and demotes a miss to anchor 50; a skip never changes an anchor.
 OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION="${OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
+
+# Caller context (LADR-120) — opt-in, OFF by default. When truthy, the decision
+# model's per-finding code context also carries caller sites of the enclosing
+# function, labelled graph-derived hints. No question or criterion changes.
+OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
+export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
 
 # Decision-model scoring (LADR-093) — opt-in, OFF by default. When truthy, Step
 # 17.6 sends each merged finding (and then the whole merged set) to a
