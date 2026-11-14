@@ -253,7 +253,7 @@ EOF_OUTS
 # bare word right after the one pipe and read every one of those as "not a
 # raw installer" (review 5266005570, finding 2).
 # Scope: every file a consumer might copy from — scripts, workflows, the
-# examples under .docs (including their Markdown), and the root README, which
+# examples under docs (including their Markdown), and the root README, which
 # is where the raw pipeline last shipped (review 5263727118, finding 2). Not
 # the whole Markdown tree: CLAUDE.md, AGENTS.md and the changelog QUOTE the
 # forbidden pipeline when they explain the rule, and the matcher cannot tell a
@@ -262,7 +262,7 @@ _curl_offenders() {
   {
     grep -rln 'opencode\.ai/v2/install' \
       --include='*.sh' --include='*.yml' --include='*.yaml' --include='*.md' \
-      "$SCRIPT_DIR" "$REPO_ROOT/.github" "$REPO_ROOT/.docs" 2>/dev/null
+      "$SCRIPT_DIR" "$REPO_ROOT/.github" "$REPO_ROOT/docs" 2>/dev/null
     grep -ln 'opencode\.ai/v2/install' "$REPO_ROOT/README.md" 2>/dev/null
   } | sort -u \
     | grep -v 'lib/install-opencode\.sh$' \
@@ -322,7 +322,7 @@ _offenders="$(_curl_offenders || true)"
 [ -z "$_offenders" ] || fail "raw install curl outside the shared lib (LADR-048): ${_offenders}"
 ok "no raw install curl outside lib/install-opencode.sh"
 grep -q 'REPO_ROOT/README\.md' "${BASH_SOURCE[0]}" && grep -q "include='\*\.md'" "${BASH_SOURCE[0]}" \
-  || fail "the offender scan must cover README.md and .docs Markdown, not only shell and YAML"
-ok "offender scan covers README.md and .docs Markdown"
+  || fail "the offender scan must cover README.md and docs Markdown, not only shell and YAML"
+ok "offender scan covers README.md and docs Markdown"
 
 echo "All $pass install-opencode tests passed"

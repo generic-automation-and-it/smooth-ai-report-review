@@ -44,7 +44,7 @@ input="${1:-/dev/stdin}"
 _is_none() {
   local s
   # LC_ALL=C: GNU tr lowercases byte by byte, and macOS libc maps a UTF-8 lead
-  # byte such as 0xC2 (the middle dot in ` · [open](…)`, LADR-112) as Latin-1,
+  # byte such as 0xC2 (the middle dot in ` · [open](…)`, LADR-121) as Latin-1,
   # which BSD sed then rejects, leaving s empty and a real finding read as none.
   s="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
         | sed -E 's/[`*"'"'"']//g; s/^[[:space:]]+//; s/[[:space:]]+$//; s/\.+$//')"

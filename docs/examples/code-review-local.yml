@@ -17,7 +17,7 @@
 #   meant to gate — technically compliant, but contrary to its intent. The consumer
 #   MUST get security sign-off from the org/enterprise admin before adopting this
 #   packaging. If the admin can add `generic-automation-and-it/smooth-ai-report-review@*`
-#   to the allow-list, prefer the reusable-workflow caller (.docs/examples/code-review-caller.yml)
+#   to the allow-list, prefer the reusable-workflow caller (docs/examples/code-review-caller.yml)
 #   — it is the path the policy was designed to govern and is materially easier to
 #   audit.
 #
@@ -55,7 +55,7 @@
 #                 scoped instruction discovery remains enabled),
 #               AGENTS_MD_EXEMPT_PATHS (pipe-separated prefixes, default `.docs/release-notes`),
 #               OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE (default `1`),
-#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `0`),
+#               OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK (default `1`, check off; set `0` to enforce),
 #               OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT (default `false` — set truthy
 #                 to review PRs while they are still in DRAFT; the job-level draft
 #                 guard below is conditional on it).
@@ -134,10 +134,10 @@ on:
           - '1'
           - '0'
       disable_agents_md_check:
-        description: 'Disable AGENTS.md documentation validation (1=disabled, 0=enabled). This choice always wins on dispatch — the OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK Variable is unreachable from the dispatch UI (it applies only to PR/issue_comment events).'
+        description: 'Disable AGENTS.md documentation validation (1=disabled, 0=enabled). Default 1 (check off; set 0 to enforce). This choice always wins on dispatch — the OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK Variable is unreachable from the dispatch UI (it applies only to PR/issue_comment events).'
         required: false
         type: choice
-        default: '0'
+        default: '1'
         options:
           - '0'
           - '1'
@@ -463,12 +463,18 @@ jobs:
           # env vars, including default-on behavior and explicit opt-out.
           OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS || '1' }}
           OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES || '1024' }}
+          # Author-notes data fence (LADR-118) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE || '1' }}
+          # Quote verification (LADR-119) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION || '0' }}
+          # Caller context (LADR-120) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT || '0' }}
           # RTK token optimization (LADR-054) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
           OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}
           # Structured findings (LADR-055) — mirrors the reusable workflow's env var.
           OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
-          # Finding permalinks (LADR-112) — mirrors the reusable workflow's env var.
+          # Finding permalinks (LADR-121) — mirrors the reusable workflow's env var.
           OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS || '1' }}
           # Trivial-PR skip (LADR-059) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}
@@ -500,7 +506,7 @@ jobs:
           OPENCODE_REVIEW_REPORT_MAX_PARALLEL: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_PARALLEL || '7' }}
           MANDATORY_CONTEXT_FILES: ${{ vars.MANDATORY_CONTEXT_FILES || 'none' }}
           AGENTS_MD_EXEMPT_PATHS: ${{ vars.AGENTS_MD_EXEMPT_PATHS || '.docs/release-notes' }}
-          OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '0' }}
+          OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK: ${{ inputs.disable_agents_md_check || vars.OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK || '1' }}
           OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE: ${{ inputs.bypass_mandatory_context_file || vars.OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE || '' }}
           OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE: ${{ inputs.disable_claude_code || vars.OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE || '1' }}
           # Mirror the reusable workflow's lockstep forward — see
@@ -545,7 +551,7 @@ jobs:
             # mkdir BEFORE the heredoc open() — see commit 7638453.
             mkdir -p ci_temp
             cat > ci_temp/error_comment.md <<EOF
-          ## ❌ OpenCode CLI Code Review Workflow Failed
+          ## ❌ Smooth AI Review Workflow Failed
 
           The automated code review workflow encountered a critical failure and could not complete.
 
@@ -556,6 +562,7 @@ jobs:
 
           ---
           *This PR is blocked until the review issue is resolved or manual review is completed.*
+          *Posted by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
           EOF
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi

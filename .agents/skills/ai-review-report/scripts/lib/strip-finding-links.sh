@@ -1,5 +1,5 @@
 #!/bin/bash
-# strip-finding-links.sh — remove the LADR-112 ` · [open](…)` permalink suffix
+# strip-finding-links.sh — remove the LADR-121 ` · [open](…)` permalink suffix
 # from numbered finding lines. Reads a review body on stdin, writes it to stdout.
 #
 # Used by run-review.sh's body-size ladder: a body still over the posting limit

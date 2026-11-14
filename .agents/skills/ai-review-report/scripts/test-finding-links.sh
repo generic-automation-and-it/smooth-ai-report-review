@@ -1,5 +1,5 @@
 #!/bin/bash
-# Head-SHA permalinks on rendered findings (LADR-112). No model, network or repo
+# Head-SHA permalinks on rendered findings (LADR-121). No model, network or repo
 # writes: the renderer reads its link inputs from the environment only.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

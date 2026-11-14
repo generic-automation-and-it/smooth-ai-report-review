@@ -701,7 +701,7 @@ check "Test 11o: no marker with the flag off, without scores, for a non-numeric 
   "$(run_marker "$TMP_DIR/t2.json" 0 36304944118)|$(run_marker "$TMP_DIR/t1.json" 1 36304944118)|$(run_marker "$TMP_DIR/t2.json" 1 'x -->')|$(run_marker "$TMP_DIR/t2.json" 1 36304944118 0)"
 check "Test 11e: the run artifact metadata carries decisions_summary" "1" \
   "$(grep -c '"decisions_summary": ' "$RUN_REVIEW")"
-for f in .github/workflows/pipeline-code-review-report.yml .docs/examples/code-review-local.yml; do
+for f in .github/workflows/pipeline-code-review-report.yml docs/examples/code-review-local.yml; do
   path="$SCRIPT_DIR/../../../../$f"
   for v in ENABLE_DECISIONS DECISIONS_PROVIDER DECISIONS_MODEL DECISIONS_MODE DECISIONS_MIN_PROBABILITY DECISIONS_TIMEOUT DECISIONS_CODE_CONTEXT; do
     check "Test 11f: $f declares OPENCODE_REVIEW_REPORT_$v" "1" \

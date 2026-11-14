@@ -12,7 +12,7 @@
 #        run: bash ${REVIEW_SKILL_DIR}/scripts/run-review.sh
 #
 #   2. Local-job packaging (for consumers under allowed_actions: "selected")
-#      .docs/examples/code-review-local.yml:
+#      docs/examples/code-review-local.yml:
 #        - uses: actions/checkout@<sha>                  # for the PR
 #        - uses: actions/checkout@<sha>                  # for the tooling
 #          with: { repository: ..., ref: <pinned-sha>, path: .review-tools }
@@ -48,7 +48,7 @@
 #   OPENCODE_REVIEW_REPORT_PROVIDER  [OPENAI]  — provider selector
 #   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / SECONDARY / ORCHESTRATOR — model chain
 #   OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE  [1]   — disable .claude support
-#   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
+#   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [1] — skip AGENTS.md validation (default off-check: set 0 to enforce)
 #   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
 #   OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED  [0]  — omit deleted paths from model scope
@@ -58,6 +58,15 @@
 #   OPENCODE_REVIEW_REPORT_GEMINI_URL / _COPILOT_URL / _OPENAI_URL — gateway URLs
 #   OPENCODE_GEMINI_API_KEY / _COPILOT_API_KEY / _OPENAI_API_KEY — provider keys
 #   OPENCODE_ANTHROPIC_API_KEY / _GO_OPENAI_API_KEY / _GO_ANTHROPIC_API_KEY / _OPENROUTER_API_KEY
+#   OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE  [1] — wrap author-supplied AI
+#                         Review Notes in a collision-safe data envelope in both
+#                         prompt builders (LADR-118). Falsy is the kill switch.
+#   OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION  [0] — verify each merged
+#                         75/100 finding's quoted line against the tree at the
+#                         reviewed revision; a miss is demoted to 50 (LADR-119).
+#   OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT  [0] — add caller sites of the
+#                         finding's enclosing function to the decision model's
+#                         code context, labelled graph-derived hints (LADR-120).
 #   OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS  [0]  — decision-model scoring of the
 #                         merged findings (LADR-093). Off → Step 17.6 is a no-op.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER  [OPENCODE-GO-DECISIONS] — or
@@ -124,7 +133,8 @@ source "$LIB_DIR/post-review.sh"
 # Toggle defaults
 OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
 export OPENCODE_DISABLE_CLAUDE_CODE="$OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE"
-OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
+OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}"
+export OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK
 OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
 OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
 if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" -le 0 ]; then
@@ -173,6 +183,24 @@ OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS="${OPENCODE_REVIEW_REPORT_ENABLE_RUN
 # pre-LADR-078 single-attempt behaviour.
 OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY="${OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY:-1}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
+
+# Author-notes data fence (LADR-118) — ON by default. Author-supplied notes are
+# untrusted input, so both prompt builders wrap them in a collision-safe data
+# envelope. Set falsy to restore the pre-fence prompt byte-for-byte.
+OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE="${OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE:-1}"
+export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
+
+# Quote verification (LADR-119) — opt-in, OFF by default. When truthy, Step
+# 17.5 verifies each merged 75/100 finding's quoted line against the tree at
+# head_sha and demotes a miss to anchor 50; a skip never changes an anchor.
+OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION="${OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION:-0}"
+export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
+
+# Caller context (LADR-120) — opt-in, OFF by default. When truthy, the decision
+# model's per-finding code context also carries caller sites of the enclosing
+# function, labelled graph-derived hints. No question or criterion changes.
+OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
+export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
 
 # Decision-model scoring (LADR-093) — opt-in, OFF by default. When truthy, Step
 # 17.6 sends each merged finding (and then the whole merged set) to a
@@ -542,6 +570,15 @@ assemble_run_artifacts() {
     printf '%s' "$decisions_json" | jq -e . >/dev/null 2>&1 || decisions_json='null'
   fi
 
+  # LADR-119: quote-verification counts, or null when the pass did not run. Kept
+  # out of the merged document (R6); re-validated as JSON so a malformed report
+  # can never break the file.
+  local quote_verification_json='null'
+  if [ -s "$WORK_DIR/quote_verification.json" ]; then
+    quote_verification_json="$(jq -c '{demoted:(.demoted//0), found_elsewhere:(.found_elsewhere//0), skipped:(.skipped//0)}' "$WORK_DIR/quote_verification.json" 2>/dev/null)"
+    printf '%s' "$quote_verification_json" | jq -e . >/dev/null 2>&1 || quote_verification_json='null'
+  fi
+
   cat > "$dir/metadata.json" <<METADATA_EOF
 {
   "run_id": "${GITHUB_RUN_ID:-local}",
@@ -560,6 +597,7 @@ assemble_run_artifacts() {
   "graph_signals_chunks": ${graph_signals_chunks},
   "graph_analysis_available": "${graph_analysis_available}",
   "decisions_summary": ${decisions_json:-null},
+  "quote_verification": ${quote_verification_json:-null},
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 METADATA_EOF
@@ -862,7 +900,7 @@ if [ "$(cat "$ALL_MODELS_FAILED_FILE")" = "true" ]; then
   CURRENT_SHA="$head_sha"
   LOGS_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID:-0}"
   cat > "$WORK_DIR/all_models_failed_review.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${CURRENT_SHA:0:7}\`
 
 **Status:** ⚠️ Unable to run review — all ${PROVIDER} models unavailable
 
@@ -877,7 +915,7 @@ Both review models failed to respond, typically caused by token quota exhaustion
 - Re-run the review via \`/ai-review\` once resolved
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1057,7 +1095,7 @@ if [ "$FILES_CHANGED" -gt "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" ]; then
   echo "⚠️  Too many files (${FILES_CHANGED} > ${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}) — posting REQUEST_CHANGES"
   TOO_MANY_FILES=1  # read by assemble_run_artifacts (Step 4.5) for skip_reason
   cat > "$WORK_DIR/too_many_files_review.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 **Status:** ❌ BLOCKED - Too many changed files
 
@@ -1068,7 +1106,7 @@ This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **
 - Or, if a large changeset is unavoidable, raise the limit by setting the \`OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT\` repository Variable.
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1084,12 +1122,12 @@ if [ "$FILES_CHANGED" -eq 0 ]; then
     SKIP_MSG="No changes detected since last review at commit \`${from_sha:0:7}\`."
   fi
   cat > "$WORK_DIR/skip_comment.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: ${head_sha:0:7}
+## 🤖 Smooth AI Review — Commit: ${head_sha:0:7}
 
 ✅ ${SKIP_MSG}
 
 ---
-*Automated review check by OpenCode CLI Code Review*
+*Automated review check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" COMMENT \
@@ -1131,7 +1169,7 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
         TRIVIAL_SKIP_REASON="${_trivial_result#trivial:}"
         echo "⏭️ Trivial PR detected (${TRIVIAL_SKIP_REASON}) — skipping review"
         cat > "$WORK_DIR/trivial_skip_comment.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 ⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest, and this PR reads as an automated or trivial change.
 
@@ -1140,7 +1178,7 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
 **Want a review anyway?** Comment \`/ai-review\` — an explicit request always bypasses this skip.
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
         gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
           gh pr comment "${pr_number}" \
@@ -1255,10 +1293,17 @@ if [ -f "$LIB_DIR/check-versions.sh" ]; then
 fi
 
 # --- Step 14: Validate AGENTS.md (full reviews only) -------------------------
+# Off by default: OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK defaults to 1.
+# Set 0/false/no/off to enforce. Truthy check mirrors validate-agents-md.sh.
 VALIDATION_PASSED_FILE="$WORK_DIR/validation_passed"
 _bypass_agents_md="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+_disable_agents_md_check="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}"
+case "${_disable_agents_md_check,,}" in
+  1|true|yes|on) _agents_md_check_off=1 ;;
+  *) _agents_md_check_off=0 ;;
+esac
 if [ "$review_type" = "full" ] \
-   && [ "${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK}" != "1" ] \
+   && [ "$_agents_md_check_off" != "1" ] \
    && [ "${_bypass_agents_md,,}" != "1" ] \
    && [ "${_bypass_agents_md,,}" != "true" ] \
    && [ "${_bypass_agents_md,,}" != "yes" ] \
@@ -1273,14 +1318,14 @@ else
 fi
 validation_passed="$(grep '^validation_passed=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 echo "AGENTS.md validation: ${validation_passed}"
-unset _bypass_agents_md
+unset _bypass_agents_md _disable_agents_md_check _agents_md_check_off
 
 # If validation failed on a full review, post a blocking request-changes and
 # stop. Mirrors the workflow's `Block PR if AGENTS.md Validation Failed` step.
 if [ "$review_type" = "full" ] && [ "$validation_passed" = "false" ]; then
   if [ -f "$WORK_DIR/agents_validation_message.md" ]; then
     cat > "$WORK_DIR/validation_review.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 **Review Type:** FULL
 **Status:** ❌ BLOCKED - Missing or Invalid AGENTS.md
@@ -1288,7 +1333,7 @@ if [ "$review_type" = "full" ] && [ "$validation_passed" = "false" ]; then
 $(cat "$WORK_DIR/agents_validation_message.md")
 
 ---
-*Automated validation by OpenCode CLI Code Review*
+*Automated validation by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
     gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
       post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1355,7 +1400,7 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
   echo "Most recent full review is CHANGES_REQUESTED — skipping incremental review"
   BLOCKED_INCREMENTAL=1  # read by assemble_run_artifacts (Step 4.5) for skip_reason
   cat > "$WORK_DIR/skip_blocking_review_comment.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 ⏭️ **Skipping ${review_type} review** - Existing blocking review from @github-actions[bot] requires full review for clearance.
 
@@ -1366,7 +1411,7 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
 - A full review will run when you manually request it via \`/ai-review\` or merge to main
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
     gh pr comment "${pr_number}" \
@@ -1425,6 +1470,10 @@ echo "Total chunks: ${TOTAL_CHUNKS}"
 _structured_findings="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
 if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -f "$LIB_DIR/merge-findings.sh" ]; then
+    # A stale verification report from a previous local run must not survive: the
+    # renderer keys its Coverage line on the file's presence.
+    rm -f "$WORK_DIR/quote_verification.json" 2>/dev/null || true
+    _MERGE_SOURCE_REV="${head_sha}" \
     bash "$LIB_DIR/merge-findings.sh" \
       "$WORK_DIR/reviews" \
       "$WORK_DIR/findings.merged.json" || true
@@ -1540,7 +1589,7 @@ if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
     fi
   } > "$WORK_DIR/review_comment_compact.md"
   COMPACT_SIZE="$(wc -c < "$WORK_DIR/review_comment_compact.md" | tr -d ' ')"
-  # LADR-112: drop the finding permalinks before truncation can cut the Issues
+  # LADR-121: drop the finding permalinks before truncation can cut the Issues
   # Summary mid-list. Losing the links is cosmetic; losing findings is not.
   if [ "$((COMPACT_SIZE + MARKER_BYTES))" -gt "$MAX_BODY_SIZE" ]; then
     bash "$SCRIPT_DIR/lib/strip-finding-links.sh" < "$WORK_DIR/review_comment_compact.md" > "$WORK_DIR/review_comment_unlinked.md" \

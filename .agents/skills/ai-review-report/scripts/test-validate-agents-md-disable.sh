@@ -21,7 +21,7 @@ read_validation_passed() {
   grep '^validation_passed=' "${output_file}" | tail -1 | cut -d'=' -f2
 }
 
-run_default_blocks_without_docs() {
+run_default_skips_without_docs() {
   local test_dir="${TMP_DIR}/default"
   local output_file="${TMP_DIR}/default.out"
   mkdir -p "${test_dir}/ci_temp"
@@ -34,10 +34,32 @@ run_default_blocks_without_docs() {
 
   local validation_passed
   validation_passed="$(read_validation_passed "${output_file}")"
-  if [ "${validation_passed}" = "false" ]; then
-    pass "default full review still blocks missing documentation"
+  if [ "${validation_passed}" = "true" ]; then
+    pass "default full review skips documentation validation (check off by default)"
   else
-    fail "expected default validation_passed=false, got '${validation_passed}'"
+    fail "expected default validation_passed=true, got '${validation_passed}'"
+  fi
+}
+
+run_explicit_zero_blocks_without_docs() {
+  local test_dir="${TMP_DIR}/explicit-zero"
+  local output_file="${TMP_DIR}/explicit-zero.out"
+  mkdir -p "${test_dir}/ci_temp"
+  printf 'src/NoDocs.cs\0' > "${test_dir}/ci_temp/changed_files.txt"
+
+  (
+    cd "${test_dir}"
+    GITHUB_OUTPUT="${output_file}" \
+      OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="0" \
+      bash "${SOURCE_SCRIPT}" full >/dev/null
+  )
+
+  local validation_passed
+  validation_passed="$(read_validation_passed "${output_file}")"
+  if [ "${validation_passed}" = "false" ]; then
+    pass "explicit 0 still blocks missing documentation"
+  else
+    fail "expected validation_passed=false for explicit 0, got '${validation_passed}'"
   fi
 }
 
@@ -64,7 +86,8 @@ run_disable_value_passes() {
   fi
 }
 
-run_default_blocks_without_docs
+run_default_skips_without_docs
+run_explicit_zero_blocks_without_docs
 run_disable_value_passes "1" "numeric"
 run_disable_value_passes "true" "lower-true"
 run_disable_value_passes "TRUE" "upper-true"
@@ -72,6 +95,8 @@ run_disable_value_passes "True" "title-true"
 run_disable_value_passes "yes" "lower-yes"
 run_disable_value_passes "YES" "upper-yes"
 run_disable_value_passes "Yes" "title-yes"
+run_disable_value_passes "on" "lower-on"
+run_disable_value_passes "ON" "upper-on"
 
 if [ "${FAILURES}" -gt 0 ]; then
   echo ""

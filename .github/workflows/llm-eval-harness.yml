@@ -122,7 +122,7 @@ jobs:
             exit 0
           fi
           # The suites below assert on the gate workflow, the analyse workflow,
-          # the .docs/examples callers, and the README (env-var parity,
+          # the docs/examples callers, and the README (env-var parity,
           # checkout shape, example pins, raw-installer scan), so a change that
           # touches only one of those files must still run them — with a
           # narrower scope a workflow-only PR set relevant=false and left this
@@ -131,7 +131,7 @@ jobs:
           # test-recommend-fix-skip.sh exercises their decision scripts
           # (LADR-097): without them a PR touching only those scripts passed
           # this required job without running the suite that tests them.
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|\.github/opencode\.json$|README\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|docs/examples/|\.github/opencode\.json$|README\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
@@ -148,6 +148,17 @@ jobs:
           "$test_env/bin/python" -m pip install --disable-pip-version-check \
             -r .agents/skills/ai-review-report/scripts/requirements-test.txt
           echo "$test_env/bin" >> "$GITHUB_PATH"
+          # ubuntu-26.04 defaults to uutils coreutils and ships GNU only as
+          # gnu-prefixed binaries; the suites need GNU timeout/comm -z.
+          if ! timeout --version 2>/dev/null | grep -q 'GNU coreutils'; then
+            gnu_bin="${RUNNER_TEMP}/gnu-coreutils"
+            mkdir -p "$gnu_bin"
+            dpkg -L gnu-coreutils | grep '^/usr/bin/gnu' | while read -r tool; do
+              name="$(basename "$tool")"
+              ln -sf "$tool" "$gnu_bin/${name#gnu}"
+            done
+            echo "$gnu_bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Run deterministic OpenCode v2 regressions
         if: steps.v2_scope.outputs.relevant == 'true'
@@ -187,6 +198,15 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-code-graph.sh
             .agents/skills/ai-review-report/scripts/test-graph-signals-slice.sh
             .agents/skills/ai-review-report/scripts/test-chunk-prompt-budget.sh
+            # LADR-118: the author-notes data envelope — collision-safe marker
+            # growth, verbatim content, no "#"+digits from the fence itself,
+            # empty-input omission, and the builder wiring plus flag default.
+            .agents/skills/ai-review-report/scripts/test-prompt-data-fence.sh
+            # LADR-119: quoted evidence is verified against the tree at the
+            # reviewed revision — demote-not-drop, the quote's own file wins,
+            # formatting tolerance, every fail-open skip, the frozen pure module
+            # and the single Coverage line.
+            .agents/skills/ai-review-report/scripts/test-verify-quotes.sh
             .agents/skills/ai-review-report/scripts/test-graph-signals-artifact.sh
             # LADR-060: the verification lens is diverted BEFORE the doc-only test,
             # so the static order check cannot see the allowlist arms - only this
@@ -221,11 +241,11 @@ jobs:
             # asserts its own call sites in aggregate-reviews.sh, so a refactor
             # that drops one is caught here rather than in a posted review.
             .agents/skills/ai-review-report/scripts/test-merge-findings.sh
-            # LADR-112: head-SHA permalinks on rendered findings - URL shape and
+            # LADR-121: head-SHA permalinks on rendered findings - URL shape and
             # encoding, every no-link condition, the body-size strip rung's lib,
             # and scorer / shape-check parity on linked bodies.
             .agents/skills/ai-review-report/scripts/test-finding-links.sh
-            # LADR-112: /ai-review strips the per-commit link before writing
+            # LADR-121: /ai-review strips the per-commit link before writing
             # Skip Areas bullets, so LADR-101 cross-round matching stays stable.
             .agents/skills/ai-review/scripts/test-skip-bullet-format.sh
             # LADR-100: no holistic section — a model that still writes one

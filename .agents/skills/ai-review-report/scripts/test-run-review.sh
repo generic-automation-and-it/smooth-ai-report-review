@@ -261,8 +261,8 @@ echo "=========================================="
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 DRAFT_GUARD_FILES=(
   ".github/workflows/pipeline-code-review-report.yml"
-  ".docs/examples/code-review-local.yml"
-  ".docs/examples/code-review-caller.yml"
+  "docs/examples/code-review-local.yml"
+  "docs/examples/code-review-caller.yml"
 )
 
 # Extract the run_on_draft guard line from a packaging, normalized of indentation.
@@ -373,7 +373,7 @@ run_precedence() {
     OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
     OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
     OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
-    OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
+    OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}"
     OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
     printf "%s|%s|%s|%s|%s|%s|%s" \
       "$OPENCODE_REVIEW_REPORT_PROVIDER" \
@@ -389,15 +389,15 @@ run_precedence() {
 
 # Default path: all unset → literal defaults.
 run_precedence "defaults when env unset" \
-  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100"
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|1|100"
 
 # Env override: caller-provided value wins over default.
 run_precedence "caller env wins over default (provider)" \
-  "ANTHROPIC|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100" \
+  "ANTHROPIC|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|1|100" \
   OPENCODE_REVIEW_REPORT_PROVIDER=ANTHROPIC
 
 run_precedence "caller env wins over default (all model tiers)" \
-  "OPENAI|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5|1|0|100" \
+  "OPENAI|claude-opus-4-8|claude-sonnet-4-6|claude-haiku-4-5|1|1|100" \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=claude-opus-4-8 \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=claude-sonnet-4-6 \
   OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=claude-haiku-4-5
@@ -412,7 +412,7 @@ run_precedence "caller env wins over default (claude code + agents md + file cou
 # This is the gate the workflow relies on: an unset Variable resolves to '' in
 # the env: block, but run-review.sh still picks a usable default.
 run_precedence "empty string falls through to default" \
-  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|0|100" \
+  "OPENAI|gpt-5.6-sol|gpt-5.5|gpt-5.6-terra|1|1|100" \
   OPENCODE_REVIEW_REPORT_PROVIDER= \
   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY= \
   OPENCODE_REVIEW_REPORT_MODEL_SECONDARY= \
@@ -888,7 +888,7 @@ for step in next(iter(data['jobs'].values()))['steps']:
   fi
 }
 assert_simplified_checkout_shape ".github/workflows/pipeline-code-review-report.yml"
-assert_simplified_checkout_shape ".docs/examples/code-review-local.yml"
+assert_simplified_checkout_shape "docs/examples/code-review-local.yml"
 
 # 7b. Both caller templates must set MANDATORY_CONTEXT_FILES to the
 # same default value (PR #86 review 4820072658 finding #3). Drift here
@@ -917,11 +917,11 @@ print(m.group(1) if m else '')
 " 2>/dev/null
 }
 mc_reusable="$(assert_mandatory_context_files_match .github/workflows/pipeline-code-review-report.yml)"
-mc_local="$(assert_mandatory_context_files_match .docs/examples/code-review-local.yml)"
+mc_local="$(assert_mandatory_context_files_match docs/examples/code-review-local.yml)"
 check "MANDATORY_CONTEXT_FILES defaults match between packagings" "$mc_reusable" "$mc_local"
 check "MANDATORY_CONTEXT_FILES defaults to none" "none" "$mc_reusable"
 
-# 7. The local-job example (.docs/examples/code-review-local.yml) pins
+# 7. The local-job example (docs/examples/code-review-local.yml) pins
 # the upstream `ref:` to a commit SHA. That SHA MUST be reachable on
 # the remote AND must contain `.agents/skills/ai-review-report/scripts/run-review.sh`
 # — the entrypoint the example invokes in the very next step. A
@@ -963,11 +963,11 @@ for step in data['jobs']['review']['steps']:
   has_script="$(git ls-tree "$ref" -- .agents/skills/ai-review-report/scripts/run-review.sh 2>/dev/null | wc -l | tr -d ' ')"
   check "$file ref contains run-review.sh (pin is post-entrypoint)" "1" "$has_script"
 }
-assert_example_pin_is_valid ".docs/examples/code-review-local.yml"
+assert_example_pin_is_valid "docs/examples/code-review-local.yml"
 assert_step_forwards_github_token "reusable workflow" \
   ".github/workflows/pipeline-code-review-report.yml"
 assert_step_forwards_github_token "local-job caller" \
-  ".docs/examples/code-review-local.yml"
+  "docs/examples/code-review-local.yml"
 fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
 
@@ -1162,7 +1162,7 @@ check "local-review.sh exports its REVIEW_TYPE (full) before review-in-chunks.sh
   "yes" "$(awk '/^REVIEW_TYPE="full"$/{t=NR} /^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="\$REVIEW_TYPE"$/{e=NR} /^bash "\$SCRIPT_DIR\/review-in-chunks.sh"/{c=NR} END{print (t && e && c && t < e && e < c) ? "yes" : "no"}' "$SCRIPT_DIR/local-review.sh")"
 unset _rt_line _rt_det _rt_chunks _rt_stmt _rt
 
-# ── Body-size ladder strips finding links before truncating (LADR-112) ──────
+# ── Body-size ladder strips finding links before truncating (LADR-121) ──────
 # Runs the real ladder block, extracted from run-review.sh, against fixture
 # bodies: links are stripped only when the compact body is still over, the whole
 # Issues Summary survives when that suffices, and truncation runs only after.
@@ -1216,13 +1216,13 @@ unset _ladder _out
 # local-job caller and local-review.sh in the same change (repo AGENTS.md).
 # Later stages append their Variable here, with its default.
 echo ""
-echo "Testing LADR-111 adoption Variables in both packagings and local-review.sh"
+echo "Testing LADR-121 finding-link Variable in both packagings and local-review.sh"
 _adoption_vars=(
   "OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1"
 )
 for _entry in "${_adoption_vars[@]}"; do
   _var="${_entry%%=*}"; _def="${_entry#*=}"
-  for _file in "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml" "$REPO_ROOT/.docs/examples/code-review-local.yml"; do
+  for _file in "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml" "$REPO_ROOT/docs/examples/code-review-local.yml"; do
     check "$_var defaults to '$_def' in ${_file#"$REPO_ROOT"/}" "1" \
       "$(grep -cF "$_var: \${{ vars.$_var || '$_def' }}" "$_file" || true)"
   done

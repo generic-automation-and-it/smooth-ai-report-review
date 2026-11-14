@@ -248,7 +248,7 @@ check "Test 1k: a missing file yields an empty, valid document" "complete 0" \
   "$(bash "$TO_JSON" "$TMP_DIR/nope.md" | jq -r '"\(.status) \(.findings | length)"')"
 check "Test 1l: the bare Medium/Low sections the guard extracts parse too" "2,3" \
   "$(awk '/^### 🟡 Medium/,/^### 🔵/' "$BODY" > "$TMP_DIR/sections.md"; bash "$TO_JSON" "$TMP_DIR/sections.md" | jq -r '[.findings[]["#"]] | map(tostring) | join(",")')"
-# LADR-112: the frozen parser must read a linked body exactly like an unlinked one.
+# LADR-121: the frozen parser must read a linked body exactly like an unlinked one.
 # The link is appended as the last segment of every numbered finding line, the
 # shape render-findings-summary.sh emits, including a path with encoded parens.
 sed -E 's@^([0-9]+\. .*)$@\1 · [open](https://github.com/o/r/blob/0123456789abcdef/src/a%20%28b%29.sh#L20)@' "$BODY" > "$TMP_DIR/linked.md"

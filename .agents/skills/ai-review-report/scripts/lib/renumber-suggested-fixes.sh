@@ -47,6 +47,10 @@
 #     or dropped, so it genuinely has no number: say so in words rather than
 #     leave a number that resolves to a different file.
 #
+# References come in two forms and both are handled: the prose `finding 3` and
+# the label `Issue 3)` the prompt's stable-`1)` rule produces (issue #222); a
+# suppressed label becomes `Issue (no numbered finding)`.
+#
 # Rewrites are confined to the Suggested Fixes section and skip fenced code, so
 # a diff that happens to contain the word "finding" is never edited. Plural or
 # range references (`findings 1-4`, `findings 1, 2`) are left alone: one anchor
@@ -147,7 +151,7 @@ awk -F"\t" -v tol="$TOLERANCE" '
     }
     return "0"
   }
-  function rewrite(s,   out, rest, pre, m, word, after, target, probe, refs) {
+  function rewrite(s,   out, rest, pre, m, word, after, target, probe, refs, is_label) {
     # One anchor resolves ONE finding, so a line naming several cannot be
     # rewritten at all (review 5271520178, finding 3). The plural and separator
     # guards below catch "findings 1 and 2", but REPEATED SINGULAR references --
@@ -156,13 +160,13 @@ awk -F"\t" -v tol="$TOLERANCE" '
     # distinct references onto one. Count first, and leave the whole line alone
     # when more than one reference is present.
     refs = 0; probe = s
-    while (match(probe, /[Ff]indings?[ \t]+[0-9]+/)) {
+    while (match(probe, /([Ff]indings?[ \t]+[0-9]+|[Ii]ssue[ \t]+[0-9]+\))/)) {
       refs++
       probe = substr(probe, RSTART + RLENGTH)
     }
     if (refs > 1) return s
     out = ""; rest = s
-    while (match(rest, /[Ff]indings?[ \t]+[0-9]+/)) {
+    while (match(rest, /([Ff]indings?[ \t]+[0-9]+|[Ii]ssue[ \t]+[0-9]+\))/)) {
       pre = substr(rest, 1, RSTART - 1)
       m   = substr(rest, RSTART, RLENGTH)
       after = substr(rest, RSTART + RLENGTH, 1)
@@ -180,14 +184,18 @@ awk -F"\t" -v tol="$TOLERANCE" '
       if (after == "-" || after == ",") { out = out pre m; continue }
       if (rest ~ /^[ \t]*(and|or|to|through|thru|&|\+|-|,|;|\/)[ \t]*([Ff]indings?[ \t]+)?[0-9]/) { out = out pre m; continue }
       if (anchor_state == "ambig") { out = out pre m; continue }
+      # `Issue 3)` is the label form the prompt asks for (a stable `1)` per
+      # finding); `finding 3` is the prose form. Both carry the same number.
+      is_label = (m ~ /\)$/)
       if (anchor_state == "none") {
-        word = (m ~ /^F/) ? "No numbered finding" : "no numbered finding"
+        if (is_label) word = substr(m, 1, 5) " (no numbered finding)"
+        else word = (m ~ /^F/) ? "No numbered finding" : "no numbered finding"
         out = out pre word
         changed = 1
         continue
       }
-      word = m; sub(/[ \t]+[0-9]+$/, "", word)
-      target = word " " anchor_num
+      word = m; sub(/[ \t]+[0-9]+\)?$/, "", word)
+      target = word " " anchor_num (is_label ? ")" : "")
       if (target != m) changed = 1
       out = out pre target
     }

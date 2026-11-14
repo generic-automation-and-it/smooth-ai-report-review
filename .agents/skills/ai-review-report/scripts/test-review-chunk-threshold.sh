@@ -410,11 +410,11 @@ _ct "the call site passes the prompt size to the validator" "1" \
 _ct "declared in the reusable workflow" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
 _ct "declared in the local-job packaging" "1" \
-  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT:' "$REPO_ROOT/docs/examples/code-review-local.yml")"
 _ct "ceiling declared in the reusable workflow" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
 _ct "ceiling declared in the local-job packaging" "1" \
-  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT_MAX:' "$REPO_ROOT/docs/examples/code-review-local.yml")"
 
 # --- Budget split across the chain (LADR-081) --------------------------------
 # The gate wrapped ONE `timeout` around the whole two-tier chain, so exit 124
@@ -831,9 +831,9 @@ setup_shape_repo
 # no "None found", no heading — the model talking about what it is about to do.
 cat > "${TMP_DIR}/narration.txt" << 'EOF'
 I'll start by reading the mandatory context files and checking the referenced documentation paths.
-The globs for `.docs/hlds/**` and `.docs/adrs/**` found nothing. Let me verify the actual `.docs` structure to check whether the retargeted references resolve.
-The `.docs/hlds/` directory still contains the old ADR filenames — no `002-context-memory-write-pipeline/` folder exists. Let me check for naming consistency across the skill and repo.
-The retarget is repo-wide but `.docs/hlds/` itself still holds only the old files. Let me get context on the one remaining old-scheme citation in this skill's folder.
+The globs for `docs/hlds/**` and `docs/adrs/**` found nothing. Let me verify the actual `.github` structure to check whether the retargeted references resolve.
+The `docs/hlds/` directory still contains the old ADR filenames — no `002-context-memory-write-pipeline/` folder exists. Let me check for naming consistency across the skill and repo.
+The retarget is repo-wide but `docs/hlds/` itself still holds only the old files. Let me get context on the one remaining old-scheme citation in this skill's folder.
 EOF
 
 run_shape_case "narration-only" "${TMP_DIR}/narration.txt"
@@ -1255,11 +1255,11 @@ _sf "stdout is a bare integer on every path" "1" \
 _sf "declared in the reusable workflow" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
 _sf "declared in the local-job packaging" "1" \
-  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR:' "$REPO_ROOT/docs/examples/code-review-local.yml")"
 _sf "threshold declared in the reusable workflow" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_STALL_TIMEOUT:' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")"
 _sf "threshold declared in the local-job packaging" "1" \
-  "$(grep -c 'OPENCODE_REVIEW_REPORT_STALL_TIMEOUT:' "$REPO_ROOT/.docs/examples/code-review-local.yml")"
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_STALL_TIMEOUT:' "$REPO_ROOT/docs/examples/code-review-local.yml")"
 _sf "the gate reads the enable toggle" "1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR' "$_ric" | awk '{print ($1 > 0) ? 1 : 0}')"
 _sf "the gate resolves the threshold through the shared validator" "1" \

@@ -62,6 +62,10 @@
 # placeholder all survive intact. A label-shape mismatch that silently left a
 # stale count behind is the same body↔state contradiction this script exists to
 # remove.
+# A one-line summary (`**Issue counts:** 🔴 Critical: 1; …`, any bold label
+# ending `count:` / `counts:`) inside the Recommendation is rewritten whole in a
+# canonical shape. Decision / Rationale / MACHINE_READABLE_ACTION and that line
+# may carry a list marker (`9. `, `- `), which is kept (issue #222).
 # Soft buckets (residual_risks / testing_gaps) are NOT medium findings for the
 # verdict — they render into the Medium section untagged and stay out of these
 # counts, matching score-review.sh.
@@ -150,7 +154,16 @@ awk -v crit="$crit" -v high="$high" -v med="$med" -v low="$low" -v pre="$pre" \
     return head closing " " val tail
   }
 
-  BEGIN { in_rec = 0 }
+  # The template writes these fields at column 0, but a model that numbers or
+  # bullets every line (`9. **Rationale:**`, issue #222) must still be synced:
+  # a field left unsynced contradicts the Issues Summary it sits under.
+  # Returns the list marker to keep, or "-" when the line is not that field.
+  function field_prefix(line, label) {
+    if (!match(line, "^" LIST_PREFIX "[*][*]" label ":[*][*]")) return "-"
+    return substr(line, 1, RLENGTH - length(label) - 5)
+  }
+
+  BEGIN { in_rec = 0; LIST_PREFIX = "[ \t]*([-*+][ \t]+|[0-9]+[.)][ \t]+)?" }
   /^## 🎯 Recommendation/ { in_rec = 1 }
   in_rec && /^## / && $0 !~ /^## 🎯 Recommendation/ { in_rec = 0 }
 
@@ -170,16 +183,21 @@ awk -v crit="$crit" -v high="$high" -v med="$med" -v low="$low" -v pre="$pre" \
     if ($0 ~ /Count of 🗂️ Pre-existing issues:/) {
       print set_count($0, "Count of 🗂️ Pre-existing issues:", pre); next
     }
-    if (in_rec && $0 ~ /^\*\*Decision:\*\*/) {
-      print "**Decision:** " decision_label
+    if (in_rec && (p = field_prefix($0, "Decision")) != "-") {
+      print p "**Decision:** " decision_label
       next
     }
-    if (in_rec && $0 ~ /^\*\*Rationale:\*\*/) {
-      print "**Rationale:** " rationale
+    if (in_rec && (p = field_prefix($0, "Rationale")) != "-") {
+      print p "**Rationale:** " rationale
       next
     }
-    if (in_rec && $0 ~ /^\*\*MACHINE_READABLE_ACTION:\*\*/) {
-      print "**MACHINE_READABLE_ACTION:** " action
+    if (in_rec && (p = field_prefix($0, "MACHINE_READABLE_ACTION")) != "-") {
+      print p "**MACHINE_READABLE_ACTION:** " action
+      next
+    }
+    if (in_rec && match($0, "^" LIST_PREFIX "[*][*][^*]*[Cc]ounts?:[*][*]")) {
+      head = substr($0, 1, RLENGTH)
+      print head " 🔴 Critical: " crit "; 🟠 High: " high "; 🟡 Medium: " med "; 🔵 Low: " low "; 🗂️ Pre-existing: " pre "."
       next
     }
     print

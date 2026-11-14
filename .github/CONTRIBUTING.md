@@ -48,7 +48,7 @@ The constraints that trip people up most often:
 - **`run-review.sh` is the gate's single source of truth.** New *review* behaviour
   goes there, driven by environment variables — not `inputs.*` or `steps.*.outputs`.
   A new env var must be added to **both** `pipeline-code-review-report.yml` and
-  `.docs/examples/code-review-local.yml` in the same commit.
+  `docs/examples/code-review-local.yml` in the same commit.
 - **Never commit a credential.** `assets/opencode.json` holds `{env:OPENCODE_*}`
   placeholders only.
 - **Everything lives under `.agents/`, never `.ai/`.**

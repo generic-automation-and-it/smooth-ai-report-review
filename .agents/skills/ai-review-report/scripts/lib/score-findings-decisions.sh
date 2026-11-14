@@ -95,6 +95,12 @@
 #   _DECISIONS_SOURCE_REV   commit the review judged (the gate passes head_sha);
 #                           unset → no source excerpt, named-file hunks only
 #   _DECISIONS_GRAPH_JSON   ci_temp/graph_detect_changes.json, optional
+#
+# With OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT on (default 0), the same
+# context also carries `caller sites` of the enclosing function from
+# `code-review-graph query callers_of`, labelled graph-derived hints (LADR-120).
+# No decision question or criterion changes: the sites are context, not a new
+# question, and a failed or timed-out query omits them and nothing else.
 # Budget order: when a request is over budget the code context is shortened,
 # then dropped, BEFORE the hunk is trimmed, so the pre-LADR-098 request is
 # always the fallback. Paths that look like secrets (.env*, keys, credential
@@ -236,6 +242,14 @@ if ! [[ "$min_probability" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
   min_probability="0.5"
 fi
 case "$min_probability" in .*) min_probability="0${min_probability}" ;; esac
+
+# LADR-120: caller sites of the finding's enclosing function, added to the code
+# context as graph-derived hints. OFF by default and additive: with it off the
+# request is byte-identical to the LADR-098 shape.
+caller_context_on=false
+if is_truthy "${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"; then
+  caller_context_on=true
+fi
 
 code_context_on=false
 if is_truthy "${OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT:-1}"; then
@@ -580,7 +594,7 @@ numbered_lines() {
 # The budget loop calls this again with the room a request has left.
 code_context_for() {
   local idx="$1" f="$2" L="$3" out="$4" src="$work/f_${1}.src" text="$work/f_${1}.text" part="$work/f_${1}.part"
-  local max="${5:-$CODE_CONTEXT_MAX_BYTES}" g start end fname risk istest label df dl named=0 lo hi w
+  local max="${5:-$CODE_CONTEXT_MAX_BYTES}" allow_callers="${6:-true}" g start end fname risk istest label df dl named=0 lo hi w
   local source_max=$(( ${5:-$CODE_CONTEXT_MAX_BYTES} * 2 / 3 )) named_max=$(( ${5:-$CODE_CONTEXT_MAX_BYTES} / 6 ))
   [ "$code_context_on" = true ] || return 1
   : > "$out.raw"
@@ -653,6 +667,59 @@ code_context_for() {
     [ "$named" -lt "$MAX_NAMED_FILES" ] || break
   done < "$work/diff_files.txt"
   rm -f "$part" "$part.cut"
+  # 3. Caller sites of the enclosing function (LADR-120). Appended AFTER the
+  # source excerpt and every named-file hunk on purpose: the optional block must
+  # take only the room that remains, so enabling it can never push existing
+  # cross-file evidence out of the prefix cap. The judge is asked whether an
+  # upstream guard prevents the failure; the enclosing function alone cannot
+  # answer it. Edges come from the existing code graph and are HINTS (LADR-050):
+  # an edge is not proof of a call path, and an absent edge is not proof of
+  # absence. Fail-open — no graph JSON, no function name, no CLI, a failed or
+  # timed-out query, or a non-ok status all omit the block.
+  if [ "$caller_context_on" = true ] && [ "$allow_callers" = true ] \
+     && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
+     && command -v code-review-graph >/dev/null 2>&1; then
+    local qout qrc=0 callers_max used room header_bytes caller_header_fmt
+    # Without a timeout utility the query has no deadline, and an optional hint
+    # must never stall scoring: omit it exactly as a failed query is omitted.
+    if command -v timeout >/dev/null 2>&1; then
+      qout="$(timeout 5 code-review-graph query callers_of "$fname" --repo . 2>/dev/null)" || qrc=$?
+    else
+      info "caller context: no timeout utility available — query omitted"
+      qrc=1
+    fi
+    if [ "$qrc" -eq 0 ] && [ -n "$qout" ] \
+       && printf '%s' "$qout" | jq -e '.status == "ok"' >/dev/null 2>&1; then
+      : > "$work/f_${idx}.callers"
+      printf '%s' "$qout" | jq -r '
+        [ (.results // [])[]
+          | select((.file_path // "") != "")
+          | "\(.file_path):\(.line_start // "?") \(.name // .qualified_name // "?")" ]
+        | .[0:5] | join("\n")' > "$work/f_${idx}.callers" 2>/dev/null || : > "$work/f_${idx}.callers"
+      if [ -s "$work/f_${idx}.callers" ]; then
+        # The whole block — header, sites and cap_copy's truncation marker —
+        # must fit the share, or the header alone could displace evidence that
+        # is already in the context. Reserve both before choosing the site cap.
+        # Kept as a FORMAT, not as a captured string: command substitution strips
+        # the trailing newline, which would glue the first site onto the header.
+        caller_header_fmt='\nCaller sites of `%s` (graph-derived hints: an edge is not proof of a call path, and an absent edge is not proof of absence):\n'
+        header_bytes="$(printf -- "$caller_header_fmt" "$fname" | wc -c | tr -d ' ')"
+        used=$(wc -c < "$out.raw" | tr -d ' ')
+        room=$(( max - used - header_bytes - 96 ))
+        callers_max=$(( max / 6 ))
+        [ "$callers_max" -gt 600 ] && callers_max=600
+        [ "$callers_max" -gt "$room" ] && callers_max="$room"
+        if [ "$callers_max" -ge 120 ]; then
+          printf -- "$caller_header_fmt" "$fname" >> "$out.raw"
+          cap_copy "$work/f_${idx}.callers" "$work/f_${idx}.callers.cut" "$callers_max" "caller sites"
+          cat "$work/f_${idx}.callers.cut" >> "$out.raw"
+        fi
+      fi
+      rm -f "$work/f_${idx}.callers" "$work/f_${idx}.callers.cut"
+    else
+      info "caller context: query for '${fname}' unavailable — omitted"
+    fi
+  fi
   [ -s "$out.raw" ] || { rm -f "$out.raw"; return 1; }
   cap_copy "$out.raw" "$out" "$max" "code context"
   rm -f "$out.raw"
@@ -731,14 +798,26 @@ while [ "$i" -lt "$to_score" ]; do
   build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
   size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
   if [ "$size" -gt "$BUDGET_BYTES" ] && [ -f "$work/f_${i}.ctx" ]; then
-    # Code context gives way first — rebuilt for the room left (a narrower
-    # window, still centred on the finding's line), then dropped — so the
-    # pre-LADR-098 request is always the fallback and the diff hunk is never
-    # trimmed while context remains.
+    # The optional caller hints give way FIRST (LADR-120): they are additive
+    # context, so rebuilding without them preserves the source excerpt and the
+    # named-file hunks at their existing shares. Only then does the LADR-098
+    # fallback narrow, then drop, the remaining context.
+    if grep -qF 'Caller sites of' "$work/f_${i}.ctx" 2>/dev/null; then
+      code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$CODE_CONTEXT_MAX_BYTES" false
+      build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
+      size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
+      info "finding $((i + 1)): caller hints dropped to fit the ${BUDGET_BYTES}-byte request budget"
+    fi
+  fi
+  if [ "$size" -gt "$BUDGET_BYTES" ] && [ -f "$work/f_${i}.ctx" ]; then
+    # Code context gives way next — rebuilt for the room left (a narrower
+    # window, still centred on the finding's line, and never with caller hints
+    # re-added), then dropped — so the pre-LADR-098 request is always the
+    # fallback and the diff hunk is never trimmed while context remains.
     ctx_size="$(wc -c < "$work/f_${i}.ctx" | tr -d ' ')"
     # 200 bytes of headroom for JSON escaping of the rebuilt text.
     room=$(( BUDGET_BYTES - (size - ctx_size) - 200 ))
-    if [ "$room" -ge 600 ] && code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$room"; then
+    if [ "$room" -ge 600 ] && code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$room" false; then
       build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
       size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
       info "finding $((i + 1)): code context shortened to fit the ${BUDGET_BYTES}-byte request budget"
