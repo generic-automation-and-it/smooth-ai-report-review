@@ -686,8 +686,8 @@ if [ -x "$HOME/.opencode/bin/opencode" ]; then
 fi
 
 # 5c-bis. Install rtk-ai/rtk and wire a compatible OpenCode plugin (LADR-054,
-# opt-in). On v2 the installer retains the binary but bypasses initialization
-# until `rtk init --help` advertises `--opencode-v2`. Runs after opencode is on
+# opt-in). On v2 the installer retains an RTK older than v0.52.0 but bypasses
+# its plugin initialization (lib/rtk-opencode-compat.sh). Runs after opencode is on
 # PATH because integration selection depends on its major version. Graceful
 # degradation: a failure here must not fail the review — RTK is a token-
 # optimization enhancement, not a hard dependency like opencode itself.
