@@ -67,6 +67,9 @@
 #   OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT  [0] — add caller sites of the
 #                         finding's enclosing function to the decision model's
 #                         code context, labelled graph-derived hints (LADR-120).
+#   OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS  [unset] — opt-in total-run
+#                         deadline; after it no new chunk is launched and no
+#                         retry is spent (LADR-121). Unset = unbounded.
 #   OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS  [0]  — decision-model scoring of the
 #                         merged findings (LADR-093). Off → Step 17.6 is a no-op.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER  [OPENCODE-GO-DECISIONS] — or
@@ -108,6 +111,12 @@ if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
   echo "❌ run-review.sh requires Bash >= 4 (found ${BASH_VERSION:-unknown}). On macOS: 'brew install bash'." >&2
   exit 1
 fi
+
+# LADR-121: gate start, measured before any work so the opt-in total-run
+# deadline in review-in-chunks.sh is anchored to the run, not to the chunking
+# step. Child scripts inherit it.
+OPENCODE_REVIEW_REPORT_RUN_STARTED_AT="$(date +%s)"
+export OPENCODE_REVIEW_REPORT_RUN_STARTED_AT
 
 # --- Resolve the script's own directory (REPO_ROOT for the skill tree) -------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -201,6 +210,12 @@ export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 # function, labelled graph-derived hints. No question or criterion changes.
 OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
+
+# Total-run deadline (LADR-121) — unset by default: an unbounded gate is today's
+# behaviour, and a guessed ceiling that fires early is worse than none. When a
+# positive integer, no new chunk is launched and no retry is spent after it.
+OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
+export OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS
 
 # Decision-model scoring (LADR-093) — opt-in, OFF by default. When truthy, Step
 # 17.6 sends each merged finding (and then the whole merged set) to a
@@ -579,6 +594,19 @@ assemble_run_artifacts() {
     printf '%s' "$quote_verification_json" | jq -e . >/dev/null 2>&1 || quote_verification_json='null'
   fi
 
+  # LADR-121: the run's deadline and elapsed time, plus the chunks a deadline
+  # stopped. `null`/`[]` on every unbounded run, so the file records absence
+  # rather than inventing a bound.
+  local deadline_json='null' unreviewed_json='[]'
+  case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
+    ''|*[!0-9]*) ;;
+    *) deadline_json="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" ;;
+  esac
+  if [ -n "${UNREVIEWED_CHUNKS:-}" ]; then
+    unreviewed_json="$(printf '%s' "$UNREVIEWED_CHUNKS" | tr ',' '\n' | jq -R . | jq -s 'map(select(length > 0) | tonumber)' 2>/dev/null)"
+    printf '%s' "$unreviewed_json" | jq -e . >/dev/null 2>&1 || unreviewed_json='[]'
+  fi
+
   cat > "$dir/metadata.json" <<METADATA_EOF
 {
   "run_id": "${GITHUB_RUN_ID:-local}",
@@ -598,6 +626,9 @@ assemble_run_artifacts() {
   "graph_analysis_available": "${graph_analysis_available}",
   "decisions_summary": ${decisions_json:-null},
   "quote_verification": ${quote_verification_json:-null},
+  "run_deadline_seconds": ${deadline_json:-null},
+  "run_elapsed_seconds": ${_RUN_ELAPSED_SECONDS:-0},
+  "unreviewed_chunks": ${unreviewed_json:-[]},
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 METADATA_EOF
@@ -1456,6 +1487,15 @@ TOTAL_CHUNKS="$(grep '^total_chunks=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 echo "Total chunks: ${TOTAL_CHUNKS}"
 
+# LADR-121: the deadline outcome, absent on every unbounded run. Only the chunk
+# list is consumed; the reached flag is recomputed from elapsed time before
+# aggregation.
+UNREVIEWED_CHUNKS="$(grep '^unreviewed_chunks=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2 || true)"
+export UNREVIEWED_CHUNKS
+if [ -n "$UNREVIEWED_CHUNKS" ]; then
+  echo "⏱️  Run deadline stopped ${UNREVIEWED_CHUNKS//,/ } chunk launch(es): not reviewed"
+fi
+
 # --- Step 17.5: Merge structured findings across chunks (LADR-055) ------------
 # Each chunk may have emitted a machine-readable sidecar alongside its markdown
 # (extracted and stripped by review-in-chunks.sh). Merge them into one
@@ -1527,6 +1567,22 @@ fi
 unset _structured_findings
 
 # --- Step 18: Aggregate -------------------------------------------------------
+# LADR-121: the run's elapsed time and its deadline reach the posted Coverage
+# line and metadata.json. Both are exported only for aggregation; the chunk
+# scripts inherit the start epoch instead.
+_RUN_ELAPSED_SECONDS=$(( $(date +%s) - OPENCODE_REVIEW_REPORT_RUN_STARTED_AT ))
+export _RUN_ELAPSED_SECONDS
+export _RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
+# Checked again before the aggregation summary (LADR-121): the deadline stops
+# new model work, and the summary is the last such call.
+_RUN_DEADLINE_REACHED=false
+case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
+  ''|*[!0-9]*) ;;
+  *) if [ "${_RUN_ELAPSED_SECONDS}" -ge "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" ]; then
+       _RUN_DEADLINE_REACHED=true
+     fi ;;
+esac
+export _RUN_DEADLINE_REACHED
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${TOTAL_CHUNKS}" \
   "${SELECTED_MODEL}" \

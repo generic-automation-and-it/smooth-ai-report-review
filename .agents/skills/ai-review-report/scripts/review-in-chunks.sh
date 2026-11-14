@@ -1913,6 +1913,29 @@ fi
 
 TOTAL_CHUNKS=$CHUNK_NUM
 
+# LADR-121: opt-in total-run deadline. A phase-boundary check cannot interrupt a
+# call already in flight, so the deadline stops NEW work: no further chunk
+# launches, and no retry sweep. A chunk it never launched is recorded on a
+# channel distinct from `chunk_<n>.failed` (LADR-031) so the LADR-082 sweep
+# cannot select it, and aggregation reports it as not reviewed. Unset (the
+# default) keeps today's unbounded behaviour exactly.
+RUN_DEADLINE_SECONDS=""
+case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
+  ''|*[!0-9]*) ;;
+  *) if [ "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" -ge 1 ]; then
+       RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}"
+     fi ;;
+esac
+_RUN_STARTED_AT="${OPENCODE_REVIEW_REPORT_RUN_STARTED_AT:-}"
+case "$_RUN_STARTED_AT" in ''|*[!0-9]*) _RUN_STARTED_AT="$(date +%s)" ;; esac
+_DEADLINE_AT=0
+if [ -n "$RUN_DEADLINE_SECONDS" ]; then
+  _DEADLINE_AT=$(( _RUN_STARTED_AT + RUN_DEADLINE_SECONDS ))
+  echo "⏱️  Run deadline: ${RUN_DEADLINE_SECONDS}s from gate start"
+fi
+_deadline_expired=false
+declare -a UNREVIEWED_CHUNKS=()
+
 echo "=========================================="
 echo "Processing $TOTAL_CHUNKS chunks (max $MAX_PARALLEL parallel)"
 echo "=========================================="
@@ -1928,6 +1951,22 @@ CHUNK_NUM=0
 
 for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
   CHUNK_NUM=$i
+
+  # The deadline is checked BETWEEN launches only: a call already running is
+  # never interrupted (a phase-boundary check cannot stop it). Once it fires,
+  # every remaining chunk is recorded as not reviewed and never launched.
+  if [ "$_deadline_expired" = false ] && [ "$_DEADLINE_AT" -gt 0 ] \
+     && [ "$(date +%s)" -ge "$_DEADLINE_AT" ]; then
+    _deadline_expired=true
+    echo ""
+    echo "⏱️  Run deadline reached (${RUN_DEADLINE_SECONDS}s) — no further chunks will be launched"
+  fi
+  if [ "$_deadline_expired" = true ]; then
+    : > "ci_temp/reviews/chunk_${i}.not_reviewed"
+    UNREVIEWED_CHUNKS+=("$i")
+    echo "  ⏭️  Chunk #${i} not reviewed — run deadline reached"
+    continue
+  fi
 
   # Convert newline-separated file list back to array
   mapfile -t chunk_files <<< "${CHUNK_FILE_LISTS[$i]}"
@@ -1954,6 +1993,8 @@ echo ""
 echo "Waiting for all chunks to complete..."
 FAILED_CHUNKS=0
 for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+  # A chunk the deadline never launched has no PID to wait for.
+  [ -n "${CHUNK_PIDS[$i]:-}" ] || continue
   wait "${CHUNK_PIDS[$i]}" 2>/dev/null
   CHUNK_EXIT_CODES[$i]=$?
   if [ "${CHUNK_EXIT_CODES[$i]}" -ne 0 ]; then
@@ -1964,6 +2005,13 @@ done
 
 # Restore CHUNK_NUM to total for downstream output
 CHUNK_NUM=$TOTAL_CHUNKS
+
+# Hand the deadline outcome to run-review.sh. Emitted only when the deadline
+# fired, so an unbounded run's outputs are byte-identical to today.
+if [ "$_deadline_expired" = true ]; then
+  echo "deadline_expired=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "unreviewed_chunks=$(IFS=,; echo "${UNREVIEWED_CHUNKS[*]}")" >> "${GITHUB_OUTPUT:-/dev/null}"
+fi
 
 # --- Retry sweep (LADR-082): one second attempt per failed chunk --------------
 # Selector is the LADR-031 flag file, NOT the exit codes above: review_chunk
@@ -1979,6 +2027,14 @@ for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
     RETRY_CHUNKS+=("$i")
   fi
 done
+
+# LADR-121: a run that hit its deadline spends no further budget, so the sweep
+# is skipped outright — including for chunks that failed before the deadline.
+if [ "$_deadline_expired" = true ]; then
+  echo ""
+  echo "⚠️ Retry sweep skipped: run deadline reached — no further budget is spent"
+  RETRY_CHUNKS=()
+fi
 
 if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
   if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then

@@ -478,6 +478,9 @@ jobs:
       # Caller context (LADR-120) — OFF by default: caller sites of the finding's
       # enclosing function join the decision model's code context as hints.
       OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT || '0' }}
+      # Total-run deadline (LADR-121) — unset by default: no new chunk launches
+      # and no retry spend after it. Blank = unbounded (today's behaviour).
+      OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS: ${{ vars.OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS || '' }}
       # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted
       # after LADR-014's Gemini-CLI hook was superseded by the opencode
       # transport migration (LADR-023). rtk_version input wins over the
