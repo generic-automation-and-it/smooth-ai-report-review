@@ -107,8 +107,10 @@ while IFS= read -r row; do
     skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "absent_file"; continue
   fi
 
-  content="$(git_bounded show "${rev}:${qfile}" 2>/dev/null)"
-  if [ -z "$content" ]; then
+  content=""
+  show_rc=0
+  content="$(git_bounded show "${rev}:${qfile}" 2>/dev/null)" || show_rc=$?
+  if [ "$show_rc" -ne 0 ]; then
     skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "git_error"; continue
   fi
 
@@ -157,6 +159,10 @@ if [ "$demoted" -gt 0 ]; then
             if is_demoted(.key) and .value.severity != "critical" then empty
             elif is_demoted(.key) then (.value | .confidence = 50)
             else .value end))
+        # LADR-068: the renderer prints the stored `#`, and its ordered-list form
+        # is safe only while the sequence is contiguous — renumber after a
+        # removal exactly as merge-findings.py numbers after suppression.
+        | .findings = (.findings | to_entries | map(.value + {"#": (.key + 1)}))
         | .suppressed_findings = ((.suppressed_findings // []) + ($moved | map(.value | .confidence = 50)))
         | (.suppressed_by_confidence // {}) as $s
         | .suppressed_by_confidence = ($s + {"50": (($s["50"] // 0) + ($moved | length))})

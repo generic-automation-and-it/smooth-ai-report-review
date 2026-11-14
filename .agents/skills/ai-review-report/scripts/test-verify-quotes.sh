@@ -160,6 +160,24 @@ bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
 check "absent named file: anchor unchanged" "100" "$(jq -r '.findings[0].confidence' "$m")"
 check "absent named file: reported as a skip" "absent_file" "$(jq -r '.findings[0].reason' "$r")"
 
+# A failed named-file read that still emits partial stdout must skip: only the
+# exit status decides, never the output's emptiness.
+real_git_show="$(command -v git)"
+shim_show="${TMP_DIR}/shim-show"
+mkdir -p "$shim_show"
+cat > "${shim_show}/git" <<SHIM
+#!/bin/bash
+if [ "\$1" = "show" ]; then echo "partial output from a failed read"; exit 1; fi
+exec "${real_git_show}" "\$@"
+SHIM
+chmod +x "${shim_show}/git"
+doc="$(mk_doc "[$(finding high 100 'src/a.cs:2 -- var account = await _db.Accounts.FindAsync(accountId);' src/a.cs 2)]")"
+m="${TMP_DIR}/showfail.merged.json"; r="${TMP_DIR}/showfail.report.json"
+printf '%s\n' "$doc" > "$m"
+PATH="${shim_show}:${PATH}" bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "failed named-file read with stdout: anchor unchanged" "100" "$(jq -r '.findings[0].confidence' "$m")"
+check "failed named-file read with stdout: reported as a skip" "git_error" "$(jq -r '.findings[0].reason' "$r")"
+
 # A git failure during the repo-wide look must skip, never demote: grep's 1 is
 # "no match", but 2+ (and a timeout's 124) is "the check could not run".
 real_git="$(command -v git)"
@@ -193,6 +211,18 @@ m="${TMP_DIR}/preexisting.merged.json"; r="${TMP_DIR}/preexisting.report.json"
 printf '%s\n' "$doc" > "$m"
 bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
 check "pre-existing: never demoted" "100" "$(jq -r '.pre_existing_findings[0].confidence' "$m")"
+
+echo ""
+echo "Part 3b — survivors stay contiguously numbered"
+
+# Three same-severity findings, the middle one fabricated. Suppressing the
+# middle must renumber the survivors 1..N: the renderer prints the stored `#`,
+# and its ordered-list form is only safe while the sequence is unbroken.
+doc="$(mk_doc "[$(finding high 100 'src/a.cs:2 -- var account = await _db.Accounts.FindAsync(accountId);' src/a.cs 2),$(finding high 100 'src/a.cs:3 -- var account = SomethingElse(completelyDifferent);' src/a.cs 3),$(finding high 100 'src/b.cs:2 -- var guard = CurrentUser.Owns(account);' src/b.cs 2)]")"
+m="${TMP_DIR}/contiguous.merged.json"; r="${TMP_DIR}/contiguous.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "middle suppression renumbers survivors 1..N" "1,2" "$(jq -r '[.findings[]["#"]] | join(",")' "$m")"
 
 echo ""
 echo "Part 4 — Critical survives demotion"
