@@ -234,7 +234,7 @@ joined_count="$(grep -cE '^[[:space:]]*- ' "$all" || true)"
 grep -q 'is failing here$' "$all" || { echo "FAIL: medium bullet was glued to the low bullet" >&2; cat "$all" >&2; exit 1; }
 echo "✓ medium and low reports stay on separate lines"
 
-# ── LADR-121: a permalink suffix changes no keep/withhold decision ──
+# ── LADR-122: a permalink suffix changes no keep/withhold decision ──
 # The link repeats the file path (here a tests/ path) and adds only
 # `open`, `blob`, the server and the SHA, none of which may tip the
 # failing-test heuristics either way.

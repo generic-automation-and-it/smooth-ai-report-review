@@ -63,7 +63,7 @@ This file documents the LADRs, Key Behaviors, environment variables, and interna
 
 9. **Source detection follows the selected review.** `copilot-review.sh detect <pr> <review-id>` checks that review's author; the PR-wide scan is a legacy fallback for callers that resolved no review id. Scanning all history let any older Copilot review misroute an OpenCode/Gemini review to the Copilot flow, which suppresses the mandatory Skip Areas bullets. The analyse and execute modes pass the resolved review id.
 
-10. **Skip bullets never carry the finding permalink (ai-review-report LADR-121).** Gate finding lines may end with ` · [open](…)` pinned to the reviewed SHA. Copying it into a Skip Areas bullet or summary row makes the same skip read as new text after every push, so LADR-101 matching re-raises it. `scripts/test-skip-bullet-format.sh` pins the SKILL.md rule.
+10. **Skip bullets never carry the finding permalink (ai-review-report LADR-122).** Gate finding lines may end with ` · [open](…)` pinned to the reviewed SHA. Copying it into a Skip Areas bullet or summary row makes the same skip read as new text after every push, so LADR-101 matching re-raises it. `scripts/test-skip-bullet-format.sh` pins the SKILL.md rule.
 
 ## Environment Variables
 
@@ -90,7 +90,7 @@ Script uses `#!/usr/bin/env bash` and bash 3.2.57 (macOS native `/bin/bash`). No
 
 | Date | Change | Ref |
 |------|--------|-----|
-| 2026-11-13 | Strip a trailing ` · [open](…)` finding permalink before writing Skip Areas bullets or summary-table rows; `test-skip-bullet-format.sh` pins it. | ai-review-report LADR-121 |
+| 2026-11-13 | Strip a trailing ` · [open](…)` finding permalink before writing Skip Areas bullets or summary-table rows; `test-skip-bullet-format.sh` pins it. | ai-review-report LADR-122 |
 | 2026-11-11 | `copilot-review.sh detect <pr> <review-id>` checks the selected review's author; the PR-wide scan stays as a fallback. Skip Areas verification uses portable `tolower()` instead of gawk-only `IGNORECASE`. `scripts/test-copilot-review.sh` pins both routes. | — |
 | 2026-10-01 | Analyse is read-only by default; explicit `--fix` applies all AI Coder recommendations through execute while decision labels stay human-only. | |
 | 2026-09-30 | R/T/P/H execute grammar, R/T fix rules and text-based cross-round skip guidance. | ai-review-report LADR-101 |

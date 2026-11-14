@@ -1162,7 +1162,7 @@ check "local-review.sh exports its REVIEW_TYPE (full) before review-in-chunks.sh
   "yes" "$(awk '/^REVIEW_TYPE="full"$/{t=NR} /^export OPENCODE_REVIEW_REPORT_REVIEW_TYPE="\$REVIEW_TYPE"$/{e=NR} /^bash "\$SCRIPT_DIR\/review-in-chunks.sh"/{c=NR} END{print (t && e && c && t < e && e < c) ? "yes" : "no"}' "$SCRIPT_DIR/local-review.sh")"
 unset _rt_line _rt_det _rt_chunks _rt_stmt _rt
 
-# ── Body-size ladder strips finding links before truncating (LADR-121) ──────
+# ── Body-size ladder strips finding links before truncating (LADR-122) ──────
 # Runs the real ladder block, extracted from run-review.sh, against fixture
 # bodies: links are stripped only when the compact body is still over, the whole
 # Issues Summary survives when that suffices, and truncation runs only after.
@@ -1216,7 +1216,7 @@ unset _ladder _out
 # local-job caller and local-review.sh in the same change (repo AGENTS.md).
 # Later stages append their Variable here, with its default.
 echo ""
-echo "Testing LADR-121 finding-link Variable in both packagings and local-review.sh"
+echo "Testing LADR-122 finding-link Variable in both packagings and local-review.sh"
 _adoption_vars=(
   "OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1"
 )

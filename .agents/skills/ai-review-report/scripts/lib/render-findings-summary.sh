@@ -59,7 +59,7 @@ decisions_on=false
 printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
   | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' && decisions_on=true
 
-# LADR-121 head-SHA permalinks (default on; explicit 0/false/no/off disables).
+# LADR-122 head-SHA permalinks (default on; explicit 0/false/no/off disables).
 # Inputs come from the environment so aggregate-reviews.sh needs no new argument.
 # Each one is validated before it can reach markdown link syntax; any missing or
 # odd input renders no link at all, never a guessed one.
@@ -168,7 +168,7 @@ jq -r '
       ( (($ds.suppressed // []) | length) - 10 | if . > 0 then "  - …and \(.) further suppressed finding\(if . == 1 then "" else "s" end)" else empty end )
     end;
 
-  # LADR-121: the last segment of a finding line, after decision_suffix, so the
+  # LADR-122: the last segment of a finding line, after decision_suffix, so the
   # label and the file:line span stay byte-identical for every parser. Only a
   # positive integer line links; a range, blank or zero line is never guessed.
   # Each path segment is URI-encoded on its own so the slashes survive. Only a

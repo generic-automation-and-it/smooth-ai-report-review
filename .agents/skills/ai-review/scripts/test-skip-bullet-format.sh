@@ -1,6 +1,6 @@
 #!/bin/bash
 # Static guard: /ai-review must strip the gate's per-commit permalink
-# (` · [open](…)`, LADR-121) before writing Skip Areas bullets or summary-table
+# (` · [open](…)`, LADR-122) before writing Skip Areas bullets or summary-table
 # rows. A copied SHA would make the same skip read as new text every round and
 # break the cross-round match (LADR-101). The rule lives in SKILL.md prose, so
 # the check is a grep over the Non-Copilot Skip Areas step.
