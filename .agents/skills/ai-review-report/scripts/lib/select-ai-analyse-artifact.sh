@@ -77,7 +77,7 @@ timeline="$(jq -n \
 classified="$(printf '%s' "$timeline" | jq '
   map(. + {
     is_gate_report: (
-      (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"; "m"))
+      (.body | test("^#+ 🤖 ((Gemini CLI|OpenCode CLI) Code Review|Smooth AI Review)"; "m"))
     ),
     is_actionable: (
       (.body | test("## 🔍 Issues Summary"))

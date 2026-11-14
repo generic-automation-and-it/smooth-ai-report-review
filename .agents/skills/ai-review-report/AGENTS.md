@@ -1536,9 +1536,21 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 - **Retired names — do not reintroduce:** the `litellm-gemini` provider (now `gemini`), the `/gemini-review` trigger (now `/ai-review`), the `auto` model and `get_aggregation_model()` (LADR-022, the orchestrator Variable is the source of truth), and `OPENCODE_API_HEALTH_OVERRIDE` (LADR-028; v2 health uses `opencode api get /api/info`, LADR-087). Dated history keeps the old names as record.
 - **Selecting ai-analyse findings by route instead of severity** (`autofix_class` / `owner`, already in `assets/findings-schema.json`) is the planned successor to LADR-042's severity predicate; do not build new autonomy on severity alone.
 
+### LADR-112: Posted reviews lead with our own name; OpenCode as powered-by transport
+
+- **Date**: 2026-11-14
+- **Status**: Accepted
+- **Context**: Posted bodies opened `## 🤖 OpenCode CLI Code Review` with an ASCII OPENCODE banner. Per https://opencode.ai/brand integrations must lead with own name (`Linear for OpenCode`, never `OpenCode Linear`) and trademarks (Anomaly) must not imply endorsement. MIT covers the binary, not the mark; Terms carve self-run OSS to its license, and curl install is the documented CI method.
+- **Decision**:
+  - Headers become `## 🤖 Smooth AI Review — Commit: \`sha\`` and `## ❌ Smooth AI Review Workflow Failed`; footers `*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*`; main footer `*Automated review by Smooth AI Review, powered by [OpenCode](https://opencode.ai) …*` plus non-affiliation line. ASCII banner removed.
+  - Matchers (`minimize-previous-reviews.sh`, `select-ai-analyse-artifact.sh`, `gh-retry.sh`, `review-diff.sh`) accept both old and new headers so history still minimizes/counts. README/SKILL.md carry the Building-on-OpenCode non-affiliation note.
+- **Consequences**: Old bodies remain recognized; new bodies no longer imply origin. LADR-073 banner clause is retired by removal.
+- **See also**: LADR-031, LADR-042, LADR-062, LADR-067, LADR-073, LADR-078.
+
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-14 | Posted reviews renamed to Smooth AI Review with powered-by OpenCode footer, ASCII banner removed, matchers accept both headers, README/SKILL.md non-affiliation notes. | LADR-112 |
 |------|--------|-----|
 | 2026-11-14 | Author notes fenced as data in both prompt builders: collision-safe envelope whose suffix grows until the marker cannot collide, default-on kill switch, fixed-fence fallback when the helper is missing. | LADR-118 |
 | 2026-11-13 | Adoption umbrella for al-pr-review strengths: items A–E and L1–L3 with flags/defaults, shared fail-open rules, rejected items. Eval fixtures may carry `pr_description.md` / `linked_issues.json`; `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` exported to chunk prompts. | LADR-111 |

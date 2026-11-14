@@ -860,21 +860,8 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
 fi
 
 cat > ci_temp/final_review.md << EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${SHORT_CURRENT_SHA}\`
+## 🤖 Smooth AI Review — Commit: \`${SHORT_CURRENT_SHA}\`
 EOF
-
-# OpenCode ASCII banner — full reviews only. Incremental bodies are nothing but
-# a delta, and the banner is pure decoration.
-if [ "$REVIEW_TYPE" != "incremental" ]; then
-  cat >> ci_temp/final_review.md << 'EOF'
-
-```
-█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
-█░░█ █░░█ █▀▀▀ █░░█ █░░░ █░░█ █░░█ █▀▀▀
-▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-```
-EOF
-fi
 
 cat >> ci_temp/final_review.md << EOF
 
@@ -1075,8 +1062,9 @@ cat >> ci_temp/final_review.md << EOF
 </details>
 
 ---
-*Automated review by [opencode](https://opencode.ai) using ${OPENCODE_PROVIDER_DISPLAY_NAME}*
+*Automated review by Smooth AI Review, powered by [OpenCode](https://opencode.ai) using ${OPENCODE_PROVIDER_DISPLAY_NAME}*
 *Model: ${OPENCODE_MODEL_DISPLAY_NAME} | Reviewed in $TOTAL_CHUNKS chunks*
+*Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
 
 # Compact CLI version line in the footer, pre-rendered by check-versions.sh.

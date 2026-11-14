@@ -56,7 +56,7 @@ check_json() {
 # Test 1: latest full review with low/medium findings -> act
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n\n### 🔵 Low Priority\n- something else\n"}
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n\n### 🔵 Low Priority\n- something else\n"}
 ]
 EOF
 echo '[]' > "$TMP_DIR/comments.json"
@@ -73,8 +73,8 @@ fi
 # Test 2: latest incremental review after a full -> act
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
-  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
+  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
@@ -84,12 +84,12 @@ check_json "Test 2: incremental count" ".incremental_count" "1" "$result"
 # Test 3: latest skip-incremental issue comment after a full -> skip
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
 ]
 EOF
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 100, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
+  {"id": 100, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 Smooth AI Review — Commit: `abc1234`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
@@ -101,14 +101,14 @@ check_json "Test 3: skip body path empty" ".body_path // empty" "" "$result"
 # Test 4: multiple issue-comment artifacts count until latest full
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
 ]
 EOF
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 103, "created_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1236`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."},
-  {"id": 102, "created_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
-  {"id": 101, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1235`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
+  {"id": 103, "created_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 Smooth AI Review — Commit: `abc1236`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."},
+  {"id": 102, "created_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
+  {"id": 101, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 Smooth AI Review — Commit: `abc1235`\n\n⏭️ **Skipping INCREMENTAL review** - Existing blocking review from @github-actions[bot] requires full review for clearance."}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
@@ -118,9 +118,9 @@ check_json "Test 4: incremental count is 3" ".incremental_count" "3" "$result"
 # Test 5: cap exceeded (latest artifact is actionable incremental)
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 3, "submitted_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
-  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
-  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
+  {"id": 3, "submitted_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
+  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"},
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}
 ]
 EOF
 echo '[]' > "$TMP_DIR/comments.json"
@@ -131,8 +131,8 @@ check_json "Test 5: cap body path empty" ".body_path // empty" "" "$result"
 
 # Test 6: pagination - multiple arrays from gh api --paginate still see newest artifact
 cat > "$TMP_DIR/reviews.json" <<'EOF'
-[{"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}]
-[{"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}]
+[{"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}]
+[{"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something\n"}]
 EOF
 echo '[]' > "$TMP_DIR/comments.json"
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
@@ -163,10 +163,10 @@ check_json "Test 8: no artifacts body path empty" ".body_path // empty" "" "$res
 # boundary that Test 5 (cap=1, count=2) does not cover.
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 4, "submitted_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
-  {"id": 3, "submitted_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
-  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
-  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"}
+  {"id": 4, "submitted_at": "2026-01-04T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
+  {"id": 3, "submitted_at": "2026-01-03T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
+  {"id": 2, "submitted_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** INCREMENTAL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"},
+  {"id": 1, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- x"}
 ]
 EOF
 echo '[]' > "$TMP_DIR/comments.json"
@@ -184,7 +184,7 @@ check_json "Test 9: cap boundary cap reason" ".skip_reason" "incremental cycle c
 echo '[]' > "$TMP_DIR/reviews.json"
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 300, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\nSkipping INCREMENTAL review - test fixture without the blocking-review marker.\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
+  {"id": 300, "created_at": "2026-01-02T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\nSkipping INCREMENTAL review - test fixture without the blocking-review marker.\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"
@@ -206,12 +206,12 @@ check_json "Test 10: comment with one skip-incremental phrase acts (no false-pos
 # findings on every trivial dependency bump.
 cat > "$TMP_DIR/reviews.json" <<'EOF'
 [
-  {"id": 400, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 OpenCode CLI Code Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
+  {"id": 400, "submitted_at": "2026-01-01T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "# 🤖 Smooth AI Review\n\n**Review Type:** FULL\n\n## 🔍 Issues Summary\n\n### 🟡 Medium Priority Issues\n- something"}
 ]
 EOF
 cat > "$TMP_DIR/comments.json" <<'EOF'
 [
-  {"id": 401, "created_at": "2026-01-05T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\n⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest, and this PR reads as an automated or trivial change.\n\n**Why?** Trivial-PR skip (`model-veto`)."}
+  {"id": 401, "created_at": "2026-01-05T00:00:00Z", "user": {"login": "github-actions[bot]"}, "body": "## 🤖 Smooth AI Review — Commit: `abc1234`\n\n⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest, and this PR reads as an automated or trivial change.\n\n**Why?** Trivial-PR skip (`model-veto`)."}
 ]
 EOF
 result="$(GH_FIXTURE_REVIEWS="$TMP_DIR/reviews.json" GH_FIXTURE_COMMENTS="$TMP_DIR/comments.json" "$HELPER" "owner/repo" "1" "3" "$BODY_OUT")"

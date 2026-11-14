@@ -4,7 +4,7 @@
 #
 # Usage: review-diff.sh <pr> <review_body> <out_diff> [reviewed_sha]
 #   review_body   the posted gate review; its header names the commit it
-#                 reviewed (`## 🤖 OpenCode CLI Code Review - Commit: `abc1234``)
+#                 reviewed (`## 🤖 Smooth AI Review — Commit: `abc1234``)
 #   reviewed_sha  OPTIONAL, preferred over the header: the full head_sha from
 #                 the run artifact's metadata.json
 #
@@ -39,7 +39,7 @@ case "$pr" in ''|*[!0-9]*) echo "usage: review-diff.sh <pr> <review_body> <out_d
 
 reviewed="$(printf '%s' "$known" | tr -cd '0-9a-f')"
 if [ -z "$reviewed" ] && [ -n "$body" ] && [ -f "$body" ]; then
-  reviewed="$(sed -n 's/^## .*Code Review.* Commit: `\([0-9a-f]\{7,40\}\)`.*/\1/p' "$body" | head -n 1)"
+  reviewed="$(sed -n 's/^## .*Review.* Commit: `\([0-9a-f]\{7,40\}\)`.*/\1/p' "$body" | head -n 1)"
 fi
 
 pr_json="$(gh pr view "$pr" --json headRefOid,baseRefName 2>/dev/null || echo '{}')"
