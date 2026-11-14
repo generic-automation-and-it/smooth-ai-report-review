@@ -207,6 +207,13 @@ done
 export PATH="$HOME/.opencode/bin:$PATH"
 bash "$SCRIPT_DIR/lib/install-opencode.sh"
 
+# LADR-121: gate start for the opt-in total-run deadline, taken before provider
+# resolution so the deadline is anchored to the run. Kept OUTSIDE the
+# initialization block that test-prepare-opencode-models.sh extracts and runs
+# with a stubbed PATH (which carries no coreutils).
+OPENCODE_REVIEW_REPORT_RUN_STARTED_AT="$(date +%s)"
+export OPENCODE_REVIEW_REPORT_RUN_STARTED_AT
+
 # Resolve the selected provider → provider-id + gateway creds, and fail fast on
 # missing creds / a model chain that doesn't match the provider. Export the model
 # chain FIRST so the resolver can validate it (primary = --model arg). These are
@@ -225,11 +232,10 @@ export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 # Caller context (LADR-120) — OFF by default; mirrors the gate.
 OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
-# Total-run deadline (LADR-121) — unset by default; mirrors the gate.
+# Total-run deadline (LADR-121) — unset by default; mirrors the gate. The start
+# epoch is assigned above, outside the extracted initialization block.
 OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
 export OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS
-OPENCODE_REVIEW_REPORT_RUN_STARTED_AT="$(date +%s)"
-export OPENCODE_REVIEW_REPORT_RUN_STARTED_AT
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review
