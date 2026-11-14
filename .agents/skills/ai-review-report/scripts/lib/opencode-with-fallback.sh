@@ -138,7 +138,7 @@ run_opencode() {
   #   on the .github workflow chunk, ending the turn with empty stdout). It still
   #   reads context files; opencode.json sets `permission.external_directory:
   #   allow` (LADR-025) — the headless equivalent of gemini-cli --yolo — globally
-  #   and on the agent, so reads of in-repo dot-paths (.github/*, .docs/*,
+  #   and on the agent, so reads of in-repo dot-paths (.github/*, docs/*,
   #   .agents/rules-scoped/*) are not auto-rejected in non-interactive `run` mode.
   # Prompt is fed via stdin (not "$(cat …)" argv expansion) so large chunks
   #   never hit ARG_MAX; matches the original `gemini < file` call shape.

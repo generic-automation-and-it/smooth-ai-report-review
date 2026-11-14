@@ -108,7 +108,7 @@ jobs:
     secrets: inherit   # same org only; cross-org callers list the keys explicitly
 ```
 
-[code-review-caller.yml](.docs/examples/code-review-caller.yml) is a ready-made caller with the `model_preset` dropdown and every input documented.
+[code-review-caller.yml](docs/examples/code-review-caller.yml) is a ready-made caller with the `model_preset` dropdown and every input documented.
 
 ### Recommended: pin the opencode version
 
@@ -116,7 +116,7 @@ Set `OPENCODE_CLI_VERSION` to a `2.x` version. Without a pin, a fresh runner ins
 
 ## Local-job packaging
 
-If your organization uses `allowed_actions: "selected"` and refuses the cross-org reusable-workflow call, copy [code-review-local.yml](.docs/examples/code-review-local.yml) instead. It checks out this repository at a pinned SHA and runs the same `run-review.sh` entrypoint.
+If your organization uses `allowed_actions: "selected"` and refuses the cross-org reusable-workflow call, copy [code-review-local.yml](docs/examples/code-review-local.yml) instead. It checks out this repository at a pinned SHA and runs the same `run-review.sh` entrypoint.
 
 This packaging satisfies an allow-list on paper while running the same third-party code the policy is meant to gate, so get security sign-off from your organization or enterprise admin. Prefer the reusable caller whenever the admin can allow `generic-automation-and-it/smooth-ai-report-review@*`.
 
@@ -158,7 +158,7 @@ API keys are GitHub **Secrets**; everything else is a GitHub **Variable**. Only 
 | `OPENCODE_ANALYSE_MAX_INCREMENTAL` | `3`. Auto-fix cycles per full-review epoch. |
 | `OPENCODE_ANALYSE_TEST_COMMAND` / `_TIMEOUT` | Unset command means auto-detect tracked test suites; no suites means skip verification. Auto-detected suites use regression-relative gating (green→red blocks); an explicit command must pass. Timeout is the whole-gate budget in seconds (default `600`); timeouts always block. |
 
-Full reference: [SKILL.md](.agents/skills/ai-review-report/SKILL.md), [caller](.docs/examples/code-review-caller.yml), [local-job](.docs/examples/code-review-local.yml).
+Full reference: [SKILL.md](.agents/skills/ai-review-report/SKILL.md), [caller](docs/examples/code-review-caller.yml), [local-job](docs/examples/code-review-local.yml).
 
 Install the skills with `scripts/install-skills.sh` (the core pair, `ai-review` and `git-commit-review-push`), adding `-a` for `ai-review-report` and `ai-analyse`. The Claude Code marketplace offers the same split: `smooth-ai-review` plus optional `smooth-ai-review-report` and `smooth-ai-analyse`.
 
@@ -173,8 +173,8 @@ Install the skills with `scripts/install-skills.sh` (the core pair, `ai-review` 
 | [ai-analyse AGENTS.md](.agents/skills/ai-analyse/AGENTS.md) | Fixer LADRs and enforcement notes |
 | [pipeline-code-review-report.yml](.github/workflows/pipeline-code-review-report.yml) | Gate triggers, `model_preset`, reusable `workflow_call` inputs |
 | [pipeline-ai-analyse.yml](.github/workflows/pipeline-ai-analyse.yml) | Fixer guard, push rules, test gate, run artifacts |
-| [code-review-caller.yml](.docs/examples/code-review-caller.yml) | Copy-paste reusable caller |
-| [code-review-local.yml](.docs/examples/code-review-local.yml) | Allow-list local-job caller (pinned SHA) |
+| [code-review-caller.yml](docs/examples/code-review-caller.yml) | Copy-paste reusable caller |
+| [code-review-local.yml](docs/examples/code-review-local.yml) | Allow-list local-job caller (pinned SHA) |
 | [install-skills.sh](scripts/install-skills.sh) + [SKILLS_INSTALLER.md](scripts/SKILLS_INSTALLER.md) | Skills installer contract |
 | [AGENTS.md](AGENTS.md) | Repo contract: path coupling, credential rules, consumption modes |
 | [CHANGELOG](.agents/skills/ai-review-report/references/CHANGELOG.md) | Dated audit trail |

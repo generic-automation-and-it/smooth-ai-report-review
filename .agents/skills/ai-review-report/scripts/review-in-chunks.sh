@@ -199,7 +199,7 @@ _stall_disarm() { # <watchdog_pid>
 #
 # The byte floor below (200 B) catches an empty answer. It does not catch the
 # other silent no-op: opencode exits 0 having streamed nothing but between-tool
-# narration — "Let me verify the actual `.docs` structure", "Let me check for
+# narration — "Let me verify the actual `.github` structure", "Let me check for
 # naming consistency" — and stops without ever writing the review. Observed on
 # consumer run 34745786660 chunk 1 (`.agents`): 733 B of exactly that, over the
 # floor, so the chunk was logged as completed, counted in `total_chunks`, left
@@ -1258,7 +1258,7 @@ EOF
   printf '%s\n' "$CHUNK_PROMPT_EXPLORATION_RULE" >> ci_temp/chunk_${chunk_num}_prompt.txt
   cat >> ci_temp/chunk_${chunk_num}_prompt.txt << 'EOF'
 
-**Zero-match glob fail-fast (MANDATORY):** a `glob` that returns 0 matches has answered you — it is not an invitation to retry with a different pattern. Do NOT re-run it as `x/**`, `x/**/*`, `x/*` or any other variant, and do not widen it to the repo root. Dot-prefixed paths are the trap: `.docs/`, `.github/` and `.agents/` routinely return 0 matches from `glob` for directories that plainly exist and that you can read. Confirm existence ONCE by reading the directory itself (`read` / `list` on `.docs`), take that as the answer, and move on. Observed cost of ignoring this: in one review all three documentation chunks spent their turn re-globbing `.docs/**`, `.docs/**/*` and `.docs/adrs/*` — two ran out of turn part-way through the structured block at the end of their output, and the third never wrote a review at all.
+**Zero-match glob fail-fast (MANDATORY):** a `glob` that returns 0 matches has answered you — it is not an invitation to retry with a different pattern. Do NOT re-run it as `x/**`, `x/**/*`, `x/*` or any other variant, and do not widen it to the repo root. Dot-prefixed paths are the trap: `.github/` and `.agents/` routinely return 0 matches from `glob` for directories that plainly exist and that you can read. Confirm existence ONCE by reading the directory itself (`read` / `list` on the directory), take that as the answer, and move on. Observed cost of ignoring this: in one review all three documentation chunks spent their turn re-globbing one dot-prefixed docs tree in several variants — two ran out of turn part-way through the structured block at the end of their output, and the third never wrote a review at all.
 
 **MANDATORY WORKFLOW for Critical/High issues:**
 1. Identify potential issue in the DIFF

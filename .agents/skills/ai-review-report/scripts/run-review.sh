@@ -12,7 +12,7 @@
 #        run: bash ${REVIEW_SKILL_DIR}/scripts/run-review.sh
 #
 #   2. Local-job packaging (for consumers under allowed_actions: "selected")
-#      .docs/examples/code-review-local.yml:
+#      docs/examples/code-review-local.yml:
 #        - uses: actions/checkout@<sha>                  # for the PR
 #        - uses: actions/checkout@<sha>                  # for the tooling
 #          with: { repository: ..., ref: <pinned-sha>, path: .review-tools }

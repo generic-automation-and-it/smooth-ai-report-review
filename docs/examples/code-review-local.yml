@@ -17,7 +17,7 @@
 #   meant to gate — technically compliant, but contrary to its intent. The consumer
 #   MUST get security sign-off from the org/enterprise admin before adopting this
 #   packaging. If the admin can add `generic-automation-and-it/smooth-ai-report-review@*`
-#   to the allow-list, prefer the reusable-workflow caller (.docs/examples/code-review-caller.yml)
+#   to the allow-list, prefer the reusable-workflow caller (docs/examples/code-review-caller.yml)
 #   — it is the path the policy was designed to govern and is materially easier to
 #   audit.
 #

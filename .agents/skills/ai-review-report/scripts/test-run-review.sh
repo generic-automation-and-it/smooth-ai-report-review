@@ -261,8 +261,8 @@ echo "=========================================="
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 DRAFT_GUARD_FILES=(
   ".github/workflows/pipeline-code-review-report.yml"
-  ".docs/examples/code-review-local.yml"
-  ".docs/examples/code-review-caller.yml"
+  "docs/examples/code-review-local.yml"
+  "docs/examples/code-review-caller.yml"
 )
 
 # Extract the run_on_draft guard line from a packaging, normalized of indentation.
@@ -888,7 +888,7 @@ for step in next(iter(data['jobs'].values()))['steps']:
   fi
 }
 assert_simplified_checkout_shape ".github/workflows/pipeline-code-review-report.yml"
-assert_simplified_checkout_shape ".docs/examples/code-review-local.yml"
+assert_simplified_checkout_shape "docs/examples/code-review-local.yml"
 
 # 7b. Both caller templates must set MANDATORY_CONTEXT_FILES to the
 # same default value (PR #86 review 4820072658 finding #3). Drift here
@@ -917,11 +917,11 @@ print(m.group(1) if m else '')
 " 2>/dev/null
 }
 mc_reusable="$(assert_mandatory_context_files_match .github/workflows/pipeline-code-review-report.yml)"
-mc_local="$(assert_mandatory_context_files_match .docs/examples/code-review-local.yml)"
+mc_local="$(assert_mandatory_context_files_match docs/examples/code-review-local.yml)"
 check "MANDATORY_CONTEXT_FILES defaults match between packagings" "$mc_reusable" "$mc_local"
 check "MANDATORY_CONTEXT_FILES defaults to none" "none" "$mc_reusable"
 
-# 7. The local-job example (.docs/examples/code-review-local.yml) pins
+# 7. The local-job example (docs/examples/code-review-local.yml) pins
 # the upstream `ref:` to a commit SHA. That SHA MUST be reachable on
 # the remote AND must contain `.agents/skills/ai-review-report/scripts/run-review.sh`
 # — the entrypoint the example invokes in the very next step. A
@@ -963,11 +963,11 @@ for step in data['jobs']['review']['steps']:
   has_script="$(git ls-tree "$ref" -- .agents/skills/ai-review-report/scripts/run-review.sh 2>/dev/null | wc -l | tr -d ' ')"
   check "$file ref contains run-review.sh (pin is post-entrypoint)" "1" "$has_script"
 }
-assert_example_pin_is_valid ".docs/examples/code-review-local.yml"
+assert_example_pin_is_valid "docs/examples/code-review-local.yml"
 assert_step_forwards_github_token "reusable workflow" \
   ".github/workflows/pipeline-code-review-report.yml"
 assert_step_forwards_github_token "local-job caller" \
-  ".docs/examples/code-review-local.yml"
+  "docs/examples/code-review-local.yml"
 fi
 # ── End YAML-level tests gate ─────────────────────────────────────────────
 
