@@ -370,6 +370,17 @@ merged_doc "$TMP_DIR/big_fn.json" '{"#":1,"title":"big","severity":"medium","fil
   bash "$SCORER" "$TMP_DIR/big_fn.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big_diff.txt" > /dev/null 2>&1)
 check "Test 2k: a function too long for the source budget keeps its name and shows the lines around the finding" "1|1|0" \
   "$(ctx_of big | grep -c 'Enclosing function `huge` (lines 1-130 of `src/c.sh`, code-graph risk 0.5), lines 50-70 around the finding')|$(ctx_of big | grep -c '^    60 | ')|$(ctx_of big | grep -c '^     1 | ')"
+# Over budget WITH caller hints: the optional hints give way first, so the
+# source excerpt and the hunk are preserved exactly as without them.
+reset_stub big_callers
+merged_doc "$TMP_DIR/big_cc.json" '{"#":1,"title":"big","severity":"medium","file":"src/c.sh","line":45,"why_it_matters":"w","verified":true,"chunks":[0]}'
+(cd "$BIG" && env PATH="$BIN:$PATH" OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS=1 OPENCODE_GO_OPENAI_API_KEY=k \
+  _DECISIONS_RETRY_DELAY=0 _DECISIONS_SOURCE_REV="$(git rev-parse HEAD)" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph_big.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 CRG_MODE=ok \
+  bash "$SCORER" "$TMP_DIR/big_cc.json" "$TMP_DIR/no_reviews" 1 "$TMP_DIR/big_diff.txt" "$TMP_DIR/big_rules.md" > "$TMP_DIR/big_cc.log" 2>&1)
+check "Test 2k2: caller hints are dropped first, source evidence and hunk preserved" "1|0|1|1|yes" \
+  "$(grep -c 'caller hints dropped to fit' "$TMP_DIR/big_cc.log")|$(ctx_of big | grep -c 'Caller sites of')|$(ctx_of big | grep -c 'of `src/c.sh`')|$(ctx_of big | grep -c '^    45 | added line 045')|$(s="$(finding_reqs | head -n 1 | wc -c | tr -d ' ')"; [ "$s" -le 40000 ] && echo yes || echo "no ($s)")"
+
 # No room at all (rules at their cap): the context is dropped, THEN the hunk trimmed.
 head -c 13000 /dev/zero | tr '\0' 'r' > "$TMP_DIR/cap_rules.md"
 BIG2="$TMP_DIR/big2"

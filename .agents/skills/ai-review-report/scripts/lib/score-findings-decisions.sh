@@ -594,7 +594,7 @@ numbered_lines() {
 # The budget loop calls this again with the room a request has left.
 code_context_for() {
   local idx="$1" f="$2" L="$3" out="$4" src="$work/f_${1}.src" text="$work/f_${1}.text" part="$work/f_${1}.part"
-  local max="${5:-$CODE_CONTEXT_MAX_BYTES}" g start end fname risk istest label df dl named=0 lo hi w
+  local max="${5:-$CODE_CONTEXT_MAX_BYTES}" allow_callers="${6:-true}" g start end fname risk istest label df dl named=0 lo hi w
   local source_max=$(( ${5:-$CODE_CONTEXT_MAX_BYTES} * 2 / 3 )) named_max=$(( ${5:-$CODE_CONTEXT_MAX_BYTES} / 6 ))
   [ "$code_context_on" = true ] || return 1
   : > "$out.raw"
@@ -676,7 +676,8 @@ code_context_for() {
   # an edge is not proof of a call path, and an absent edge is not proof of
   # absence. Fail-open — no graph JSON, no function name, no CLI, a failed or
   # timed-out query, or a non-ok status all omit the block.
-  if [ "$caller_context_on" = true ] && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
+  if [ "$caller_context_on" = true ] && [ "$allow_callers" = true ] \
+     && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
      && command -v code-review-graph >/dev/null 2>&1; then
     local qout qrc=0 callers_max used room header_bytes caller_header_fmt
     # Without a timeout utility the query has no deadline, and an optional hint
@@ -797,14 +798,26 @@ while [ "$i" -lt "$to_score" ]; do
   build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
   size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
   if [ "$size" -gt "$BUDGET_BYTES" ] && [ -f "$work/f_${i}.ctx" ]; then
-    # Code context gives way first — rebuilt for the room left (a narrower
-    # window, still centred on the finding's line), then dropped — so the
-    # pre-LADR-098 request is always the fallback and the diff hunk is never
-    # trimmed while context remains.
+    # The optional caller hints give way FIRST (LADR-120): they are additive
+    # context, so rebuilding without them preserves the source excerpt and the
+    # named-file hunks at their existing shares. Only then does the LADR-098
+    # fallback narrow, then drop, the remaining context.
+    if grep -qF 'Caller sites of' "$work/f_${i}.ctx" 2>/dev/null; then
+      code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$CODE_CONTEXT_MAX_BYTES" false
+      build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
+      size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
+      info "finding $((i + 1)): caller hints dropped to fit the ${BUDGET_BYTES}-byte request budget"
+    fi
+  fi
+  if [ "$size" -gt "$BUDGET_BYTES" ] && [ -f "$work/f_${i}.ctx" ]; then
+    # Code context gives way next — rebuilt for the room left (a narrower
+    # window, still centred on the finding's line, and never with caller hints
+    # re-added), then dropped — so the pre-LADR-098 request is always the
+    # fallback and the diff hunk is never trimmed while context remains.
     ctx_size="$(wc -c < "$work/f_${i}.ctx" | tr -d ' ')"
     # 200 bytes of headroom for JSON escaping of the rebuilt text.
     room=$(( BUDGET_BYTES - (size - ctx_size) - 200 ))
-    if [ "$room" -ge 600 ] && code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$room"; then
+    if [ "$room" -ge 600 ] && code_context_for "$i" "$file" "$line" "$work/f_${i}.ctx" "$room" false; then
       build_finding_request "$i" "$work/f_${i}.hunk" "$work/f_${i}.req"
       size="$(wc -c < "$work/f_${i}.req" | tr -d ' ')"
       info "finding $((i + 1)): code context shortened to fit the ${BUDGET_BYTES}-byte request budget"
