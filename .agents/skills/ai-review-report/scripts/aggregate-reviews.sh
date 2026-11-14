@@ -545,7 +545,18 @@ fi
 echo "⏱️  Summary budget: ${SUMMARY_TIMEOUT}s across ${ORCHESTRATOR_MODEL_ID} → ${OPENCODE_MODEL_ID} (LADR-092)"
 agg_ok=true
 SUMMARY_RC=0
-OPENCODE_RUN_CWD="$ORCH_RUN_CWD" bash "$(dirname "${BASH_SOURCE[0]}")/lib/run-split-chain.sh" summary "$SUMMARY_TIMEOUT" "$SUMMARY_PRIMARY_MIN_SECONDS" "$SUMMARY_SECONDARY_MIN_SECONDS" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || { SUMMARY_RC=$?; agg_ok=false; }
+# LADR-121: the deadline is also checked before the aggregation summary — it is
+# the last model call of the run, and a reached deadline stops new work. The
+# empty summary takes the existing fallback-template path, which fails closed;
+# the deadline banner explains why.
+if [ "${_RUN_DEADLINE_REACHED:-false}" = "true" ]; then
+  agg_ok=false
+  : > ci_temp/pr_summary.md
+  : > ci_temp/summary_stderr.log
+  echo "⏱️  Aggregation summary skipped: the opt-in run deadline was reached — no further model work is spent (LADR-121)"
+else
+  OPENCODE_RUN_CWD="$ORCH_RUN_CWD" bash "$(dirname "${BASH_SOURCE[0]}")/lib/run-split-chain.sh" summary "$SUMMARY_TIMEOUT" "$SUMMARY_PRIMARY_MIN_SECONDS" "$SUMMARY_SECONDARY_MIN_SECONDS" "$ORCHESTRATOR_MODEL_ID" "$OPENCODE_MODEL_ID" -- ci_temp/summary_prompt.txt > ci_temp/pr_summary.md 2>ci_temp/summary_stderr.log || { SUMMARY_RC=$?; agg_ok=false; }
+fi
 # The chain's status lines (split, which model timed out or failed and after how
 # long, who answered) go to stderr with a fixed prefix so summary_stderr.log
 # keeps the whole story; lift them onto the console too, because on success the
@@ -619,6 +630,19 @@ SHORT_CURRENT_SHA="${CURRENT_SHA:0:7}"
 # review text for the failure marker (a quoted marker false-matched on PR #15).
 FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
 
+# LADR-121: chunks the opt-in run deadline never launched. They carry no
+# `chunk_<n>.failed` flag — that channel belongs to LADR-031 alone — and they
+# produced no sidecar, so they are excluded from the sidecar expectation and
+# named by their own banner. An empty list on every unbounded run.
+UNREVIEWED_CHUNKS="${UNREVIEWED_CHUNKS:-}"
+UNREVIEWED_COUNT=0
+UNREVIEWED_LIST=""
+if [ -n "$UNREVIEWED_CHUNKS" ]; then
+  UNREVIEWED_LIST="$(printf '%s' "$UNREVIEWED_CHUNKS" | tr ',' '\n' | grep -E '^[0-9]+$' | sort -n | paste -sd, - || true)"
+  UNREVIEWED_COUNT="$(printf '%s\n' "$UNREVIEWED_LIST" | tr ',' '\n' | grep -cE '^[0-9]+$' || true)"
+fi
+UNREVIEWED_COUNT="${UNREVIEWED_COUNT:-0}"
+
 # LADR-055: render Part 1's Issues Summary from the merged structured findings
 # instead of the orchestrator's free-text list, when — and only when — every
 # chunk that actually reviewed something contributed a sidecar.
@@ -663,7 +687,8 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # omits that chunk while reporting full coverage. `merged_chunks` is the
   # merge's own answer to "whose findings are in here"; nothing else is.
   SIDECAR_COUNT=$(jq -r '(.merged_chunks // []) | length' "$MERGED_FINDINGS_FILE" 2>/dev/null || echo 0)
-  EXPECTED_SIDECARS=$((TOTAL_CHUNKS - FAILED_CHUNK_COUNT))
+  EXPECTED_SIDECARS=$((TOTAL_CHUNKS - FAILED_CHUNK_COUNT - UNREVIEWED_COUNT))
+  if [ "$EXPECTED_SIDECARS" -lt 0 ]; then EXPECTED_SIDECARS=0; fi
   # Which reviewed chunks contributed nothing. `merged_chunks` is the merge's own
   # list; anything reviewed-but-absent from it is a gap the reader must be told
   # about by number, so they know which detailed section to open.
@@ -681,11 +706,17 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
         | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(tonumber)' 2>/dev/null || echo "[]")
     fi
     failed_arg="${failed_sidecar_chunks:-[]}"
+    # Chunks the deadline never launched are not "reviewed but sidecar-less"
+    # either: they were never reviewed at all, and their own banner says so.
+    unreviewed_arg="$(printf '%s' "$UNREVIEWED_LIST" | tr ',' '\n' | grep -E '^[0-9]+$' \
+      | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(tonumber)' 2>/dev/null || true)"
+    [ -n "$unreviewed_arg" ] || unreviewed_arg="[]"
     MISSING_SIDECAR_CHUNKS=$(
-      jq -r --argjson total "$TOTAL_CHUNKS" --argjson failed "$failed_arg" '
+      jq -r --argjson total "$TOTAL_CHUNKS" --argjson failed "$failed_arg" --argjson unreviewed "$unreviewed_arg" '
         (.merged_chunks // []) as $have
         | ($failed // []) as $failed
-        | [ range(0; $total) | select( . as $c | ($have | index($c)) == null and ($failed | index($c)) == null ) ]
+        | ($unreviewed // []) as $unreviewed
+        | [ range(0; $total) | select( . as $c | ($have | index($c)) == null and ($failed | index($c)) == null and ($unreviewed | index($c)) == null ) ]
         | map(tostring) | join(", ")
       ' "$MERGED_FINDINGS_FILE" 2>/dev/null || echo ""
     )
@@ -716,7 +747,16 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # below is one-directional (it can only force request_changes). A partial
   # render can therefore never make a review greener than it would have been.
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -gt 0 ]; then
-    if _QUOTE_VERIFICATION_JSON="ci_temp/quote_verification.json" \
+    # LADR-121: one Coverage line for the run's elapsed time and deadline. Empty
+    # on an unbounded run, so the block stays byte-identical.
+    # Gated on the DEADLINE, not on elapsed: elapsed is always known, so keying
+    # the line on it would add a Coverage line to every unbounded run and break
+    # the flag-unset byte-identity contract.
+    _RUN_DEADLINE_LINE=""
+    if [ -n "${_RUN_DEADLINE_SECONDS:-}" ] && [ -n "${_RUN_ELAPSED_SECONDS:-}" ]; then
+      _RUN_DEADLINE_LINE="- **Run time:** ${_RUN_ELAPSED_SECONDS}s elapsed (opt-in deadline ${_RUN_DEADLINE_SECONDS}s)"
+    fi
+    if _QUOTE_VERIFICATION_JSON="ci_temp/quote_verification.json" _RUN_DEADLINE_LINE="$_RUN_DEADLINE_LINE" \
        bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
          "$MERGED_FINDINGS_FILE" "$FAILED_CHUNK_COUNT" "$TOTAL_CHUNKS" "$MISSING_SIDECAR_CHUNKS" > ci_temp/issues_summary.md 2>/dev/null \
        && [ -s ci_temp/issues_summary.md ]; then
@@ -919,6 +959,16 @@ if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
   cat >> ci_temp/final_review.md << EOF
 
 > ⚠️ **Review coverage incomplete:** ${FAILED_CHUNK_COUNT} of ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "") failed to review (see the failed-chunk details below). Because part of the PR was not reviewed, this review is posted as **REQUEST CHANGES (fail-closed)** regardless of the Recommendation section. Re-run \`/ai-review\` to retry once the failure is addressed.
+EOF
+fi
+
+# LADR-121: a run that hit its opt-in deadline says which chunks it never
+# reached, and why. Distinct from the failed-chunk banner: nothing failed, and
+# no retry will rescue these — the budget was spent.
+if [ "${UNREVIEWED_COUNT:-0}" -gt 0 ]; then
+  cat >> ci_temp/final_review.md << EOF
+
+> ⚠️ **Review coverage incomplete:** ${UNREVIEWED_COUNT} of ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "") ${UNREVIEWED_LIST:+(${UNREVIEWED_LIST}) }were not reviewed — the opt-in run deadline${_RUN_DEADLINE_SECONDS:+ (${_RUN_DEADLINE_SECONDS}s)} was reached before they could be launched. Nothing is known about them, so this review is posted as **REQUEST CHANGES (fail-closed)** regardless of the Recommendation section. Raise or unset \`OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS\` to review them.
 EOF
 fi
 
@@ -1143,9 +1193,16 @@ fi
 # quoted into existence by review content.
 # LADR-036: FAILED_CHUNK_COUNT was computed from the same flag files before the
 # body was assembled, so the coverage banner above and this override always agree.
-if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ] || [ "${UNREVIEWED_COUNT:-0}" -gt 0 ]; then
   if [ "$REVIEW_DECISION" != "request_changes" ]; then
-    echo "⚠️ ${FAILED_CHUNK_COUNT} chunk(s) failed to review — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
+    _cover_detail=""
+    if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+      _cover_detail="${FAILED_CHUNK_COUNT} chunk(s) failed to review"
+    fi
+    if [ "${UNREVIEWED_COUNT:-0}" -gt 0 ]; then
+      _cover_detail="${_cover_detail:+${_cover_detail} and }${UNREVIEWED_COUNT} chunk(s) were not reviewed"
+    fi
+    echo "⚠️ ${_cover_detail} — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
     REVIEW_DECISION="request_changes"
   fi
 fi

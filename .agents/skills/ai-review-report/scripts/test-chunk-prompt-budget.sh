@@ -54,6 +54,14 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 FAILURES=0
 pass() { echo "✅ $1"; }
 fail() { echo "❌ $1"; FAILURES=$((FAILURES + 1)); }
+check() {
+  local name="$1" expected="$2" actual="$3"
+  if [ "$actual" = "$expected" ]; then
+    pass "$name"
+  else
+    fail "$name (expected '$expected', got '$actual')"
+  fi
+}
 
 setup_repo() {
   local test_repo="${TMP_DIR}/repo"
@@ -777,10 +785,88 @@ PRBODY2
   mv "${TMP_DIR}/fence.saved" .agents/skills/ai-review-report/scripts/lib/fence-untrusted.sh
 }
 
+# LADR-121: an expired deadline launches no chunk, records every unlaunched
+# chunk on the not-reviewed channel (never the failure channel), skips the retry
+# sweep, and aggregation fails closed with a banner naming them.
+run_deadline_case() {
+  local test_repo="${TMP_DIR}/repo"
+  cd "${test_repo}"
+  local from_sha to_sha
+  from_sha="$(git rev-parse HEAD~1)"
+  to_sha="$(git rev-parse HEAD)"
+
+  rm -rf ci_temp/reviews
+  mkdir -p ci_temp/reviews
+  rm -f ci_temp/chunk_*_prompt.txt
+  local out="${TMP_DIR}/deadline.out"
+  GITHUB_OUTPUT="$out" \
+  PATH="${test_repo}/bin:${PATH}" \
+  OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS=1 \
+  OPENCODE_REVIEW_REPORT_RUN_STARTED_AT=0 \
+  bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh "${from_sha}" "${to_sha}" "test-model" "test expertise" \
+    > "${TMP_DIR}/deadline.log" 2>&1 || true
+
+  local total
+  total="$(grep '^total_chunks=' "$out" | tail -1 | cut -d= -f2)"
+  if grep -q 'Run deadline reached' "${TMP_DIR}/deadline.log"; then
+    pass "deadline: the launcher reports the deadline"
+  else
+    fail "deadline: no deadline message in the launcher log"
+  fi
+  check "deadline: every chunk recorded as not reviewed" "${total}" \
+    "$(ls ci_temp/reviews/chunk_*.not_reviewed 2>/dev/null | wc -l | tr -d ' ')"
+  check "deadline: no chunk-failure flag is written" "0" \
+    "$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')"
+  check "deadline: reported to GITHUB_OUTPUT" "true" \
+    "$(grep '^deadline_expired=' "$out" | tail -1 | cut -d= -f2)"
+  check "deadline: the unreviewed list is emitted" "0,1,2,3,4" \
+    "$(grep '^unreviewed_chunks=' "$out" | tail -1 | cut -d= -f2)"
+  check "deadline: the retry sweep is skipped" "1" \
+    "$(grep -c 'Retry sweep skipped: run deadline reached' "${TMP_DIR}/deadline.log")"
+
+  # Aggregation fails closed on the same list, even with the stub's APPROVE.
+  GITHUB_OUTPUT="${TMP_DIR}/deadline-agg.out" \
+  PATH="${test_repo}/bin:${PATH}" \
+  UNREVIEWED_CHUNKS="0,1,2,3,4" _RUN_ELAPSED_SECONDS=7 _RUN_DEADLINE_SECONDS=1 _RUN_DEADLINE_REACHED=true \
+  bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh "5" "test-model" "full" "aaaaaaa1234" "12" "bbbbbbb5678" "test expertise" "none" \
+    > "${TMP_DIR}/deadline-agg.log" 2>&1 || true
+
+  if grep -q 'were not reviewed' ci_temp/final_review.md \
+     && grep -q 'the opt-in run deadline' ci_temp/final_review.md; then
+    pass "deadline: the posted body names the unreviewed chunks and the deadline"
+  else
+    fail "deadline: no deadline coverage banner in final_review.md"
+  fi
+  check "deadline: the aggregation summary is skipped" "1" \
+    "$(grep -c 'Aggregation summary skipped: the opt-in run deadline was reached' "${TMP_DIR}/deadline-agg.log")"
+  check "deadline: the verdict fails closed" "request_changes" \
+    "$(grep '^review_action=' "${TMP_DIR}/deadline-agg.out" | tail -1 | cut -d= -f2)"
+
+  # The Coverage line is gated on the DEADLINE, not on elapsed: elapsed is
+  # always known, so an elapsed-only gate would add the line to every unbounded
+  # run and break the flag-unset byte-identity contract.
+  jq -n '{status:"complete", findings:[], pre_existing_findings:[], suppressed_findings:[],
+          suppressed_by_confidence:{}, merged_duplicates:0, demoted_no_quote:0,
+          malformed_findings:0, malformed_returns:0, merged_chunks:[0]}' > "${TMP_DIR}/dl-doc.json"
+  _RUN_DEADLINE_LINE='- **Run time:** 7s elapsed (opt-in deadline 1s)' \
+    bash .agents/skills/ai-review-report/scripts/lib/render-findings-summary.sh "${TMP_DIR}/dl-doc.json" 0 1 "" \
+    > "${TMP_DIR}/dl-render.md" 2>"${TMP_DIR}/dl-render.err" || true
+  check "deadline: the renderer emits the run-time line when given it" "1" \
+    "$(grep -cF 'Run time:' "${TMP_DIR}/dl-render.md" || true)"
+  check "deadline: the line is gated on the deadline, not on elapsed" "1" \
+    "$(grep -c 'if \[ -n "${_RUN_DEADLINE_SECONDS:-}" \] && \[ -n "${_RUN_ELAPSED_SECONDS:-}" \]' .agents/skills/ai-review-report/scripts/aggregate-reviews.sh)"
+  if grep -qE '#[0-9]' ci_temp/final_review.md; then
+    fail "deadline: the banner carries a '#<digit>' autolink hazard"
+  else
+    pass "deadline: the banner carries no '#<digit>'"
+  fi
+}
+
 setup_repo
 run_budget_case
 run_graph_signals_case
 run_author_fence_case
+run_deadline_case
 run_aggregation_case "true" "request_changes" "true" "failed-chunk-fail-closed"
 run_aggregation_case "false" "approve" "false" "clean-approve-passthrough"
 
