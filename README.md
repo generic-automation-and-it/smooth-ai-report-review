@@ -109,7 +109,7 @@ Keys are **Secrets**, rest is **Variables**. Only the selected provider's key mu
 | `OPENCODE_CLI_VERSION` | Pin `2.x`. Blank = reuse any v2, else install latest. |
 | `OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT` | `100`. Over it: request-changes + skip. Per-run: `--file-limit` / `file_limit`. |
 | `OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT` / `OPENCODE_ANALYSE_RUN_ON_DRAFT` | `false`. Truthy reviews / auto-fixes drafts. Separate knobs on purpose. |
-| `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` / `_GRAPH_SIGNALS` | `1` / `1`. Graph hints (risk + coverage) in each chunk prompt. Falsy disables. |
+| `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` / `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS` / `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES` | `1` / `1` / `1024`. Graph analysis plus risk and coverage hints in each chunk prompt. Falsy disables; the byte cap bounds each slice. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` + `_DECISIONS_*` | `0` (off). `annotate` shows scores; `filter` suppresses non-critical below threshold, full coverage only. |
 | `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` | Off. Truthy lets the fixer edit tests; evals stay off-limits always. |
 | `OPENCODE_ANALYSE_MAX_INCREMENTAL` | `3`. Auto-fix cycles per full-review epoch. |
