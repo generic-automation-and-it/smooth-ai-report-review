@@ -56,8 +56,10 @@ trim() {
 # a source line it does not equal. ENVIRON passes the string through untouched —
 # the same reason renumber-suggested-fixes.sh reads its mapping from a file.
 contains_line() {
+  # Trailing `\r` is trimmed too: a CRLF source line would otherwise never equal
+  # a quote whose own surrounding whitespace was already stripped.
   Q="$2" awk '
-    { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == ENVIRON["Q"]) { found=1; exit } }
+    { t=$0; sub(/^[ \t\r]+/,"",t); sub(/[ \t\r]+$/,"",t); if (t == ENVIRON["Q"]) { found=1; exit } }
     END { exit(found ? 0 : 1) }
   ' <<< "$1"
 }
@@ -160,13 +162,20 @@ while IFS= read -r row; do
   # first twenty candidate files and five confirming ones.
   confirming=""
   confirmed=0
+  # A search that could not examine every candidate is inconclusive, never a
+  # miss: a failed candidate read, or a candidate list longer than the cap,
+  # means the quote may exist in a file that was never checked. Demoting there
+  # would suppress a genuine finding — the fail-open rule's exact failure mode.
+  inconclusive=0
+  cand_total="$(printf '%s\n' "$hits" | wc -l | tr -d ' ')"
+  [ "$cand_total" -gt 20 ] && inconclusive=1
   while IFS= read -r cand; do
     cand="${cand#"${rev}:"}"
     [ -n "$cand" ] || continue
     [ "$cand" = "$qfile" ] && continue
     cand_rc=0
     cand_content="$(git_bounded show "${rev}:${cand}" 2>/dev/null)" || cand_rc=$?
-    [ "$cand_rc" -eq 0 ] || continue
+    if [ "$cand_rc" -ne 0 ]; then inconclusive=1; continue; fi
     if contains_line "$cand_content" "$quote"; then
       confirming="${confirming}${confirming:+$'\n'}${cand}"
       confirmed=$((confirmed + 1))
@@ -179,6 +188,9 @@ while IFS= read -r row; do
     record "$idx" "$qfile" "found_elsewhere" "quote_in_other_file" \
       "$(printf '%s\n' "$confirming" | jq -R . | jq -s '{found_in: .}')"
     continue
+  fi
+  if [ "$inconclusive" -eq 1 ]; then
+    skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "incomplete_search"; continue
   fi
 
   demoted=$((demoted + 1))

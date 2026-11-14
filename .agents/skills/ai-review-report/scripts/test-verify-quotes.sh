@@ -51,7 +51,17 @@ printf 'indent file\n        var spaced = DoThing(value);\n' > src/c.cs
 printf 'escaped line\nconst path = "a\\b.c";\n' > src/d.cs
 # The quote appears only inside a longer comment line, never as a whole line.
 printf 'comment file\n// legacy: var legacy = OldGuard(account); was removed\n' > src/e.cs
-git add src
+printf 'crlf file\r\nvar crlf = KeepThis(value);\r\n' > src/g.cs
+# 22 substring candidates: the only whole-line match sorts past the cap of 20,
+# so the repo-wide look cannot conclude the quote is absent.
+mkdir -p many
+i=1
+while [ "$i" -le 21 ]; do
+  printf '// note: var many = Many(value); in a comment\n' > "many/c${i}.cs"
+  i=$((i + 1))
+done
+printf 'var many = Many(value);\n' > many/z99.cs
+git add src many
 git commit -q -m base
 REV="$(git rev-parse HEAD)"
 
@@ -236,6 +246,38 @@ bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
 check "substring-only quote: demoted" "1" "$(jq -r '.demoted' "$r")"
 check "substring-only quote: not reported as found elsewhere" "0" "$(jq -r '.found_elsewhere' "$r")"
 check "substring-only quote: anchor stepped down" "0" "$(jq -r '.findings | length' "$m")"
+
+# A CRLF source line must compare equal to the same text, not fail on the \r.
+doc="$(mk_doc "[$(finding high 100 'src/g.cs:2 -- var crlf = KeepThis(value);' src/g.cs 2)]")"
+m="${TMP_DIR}/crlf.merged.json"; r="${TMP_DIR}/crlf.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "CRLF source line keeps its anchor" "100" "$(jq -r '.findings[0].confidence' "$m")"
+
+# An unreadable candidate makes the repo-wide look inconclusive: skip, not demote.
+real_git_cand="$(command -v git)"
+shim_cand="${TMP_DIR}/shim-cand"
+mkdir -p "$shim_cand"
+cat > "${shim_cand}/git" <<SHIM
+#!/bin/bash
+if [ "\$1" = "show" ] && [[ "\$2" == *":src/e.cs" ]]; then exit 1; fi
+exec "${real_git_cand}" "\$@"
+SHIM
+chmod +x "${shim_cand}/git"
+doc="$(mk_doc "[$(finding high 100 'src/a.cs:2 -- var legacy = OldGuard(account);' src/a.cs 2)]")"
+m="${TMP_DIR}/incomplete.merged.json"; r="${TMP_DIR}/incomplete.report.json"
+printf '%s\n' "$doc" > "$m"
+PATH="${shim_cand}:${PATH}" bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "unreadable candidate: anchor unchanged" "100" "$(jq -r '.findings[0].confidence' "$m")"
+check "unreadable candidate: reported as incomplete" "incomplete_search" "$(jq -r '.findings[0].reason' "$r")"
+
+# A candidate list past the cap is inconclusive even when nothing failed.
+doc="$(mk_doc "[$(finding high 100 'src/a.cs:2 -- var many = Many(value);' src/a.cs 2)]")"
+m="${TMP_DIR}/truncated.merged.json"; r="${TMP_DIR}/truncated.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "candidate cap: anchor unchanged" "100" "$(jq -r '.findings[0].confidence' "$m")"
+check "candidate cap: reported as incomplete" "incomplete_search" "$(jq -r '.findings[0].reason' "$r")"
 
 echo ""
 echo "Part 3b — survivors stay contiguously numbered"
