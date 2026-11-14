@@ -316,6 +316,7 @@ jq -r '
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",
   "- **Demoted for missing quoted evidence:** \(.demoted_no_quote) (claimed confidence ≥ 75 without quoting the motivating line, stepped down to 50)",
   ( if $qv != "" then $qv else empty end ),
+  ( if $dl != "" then $dl else empty end ),
   # The buckets must be ordered HERE, not in merge-findings.py. Its keys are
   # strings (`str(confidence)`) and it serialises with `sort_keys=True`, which
   # re-sorts every nested object lexicographically — so 0, 100, 25, 50, 75.
@@ -347,4 +348,4 @@ jq -r '
   ""
 ' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" \
     --arg missing_chunks "$missing_chunks" --argjson decisions_on "$decisions_on" \
-    --arg qv "$qv_line" "$merged"
+    --arg qv "$qv_line" --arg dl "${_RUN_DEADLINE_LINE:-}" "$merged"

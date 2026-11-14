@@ -1369,6 +1369,15 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: The judge can reason about reachability with evidence it previously lacked. The hints are additive in the request budget too: when a request would exceed it, the caller block is dropped **before** the source excerpt is narrowed or the context removed, so enabling the flag never costs evidence the judge already received. With the flag off the request is byte-identical to the LADR-098 shape. False edges can only help a judge confirm, and a false negative degrades to today's context rather than to a wrong verdict. No new secret, endpoint, model call or web access: the query is a local CLI over the existing graph artifact.
 - **See also**: LADR-050, LADR-093, LADR-098, LADR-111, LADR-119.
 
+### LADR-121: An opt-in total-run deadline stops new work and reports the chunks it never reached
+
+- **Date**: 2026-11-14
+- **Status**: Accepted (`review-in-chunks.sh` launch loop and retry sweep; `aggregate-reviews.sh` banner and verdict; `run-review.sh` env and metadata; flag in both packagings and `local-review.sh`; pinned by `test-chunk-prompt-budget.sh`)
+- **Context**: Per-chunk, stall and summary budgets bound each call, but nothing bounds the whole run. PR-AF's committed benchmark shows a phase-boundary check cannot interrupt a call — 21 of 38 runs exceeded the 3600 s campaign cap, the longest at 4758.7 s — so any useful ceiling must stop *new* work between launches rather than try to kill work in flight.
+- **Decision**: `OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS` (default **unset** — an unbounded gate is today's behaviour, and a guessed ceiling that fires early is worse than none) is measured from gate start (`OPENCODE_REVIEW_REPORT_RUN_STARTED_AT`, exported before any work). `review-in-chunks.sh` checks it before each chunk launch and, once reached, launches nothing further: every remaining chunk gets a `chunk_<n>.not_reviewed` marker — deliberately a different channel from `chunk_<n>.failed` (LADR-031) — so the LADR-082 retry sweep cannot select it, and the sweep is skipped outright for the run. Before the aggregation summary `run-review.sh` checks it again and `aggregate-reviews.sh` skips that last model call. Aggregation names the unreviewed chunks in a second, distinct coverage banner, forces `REQUEST_CHANGES` exactly as a failed chunk does, excludes them from the sidecar expectation and the missing-sidecar list, and reports elapsed time and the deadline in one Coverage line; `metadata.json` records `run_deadline_seconds`, `run_elapsed_seconds` and `unreviewed_chunks`. With the Variable unset, launches, the retry sweep, the merged document and the posted body are byte-identical.
+- **Consequences**: A runaway multi-chunk run stops predictably between calls and cannot spend its retry budget afterwards. The verdict hardens rather than softens — unreviewed chunks fail closed like failed ones — and the exit code is unchanged. Nothing interrupts a running call, and no new per-chunk timeout Variable is introduced; the deadline is additive to LADR-065/081/102.
+- **See also**: LADR-031, LADR-036, LADR-064, LADR-082, LADR-120.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1572,6 +1581,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 | Date | Change | Ref |
 | 2026-11-14 | Posted reviews renamed to Smooth AI Review with powered-by OpenCode footer, ASCII banner removed, matchers accept both headers, README/SKILL.md non-affiliation notes. | LADR-112 |
 |------|--------|-----|
+| 2026-11-14 | Opt-in total-run deadline: no chunk launches and no retry spend after it; unlaunched chunks on a not-reviewed channel, aggregation fails closed with a banner naming them, elapsed and deadline in metadata and one Coverage line. | LADR-121 |
 | 2026-11-14 | Decision model's code context carries caller sites of the enclosing function as graph-derived hints: five sites, timeout-bounded, no question or criterion change, omitted on any failure. | LADR-120 |
 | 2026-11-14 | Quoted evidence verified against the tree at the reviewed revision after the merge: a definite miss demotes to 50 (non-critical suppressed, Critical kept), the quote's own file wins, found-elsewhere keeps the anchor, every skip fails open; report in its own file, one Coverage line. | LADR-119 |
 | 2026-11-14 | Author notes fenced as data in both prompt builders: collision-safe envelope whose suffix grows until the marker cannot collide, default-on kill switch, fixed-fence fallback when the helper is missing. | LADR-118 |

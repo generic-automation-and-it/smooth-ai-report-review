@@ -207,6 +207,13 @@ done
 export PATH="$HOME/.opencode/bin:$PATH"
 bash "$SCRIPT_DIR/lib/install-opencode.sh"
 
+# LADR-121: gate start for the opt-in total-run deadline, taken before provider
+# resolution so the deadline is anchored to the run. Kept OUTSIDE the
+# initialization block that test-prepare-opencode-models.sh extracts and runs
+# with a stubbed PATH (which carries no coreutils).
+OPENCODE_REVIEW_REPORT_RUN_STARTED_AT="$(date +%s)"
+export OPENCODE_REVIEW_REPORT_RUN_STARTED_AT
+
 # Resolve the selected provider → provider-id + gateway creds, and fail fast on
 # missing creds / a model chain that doesn't match the provider. Export the model
 # chain FIRST so the resolver can validate it (primary = --model arg). These are
@@ -225,6 +232,10 @@ export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 # Caller context (LADR-120) — OFF by default; mirrors the gate.
 OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
+# Total-run deadline (LADR-121) — unset by default; mirrors the gate. The start
+# epoch is assigned above, outside the extracted initialization block.
+OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
+export OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review
@@ -659,6 +670,11 @@ bash "$SCRIPT_DIR/review-in-chunks.sh" \
 TOTAL_CHUNKS=$(grep '^total_chunks=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 
+# LADR-121: the deadline outcome, absent on every unbounded run. Only the chunk
+# list is consumed; the reached flag is recomputed from elapsed time below.
+UNREVIEWED_CHUNKS=$(grep '^unreviewed_chunks=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2 || true)
+export UNREVIEWED_CHUNKS
+
 # --- Step 5b: Merge structured findings (LADR-055) ---
 # Mirrors run-review.sh's merge call site. The LADR-055 coverage precondition
 # (EXPECTED_SIDECARS == SIDECAR_COUNT) lives in aggregate-reviews.sh, not here —
@@ -716,6 +732,19 @@ unset _lr_structured
 echo ""
 echo "🔗 Aggregating reviews..."
 echo ""
+# LADR-121: mirrors the gate's aggregation inputs — elapsed time, the deadline,
+# and whether it was reached before the summary call.
+_RUN_ELAPSED_SECONDS=$(( $(date +%s) - OPENCODE_REVIEW_REPORT_RUN_STARTED_AT ))
+_RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
+_RUN_DEADLINE_REACHED=false
+case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
+  ''|*[!0-9]*) ;;
+  *) if [ "$_RUN_ELAPSED_SECONDS" -ge "$OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS" ]; then
+       _RUN_DEADLINE_REACHED=true
+     fi ;;
+esac
+export _RUN_ELAPSED_SECONDS _RUN_DEADLINE_SECONDS _RUN_DEADLINE_REACHED
+
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "$TOTAL_CHUNKS" \
   "$OPENCODE_MODEL" \
