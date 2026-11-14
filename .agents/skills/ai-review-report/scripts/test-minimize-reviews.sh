@@ -66,8 +66,8 @@ fi
 if ! command -v jq >/dev/null 2>&1; then
   echo "⚠️  Test 4 skipped: jq not available — cannot verify regex match semantics (pattern extracted: $PATTERN)"
 else
-  REAL='## 🤖 OpenCode CLI Code Review - Commit: `abc1234`'
-  QUOTED='> ## 🤖 OpenCode CLI Code Review (quoted by a human in a follow-up comment)'
+  REAL='## 🤖 Smooth AI Review — Commit: `abc1234`'
+  QUOTED='> ## 🤖 Smooth AI Review (quoted by a human in a follow-up comment)'
   REAL_MATCH=$(printf '%s' "$REAL"   | jq -Rs --arg re "$PATTERN" 'test($re)')
   QUOTE_MATCH=$(printf '%s' "$QUOTED" | jq -Rs --arg re "$PATTERN" 'test($re)')
 
@@ -116,8 +116,7 @@ echo ""
 
 # Test 6: a full review minimizes EVERY issue comment this pipeline still has
 # visible on the PR — any body whose first line is the gate header ("## 🤖
-# OpenCode CLI Code Review"), the failure header ("## ❌ OpenCode CLI Code
-# Review Workflow Failed"), or an ai-analyse auto-fix header. The skip notices
+# Smooth AI Review"), the failure header ("## ❌ Smooth AI Review Workflow Failed"), or an ai-analyse auto-fix header. The skip notices
 # (trivial-skip, blocked-incremental) and the failure comment are all matched by
 # their leading header, not a per-shape marker.
 #
@@ -132,7 +131,7 @@ echo "Test 6: comment selector covers gate/analyse headers, skips quoted/foreign
 MIN_SH=.agents/skills/ai-review-report/scripts/minimize-previous-reviews.sh
 COMMENT_SELECT=$(awk '/comment_node_ids=\$\(echo "\$comments_json"/,/^  \)$/' "$MIN_SH")
 
-for marker in '^#+ 🤖 (Gemini CLI' '^#+ ❌ OpenCode CLI Code Review Workflow Failed' \
+for marker in '^#+ 🤖 ((Gemini CLI' 'Smooth AI Review) Workflow Failed' \
               'ai-analyse auto-fix' 'isMinimized' 'viewerDidAuthor'; do
   if ! printf '%s' "$COMMENT_SELECT" | grep -qF "$marker"; then
     echo "❌ Test 6 failed: marker '$marker' missing from the comment selector"
@@ -171,31 +170,31 @@ else
 {
   "data": { "repository": { "pullRequest": { "comments": { "nodes": [
     { "id": "gate-trivial",
-      "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\n⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest.\n\n**Why?** Trivial-PR skip (`model-veto`).",
+      "body": "## 🤖 Smooth AI Review — Commit: `abc1234`\n\n⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest.\n\n**Why?** Trivial-PR skip (`model-veto`).",
       "isMinimized": false, "viewerDidAuthor": true },
     { "id": "gate-blocked",
-      "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\n⏭️ **Skipping incremental review** - Existing blocking review from @github-actions[bot] requires full review for clearance.",
+      "body": "## 🤖 Smooth AI Review — Commit: `abc1234`\n\n⏭️ **Skipping incremental review** - Existing blocking review from @github-actions[bot] requires full review for clearance.",
       "isMinimized": false, "viewerDidAuthor": true },
     { "id": "gate-error",
-      "body": "## ❌ OpenCode CLI Code Review Workflow Failed\n\nThe automated code review workflow encountered a critical failure and could not complete.",
+      "body": "## ❌ Smooth AI Review Workflow Failed\n\nThe automated code review workflow encountered a critical failure and could not complete.",
       "isMinimized": false, "viewerDidAuthor": true },
     { "id": "analyse-summary",
       "body": "## ai-analyse auto-fix summary\n\n| Finding | Action |",
       "isMinimized": false, "viewerDidAuthor": false },
     { "id": "gate-null-minimized",
-      "body": "## 🤖 OpenCode CLI Code Review - Commit: `def5678`\n\n⏭️ **Skipping review**",
+      "body": "## 🤖 Smooth AI Review — Commit: `def5678`\n\n⏭️ **Skipping review**",
       "viewerDidAuthor": true },
     { "id": "skip-quoted-gate",
-      "body": "> ## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n> ⏭️ Skipping incremental review - Existing blocking review...",
+      "body": "> ## 🤖 Smooth AI Review — Commit: `abc1234`\n> ⏭️ Skipping incremental review - Existing blocking review...",
       "isMinimized": false, "viewerDidAuthor": true },
     { "id": "skip-quoted-error",
-      "body": "> ## ❌ OpenCode CLI Code Review Workflow Failed\n> The automated code review workflow encountered a critical failure.",
+      "body": "> ## ❌ Smooth AI Review Workflow Failed\n> The automated code review workflow encountered a critical failure.",
       "isMinimized": false, "viewerDidAuthor": true },
     { "id": "skip-foreign-author",
-      "body": "## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\nRe-pasting the gate header while discussing the review above.",
+      "body": "## 🤖 Smooth AI Review — Commit: `abc1234`\n\nRe-pasting the gate header while discussing the review above.",
       "isMinimized": false, "viewerDidAuthor": false },
     { "id": "skip-already-minimized",
-      "body": "## 🤖 OpenCode CLI Code Review - Commit: `0000000`\n\n⏭️ **Skipping review** — hidden by an earlier full review.",
+      "body": "## 🤖 Smooth AI Review — Commit: `0000000`\n\n⏭️ **Skipping review** — hidden by an earlier full review.",
       "isMinimized": true, "viewerDidAuthor": true },
     { "id": "skip-unrelated",
       "body": "LGTM, merging once CI is green.",

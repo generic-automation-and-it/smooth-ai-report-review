@@ -2,6 +2,8 @@
 
 Automated PR code review. Each PR is diffed, split into context-aware chunks, reviewed through the [OpenCode](https://opencode.ai/) CLI, and posted back as one structured review. A full review can approve; incremental reviews only comment.
 
+> Not built by the OpenCode team and not affiliated with Anomaly / OpenCode. OpenCode is a trademark of Anomaly. This project uses the OpenCode CLI (MIT) as transport; posted reviews lead with our own name per https://opencode.ai/brand.
+
 | Skill | What it does |
 |---|---|
 | **`ai-review-report`** | Generates the review: the CI gate, or `ai-review-report --local`. |

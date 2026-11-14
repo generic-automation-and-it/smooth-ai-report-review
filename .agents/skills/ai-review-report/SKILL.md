@@ -19,9 +19,11 @@ allowed-tools:
 effort: high          # pipeline maintenance spans workflow YAML, shell libs, prompts and LADRs
 ---
 
-# OpenCode CLI Code Review
+# Smooth AI Review (powered by OpenCode CLI)
 
 Automated PR code review using chunked processing, context-aware analysis, and provider-selectable models (Gemini / Copilot / OpenAI / Anthropic / OpenCode Go / OpenRouter, chosen by `OPENCODE_REVIEW_REPORT_PROVIDER`) served through the OpenCode v2 CLI. Updated: 2026-09-20. Maintainer: Platform Engineering.
+
+> Not built by the OpenCode team and not affiliated with Anomaly / OpenCode. OpenCode is a trademark of Anomaly. This project uses the OpenCode CLI (MIT) as transport; posted reviews lead with our own name per https://opencode.ai/brand.
 
 **This file is the runtime contract** — how to run a review, the configuration it reads, and the behaviour it must exhibit. Everything an AI coder needs to *maintain* the pipeline lives in the sibling **`AGENTS.md`**: every LADR in full, the editing-time Key Behaviors (script coupling, prompt-authoring rules, transport internals), env-var provenance, skill layout and the confirmed false-positive PR references. Load `AGENTS.md` before changing the workflow, the scripts or the prompts.
 
@@ -105,9 +107,9 @@ An automated code review system that reviews pull requests using the selected pr
 
 ```mermaid
 C4Context
-    title OpenCode CLI Code Review - System Context
+    title Smooth AI Review - System Context
 
-    System(review, "OpenCode CLI Code Review Workflow", "Chunked PR review with context-aware analysis (provider-selectable models via opencode)")
+    System(review, "Smooth AI Review Workflow (powered by OpenCode CLI)", "Chunked PR review with context-aware analysis (provider-selectable models via opencode)")
     System_Ext(gateway, "Model Endpoint", "Selected provider's API or proxy (Gemini/OpenAI/Copilot/Anthropic/OpenCode Go/OpenRouter)")
     System_Ext(github, "GitHub Actions + API", "CI runtime, PR operations, GraphQL")
     System_Ext(repo, "Repository", "Source code, AGENTS.md context files")
