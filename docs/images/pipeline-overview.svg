@@ -100,16 +100,22 @@
     </g>
     <text x="580" y="131" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="600">AI Models</text>
     <text x="580" y="145" text-anchor="middle" fill="#8b949e" font-size="9">any provider · any model</text>
-    <g transform="translate(498, 155)">
-      <rect x="0" y="0" width="52" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-      <text x="26" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">Gemini</text>
-      <rect x="58" y="0" width="42" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-      <text x="79" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">GPT</text>
-      <rect x="106" y="0" width="52" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
-      <text x="132" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">Claude</text>
+    <g transform="translate(503, 150)">
+      <rect x="0" y="0" width="58" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+      <text x="29" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">Anthropic</text>
+      <rect x="64" y="0" width="48" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+      <text x="88" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">OpenAI</text>
+      <rect x="118" y="0" width="36" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+      <text x="136" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">Kimi</text>
     </g>
-    <text x="580" y="187" text-anchor="middle" fill="#79c0ff" font-size="9">any base URL · self-hosted OK</text>
-    <text x="580" y="203" text-anchor="middle" fill="#8b949e" font-size="8.5">native API · LiteLLM · gateway</text>
+    <g transform="translate(531, 171)">
+      <rect x="0" y="0" width="56" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+      <text x="28" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">DeepSeek</text>
+      <rect x="62" y="0" width="36" height="17" rx="8.5" fill="#1a1a2e" stroke="#30363d" stroke-width="1"/>
+      <text x="80" y="12" text-anchor="middle" fill="#79c0ff" font-size="8.5">any</text>
+    </g>
+    <text x="580" y="199" text-anchor="middle" fill="#79c0ff" font-size="9">any base URL · self-hosted OK</text>
+    <text x="580" y="212" text-anchor="middle" fill="#8b949e" font-size="8.5">native API · LiteLLM · gateway</text>
   </g>
 
   <!-- Arrow 3→4 -->
