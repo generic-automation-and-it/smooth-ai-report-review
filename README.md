@@ -82,7 +82,7 @@ graph TD
 
 Why it stays accurate:
 
-- Every Critical/High must quote its `file:line` or drop to Low.
+- In the structured-findings merge, missing quoted evidence demotes confidence ≥ 75 to 50, not severity. Non-critical findings below 75 (including High) are suppressed; Critical findings retain their severity and can still block.
 - Failed chunks fail closed to request-changes, never silent approve.
 - Incremental reviews never approve — only full reviews clear a block.
 - Fixer never edits tests/evals and never makes a red test green.
@@ -114,7 +114,7 @@ Keys are **Secrets**, rest is **Variables**. Only the selected provider's key mu
 | `OPENCODE_ANALYSE_ALLOW_TEST_SELF_FIX` | Off. Truthy lets the fixer edit tests; evals stay off-limits always. |
 | `OPENCODE_ANALYSE_MAX_INCREMENTAL` | `3`. Auto-fix cycles per full-review epoch. |
 | `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` | `1` (check off; set `0` to enforce). When off, the review notes that keeping AI agent contextual knowledge current is still good practice. |
-| `OPENCODE_ANALYSE_TEST_COMMAND` / `_TIMEOUT` | Unset = skip verification. Regression-relative: only green→red blocks. |
+| `OPENCODE_ANALYSE_TEST_COMMAND` / `_TIMEOUT` | Unset command = auto-detect tracked test suites; no suites = skip verification. Auto-detected suites use regression-relative gating (green→red blocks); an explicit command must pass. Timeout = whole-gate budget in seconds (default `600`); timeouts always block. |
 
 Full reference: [SKILL.md](.agents/skills/ai-review-report/SKILL.md), [caller](.docs/examples/code-review-caller.yml), [local-job](.docs/examples/code-review-local.yml).
 
