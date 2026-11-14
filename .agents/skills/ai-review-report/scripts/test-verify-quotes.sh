@@ -160,6 +160,24 @@ bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
 check "absent named file: anchor unchanged" "100" "$(jq -r '.findings[0].confidence' "$m")"
 check "absent named file: reported as a skip" "absent_file" "$(jq -r '.findings[0].reason' "$r")"
 
+# A git failure during the repo-wide look must skip, never demote: grep's 1 is
+# "no match", but 2+ (and a timeout's 124) is "the check could not run".
+real_git="$(command -v git)"
+shim="${TMP_DIR}/shim"
+mkdir -p "$shim"
+cat > "${shim}/git" <<SHIM
+#!/bin/bash
+if [ "\$1" = "grep" ]; then exit 128; fi
+exec "${real_git}" "\$@"
+SHIM
+chmod +x "${shim}/git"
+doc="$(mk_doc "[$(finding high 100 'src/a.cs:2 -- var account = SomethingElse(completelyDifferent);' src/a.cs 2)]")"
+m="${TMP_DIR}/giterror.merged.json"; r="${TMP_DIR}/giterror.report.json"
+printf '%s\n' "$doc" > "$m"
+PATH="${shim}:${PATH}" bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "git error: anchor unchanged (fail-open)" "100" "$(jq -r '.findings[0].confidence' "$m")"
+check "git error: reported as a skip" "git_error" "$(jq -r '.findings[0].reason' "$r")"
+
 # Unknown revision → nothing verified, nothing demoted, no report written.
 doc="$(mk_doc "[$(finding high 100 'src/a.cs:2 -- var account = await _db.Accounts.FindAsync(accountId);' src/a.cs 2)]")"
 m="${TMP_DIR}/unknownrev.merged.json"; r="${TMP_DIR}/unknownrev.report.json"

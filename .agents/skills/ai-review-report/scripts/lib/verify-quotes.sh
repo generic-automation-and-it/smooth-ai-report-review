@@ -123,13 +123,22 @@ while IFS= read -r row; do
   # Second look, repo-wide at the same revision, bounded. A quote that exists in
   # another file keeps its anchor: the finding may simply name the wrong file,
   # which is not evidence that the quote was invented.
+  #
+  # The exit status is load-bearing. grep uses 1 for "no match" and 2+ for an
+  # error; a timeout adds 124. Only 1 is a miss — treating any non-zero status as
+  # a miss would demote a real finding whenever git itself failed, which is the
+  # one outcome the fail-open rule exists to prevent.
   hits=""
-  hits="$(git_bounded grep -l -F -e "$quote" "$rev" -- . 2>/dev/null)" || true
-  if [ -n "$hits" ]; then
+  grep_rc=0
+  hits="$(git_bounded grep -l -F -e "$quote" "$rev" -- . 2>/dev/null)" || grep_rc=$?
+  if [ "$grep_rc" -eq 0 ] && [ -n "$hits" ]; then
     elsewhere=$((elsewhere + 1))
     record "$idx" "$qfile" "found_elsewhere" "quote_in_other_file" \
       "$(printf '%s\n' "$hits" | sed "s|^${rev}:||" | head -n 5 | jq -R . | jq -s '{found_in: .}')"
     continue
+  fi
+  if [ "$grep_rc" -ne 1 ]; then
+    skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "git_error"; continue
   fi
 
   demoted=$((demoted + 1))
