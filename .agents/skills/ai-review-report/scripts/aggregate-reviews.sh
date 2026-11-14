@@ -716,7 +716,8 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   # below is one-directional (it can only force request_changes). A partial
   # render can therefore never make a review greener than it would have been.
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -gt 0 ]; then
-    if bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
+    if _QUOTE_VERIFICATION_JSON="ci_temp/quote_verification.json" \
+       bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
          "$MERGED_FINDINGS_FILE" "$FAILED_CHUNK_COUNT" "$TOTAL_CHUNKS" "$MISSING_SIDECAR_CHUNKS" > ci_temp/issues_summary.md 2>/dev/null \
        && [ -s ci_temp/issues_summary.md ]; then
       # Replace the orchestrator's `## 🔍 Issues Summary` section — heading

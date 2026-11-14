@@ -161,4 +161,19 @@ jq -r '
            | "\(.key) ×\(.value)" ] | join(" | "))
     else empty end )
 ' "$out_json" 2>/dev/null || true
+
+# LADR-119: verify each 75/100 finding's quoted line against the tree at the
+# reviewed revision, after the merge and before the decision model. Off by
+# default; `_MERGE_SOURCE_REV` is the revision the gate judged. The helper keeps
+# merge-findings.py pure and fail-open: any skip leaves an anchor unchanged, and
+# a failure here leaves the merged document exactly as the merge produced it.
+_qv_flag="$(printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION:-0}" | tr '[:upper:]' '[:lower:]')"
+case "$_qv_flag" in
+  1|true|yes|on)
+    if [ -n "${_MERGE_SOURCE_REV:-}" ] && [ -f "${LIB_DIR}/verify-quotes.sh" ]; then
+      bash "${LIB_DIR}/verify-quotes.sh" "$out_json" "$(dirname "$out_json")/quote_verification.json" "${_MERGE_SOURCE_REV}" || true
+    fi
+    ;;
+esac
+unset _qv_flag
 exit 0

@@ -219,6 +219,9 @@ export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL
 # switch and restores the pre-fence prompt byte-for-byte.
 OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE="${OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE:-1}"
 export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
+# Quote verification (LADR-119) — OFF by default; mirrors the gate.
+OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION="${OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION:-0}"
+export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review
@@ -664,6 +667,8 @@ TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 _lr_structured="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
 if printf '%s' "${_lr_structured,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -f "$SCRIPT_DIR/lib/merge-findings.sh" ]; then
+    rm -f "ci_temp/quote_verification.json" 2>/dev/null || true
+    _MERGE_SOURCE_REV="${TO_SHA}" \
     bash "$SCRIPT_DIR/lib/merge-findings.sh" \
       "ci_temp/reviews" \
       "ci_temp/findings.merged.json" || true

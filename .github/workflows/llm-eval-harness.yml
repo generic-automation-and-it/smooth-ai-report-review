@@ -202,6 +202,11 @@ jobs:
             # growth, verbatim content, no "#"+digits from the fence itself,
             # empty-input omission, and the builder wiring plus flag default.
             .agents/skills/ai-review-report/scripts/test-prompt-data-fence.sh
+            # LADR-119: quoted evidence is verified against the tree at the
+            # reviewed revision — demote-not-drop, the quote's own file wins,
+            # formatting tolerance, every fail-open skip, the frozen pure module
+            # and the single Coverage line.
+            .agents/skills/ai-review-report/scripts/test-verify-quotes.sh
             .agents/skills/ai-review-report/scripts/test-graph-signals-artifact.sh
             # LADR-060: the verification lens is diverted BEFORE the doc-only test,
             # so the static order check cannot see the allowlist arms - only this

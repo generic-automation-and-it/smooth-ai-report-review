@@ -465,6 +465,8 @@ jobs:
           OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES || '1024' }}
           # Author-notes data fence (LADR-118) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE || '1' }}
+          # Quote verification (LADR-119) — mirrors the reusable workflow.
+          OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION || '0' }}
           # RTK token optimization (LADR-054) — mirrors the reusable workflow's env vars.
           OPENCODE_REVIEW_REPORT_ENABLE_RTK: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_RTK || '1' }}
           OPENCODE_TOOL_RTK_VERSION: ${{ vars.OPENCODE_TOOL_RTK_VERSION || '' }}

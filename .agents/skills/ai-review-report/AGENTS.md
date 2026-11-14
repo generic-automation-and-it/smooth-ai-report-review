@@ -1349,6 +1349,15 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: Author text can no longer steer the reviewer. Flag-off byte identity, the collision-suffix growth, the helper-missing fallback and the ≤ 6 KB growth bound are pinned by the two tests; observed growth on the fixture is about 1.2 KB. No model call, no merged-document key, no new posted class, no new secret or endpoint.
 - **See also**: LADR-083, LADR-067, LADR-068, LADR-090, LADR-055.
 
+### LADR-119: A finding's quoted line is verified against the tree, and a miss demotes rather than drops
+
+- **Date**: 2026-11-14
+- **Status**: Accepted (`lib/verify-quotes.sh`, called by `lib/merge-findings.sh` at Step 17.5; `render-findings-summary.sh` Coverage line; `metadata.json`; pinned by `test-verify-quotes.sh`)
+- **Context**: The quote-the-line gate is enforced only as presence — `merge-findings.py` demotes a 75/100 finding whose `first_evidence` is missing or blank, but nothing compares the quoted text to the tree. A model can therefore invent a plausible line at anchor 100 and reach a blocking Critical/High with the gate satisfied. The pure module cannot close this: it is deliberately filesystem-free and byte-frozen.
+- **Decision**: After the merge, and before the decision model reads the document, the wrapper calls `lib/verify-quotes.sh` with the reviewed revision. For each actionable 75/100 finding with a quote it parses the `file:line` prefix (accepting `--`, `-` and `:` separators), trims one surrounding backtick pair and surrounding whitespace, and requires at least three whitespace-separated tokens and twelve visible characters. **The file named in the quote wins over `finding.file`**, because an omission finding legitimately quotes where the missing code belongs. A miss in that file triggers one bounded repo-wide look at the same revision; a quote found only elsewhere keeps its anchor and is recorded as found elsewhere. A definite miss demotes confidence to 50 — never drops: a non-critical finding moves to the suppressed set through the existing confidence gate, and a Critical stays in the Issues Summary exactly as it would have. Every uncertain case fails open: unknown revision, unrecognisable prefix, absent named file, multi-line quote, short quote, pre-existing finding, git error or timeout. `OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION` defaults to `0`; a run inside the flag-off path leaves the merged document, prompts and posted body byte-identical.
+- **Consequences**: A fabricated quote can no longer block a PR; demotions are counted in `ci_temp/quote_verification.json`, rendered as one Coverage line distinct from the missing-quote reason, and copied into `metadata.json`. The merged document gains no key and `merge-findings.py` stays byte-identical (R6). The demotion can soften a verdict only through the merge's existing confidence gate, which is the feature's purpose; no new softening channel is introduced. The repo-wide second look is bounded by a timeout and capped at five files, and a skip never changes an anchor.
+- **See also**: LADR-055, LADR-064, LADR-067, LADR-093, LADR-098, LADR-118.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1552,6 +1561,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 | Date | Change | Ref |
 | 2026-11-14 | Posted reviews renamed to Smooth AI Review with powered-by OpenCode footer, ASCII banner removed, matchers accept both headers, README/SKILL.md non-affiliation notes. | LADR-112 |
 |------|--------|-----|
+| 2026-11-14 | Quoted evidence verified against the tree at the reviewed revision after the merge: a definite miss demotes to 50 (non-critical suppressed, Critical kept), the quote's own file wins, found-elsewhere keeps the anchor, every skip fails open; report in its own file, one Coverage line. | LADR-119 |
 | 2026-11-14 | Author notes fenced as data in both prompt builders: collision-safe envelope whose suffix grows until the marker cannot collide, default-on kill switch, fixed-fence fallback when the helper is missing. | LADR-118 |
 | 2026-11-13 | Adoption umbrella for al-pr-review strengths: items A–E and L1–L3 with flags/defaults, shared fail-open rules, rejected items. Eval fixtures may carry `pr_description.md` / `linked_issues.json`; `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` exported to chunk prompts. | LADR-111 |
 | 2026-11-11 | Review posting uses `lib/post-review.sh` with `commit_id` pinned to the reviewed SHA; `gh pr review` no longer posts. | LADR-109 |
