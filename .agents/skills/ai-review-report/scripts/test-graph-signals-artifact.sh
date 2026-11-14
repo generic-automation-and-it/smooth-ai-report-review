@@ -242,7 +242,7 @@ done
 # The repo rule: a new Variable the entrypoint reads must be in both env blocks
 # in the same commit, or the local-job packaging silently runs the old default.
 for wf in "${REPO_ROOT}/.github/workflows/pipeline-code-review-report.yml" \
-          "${REPO_ROOT}/.docs/examples/code-review-local.yml"; do
+          "${REPO_ROOT}/docs/examples/code-review-local.yml"; do
   name="$(basename "$wf")"
   if grep -q "OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS:.*|| '1'" "$wf"; then
     ok "${name} declares default-on OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS"
@@ -258,7 +258,7 @@ done
 
 cache_key() { grep -F 'key: crg-${{ runner.os }}-' "$1" | sed 's/^[[:space:]]*//'; }
 if [ "$(cache_key "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")" = \
-     "$(cache_key "$REPO_ROOT/.docs/examples/code-review-local.yml")" ]; then
+     "$(cache_key "$REPO_ROOT/docs/examples/code-review-local.yml")" ]; then
   ok 'graph cache keys match across both packagings'
 else
   bad 'graph cache keys drift between packagings'

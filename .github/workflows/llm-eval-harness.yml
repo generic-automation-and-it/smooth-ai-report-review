@@ -122,7 +122,7 @@ jobs:
             exit 0
           fi
           # The suites below assert on the gate workflow, the analyse workflow,
-          # the .docs/examples callers, and the README (env-var parity,
+          # the docs/examples callers, and the README (env-var parity,
           # checkout shape, example pins, raw-installer scan), so a change that
           # touches only one of those files must still run them — with a
           # narrower scope a workflow-only PR set relevant=false and left this
@@ -131,7 +131,7 @@ jobs:
           # test-recommend-fix-skip.sh exercises their decision scripts
           # (LADR-097): without them a PR touching only those scripts passed
           # this required job without running the suite that tests them.
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|\.docs/examples/|\.github/opencode\.json$|README\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|docs/examples/|\.github/opencode\.json$|README\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else

@@ -291,7 +291,7 @@ check "the runtime AGENTS.md cwd still reaches the transport (LADR-090)" "1" \
 check "the default budget is 600s" "1" "$(grep -c '^SUMMARY_TIMEOUT_DEFAULT=600$' "$AGG")"
 check "the chain splits via the shared LADR-081 lib" "1" \
   "$(grep -c 'split-chunk-budget.sh" "\$_rsc_total" "\$_rsc_pmin" "\$_rsc_smin"' "$CHAIN")"
-for _wf in .github/workflows/pipeline-code-review-report.yml .docs/examples/code-review-local.yml; do
+for _wf in .github/workflows/pipeline-code-review-report.yml docs/examples/code-review-local.yml; do
   check "${_wf} declares OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT" "1" \
     "$(grep -c "OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT: \${{ vars.OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT || '600' }}" "${REPO_ROOT}/${_wf}")"
 done

@@ -297,7 +297,7 @@ check "Test 17: lib does not shadow the EXIT trap's _rc global" "absent" "$colli
 
 # Test 18: the kill switch is declared in BOTH workflow packagings.
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-for f in ".github/workflows/pipeline-code-review-report.yml" ".docs/examples/code-review-local.yml"; do
+for f in ".github/workflows/pipeline-code-review-report.yml" "docs/examples/code-review-local.yml"; do
   if grep -q 'OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY' "$REPO_ROOT/$f" 2>/dev/null; then
     declared="yes"
   else

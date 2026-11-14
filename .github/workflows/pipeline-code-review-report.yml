@@ -112,17 +112,17 @@ on:
         default: ''
   # Reusable-workflow entry point: consuming repos call this workflow with
   #   uses: generic-automation-and-it/smooth-ai-report-review/.github/workflows/pipeline-code-review-report.yml@v2
-  # instead of copy-installing it (see .docs/examples/code-review-caller.yml and the
+  # instead of copy-installing it (see docs/examples/code-review-caller.yml and the
   # README "Use as a reusable workflow" section). Notes:
   # - The job body is a thin wrapper around scripts/run-review.sh — the same
-  #   entrypoint that the local-job packaging in .docs/examples/code-review-local.yml
+  #   entrypoint that the local-job packaging in docs/examples/code-review-local.yml
   #   invokes. Two packagings, one implementation: any change to the gate's
   #   behaviour must land in run-review.sh, not in this workflow.
   # - Secrets: the gate reads the canonical OPENCODE_*_API_KEY Secret names and uses
   #   only the selected provider's key. SAME-ORG callers may use `secrets: inherit`;
   #   CROSS-ORG callers must map the keys explicitly under `secrets:` (inherit is
   #   same-org/enterprise only). The workflow_call.secrets block below declares them
-  #   so either form works — see .docs/examples/code-review-caller.yml.
+  #   so either form works — see docs/examples/code-review-caller.yml.
   # - GitHub Variables (vars.OPENCODE_REVIEW_REPORT_*) resolve against the CALLER
   #   repo/org, so the existing Variables contract transfers unchanged.
   # - workflow_call does not support `type: choice`; model_preset is a plain string
@@ -130,7 +130,7 @@ on:
   #   in sync with the workflow_dispatch options list above.
   # - Consumers under allowed_actions: "selected" cannot use the reusable-workflow
   #   call at all (startup_failure). They use the local-job packaging in
-  #   .docs/examples/code-review-local.yml instead, which checks out this repo at a
+  #   docs/examples/code-review-local.yml instead, which checks out this repo at a
   #   pinned SHA and invokes the same run-review.sh entrypoint. That packaging is
   #   contrary to the spirit of the allow-list policy and requires security sign-off
   #   from the consumer's org/enterprise admin — see the README "Local-job
@@ -581,7 +581,7 @@ jobs:
       # ── Review-script resolution ─────────────────────────────────────────────
       # The job body is a thin wrapper around scripts/run-review.sh — the same
       # entrypoint invoked by the local-job packaging in
-      # .docs/examples/code-review-local.yml. NOTE: this wrapper does NOT set
+      # docs/examples/code-review-local.yml. NOTE: this wrapper does NOT set
       # or read $REVIEW_SKILL_DIR — the "Run review gate" step below dispatches
       # directly via `[ -f ... ]` against the two paths checked out here.
       # $REVIEW_SKILL_DIR is the script's own contract (see run-review.sh's
@@ -724,7 +724,7 @@ jobs:
           fi
 
       # Upload per-run artifacts (LADR-062) — mirrored in the local-job
-      # packaging (.docs/examples/code-review-local.yml). The directory is
+      # packaging (docs/examples/code-review-local.yml). The directory is
       # assembled by run-review.sh's EXIT trap (Step 4.5) and holds the
       # rendered report, the per-chunk reviews, findings.merged.json, and
       # metadata.json. Must sit between the gate and the cleanup step: after

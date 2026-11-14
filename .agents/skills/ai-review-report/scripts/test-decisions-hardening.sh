@@ -408,7 +408,7 @@ GENERIC="$(head -c 16000 /dev/zero | tr '\0' 'g')"
   # observable effect is TIER ORDER (a short file stays whole in either tier), so
   # 3c2 asserts this section precedes the trimmed generic one - which it does
   # only when it was classified as a rule.
-  printf '\n---\nSource: `.docs/nfr/extra.instructions.scoped.md`\n\n- [ ] Out-of-tree rule survives the tier split.\n'
+  printf '\n---\nSource: `docs/nfr/extra.instructions.scoped.md`\n\n- [ ] Out-of-tree rule survives the tier split.\n'
 } > "$TMP_DIR/sectioned_rules.md"
 merged_doc "$TMP_DIR/trim.json" "$F1"
 reset_stub trim
