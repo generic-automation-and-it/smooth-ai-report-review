@@ -1575,10 +1575,12 @@ export _RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
 # Checked again before the aggregation summary (LADR-121): the deadline stops
 # new model work, and the summary is the last such call.
 _RUN_DEADLINE_REACHED=false
-if [ -n "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" ] \
-   && [ "${_RUN_ELAPSED_SECONDS}" -ge "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" ]; then
-  _RUN_DEADLINE_REACHED=true
-fi
+case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
+  ''|*[!0-9]*) ;;
+  *) if [ "${_RUN_ELAPSED_SECONDS}" -ge "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" ]; then
+       _RUN_DEADLINE_REACHED=true
+     fi ;;
+esac
 export _RUN_DEADLINE_REACHED
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${TOTAL_CHUNKS}" \

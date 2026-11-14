@@ -664,6 +664,11 @@ bash "$SCRIPT_DIR/review-in-chunks.sh" \
 TOTAL_CHUNKS=$(grep '^total_chunks=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 
+# LADR-121: the deadline outcome, absent on every unbounded run.
+DEADLINE_EXPIRED=$(grep '^deadline_expired=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2 || true)
+UNREVIEWED_CHUNKS=$(grep '^unreviewed_chunks=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2 || true)
+export DEADLINE_EXPIRED UNREVIEWED_CHUNKS
+
 # --- Step 5b: Merge structured findings (LADR-055) ---
 # Mirrors run-review.sh's merge call site. The LADR-055 coverage precondition
 # (EXPECTED_SIDECARS == SIDECAR_COUNT) lives in aggregate-reviews.sh, not here —
@@ -721,6 +726,19 @@ unset _lr_structured
 echo ""
 echo "🔗 Aggregating reviews..."
 echo ""
+# LADR-121: mirrors the gate's aggregation inputs — elapsed time, the deadline,
+# and whether it was reached before the summary call.
+_RUN_ELAPSED_SECONDS=$(( $(date +%s) - OPENCODE_REVIEW_REPORT_RUN_STARTED_AT ))
+_RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
+_RUN_DEADLINE_REACHED=false
+case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
+  ''|*[!0-9]*) ;;
+  *) if [ "$_RUN_ELAPSED_SECONDS" -ge "$OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS" ]; then
+       _RUN_DEADLINE_REACHED=true
+     fi ;;
+esac
+export _RUN_ELAPSED_SECONDS _RUN_DEADLINE_SECONDS _RUN_DEADLINE_REACHED
+
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "$TOTAL_CHUNKS" \
   "$OPENCODE_MODEL" \
