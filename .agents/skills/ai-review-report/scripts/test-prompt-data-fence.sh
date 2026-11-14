@@ -98,6 +98,22 @@ else
   fail "suffix stopped growing while a marker still collides"
 fi
 
+# pipefail regression: a payload bigger than a pipe buffer, with the colliding
+# marker near the front, must still grow the suffix. A `printf | grep -q`
+# pipeline lets grep exit early, the writer takes SIGPIPE, and pipefail then
+# reads that successful match as "no collision" — so the envelope would close
+# early on exactly the large descriptions this helper exists to guard.
+{
+  printf '%s\n' "${CLOSE_MARK}"
+  i=0
+  while [ "$i" -lt 5000 ]; do
+    printf 'padding line %05d %s\n' "$i" "........................................................................"
+    i=$((i + 1))
+  done
+} > "${TMP_DIR}/big-notes.txt"
+big_open="$(bash "${FENCE_LIB}" "${TMP_DIR}/big-notes.txt" | head -1)"
+check "a large payload with an early marker still grows the suffix" "${OPEN_MARK_1}" "${big_open}"
+
 # LADR-067/068: the envelope's OWN lines (markers + instruction) must never
 # carry "#" before digits. Author content is carried verbatim and is the
 # author's text, not something the fence emits.

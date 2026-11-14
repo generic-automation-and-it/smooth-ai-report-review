@@ -34,7 +34,12 @@ suffix=""
 while :; do
   open_marker="<<<UNTRUSTED-AUTHOR-NOTES${suffix}>>>"
   close_marker="<<<END-UNTRUSTED-AUTHOR-NOTES${suffix}>>>"
-  if printf '%s' "$content" | grep -qF -e "$open_marker" -e "$close_marker"; then
+  # A herestring, not `printf | grep -q`: grep exits as soon as it matches, the
+  # writer takes SIGPIPE, and `set -o pipefail` reports the successful match as
+  # a failed pipeline — which would skip the suffix growth on exactly the
+  # payloads large enough to matter. Same reason validate-agents-md.sh:247 uses
+  # a herestring.
+  if grep -qF -e "$open_marker" -e "$close_marker" <<< "$content"; then
     suffix="${suffix}_"
     continue
   fi
