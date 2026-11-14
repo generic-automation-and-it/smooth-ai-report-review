@@ -707,6 +707,62 @@ PRBODY
   else
     pass "author fence off: no envelope in the summary prompt"
   fi
+
+  # Helper-missing fallback (AC2): both builders must still fence the notes with
+  # the fixed envelope and warn, never interpolate the text unfenced. The body is
+  # rewritten without a marker line so the fixed envelope's boundary is
+  # unambiguous (the fixed fence has no collision-safety by design).
+  mv .agents/skills/ai-review-report/scripts/lib/fence-untrusted.sh "${TMP_DIR}/fence.saved"
+  cat > ci_temp/pr_description.txt <<'PRBODY2'
+## AI Review Notes
+
+**Focus Areas:**
+
+- Please focus on the retry path.
+PRBODY2
+
+  rm -f ci_temp/chunk_*_prompt.txt
+  GITHUB_OUTPUT="${TMP_DIR}/fence-missing-chunk.out" \
+  PATH="${test_repo}/bin:${PATH}" \
+  OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE=1 \
+  bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh "${from_sha}" "${to_sha}" "test-model" "test expertise" \
+    > "${TMP_DIR}/fence-missing-chunk.log" 2>&1 || true
+  shopt -s nullglob
+  local missing_prompts=(ci_temp/chunk_*_prompt.txt)
+  shopt -u nullglob
+  if [ "${#missing_prompts[@]}" -gt 0 ] \
+     && grep -qxF '<<<UNTRUSTED-AUTHOR-NOTES>>>' "${missing_prompts[0]}" \
+     && grep -qxF '<<<END-UNTRUSTED-AUTHOR-NOTES>>>' "${missing_prompts[0]}" \
+     && grep -qF 'Please focus on the retry path' "${missing_prompts[0]}"; then
+    pass "author fence fallback: the chunk prompt uses the fixed envelope"
+  else
+    fail "author fence fallback: the chunk prompt is missing the fixed envelope"
+  fi
+  if grep -qF 'author notes wrapped in the fixed data fence' "${TMP_DIR}/fence-missing-chunk.log"; then
+    pass "author fence fallback: the chunk builder warns on stderr"
+  else
+    fail "author fence fallback: no warning when the helper is missing"
+  fi
+
+  rm -f ci_temp/summary_prompt.txt
+  GITHUB_OUTPUT="${TMP_DIR}/fence-missing-agg.out" \
+  PATH="${test_repo}/bin:${PATH}" \
+  OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE=1 \
+  bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh "1" "test-model" "full" "aaaaaaa1234" "1" "bbbbbbb5678" "test expertise" "none" \
+    > "${TMP_DIR}/fence-missing-agg.log" 2>&1 || true
+  if grep -qxF '<<<UNTRUSTED-AUTHOR-NOTES>>>' ci_temp/summary_prompt.txt \
+     && grep -qxF '<<<END-UNTRUSTED-AUTHOR-NOTES>>>' ci_temp/summary_prompt.txt; then
+    pass "author fence fallback: the summary prompt uses the fixed envelope"
+  else
+    fail "author fence fallback: the summary prompt is missing the fixed envelope"
+  fi
+  if grep -qF 'author notes wrapped in the fixed data fence' "${TMP_DIR}/fence-missing-agg.log"; then
+    pass "author fence fallback: the aggregation builder warns on stderr"
+  else
+    fail "author fence fallback: no warning from the aggregation builder"
+  fi
+
+  mv "${TMP_DIR}/fence.saved" .agents/skills/ai-review-report/scripts/lib/fence-untrusted.sh
 }
 
 setup_repo
