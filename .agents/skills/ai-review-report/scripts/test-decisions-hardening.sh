@@ -264,6 +264,15 @@ case "${CRG_MODE:-ok}" in
 esac
 SHIM
 chmod +x "$BIN/code-review-graph"
+# CI's runner carries a real timeout; macOS does not, and the scorer now OMITS
+# the optional query when none exists. The shim keeps the "on" path exercised
+# identically on both hosts.
+cat > "$BIN/timeout" <<'SHIM'
+#!/bin/bash
+shift
+exec "$@"
+SHIM
+chmod +x "$BIN/timeout"
 
 reset_stub cc_on
 merged_doc "$TMP_DIR/cc_on.json" "$F1"
@@ -306,6 +315,20 @@ check "Test 2m: without the graph there is no function name, so no query is made
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 check "Test 2n: the Variable is declared in both packagings, run-review and local-review" "1|1|1|1" \
   "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0' "$RUN_REVIEW")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0' "$LOCAL_REVIEW")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:.*|| .0.' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:.*|| .0.' "$REPO_ROOT/docs/examples/code-review-local.yml")"
+
+# The block must not displace the named-file hunk that follows it: the header,
+# the sites and cap_copy's truncation marker all fit the share.
+reset_stub cc_hunk
+merged_doc "$TMP_DIR/cc_hunk.json" "$F1"
+(cd "$SB" && CRG_MODE=ok _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_hunk.json" >/dev/null 2>&1)
+ctx="$(ctx_of "gate alpha")"
+check "Test 2o: the caller block and the named-file hunk coexist" "1|1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'Caller sites of `a.do_thing`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `src/b.sh`')"
+
+# Without a timeout utility the optional query is omitted, never run unbounded.
+check "Test 2p: no timeout utility → the query is omitted, and only the bounded call remains" "1|1" \
+  "$(grep -c 'no timeout utility available — query omitted' "$SCORER")|$(grep -c 'timeout 5 code-review-graph query callers_of' "$SCORER")"
 
 # Budget order: context gives way before the hunk is trimmed. The fixtures are
 # sized against the scorer's budget (40,000 bytes): ~22 KB of hunk plus 10 KB of

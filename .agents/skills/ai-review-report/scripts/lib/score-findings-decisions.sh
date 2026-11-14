@@ -655,11 +655,14 @@ code_context_for() {
   # failed or timed-out query, or a non-ok status all omit the block.
   if [ "$caller_context_on" = true ] && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
      && command -v code-review-graph >/dev/null 2>&1; then
-    local qout qrc=0 callers_max used room
+    local qout qrc=0 callers_max used room header_bytes caller_header_fmt
+    # Without a timeout utility the query has no deadline, and an optional hint
+    # must never stall scoring: omit it exactly as a failed query is omitted.
     if command -v timeout >/dev/null 2>&1; then
       qout="$(timeout 5 code-review-graph query callers_of "$fname" --repo . 2>/dev/null)" || qrc=$?
     else
-      qout="$(code-review-graph query callers_of "$fname" --repo . 2>/dev/null)" || qrc=$?
+      info "caller context: no timeout utility available — query omitted"
+      qrc=1
     fi
     if [ "$qrc" -eq 0 ] && [ -n "$qout" ] \
        && printf '%s' "$qout" | jq -e '.status == "ok"' >/dev/null 2>&1; then
@@ -670,13 +673,20 @@ code_context_for() {
           | "\(.file_path):\(.line_start // "?") \(.name // .qualified_name // "?")" ]
         | .[0:5] | join("\n")' > "$work/f_${idx}.callers" 2>/dev/null || : > "$work/f_${idx}.callers"
       if [ -s "$work/f_${idx}.callers" ]; then
+        # The whole block — header, sites and cap_copy's truncation marker —
+        # must fit the share, or the header alone could displace the named-file
+        # hunks that follow. Reserve both before choosing the site cap.
+        # Kept as a FORMAT, not as a captured string: command substitution strips
+        # the trailing newline, which would glue the first site onto the header.
+        caller_header_fmt='\nCaller sites of `%s` (graph-derived hints: an edge is not proof of a call path, and an absent edge is not proof of absence):\n'
+        header_bytes="$(printf -- "$caller_header_fmt" "$fname" | wc -c | tr -d ' ')"
         used=$(wc -c < "$out.raw" | tr -d ' ')
-        room=$(( max - used ))
+        room=$(( max - used - header_bytes - 96 ))
         callers_max=$(( max / 6 ))
         [ "$callers_max" -gt 600 ] && callers_max=600
         [ "$callers_max" -gt "$room" ] && callers_max="$room"
         if [ "$callers_max" -ge 120 ]; then
-          printf '\nCaller sites of `%s` (graph-derived hints: an edge is not proof of a call path, and an absent edge is not proof of absence):\n' "$fname" >> "$out.raw"
+          printf -- "$caller_header_fmt" "$fname" >> "$out.raw"
           cap_copy "$work/f_${idx}.callers" "$work/f_${idx}.callers.cut" "$callers_max" "caller sites"
           cat "$work/f_${idx}.callers.cut" >> "$out.raw"
         fi
