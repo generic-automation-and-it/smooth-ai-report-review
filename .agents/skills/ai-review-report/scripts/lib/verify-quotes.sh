@@ -114,8 +114,13 @@ while IFS= read -r row; do
     skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "git_error"; continue
   fi
 
-  if awk -v q="$quote" '
-      { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == q) { found=1; exit } }
+  # The quote is DATA, not an awk -v value: `-v` interprets backslash escapes
+  # (BSD awk also rejects literal newlines), so a fabricated quote carrying
+  # `\\` would collapse to `\` and match a source line it does not equal.
+  # ENVIRON passes the string through untouched — same reason
+  # renumber-suggested-fixes.sh reads its mapping from a file.
+  if Q="$quote" awk '
+      { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == ENVIRON["Q"]) { found=1; exit } }
       END { exit(found ? 0 : 1) }
     ' <<< "$content"; then
     record "$idx" "$qfile" "verified" "quote_found"

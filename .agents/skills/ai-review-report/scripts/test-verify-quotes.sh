@@ -46,6 +46,9 @@ git config user.name "Test User"
 printf 'header line\nvar account = await _db.Accounts.FindAsync(accountId);\ntrailer line\n' > src/a.cs
 printf 'guard file\nvar guard = CurrentUser.Owns(account);\n' > src/b.cs
 printf 'indent file\n        var spaced = DoThing(value);\n' > src/c.cs
+# One literal backslash in the source. A fabricated quote carrying `\\` would
+# collapse to `\` under awk -v and match this line falsely.
+printf 'escaped line\nconst path = "a\\b.c";\n' > src/d.cs
 git add src
 git commit -q -m base
 REV="$(git rev-parse HEAD)"
@@ -211,6 +214,15 @@ m="${TMP_DIR}/preexisting.merged.json"; r="${TMP_DIR}/preexisting.report.json"
 printf '%s\n' "$doc" > "$m"
 bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
 check "pre-existing: never demoted" "100" "$(jq -r '.pre_existing_findings[0].confidence' "$m")"
+
+# Backslash escapes must not be interpreted: the quote `a\\b.c` is NOT the
+# source line `a\b.c`, so it must be demoted rather than falsely verified.
+doc="$(mk_doc "[$(finding high 100 'src/d.cs:2 -- const path = "a\\b.c";' src/d.cs 2)]")"
+m="${TMP_DIR}/escapes.merged.json"; r="${TMP_DIR}/escapes.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "backslash escapes are not interpreted" "1" "$(jq -r '.demoted' "$r")"
+check "escaping quote: anchor stepped down" "0" "$(jq -r '.findings | length' "$m")"
 
 echo ""
 echo "Part 3b — survivors stay contiguously numbered"
