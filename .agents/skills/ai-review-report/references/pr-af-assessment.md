@@ -106,6 +106,19 @@ Read from PR-AF's source, not its docs:
 | Caller context | LADR-120 | `lib/score-findings-decisions.sh` code context; `OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT` (default `0`) |
 | Run deadline | LADR-121 | `review-in-chunks.sh` launch loop and retry sweep; aggregation banner; `OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS` (default unset) |
 
-Every unit is flag-gated, fails open, adds no model call, no new merged-document
-key, no new posted class, no new secret or endpoint, and leaves the default path
-byte-identical.
+The guarantees are per unit, not uniform:
+
+- **Author fence (LADR-118)** is the one **default-on** unit — a safety boundary,
+  not a quality claim — so its prompt does differ from the pre-fence baseline
+  until the Variable is set falsy; that off state, and the helper-missing
+  fallback (fixed fence plus a warning), both leave the rest byte-identical.
+- **Quote verification (LADR-119)** and **caller context (LADR-120)** are
+  default-off and fail open: off is byte-identical, and every skip or failure
+  leaves the anchor, the merged document and the posted body as they were.
+- **Run deadline (LADR-121)** is default-unset (unbounded). When set and
+  reached it **hardens** rather than fails open: aggregation posts
+  `REQUEST_CHANGES` naming the unreviewed chunks, exactly as a failed chunk
+  does. It never softens a verdict, and an unset run is byte-identical.
+
+Every unit adds no model call, no new merged-document key, no new posted class,
+and no new secret or endpoint.
