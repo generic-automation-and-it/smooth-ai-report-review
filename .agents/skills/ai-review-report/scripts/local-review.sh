@@ -225,6 +225,11 @@ export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 # Caller context (LADR-120) — OFF by default; mirrors the gate.
 OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
+# Total-run deadline (LADR-121) — unset by default; mirrors the gate.
+OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
+export OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS
+OPENCODE_REVIEW_REPORT_RUN_STARTED_AT="$(date +%s)"
+export OPENCODE_REVIEW_REPORT_RUN_STARTED_AT
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review
