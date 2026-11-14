@@ -708,7 +708,7 @@ jobs:
             # before the comment can post.
             mkdir -p ci_temp
             cat > ci_temp/error_comment.md <<EOF
-          ## ❌ OpenCode CLI Code Review Workflow Failed
+          ## ❌ Smooth AI Review Workflow Failed
 
           The automated code review workflow encountered a critical failure and could not complete.
 
@@ -719,6 +719,7 @@ jobs:
 
           ---
           *This PR is blocked until the review issue is resolved or manual review is completed.*
+          *Posted by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
           EOF
             gh pr comment "${PR_NUMBER}" --body-file ci_temp/error_comment.md || true
           fi

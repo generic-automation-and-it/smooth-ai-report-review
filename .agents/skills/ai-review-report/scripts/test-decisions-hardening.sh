@@ -459,7 +459,7 @@ echo ""
 echo "--- the diff as reviewed ---"
 printf 'CURRENT DIFF\n' > "$TMP_DIR/current.diff"
 printf 'REVIEWED DIFF\n' > "$TMP_DIR/reviewed.diff"
-printf '## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
+printf '## 🤖 Smooth AI Review — Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
 rd() { # rd <case> [env...] -- <args> → "state|second line|out contents"
   local name="$1"; shift
   reset_stub "rd_$name"
@@ -484,7 +484,7 @@ printf 'no header here\n' > "$TMP_DIR/hdr.md"
 check "Test 4f: no reviewed commit → unknown, current diff" "unknown||CURRENT DIFF" "$(rd nohdr GH_HEAD=fffffff000000000000000000000000000000000)"
 check "Test 4f4: no reviewed commit and gh pr diff fails → unavailable, empty diff" \
   "unavailable||" "$(rd nohdr_fail GH_HEAD=fffffff000000000000000000000000000000000 GH_DIFF_FAIL=1)"
-printf '## 🤖 OpenCode CLI Code Review - Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
+printf '## 🤖 Smooth AI Review — Commit: `abc1234`\n\nbody\n' > "$TMP_DIR/hdr.md"
 check "Test 4f2: a known reviewed commit but an unreadable PR head → unavailable with an EMPTY diff, never the current one" \
   "unavailable|abc1234|" "$(rd nohead GH_HEAD=)"
 set +e
@@ -501,7 +501,7 @@ echo ""
 echo "--- reuse before re-asking ---"
 BODY="$TMP_DIR/body.md"
 cat > "$BODY" <<'EOF'
-## 🤖 OpenCode CLI Code Review - Commit: `abc1234`
+## 🤖 Smooth AI Review — Commit: `abc1234`
 
 ## 🔍 Issues Summary
 

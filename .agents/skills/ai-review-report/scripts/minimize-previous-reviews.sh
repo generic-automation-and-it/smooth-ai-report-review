@@ -167,7 +167,7 @@ minimize_previous_reviews() {
   review_node_ids=$(echo "$reviews_json" | jq -r \
     --arg current_id "$CURRENT_REVIEW_ID" \
     '.data.repository.pullRequest.reviews.nodes[]? |
-     select(.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review")) |
+     select(.body | test("^#+ 🤖 ((Gemini CLI|OpenCode CLI) Code Review|Smooth AI Review)")) |
      select(.isMinimized != true) |
      select(.viewerDidAuthor == true) |
      select(if $current_id != "" then (.databaseId | tostring) != $current_id else true end) |
@@ -229,10 +229,10 @@ minimize_previous_analyse_comments() {
   # A full review supersedes every prior comment this pipeline leaves on the
   # PR, so anything the AI-review-report gate or skill authored as an issue
   # comment is minimized. Three header families cover all of it:
-  #   - the gate header "## 🤖 OpenCode CLI Code Review" — the main summary's
+  #   - the gate header "## 🤖 Smooth AI Review" — the main summary's
   #     mirror and every skip notice (LADR-059 trivial-skip, run-review.sh
   #     Step 16 blocked-incremental), all posted with `gh pr comment`
-  #   - the failure header "## ❌ OpenCode CLI Code Review Workflow Failed" —
+  #   - the failure header "## ❌ Smooth AI Review Workflow Failed" —
   #     the workflow's `Post Error Comment` step
   # Formal reviews are minimized separately (minimize_previous_reviews),
   # including the AGENTS.md-validation BLOCKED review, because those are
@@ -272,8 +272,8 @@ minimize_previous_analyse_comments() {
        or (
          (.viewerDidAuthor == true)
          and (
-           (.body | test("^#+ 🤖 (Gemini CLI|OpenCode CLI) Code Review"))
-           or (.body | test("^#+ ❌ OpenCode CLI Code Review Workflow Failed"))
+           (.body | test("^#+ 🤖 ((Gemini CLI|OpenCode CLI) Code Review|Smooth AI Review)"))
+           or (.body | test("^#+ ❌ ((OpenCode CLI Code Review|Smooth AI Review) Workflow Failed)"))
          )
        )
      ) |

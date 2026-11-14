@@ -87,12 +87,12 @@ _gh_retry_is_transient() {
 # prior gate reviews on the next run); a silently-missing review is neither.
 #
 # The match shape is lifted from the existing, proven filter at
-# run-review.sh:766-773 — author + the `🤖 … Code Review` body header that all
+# run-review.sh:766-773 — author + the `🤖 … Review` body header that all
 # seven posted bodies share. No new body marker is introduced: LOGS_URL /
 # GITHUB_RUN_ID appear only in the truncation branches (run-review.sh:1316,
 # :1331) so they are not reliably present, and injecting one would touch posted
 # output and have to clear LADR-067's `#`-plus-digits rule.
-_GH_RETRY_BODY_MATCH='🤖 (Gemini CLI|OpenCode CLI) Code Review'
+_GH_RETRY_BODY_MATCH='🤖 ((Gemini CLI|OpenCode CLI) Code Review|Smooth AI Review)'
 
 gh_count_gate_reviews() {
   local pr="${1:-}" repo="${GITHUB_REPOSITORY:-}" payload count

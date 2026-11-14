@@ -863,7 +863,7 @@ if [ "$(cat "$ALL_MODELS_FAILED_FILE")" = "true" ]; then
   CURRENT_SHA="$head_sha"
   LOGS_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID:-0}"
   cat > "$WORK_DIR/all_models_failed_review.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${CURRENT_SHA:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${CURRENT_SHA:0:7}\`
 
 **Status:** ⚠️ Unable to run review — all ${PROVIDER} models unavailable
 
@@ -878,7 +878,7 @@ Both review models failed to respond, typically caused by token quota exhaustion
 - Re-run the review via \`/ai-review\` once resolved
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1058,7 +1058,7 @@ if [ "$FILES_CHANGED" -gt "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" ]; then
   echo "⚠️  Too many files (${FILES_CHANGED} > ${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT}) — posting REQUEST_CHANGES"
   TOO_MANY_FILES=1  # read by assemble_run_artifacts (Step 4.5) for skip_reason
   cat > "$WORK_DIR/too_many_files_review.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 **Status:** ❌ BLOCKED - Too many changed files
 
@@ -1069,7 +1069,7 @@ This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **
 - Or, if a large changeset is unavoidable, raise the limit by setting the \`OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT\` repository Variable.
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1085,12 +1085,12 @@ if [ "$FILES_CHANGED" -eq 0 ]; then
     SKIP_MSG="No changes detected since last review at commit \`${from_sha:0:7}\`."
   fi
   cat > "$WORK_DIR/skip_comment.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: ${head_sha:0:7}
+## 🤖 Smooth AI Review — Commit: ${head_sha:0:7}
 
 ✅ ${SKIP_MSG}
 
 ---
-*Automated review check by OpenCode CLI Code Review*
+*Automated review check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" COMMENT \
@@ -1132,7 +1132,7 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
         TRIVIAL_SKIP_REASON="${_trivial_result#trivial:}"
         echo "⏭️ Trivial PR detected (${TRIVIAL_SKIP_REASON}) — skipping review"
         cat > "$WORK_DIR/trivial_skip_comment.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 ⏭️ **Skipping review** — every changed file is a dependency lockfile or manifest, and this PR reads as an automated or trivial change.
 
@@ -1141,7 +1141,7 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
 **Want a review anyway?** Comment \`/ai-review\` — an explicit request always bypasses this skip.
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
         gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
           gh pr comment "${pr_number}" \
@@ -1288,7 +1288,7 @@ unset _bypass_agents_md _disable_agents_md_check _agents_md_check_off
 if [ "$review_type" = "full" ] && [ "$validation_passed" = "false" ]; then
   if [ -f "$WORK_DIR/agents_validation_message.md" ]; then
     cat > "$WORK_DIR/validation_review.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 **Review Type:** FULL
 **Status:** ❌ BLOCKED - Missing or Invalid AGENTS.md
@@ -1296,7 +1296,7 @@ if [ "$review_type" = "full" ] && [ "$validation_passed" = "false" ]; then
 $(cat "$WORK_DIR/agents_validation_message.md")
 
 ---
-*Automated validation by OpenCode CLI Code Review*
+*Automated validation by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
     gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
       post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1363,7 +1363,7 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
   echo "Most recent full review is CHANGES_REQUESTED — skipping incremental review"
   BLOCKED_INCREMENTAL=1  # read by assemble_run_artifacts (Step 4.5) for skip_reason
   cat > "$WORK_DIR/skip_blocking_review_comment.md" <<EOF
-## 🤖 OpenCode CLI Code Review - Commit: \`${head_sha:0:7}\`
+## 🤖 Smooth AI Review — Commit: \`${head_sha:0:7}\`
 
 ⏭️ **Skipping ${review_type} review** - Existing blocking review from @github-actions[bot] requires full review for clearance.
 
@@ -1374,7 +1374,7 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
 - A full review will run when you manually request it via \`/ai-review\` or merge to main
 
 ---
-*Automated check by OpenCode CLI Code Review*
+*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
     gh pr comment "${pr_number}" \

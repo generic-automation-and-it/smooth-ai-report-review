@@ -72,7 +72,7 @@ if [ "${1:-}" = "api" ]; then
   i=0
   while [ "$i" -lt "$count" ]; do
     [ "$i" -gt 0 ] && printf ','
-    printf '{"user":{"login":"github-actions[bot]"},"body":"## 🤖 OpenCode CLI Code Review - Commit: `abc1234`"}'
+    printf '{"user":{"login":"github-actions[bot]"},"body":"## 🤖 Smooth AI Review — Commit: `abc1234`"}'
     i=$((i + 1))
   done
   printf ']\n'
