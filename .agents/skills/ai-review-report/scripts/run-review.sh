@@ -48,7 +48,7 @@
 #   OPENCODE_REVIEW_REPORT_PROVIDER  [OPENAI]  — provider selector
 #   OPENCODE_REVIEW_REPORT_MODEL_PRIMARY / SECONDARY / ORCHESTRATOR — model chain
 #   OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE  [1]   — disable .claude support
-#   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [0] — skip AGENTS.md validation
+#   OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK  [1] — skip AGENTS.md validation (default off-check: set 0 to enforce)
 #   OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE  [0] — skip AGENTS.md checks + mandatory context file loading
 #   OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT  [100]  — too-many-files threshold
 #   OPENCODE_REVIEW_REPORT_EXCLUDE_DELETED  [0]  — omit deleted paths from model scope
@@ -124,7 +124,8 @@ source "$LIB_DIR/post-review.sh"
 # Toggle defaults
 OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE="${OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE:-1}"
 export OPENCODE_DISABLE_CLAUDE_CODE="$OPENCODE_REVIEW_REPORT_DISABLE_CLAUDE_CODE"
-OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-0}"
+OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}"
+export OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK
 OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
 OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT="${OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT:-100}"
 if ! [[ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" =~ ^[0-9]+$ ]] || [ "$OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT" -le 0 ]; then
@@ -1255,10 +1256,17 @@ if [ -f "$LIB_DIR/check-versions.sh" ]; then
 fi
 
 # --- Step 14: Validate AGENTS.md (full reviews only) -------------------------
+# Off by default: OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK defaults to 1.
+# Set 0/false/no/off to enforce. Truthy check mirrors validate-agents-md.sh.
 VALIDATION_PASSED_FILE="$WORK_DIR/validation_passed"
 _bypass_agents_md="${OPENCODE_REVIEW_REPORT_BYPASS_MANDATORY_CONTEXT_FILE:-}"
+_disable_agents_md_check="${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK:-1}"
+case "${_disable_agents_md_check,,}" in
+  1|true|yes|on) _agents_md_check_off=1 ;;
+  *) _agents_md_check_off=0 ;;
+esac
 if [ "$review_type" = "full" ] \
-   && [ "${OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK}" != "1" ] \
+   && [ "$_agents_md_check_off" != "1" ] \
    && [ "${_bypass_agents_md,,}" != "1" ] \
    && [ "${_bypass_agents_md,,}" != "true" ] \
    && [ "${_bypass_agents_md,,}" != "yes" ] \
@@ -1273,7 +1281,7 @@ else
 fi
 validation_passed="$(grep '^validation_passed=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 echo "AGENTS.md validation: ${validation_passed}"
-unset _bypass_agents_md
+unset _bypass_agents_md _disable_agents_md_check _agents_md_check_off
 
 # If validation failed on a full review, post a blocking request-changes and
 # stop. Mirrors the workflow's `Block PR if AGENTS.md Validation Failed` step.
