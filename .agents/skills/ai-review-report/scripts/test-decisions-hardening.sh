@@ -251,6 +251,62 @@ merged_doc "$TMP_DIR/ctx_n.json" "$F2"
 (cd "$SB" && scorer "$TMP_DIR/ctx_n.json" >/dev/null 2>&1)
 check "Test 2h: no revision and no named file → no code_context key at all" "<none>" "$(ctx_of "badfs gate")"
 
+# --- 2b. caller context (LADR-120) ------------------------------------------------------
+echo ""
+echo "--- caller context ---"
+cat > "$BIN/code-review-graph" <<'SHIM'
+#!/bin/bash
+[ -n "${CRG_MARKER:-}" ] && printf '%s\n' "$*" >> "$CRG_MARKER"
+case "${CRG_MODE:-ok}" in
+  ok) printf '%s' '{"status":"ok","results":[{"name":"caller_fn","qualified_name":"b.caller_fn","file_path":"src/b.sh","line_start":5,"line_end":9}]}' ;;
+  fail) exit 2 ;;
+  notfound) printf '%s' '{"status":"not_found","results":[]}' ;;
+esac
+SHIM
+chmod +x "$BIN/code-review-graph"
+
+reset_stub cc_on
+merged_doc "$TMP_DIR/cc_on.json" "$F1"
+(cd "$SB" && CRG_MODE=ok _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_on.json" >/dev/null 2>&1)
+ctx="$(ctx_of "gate alpha")"
+check "Test 2i: caller context on → the request carries labelled caller sites" "1|1|1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'Caller sites of `a.do_thing` (graph-derived hints: an edge is not proof of a call path')|$(printf '%s\n' "$ctx" | grep -c '^src/b.sh:5 caller_fn$')|$(printf '%s\n' "$ctx" | grep -c 'not proof of absence')"
+check "Test 2i2: the enclosing function is still sent alongside the callers" "1" \
+  "$(printf '%s\n' "$ctx" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_off
+merged_doc "$TMP_DIR/cc_off.json" "$F1"
+(cd "$SB" && _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  scorer "$TMP_DIR/cc_off.json" >/dev/null 2>&1)
+check "Test 2j: caller context off → no caller block (request unchanged)" "0|1" \
+  "$(ctx_of "gate alpha" | grep -c 'Caller sites of')|$(ctx_of "gate alpha" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_fail
+merged_doc "$TMP_DIR/cc_fail.json" "$F1"
+(cd "$SB" && CRG_MODE=fail _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_fail.json" >/dev/null 2>&1)
+check "Test 2k: a failed query omits the sites and leaves the rest of the context" "0|1" \
+  "$(ctx_of "gate alpha" | grep -c 'Caller sites of')|$(ctx_of "gate alpha" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_notfound
+merged_doc "$TMP_DIR/cc_nf.json" "$F1"
+(cd "$SB" && CRG_MODE=notfound _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_nf.json" >/dev/null 2>&1)
+check "Test 2l: a non-ok status omits the sites" "0|1" \
+  "$(ctx_of "gate alpha" | grep -c 'Caller sites of')|$(ctx_of "gate alpha" | grep -c 'Enclosing function `a.do_thing`')"
+
+reset_stub cc_nograph
+: > "$TMP_DIR/cc_calls"
+merged_doc "$TMP_DIR/cc_ng.json" "$F1"
+(cd "$SB" && CRG_MARKER="$TMP_DIR/cc_calls" _DECISIONS_SOURCE_REV="$HEAD_SHA" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_ng.json" >/dev/null 2>&1)
+check "Test 2m: without the graph there is no function name, so no query is made" "0" \
+  "$(wc -l < "$TMP_DIR/cc_calls" | tr -d ' ')"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+check "Test 2n: the Variable is declared in both packagings, run-review and local-review" "1|1|1|1" \
+  "$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0' "$RUN_REVIEW")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0' "$LOCAL_REVIEW")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:.*|| .0.' "$REPO_ROOT/.github/workflows/pipeline-code-review-report.yml")|$(grep -c 'OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:.*|| .0.' "$REPO_ROOT/docs/examples/code-review-local.yml")"
+
 # Budget order: context gives way before the hunk is trimmed. The fixtures are
 # sized against the scorer's budget (40,000 bytes): ~22 KB of hunk plus 10 KB of
 # rules fits on its own, and does not with a full code context.

@@ -1358,6 +1358,15 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: A fabricated quote can no longer block a PR; demotions are counted in `ci_temp/quote_verification.json`, rendered as one Coverage line distinct from the missing-quote reason, and copied into `metadata.json`. The merged document gains no key and `merge-findings.py` stays byte-identical (R6). The demotion can soften a verdict only through the merge's existing confidence gate, which is the feature's purpose; no new softening channel is introduced. The repo-wide second look is bounded by a timeout and capped at five files, and a skip never changes an anchor.
 - **See also**: LADR-055, LADR-064, LADR-067, LADR-093, LADR-098, LADR-118.
 
+### LADR-120: The decision judge gets caller sites of the enclosing function, as hints
+
+- **Date**: 2026-11-14
+- **Status**: Accepted (`lib/score-findings-decisions.sh` code context; flag in both packagings, `run-review.sh` and `local-review.sh`; pinned by `test-decisions-hardening.sh`)
+- **Context**: The judge is asked whether a finding is real, and the most common reason a real-looking defect is not one is an upstream guard. `code_context` sends only the enclosing function and the hunks of other changed files a finding names, so the judge cannot answer "does a caller already prevent this?" — LADR-098 records that callers are not sent. The chunk prompt cannot carry them either: the graph slice holds risk and no-test rows only, the prompt is at the LADR-076 budget, and LADR-111 item E already owns a sibling-caller sweep.
+- **Decision**: With `OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT` (default `0`) the per-finding `code_context` also carries caller sites of the enclosing function, taken from `code-review-graph query callers_of` against the same revision the context reads. The function name comes from the code graph's `changed_functions`, so a finding with no enclosing function makes no query and keeps the existing window. The block is capped at five sites, bounded by a five-second timeout, and fitted into one sixth of the request budget (maximum 600 bytes) after the source excerpt. It is labelled as graph-derived hints and states that an edge is not proof of a call path and an absent edge is not proof of absence (LADR-050). **No decision question or criterion changes**: the sites are context, not a new question, so `assets/decisions-questions.json` and the probabilities contract are untouched. A missing graph artifact, an absent function name, a missing CLI, a failed or timed-out query, or a non-ok status omits the block and leaves the request otherwise unchanged; `filter` mode's fence and one-directional escalation are unaffected.
+- **Consequences**: The judge can reason about reachability with evidence it previously lacked. With the flag off the request is byte-identical to the LADR-098 shape. False edges can only help a judge confirm, and a false negative degrades to today's context rather than to a wrong verdict. No new secret, endpoint, model call or web access: the query is a local CLI over the existing graph artifact.
+- **See also**: LADR-050, LADR-093, LADR-098, LADR-111, LADR-119.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1561,6 +1570,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 | Date | Change | Ref |
 | 2026-11-14 | Posted reviews renamed to Smooth AI Review with powered-by OpenCode footer, ASCII banner removed, matchers accept both headers, README/SKILL.md non-affiliation notes. | LADR-112 |
 |------|--------|-----|
+| 2026-11-14 | Decision model's code context carries caller sites of the enclosing function as graph-derived hints: five sites, timeout-bounded, no question or criterion change, omitted on any failure. | LADR-120 |
 | 2026-11-14 | Quoted evidence verified against the tree at the reviewed revision after the merge: a definite miss demotes to 50 (non-critical suppressed, Critical kept), the quote's own file wins, found-elsewhere keeps the anchor, every skip fails open; report in its own file, one Coverage line. | LADR-119 |
 | 2026-11-14 | Author notes fenced as data in both prompt builders: collision-safe envelope whose suffix grows until the marker cannot collide, default-on kill switch, fixed-fence fallback when the helper is missing. | LADR-118 |
 | 2026-11-13 | Adoption umbrella for al-pr-review strengths: items A–E and L1–L3 with flags/defaults, shared fail-open rules, rejected items. Eval fixtures may carry `pr_description.md` / `linked_issues.json`; `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` exported to chunk prompts. | LADR-111 |

@@ -475,6 +475,9 @@ jobs:
       # Quote verification (LADR-119) — OFF by default: verify each merged
       # 75/100 finding's quoted line against the tree at the reviewed revision.
       OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION || '0' }}
+      # Caller context (LADR-120) — OFF by default: caller sites of the finding's
+      # enclosing function join the decision model's code context as hints.
+      OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT || '0' }}
       # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted
       # after LADR-014's Gemini-CLI hook was superseded by the opencode
       # transport migration (LADR-023). rtk_version input wins over the

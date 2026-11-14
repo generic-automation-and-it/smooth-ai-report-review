@@ -222,6 +222,9 @@ export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
 # Quote verification (LADR-119) — OFF by default; mirrors the gate.
 OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION="${OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
+# Caller context (LADR-120) — OFF by default; mirrors the gate.
+OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
+export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review

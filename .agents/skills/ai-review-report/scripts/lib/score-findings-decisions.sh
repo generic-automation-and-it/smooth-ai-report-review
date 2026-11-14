@@ -95,6 +95,12 @@
 #   _DECISIONS_SOURCE_REV   commit the review judged (the gate passes head_sha);
 #                           unset → no source excerpt, named-file hunks only
 #   _DECISIONS_GRAPH_JSON   ci_temp/graph_detect_changes.json, optional
+#
+# With OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT on (default 0), the same
+# context also carries `caller sites` of the enclosing function from
+# `code-review-graph query callers_of`, labelled graph-derived hints (LADR-120).
+# No decision question or criterion changes: the sites are context, not a new
+# question, and a failed or timed-out query omits them and nothing else.
 # Budget order: when a request is over budget the code context is shortened,
 # then dropped, BEFORE the hunk is trimmed, so the pre-LADR-098 request is
 # always the fallback. Paths that look like secrets (.env*, keys, credential
@@ -236,6 +242,14 @@ if ! [[ "$min_probability" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]]; then
   min_probability="0.5"
 fi
 case "$min_probability" in .*) min_probability="0${min_probability}" ;; esac
+
+# LADR-120: caller sites of the finding's enclosing function, added to the code
+# context as graph-derived hints. OFF by default and additive: with it off the
+# request is byte-identical to the LADR-098 shape.
+caller_context_on=false
+if is_truthy "${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"; then
+  caller_context_on=true
+fi
 
 code_context_on=false
 if is_truthy "${OPENCODE_REVIEW_REPORT_DECISIONS_CODE_CONTEXT:-1}"; then
@@ -632,6 +646,45 @@ code_context_for() {
     printf '%s, as of the reviewed commit (numbers are the file line numbers):\n' "$label" >> "$out.raw"
     cap_copy "$part" "$part.cut" "$source_max" "source excerpt"
     cat "$part.cut" >> "$out.raw"
+  fi
+  # 1b. Caller sites of the enclosing function (LADR-120). The judge is asked
+  # whether an upstream guard prevents the failure; the enclosing function alone
+  # cannot answer it. Edges come from the existing code graph and are HINTS
+  # (LADR-050): an edge is not proof of a call path, and an absent edge is not
+  # proof of absence. Fail-open — no graph JSON, no function name, no CLI, a
+  # failed or timed-out query, or a non-ok status all omit the block.
+  if [ "$caller_context_on" = true ] && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
+     && command -v code-review-graph >/dev/null 2>&1; then
+    local qout qrc=0 callers_max used room
+    if command -v timeout >/dev/null 2>&1; then
+      qout="$(timeout 5 code-review-graph query callers_of "$fname" --repo . 2>/dev/null)" || qrc=$?
+    else
+      qout="$(code-review-graph query callers_of "$fname" --repo . 2>/dev/null)" || qrc=$?
+    fi
+    if [ "$qrc" -eq 0 ] && [ -n "$qout" ] \
+       && printf '%s' "$qout" | jq -e '.status == "ok"' >/dev/null 2>&1; then
+      : > "$work/f_${idx}.callers"
+      printf '%s' "$qout" | jq -r '
+        [ (.results // [])[]
+          | select((.file_path // "") != "")
+          | "\(.file_path):\(.line_start // "?") \(.name // .qualified_name // "?")" ]
+        | .[0:5] | join("\n")' > "$work/f_${idx}.callers" 2>/dev/null || : > "$work/f_${idx}.callers"
+      if [ -s "$work/f_${idx}.callers" ]; then
+        used=$(wc -c < "$out.raw" | tr -d ' ')
+        room=$(( max - used ))
+        callers_max=$(( max / 6 ))
+        [ "$callers_max" -gt 600 ] && callers_max=600
+        [ "$callers_max" -gt "$room" ] && callers_max="$room"
+        if [ "$callers_max" -ge 120 ]; then
+          printf '\nCaller sites of `%s` (graph-derived hints: an edge is not proof of a call path, and an absent edge is not proof of absence):\n' "$fname" >> "$out.raw"
+          cap_copy "$work/f_${idx}.callers" "$work/f_${idx}.callers.cut" "$callers_max" "caller sites"
+          cat "$work/f_${idx}.callers.cut" >> "$out.raw"
+        fi
+      fi
+      rm -f "$work/f_${idx}.callers" "$work/f_${idx}.callers.cut"
+    else
+      info "caller context: query for '${fname}' unavailable — omitted"
+    fi
   fi
   # 2. Other changed files the finding names (a cross-file claim's other half).
   jq -r --argjson i "$idx" '.findings[$i]
