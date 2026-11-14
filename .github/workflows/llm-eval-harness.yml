@@ -198,6 +198,10 @@ jobs:
             .agents/skills/ai-review-report/scripts/test-code-graph.sh
             .agents/skills/ai-review-report/scripts/test-graph-signals-slice.sh
             .agents/skills/ai-review-report/scripts/test-chunk-prompt-budget.sh
+            # LADR-118: the author-notes data envelope — collision-safe marker
+            # growth, verbatim content, no "#"+digits from the fence itself,
+            # empty-input omission, and the builder wiring plus flag default.
+            .agents/skills/ai-review-report/scripts/test-prompt-data-fence.sh
             .agents/skills/ai-review-report/scripts/test-graph-signals-artifact.sh
             # LADR-060: the verification lens is diverted BEFORE the doc-only test,
             # so the static order check cannot see the allowlist arms - only this

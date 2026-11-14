@@ -58,6 +58,9 @@
 #   OPENCODE_REVIEW_REPORT_GEMINI_URL / _COPILOT_URL / _OPENAI_URL — gateway URLs
 #   OPENCODE_GEMINI_API_KEY / _COPILOT_API_KEY / _OPENAI_API_KEY — provider keys
 #   OPENCODE_ANTHROPIC_API_KEY / _GO_OPENAI_API_KEY / _GO_ANTHROPIC_API_KEY / _OPENROUTER_API_KEY
+#   OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE  [1] — wrap author-supplied AI
+#                         Review Notes in a collision-safe data envelope in both
+#                         prompt builders (LADR-118). Falsy is the kill switch.
 #   OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS  [0]  — decision-model scoring of the
 #                         merged findings (LADR-093). Off → Step 17.6 is a no-op.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER  [OPENCODE-GO-DECISIONS] — or
@@ -174,6 +177,12 @@ OPENCODE_REVIEW_REPORT_ENABLE_RUN_ARTIFACTS="${OPENCODE_REVIEW_REPORT_ENABLE_RUN
 # pre-LADR-078 single-attempt behaviour.
 OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY="${OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY:-1}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
+
+# Author-notes data fence (LADR-118) — ON by default. Author-supplied notes are
+# untrusted input, so both prompt builders wrap them in a collision-safe data
+# envelope. Set falsy to restore the pre-fence prompt byte-for-byte.
+OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE="${OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE:-1}"
+export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
 
 # Decision-model scoring (LADR-093) — opt-in, OFF by default. When truthy, Step
 # 17.6 sends each merged finding (and then the whole merged set) to a

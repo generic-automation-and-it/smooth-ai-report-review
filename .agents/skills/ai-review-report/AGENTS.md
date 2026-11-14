@@ -1340,6 +1340,15 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
   - Cache-key language coverage is expanded identically in both packagings. Restored graphs were already refreshed by the build library; this is not a stale-graph correctness fix.
 - **See also**: LADR-049, LADR-031, LADR-035, LADR-045, LADR-055, LADR-062, LADR-067, LADR-085, LADR-093.
 
+### LADR-118: Author-supplied review notes reach both prompts inside a collision-safe data envelope
+
+- **Date**: 2026-11-14
+- **Status**: Accepted (`lib/fence-untrusted.sh`, both prompt builders, both packagings and `local-review.sh`; pinned by `test-prompt-data-fence.sh` and `test-chunk-prompt-budget.sh`)
+- **Context**: The PR description's AI Review Notes block is interpolated into the chunk prompt (`review-in-chunks.sh`) and the aggregation prompt (`aggregate-reviews.sh`) with skip-area rules but no boundary marking it as data. `skill-secret-handling` names untrusted input as a prompt-injection source, and the author controls that text entirely. A naive delimiter is not enough: a description that contains the closing marker would end the envelope early and everything after it would read as instructions.
+- **Decision**: A new `lib/fence-untrusted.sh` prints an opening marker, one line stating that everything inside is data and never instructions, the content verbatim, and a closing marker. The marker suffix grows with `_` until neither marker occurs anywhere in the content, so an author cannot close the envelope early. The envelope emits no `#` (LADR-067/068). Both builders wrap the identical block; empty or whitespace-only notes produce no block. `OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE` defaults to **`1`** — a safety boundary rather than a quality claim, so it is exempt from the repo's opt-in convention — and a falsy value is the kill switch, leaving both prompts byte-identical to the pre-fence shape. If the helper is missing, the builder emits the fixed envelope plus a warning and never unfenced text.
+- **Consequences**: Author text can no longer steer the reviewer. Flag-off byte identity, the collision-suffix growth, the helper-missing fallback and the ≤ 6 KB growth bound are pinned by the two tests; observed growth on the fixture is about 1.2 KB. No model call, no merged-document key, no new posted class, no new secret or endpoint.
+- **See also**: LADR-083, LADR-067, LADR-068, LADR-090, LADR-055.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1531,6 +1540,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 
 | Date | Change | Ref |
 |------|--------|-----|
+| 2026-11-14 | Author notes fenced as data in both prompt builders: collision-safe envelope whose suffix grows until the marker cannot collide, default-on kill switch, fixed-fence fallback when the helper is missing. | LADR-118 |
 | 2026-11-13 | Adoption umbrella for al-pr-review strengths: items A–E and L1–L3 with flags/defaults, shared fail-open rules, rejected items. Eval fixtures may carry `pr_description.md` / `linked_issues.json`; `OPENCODE_REVIEW_REPORT_REVIEW_TYPE` exported to chunk prompts. | LADR-111 |
 | 2026-11-11 | Review posting uses `lib/post-review.sh` with `commit_id` pinned to the reviewed SHA; `gh pr review` no longer posts. | LADR-109 |
 | 2026-11-11 | `analyse` edit fence denies tooling/scratch/`.git`/`.env` paths; `Verify pinned tooling is unmodified` fails before the credential-bearing commit step. `test-repo-opencode-config.sh` pins the fence; `test-analyse-tooling-verify.sh` runs the real step in both modes. | LADR-110 |
