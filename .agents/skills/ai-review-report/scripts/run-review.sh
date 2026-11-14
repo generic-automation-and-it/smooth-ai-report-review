@@ -61,6 +61,9 @@
 #   OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE  [1] — wrap author-supplied AI
 #                         Review Notes in a collision-safe data envelope in both
 #                         prompt builders (LADR-118). Falsy is the kill switch.
+#   OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION  [0] — verify each merged
+#                         75/100 finding's quoted line against the tree at the
+#                         reviewed revision; a miss is demoted to 50 (LADR-119).
 #   OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS  [0]  — decision-model scoring of the
 #                         merged findings (LADR-093). Off → Step 17.6 is a no-op.
 #   OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER  [OPENCODE-GO-DECISIONS] — or
@@ -183,6 +186,12 @@ export OPENCODE_REVIEW_REPORT_ENABLE_GH_RETRY
 # envelope. Set falsy to restore the pre-fence prompt byte-for-byte.
 OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE="${OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE:-1}"
 export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
+
+# Quote verification (LADR-119) — opt-in, OFF by default. When truthy, Step
+# 17.5 verifies each merged 75/100 finding's quoted line against the tree at
+# head_sha and demotes a miss to anchor 50; a skip never changes an anchor.
+OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION="${OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION:-0}"
+export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 
 # Decision-model scoring (LADR-093) — opt-in, OFF by default. When truthy, Step
 # 17.6 sends each merged finding (and then the whole merged set) to a
@@ -552,6 +561,15 @@ assemble_run_artifacts() {
     printf '%s' "$decisions_json" | jq -e . >/dev/null 2>&1 || decisions_json='null'
   fi
 
+  # LADR-119: quote-verification counts, or null when the pass did not run. Kept
+  # out of the merged document (R6); re-validated as JSON so a malformed report
+  # can never break the file.
+  local quote_verification_json='null'
+  if [ -s "$WORK_DIR/quote_verification.json" ]; then
+    quote_verification_json="$(jq -c '{demoted:(.demoted//0), found_elsewhere:(.found_elsewhere//0), skipped:(.skipped//0)}' "$WORK_DIR/quote_verification.json" 2>/dev/null)"
+    printf '%s' "$quote_verification_json" | jq -e . >/dev/null 2>&1 || quote_verification_json='null'
+  fi
+
   cat > "$dir/metadata.json" <<METADATA_EOF
 {
   "run_id": "${GITHUB_RUN_ID:-local}",
@@ -570,6 +588,7 @@ assemble_run_artifacts() {
   "graph_signals_chunks": ${graph_signals_chunks},
   "graph_analysis_available": "${graph_analysis_available}",
   "decisions_summary": ${decisions_json:-null},
+  "quote_verification": ${quote_verification_json:-null},
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 METADATA_EOF
@@ -1442,6 +1461,10 @@ echo "Total chunks: ${TOTAL_CHUNKS}"
 _structured_findings="${OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS:-1}"
 if printf '%s' "${_structured_findings,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -f "$LIB_DIR/merge-findings.sh" ]; then
+    # A stale verification report from a previous local run must not survive: the
+    # renderer keys its Coverage line on the file's presence.
+    rm -f "$WORK_DIR/quote_verification.json" 2>/dev/null || true
+    _MERGE_SOURCE_REV="${head_sha}" \
     bash "$LIB_DIR/merge-findings.sh" \
       "$WORK_DIR/reviews" \
       "$WORK_DIR/findings.merged.json" || true

@@ -59,6 +59,17 @@ decisions_on=false
 printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
   | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' && decisions_on=true
 
+# LADR-119: quote verification writes its own report file; the merged document
+# gains no key (R6). Absent report → empty line → byte-identical Coverage block.
+qv_line=""
+if [ -n "${_QUOTE_VERIFICATION_JSON:-}" ] && [ -s "${_QUOTE_VERIFICATION_JSON}" ]; then
+  qv_line="$(jq -r '
+      "- **Demoted for unverifiable quoted evidence:** \(.demoted) (claimed confidence ≥ 75 with a quoted line absent from the tree at the reviewed revision; stepped down to 50)"
+      + (if (.found_elsewhere // 0) > 0 then " · \(.found_elsewhere) quote(s) found in another file" else "" end)
+      + (if (.skipped // 0) > 0 then " · \(.skipped) skipped" else "" end)
+    ' "${_QUOTE_VERIFICATION_JSON}" 2>/dev/null)"
+fi
+
 jq -r '
   def clean: gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "");
 
@@ -304,6 +315,7 @@ jq -r '
     else empty end ),
   "- **Duplicates merged across chunks:** \(.merged_duplicates)",
   "- **Demoted for missing quoted evidence:** \(.demoted_no_quote) (claimed confidence ≥ 75 without quoting the motivating line, stepped down to 50)",
+  ( if $qv != "" then $qv else empty end ),
   # The buckets must be ordered HERE, not in merge-findings.py. Its keys are
   # strings (`str(confidence)`) and it serialises with `sort_keys=True`, which
   # re-sorts every nested object lexicographically — so 0, 100, 25, 50, 75.
@@ -334,4 +346,5 @@ jq -r '
   "Suppression is mechanical, not editorial: a finding below confidence 75 is a verified nitpick or an unverified guess, and only 🔴 Critical is exempt so an important-but-uncertain blocker is never dropped silently.",
   ""
 ' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" \
-    --arg missing_chunks "$missing_chunks" --argjson decisions_on "$decisions_on" "$merged"
+    --arg missing_chunks "$missing_chunks" --argjson decisions_on "$decisions_on" \
+    --arg qv "$qv_line" "$merged"
