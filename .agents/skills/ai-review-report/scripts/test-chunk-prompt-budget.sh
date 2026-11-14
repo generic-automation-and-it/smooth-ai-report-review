@@ -841,6 +841,20 @@ run_deadline_case() {
     "$(grep -c 'Aggregation summary skipped: the opt-in run deadline was reached' "${TMP_DIR}/deadline-agg.log")"
   check "deadline: the verdict fails closed" "request_changes" \
     "$(grep '^review_action=' "${TMP_DIR}/deadline-agg.out" | tail -1 | cut -d= -f2)"
+
+  # The Coverage line is gated on the DEADLINE, not on elapsed: elapsed is
+  # always known, so an elapsed-only gate would add the line to every unbounded
+  # run and break the flag-unset byte-identity contract.
+  jq -n '{status:"complete", findings:[], pre_existing_findings:[], suppressed_findings:[],
+          suppressed_by_confidence:{}, merged_duplicates:0, demoted_no_quote:0,
+          malformed_findings:0, malformed_returns:0, merged_chunks:[0]}' > "${TMP_DIR}/dl-doc.json"
+  _RUN_DEADLINE_LINE='- **Run time:** 7s elapsed (opt-in deadline 1s)' \
+    bash .agents/skills/ai-review-report/scripts/lib/render-findings-summary.sh "${TMP_DIR}/dl-doc.json" 0 1 "" \
+    > "${TMP_DIR}/dl-render.md" 2>"${TMP_DIR}/dl-render.err" || true
+  check "deadline: the renderer emits the run-time line when given it" "1" \
+    "$(grep -cF 'Run time:' "${TMP_DIR}/dl-render.md" || true)"
+  check "deadline: the line is gated on the deadline, not on elapsed" "1" \
+    "$(grep -c 'if \[ -n "${_RUN_DEADLINE_SECONDS:-}" \] && \[ -n "${_RUN_ELAPSED_SECONDS:-}" \]' .agents/skills/ai-review-report/scripts/aggregate-reviews.sh)"
   if grep -qE '#[0-9]' ci_temp/final_review.md; then
     fail "deadline: the banner carries a '#<digit>' autolink hazard"
   else

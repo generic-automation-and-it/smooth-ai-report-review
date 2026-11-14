@@ -749,12 +749,12 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
   if [ "${EXPECTED_SIDECARS:-0}" -gt 0 ] && [ "${SIDECAR_COUNT:-0}" -gt 0 ]; then
     # LADR-121: one Coverage line for the run's elapsed time and deadline. Empty
     # on an unbounded run, so the block stays byte-identical.
+    # Gated on the DEADLINE, not on elapsed: elapsed is always known, so keying
+    # the line on it would add a Coverage line to every unbounded run and break
+    # the flag-unset byte-identity contract.
     _RUN_DEADLINE_LINE=""
-    if [ -n "${_RUN_ELAPSED_SECONDS:-}" ]; then
-      _RUN_DEADLINE_LINE="- **Run time:** ${_RUN_ELAPSED_SECONDS}s elapsed"
-      if [ -n "${_RUN_DEADLINE_SECONDS:-}" ]; then
-        _RUN_DEADLINE_LINE="${_RUN_DEADLINE_LINE} (opt-in deadline ${_RUN_DEADLINE_SECONDS}s)"
-      fi
+    if [ -n "${_RUN_DEADLINE_SECONDS:-}" ] && [ -n "${_RUN_ELAPSED_SECONDS:-}" ]; then
+      _RUN_DEADLINE_LINE="- **Run time:** ${_RUN_ELAPSED_SECONDS}s elapsed (opt-in deadline ${_RUN_DEADLINE_SECONDS}s)"
     fi
     if _QUOTE_VERIFICATION_JSON="ci_temp/quote_verification.json" _RUN_DEADLINE_LINE="$_RUN_DEADLINE_LINE" \
        bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
@@ -1195,7 +1195,14 @@ fi
 # body was assembled, so the coverage banner above and this override always agree.
 if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ] || [ "${UNREVIEWED_COUNT:-0}" -gt 0 ]; then
   if [ "$REVIEW_DECISION" != "request_changes" ]; then
-    echo "⚠️ ${FAILED_CHUNK_COUNT} chunk(s) failed and ${UNREVIEWED_COUNT} were not reviewed — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
+    _cover_detail=""
+    if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
+      _cover_detail="${FAILED_CHUNK_COUNT} chunk(s) failed to review"
+    fi
+    if [ "${UNREVIEWED_COUNT:-0}" -gt 0 ]; then
+      _cover_detail="${_cover_detail:+${_cover_detail} and }${UNREVIEWED_COUNT} chunk(s) were not reviewed"
+    fi
+    echo "⚠️ ${_cover_detail} — forcing REQUEST_CHANGES (fail-closed), overriding '${REVIEW_DECISION:-unknown}'."
     REVIEW_DECISION="request_changes"
   fi
 fi

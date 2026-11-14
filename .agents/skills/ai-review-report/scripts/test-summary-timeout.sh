@@ -286,8 +286,11 @@ check "a failed or timed-out chain still sets agg_ok=false" "1" \
   "$(grep 'lib/run-split-chain.sh" summary' "$AGG" | grep -c '|| { SUMMARY_RC=\$?; agg_ok=false; }')"
 check "stderr still lands in ci_temp/summary_stderr.log" "1" \
   "$(grep 'lib/run-split-chain.sh" summary' "$AGG" | grep -c '2>ci_temp/summary_stderr.log')"
+# Leading whitespace is allowed: LADR-121 wraps the call in a deadline guard, and
+# the invariant is that the cwd reaches the transport, not that it sits at
+# column 0.
 check "the runtime AGENTS.md cwd still reaches the transport (LADR-090)" "1" \
-  "$(grep 'lib/run-split-chain.sh" summary' "$AGG" | grep -c '^OPENCODE_RUN_CWD="\$ORCH_RUN_CWD" ')"
+  "$(grep 'lib/run-split-chain.sh" summary' "$AGG" | grep -c '^[[:space:]]*OPENCODE_RUN_CWD="\$ORCH_RUN_CWD" ')"
 check "the default budget is 600s" "1" "$(grep -c '^SUMMARY_TIMEOUT_DEFAULT=600$' "$AGG")"
 check "the chain splits via the shared LADR-081 lib" "1" \
   "$(grep -c 'split-chunk-budget.sh" "\$_rsc_total" "\$_rsc_pmin" "\$_rsc_smin"' "$CHAIN")"

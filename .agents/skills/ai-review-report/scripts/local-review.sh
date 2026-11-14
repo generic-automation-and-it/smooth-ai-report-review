@@ -670,10 +670,10 @@ bash "$SCRIPT_DIR/review-in-chunks.sh" \
 TOTAL_CHUNKS=$(grep '^total_chunks=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 
-# LADR-121: the deadline outcome, absent on every unbounded run.
-DEADLINE_EXPIRED=$(grep '^deadline_expired=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2 || true)
+# LADR-121: the deadline outcome, absent on every unbounded run. Only the chunk
+# list is consumed; the reached flag is recomputed from elapsed time below.
 UNREVIEWED_CHUNKS=$(grep '^unreviewed_chunks=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2 || true)
-export DEADLINE_EXPIRED UNREVIEWED_CHUNKS
+export UNREVIEWED_CHUNKS
 
 # --- Step 5b: Merge structured findings (LADR-055) ---
 # Mirrors run-review.sh's merge call site. The LADR-055 coverage precondition
