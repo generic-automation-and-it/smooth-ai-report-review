@@ -215,6 +215,10 @@ export OPENCODE_REVIEW_REPORT_PROVIDER
 export OPENCODE_REVIEW_REPORT_MODEL_PRIMARY="$OPENCODE_MODEL"
 export OPENCODE_REVIEW_REPORT_MODEL_SECONDARY="${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-gpt-5.5}"
 export OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR="${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-gpt-5.6-terra}"
+# Author-notes data fence (LADR-118) — ON by default; a falsy value is the kill
+# switch and restores the pre-fence prompt byte-for-byte.
+OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE="${OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE:-1}"
+export OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE
 # shellcheck source=lib/resolve-provider.sh
 source "$SCRIPT_DIR/lib/resolve-provider.sh"
 # Bounded retry for transient GitHub failures (LADR-078) — wraps the review

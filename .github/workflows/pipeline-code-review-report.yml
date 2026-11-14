@@ -468,6 +468,10 @@ jobs:
       # Set the Variable to 0/false/no/off to disable only prompt enrichment.
       OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS || '1' }}
       OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES || '1024' }}
+      # Author-notes data fence (LADR-118) — ON by default: author-supplied notes
+      # are untrusted input, so both prompt builders wrap them in a collision-safe
+      # envelope. A falsy Variable restores the pre-fence prompt byte-for-byte.
+      OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE || '1' }}
       # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted
       # after LADR-014's Gemini-CLI hook was superseded by the opencode
       # transport migration (LADR-023). rtk_version input wins over the
