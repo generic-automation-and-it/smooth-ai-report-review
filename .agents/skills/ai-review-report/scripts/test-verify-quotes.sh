@@ -49,6 +49,8 @@ printf 'indent file\n        var spaced = DoThing(value);\n' > src/c.cs
 # One literal backslash in the source. A fabricated quote carrying `\\` would
 # collapse to `\` under awk -v and match this line falsely.
 printf 'escaped line\nconst path = "a\\b.c";\n' > src/d.cs
+# The quote appears only inside a longer comment line, never as a whole line.
+printf 'comment file\n// legacy: var legacy = OldGuard(account); was removed\n' > src/e.cs
 git add src
 git commit -q -m base
 REV="$(git rev-parse HEAD)"
@@ -223,6 +225,17 @@ printf '%s\n' "$doc" > "$m"
 bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
 check "backslash escapes are not interpreted" "1" "$(jq -r '.demoted' "$r")"
 check "escaping quote: anchor stepped down" "0" "$(jq -r '.findings | length' "$m")"
+
+# A quote that appears only as a substring of a longer line is not that line.
+# Both the named file and the repo-wide look must reject it, and the original
+# file must never be reported as "found elsewhere".
+doc="$(mk_doc "[$(finding high 100 'src/e.cs:2 -- var legacy = OldGuard(account);' src/e.cs 2)]")"
+m="${TMP_DIR}/substring.merged.json"; r="${TMP_DIR}/substring.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "substring-only quote: demoted" "1" "$(jq -r '.demoted' "$r")"
+check "substring-only quote: not reported as found elsewhere" "0" "$(jq -r '.found_elsewhere' "$r")"
+check "substring-only quote: anchor stepped down" "0" "$(jq -r '.findings | length' "$m")"
 
 echo ""
 echo "Part 3b — survivors stay contiguously numbered"

@@ -49,6 +49,19 @@ trim() {
   printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
+# contains_line <content> <quote> — 0 when some line of <content>, trimmed of
+# surrounding whitespace, equals <quote> exactly. The quote is DATA, not an awk
+# -v value: `-v` interprets backslash escapes (BSD awk also rejects literal
+# newlines), so a fabricated quote carrying `\\` would collapse to `\` and match
+# a source line it does not equal. ENVIRON passes the string through untouched —
+# the same reason renumber-suggested-fixes.sh reads its mapping from a file.
+contains_line() {
+  Q="$2" awk '
+    { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == ENVIRON["Q"]) { found=1; exit } }
+    END { exit(found ? 0 : 1) }
+  ' <<< "$1"
+}
+
 # One merged-finding candidate per line: index, file, first_evidence.
 jq -c '
   .findings | to_entries[]
@@ -114,15 +127,7 @@ while IFS= read -r row; do
     skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "git_error"; continue
   fi
 
-  # The quote is DATA, not an awk -v value: `-v` interprets backslash escapes
-  # (BSD awk also rejects literal newlines), so a fabricated quote carrying
-  # `\\` would collapse to `\` and match a source line it does not equal.
-  # ENVIRON passes the string through untouched — same reason
-  # renumber-suggested-fixes.sh reads its mapping from a file.
-  if Q="$quote" awk '
-      { t=$0; sub(/^[ \t]+/,"",t); sub(/[ \t]+$/,"",t); if (t == ENVIRON["Q"]) { found=1; exit } }
-      END { exit(found ? 0 : 1) }
-    ' <<< "$content"; then
+  if contains_line "$content" "$quote"; then
     record "$idx" "$qfile" "verified" "quote_found"
     continue
   fi
@@ -138,14 +143,42 @@ while IFS= read -r row; do
   hits=""
   grep_rc=0
   hits="$(git_bounded grep -l -F -e "$quote" "$rev" -- . 2>/dev/null)" || grep_rc=$?
-  if [ "$grep_rc" -eq 0 ] && [ -n "$hits" ]; then
-    elsewhere=$((elsewhere + 1))
-    record "$idx" "$qfile" "found_elsewhere" "quote_in_other_file" \
-      "$(printf '%s\n' "$hits" | sed "s|^${rev}:||" | head -n 5 | jq -R . | jq -s '{found_in: .}')"
+  if [ "$grep_rc" -eq 1 ]; then
+    demoted=$((demoted + 1))
+    demoted_idxs="${demoted_idxs}${demoted_idxs:+,}${idx}"
+    record "$idx" "$qfile" "demoted" "quote_not_found"
     continue
   fi
-  if [ "$grep_rc" -ne 1 ]; then
+  if [ "$grep_rc" -ne 0 ]; then
     skipped=$((skipped + 1)); record "$idx" "$qfile" "skip" "git_error"; continue
+  fi
+
+  # `git grep` only narrows the candidates; the confirmation is the SAME
+  # trimmed-line equality as the named file. A substring hit — the quote buried
+  # in a comment or inside a longer line — is not the line the finding claims,
+  # and accepting it would keep a fabricated quote blocking. Bounded to the
+  # first twenty candidate files and five confirming ones.
+  confirming=""
+  confirmed=0
+  while IFS= read -r cand; do
+    cand="${cand#"${rev}:"}"
+    [ -n "$cand" ] || continue
+    [ "$cand" = "$qfile" ] && continue
+    cand_rc=0
+    cand_content="$(git_bounded show "${rev}:${cand}" 2>/dev/null)" || cand_rc=$?
+    [ "$cand_rc" -eq 0 ] || continue
+    if contains_line "$cand_content" "$quote"; then
+      confirming="${confirming}${confirming:+$'\n'}${cand}"
+      confirmed=$((confirmed + 1))
+      [ "$confirmed" -ge 5 ] && break
+    fi
+  done <<< "$(printf '%s\n' "$hits" | head -n 20)"
+
+  if [ -n "$confirming" ]; then
+    elsewhere=$((elsewhere + 1))
+    record "$idx" "$qfile" "found_elsewhere" "quote_in_other_file" \
+      "$(printf '%s\n' "$confirming" | jq -R . | jq -s '{found_in: .}')"
+    continue
   fi
 
   demoted=$((demoted + 1))
