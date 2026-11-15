@@ -11,8 +11,10 @@
 
 ## Decision
 
-**Record** an invisible decision block only when the processed review carries a run marker, only for
-numbered findings, and only for explicit per-item choices a human supplied in that execution run.
+**Record** an invisible decision block only when the processed review carries the scoring marker
+`<!-- ai-review-report run=<digits> -->`, only for numbered findings, and only for explicit per-item
+choices a human supplied in that execution run. The artifact-discovery marker `run-id=` alone does
+not authorize labels.
 
 Never write the block from analysis, from an all-item opt-in, or from the autonomous fixer. A
 doubtful skip records the deferred class, which the corpus harvester ignores, rather than guessing

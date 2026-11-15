@@ -29,7 +29,9 @@ confidence, never severity.
 
 **Acceptance criteria / DoD**
 
-- A structured 75 or 100 finding without a quoted line is demoted to 50 and counted. (mechanical)
+- A structured 75 or 100 finding with missing or blank `first_evidence` is demoted to 50 and counted. (mechanical presence check)
+- Quoting the motivating source line is prompt-enforced; non-empty evidence alone does not prove a quotation.
+- Optional tree verification checks quoted text against the reviewed revision and demotes definite misses to 50; uncertain cases fail open. It is off by default (canonical LADR-119).
 - Non-critical findings below 75 are suppressed; Critical findings are retained. (mechanical)
 - A standards claim without a cited rule is withdrawn to its own code evidence. (prompt-enforced)
 - A `[SPECULATIVE]` finding never carries an anchor above 50. (prompt-enforced)

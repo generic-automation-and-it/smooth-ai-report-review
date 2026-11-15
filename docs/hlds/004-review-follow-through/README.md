@@ -51,8 +51,9 @@ in the live body.
 ### 3. Keep decision labels human-only
 
 The invisible decision label block records only explicit per-item human choices, only for numbered
-findings, and only when the processed review carries a run marker. Model recommendations and
-autonomous runs never write it.
+findings, and only when the processed review carries the scoring marker
+`<!-- ai-review-report run=<digits> -->`. The artifact-discovery marker `run-id=` alone does not
+authorize labels. Model recommendations and autonomous runs never write it.
 
 **Acceptance criteria / DoD**
 

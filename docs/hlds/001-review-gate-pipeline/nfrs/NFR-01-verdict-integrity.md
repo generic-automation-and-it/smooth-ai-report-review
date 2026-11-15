@@ -15,7 +15,11 @@ Exercise the action matrix as automated cases: incremental-with-no-findings, ful
 full-with-Critical, full-with-a-failed-chunk, and all-models-failed. Assert both the posted state
 and the header banner against the same failure count.
 
-**Test mapping:** `test-run-review.sh` (action matrix) and `test-incremental-body.sh` (incremental verdict).
+**Test mapping:** `test-run-review.sh` (entrypoint unit contracts),
+`test-incremental-body.sh` (incremental body formatting and narrative stripping), and
+`test-merge-findings.sh` (structured recommendation sync).
+These existing checks do not establish the complete posted-state/banner matrix above;
+the remaining scenarios require separate verification.
 
 ## Acceptance Criteria
 
