@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (as built, 2026-11-15) |
+| **Status** | Accepted |
 | **Owner** | Repository platform |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [SKILLS_INSTALLER.md](../../../scripts/SKILLS_INSTALLER.md) + [plugin.json](../../../.claude-plugin/plugin.json) + [llm-eval-harness.yml](../../../.github/workflows/llm-eval-harness.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
@@ -65,15 +65,29 @@ evaluation corpus measures precision and recall against labeled expectations.
 
 ### 4. Keep versioning singular
 
-The plugin manifest is the only version manifest. The updater derives the floating major tag from
-that version and moves it to the default-branch HEAD; it does not validate release tags. The retired
-package channel is not reintroduced.
+The plugin manifest is the only version manifest. A release bumps its version, tags the release, and
+`update-major-tag.yml` derives the floating major tag (`vN`) from that version and moves it to the
+default-branch HEAD; it does not validate release tags. The retired package channel is not
+reintroduced.
 
 **Acceptance criteria / DoD**
 
+- A release bumps `plugin.json`, tags the release, and moves `vN` to the default-branch HEAD.
 - The updater derives `vN` from the manifest's major version and points it at the default-branch HEAD.
 - No package manifest or publish workflow exists.
 - No consumer channel depends on a package registry.
+
+### 5. Expose a documented input surface
+
+The reusable workflow accepts the model, preset, draft, Claude Code, file-limit, mandatory-context,
+config and review-scope inputs. The caller example documents every input and its precedence, and the
+preset dropdown and draft guard are duplicated across all three packagings.
+
+**Acceptance criteria / DoD**
+
+- Every input is documented in the caller example with its precedence.
+- The preset dropdown is duplicated wherever the dispatch form is defined.
+- The draft guard is duplicated in all three packagings and extended together.
 
 ## Core Separation of Concerns
 
@@ -90,6 +104,7 @@ outside, so it can fail without changing what consumers run. Versioning names th
 
 ## Related HLDs
 
+- [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the artifact being distributed.
 - [005 Autonomous Low and Medium Fixer](../005-autonomous-fixer/README.md) — the optional skill behind the install flag.
 

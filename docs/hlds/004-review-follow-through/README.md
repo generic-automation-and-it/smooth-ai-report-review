@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (as built, 2026-11-15) |
+| **Status** | Accepted |
 | **Owner** | `ai-review` + `git-commit-review-push` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review SKILL.md](../../../.agents/skills/ai-review/SKILL.md) + [git-commit-review-push SKILL.md](../../../.agents/skills/git-commit-review-push/SKILL.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
@@ -87,6 +87,7 @@ trigger hands control back to the gate for a fresh, independent review.
 
 ## Related HLDs
 
+- [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — the evidence this skill consumes.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the next round this skill triggers.
 - [005 Autonomous Low and Medium Fixer](../005-autonomous-fixer/README.md) — the unattended sibling path.

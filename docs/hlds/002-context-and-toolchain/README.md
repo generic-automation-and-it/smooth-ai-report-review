@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (as built, 2026-11-15) |
+| **Status** | Accepted |
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [opencode.json](../../../.agents/skills/ai-review-report/assets/opencode.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
@@ -101,6 +101,7 @@ verdict preserves one source of truth for review decisions.
 
 ## Related HLDs
 
+- [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the consumer of this layer.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — what the enriched chunk produces.
 

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (as built, 2026-11-15) |
+| **Status** | Accepted |
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [AGENTS.md](../../../.agents/skills/ai-review-report/AGENTS.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
@@ -66,24 +66,26 @@ chunk gets exactly one retry before the report is assembled.
 
 Completed chunks aggregate into one summary; the action is policy-driven but protected by mechanical
 guards and coverage rules. The review is anchored to the reviewed SHA, stale gate reviews are
-minimized on full runs, and an artifact is uploaded for every run.
+minimized on full runs, and an artifact is uploaded for runs that reach artifact assembly.
 
 **Acceptance criteria / DoD**
 
 - A verified write posts exactly one gate-authored review, anchored to the reviewed SHA; an
   uncertain retry's duplicate is cosmetic and minimized later.
 - Coverage gaps are named in the posted body and never counted as code defects.
-- Reviewed, skipped and failed runs all upload an artifact.
+- Runs that reach artifact assembly upload one; preflight exits may post only an error comment.
 
 ### 5. Keep one entrypoint across packagings
 
 The reusable workflow and the local-job caller both invoke the same entrypoint through environment
-variables. The local runner mirrors the same chain without posting by default.
+variables. The local runner shares the provider and transport contract but resolves its own diff
+base and file limit, and does not post, minimize reviews or run the graph by default.
 
 **Acceptance criteria / DoD**
 
 - Both packagings produce the same review shape from the same inputs.
-- Every environment variable the entrypoint reads is declared in both packagings.
+- The reusable workflow and local-job caller declare the variables they consume; the local runner
+  documents its own subset. Five entrypoint knobs remain undeclared (known gap).
 - No packaging reads workflow inputs or step outputs inside the entrypoint.
 
 ### 6. Decline work the gate cannot review meaningfully
@@ -115,6 +117,7 @@ the two would let review generation depend on the state of a working tree it doe
 
 ## Related HLDs
 
+- [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [002 Context Delivery and Toolchain](../002-context-and-toolchain/README.md) — what each chunk is given.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — how findings become the verdict.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — what happens after the review is posted.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (as built, 2026-11-15) |
+| **Status** | Accepted |
 | **Owner** | `ai-review-report` (consumed by `ai-review` and `ai-analyse`) |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [findings-schema.json](../../../.agents/skills/ai-review-report/assets/findings-schema.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
@@ -29,10 +29,10 @@ confidence, never severity.
 
 **Acceptance criteria / DoD**
 
-- A structured 75 or 100 finding without a quoted line is demoted to 50 and counted.
-- Non-critical findings below 75 are suppressed; Critical findings are retained.
-- A standards claim without a cited rule is withdrawn to its own code evidence.
-- A `[SPECULATIVE]` finding never carries an anchor above 50.
+- A structured 75 or 100 finding without a quoted line is demoted to 50 and counted. (mechanical)
+- Non-critical findings below 75 are suppressed; Critical findings are retained. (mechanical)
+- A standards claim without a cited rule is withdrawn to its own code evidence. (prompt-enforced)
+- A `[SPECULATIVE]` finding never carries an anchor above 50. (prompt-enforced)
 
 ### 2. Deterministic merge and stable identity
 
@@ -89,6 +89,7 @@ for any parser.
 
 ## Related HLDs
 
+- [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — where findings are produced and posted.
 - [002 Context Delivery and Toolchain](../002-context-and-toolchain/README.md) — what the chunk reviewer was given.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — how humans act on these findings.

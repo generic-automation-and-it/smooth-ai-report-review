@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (as built, 2026-11-15) |
+| **Status** | Accepted |
 | **Owner** | `ai-analyse` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-analyse SKILL.md](../../../.agents/skills/ai-analyse/SKILL.md) + [pipeline-ai-analyse.yml](../../../.github/workflows/pipeline-ai-analyse.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
@@ -67,7 +67,8 @@ Automatically, the workflow triggers only after a successful gate run and requir
 Manual `workflow_dispatch` provides an explicit recovery path against an existing eligible gate
 review; it requires `pr_number` and may override `max_incremental`. Both paths reject forks and
 enforce the configured incremental-cycle cap. A cycle with no edits ends the loop. Auto-fix commits
-exclude workflow scratch and tooling paths, rebase before pushing, and upload a redacted artifact.
+exclude tooling paths; `ci_temp` is excluded only when the consumer repo ignores it. They rebase
+before pushing, and upload a redacted artifact.
 
 **Acceptance criteria / DoD**
 
@@ -95,6 +96,7 @@ action outside the model's reach.
 
 ## Related HLDs
 
+- [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — the findings this fixer consumes.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — the human-driven sibling path.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the run that triggers this loop.
