@@ -11,9 +11,11 @@
 
 ## Decision
 
-**Start with** shape rules: one chunk at or below ten files; semantic grouping at fifteen or more
-when that pass is available; directory-depth splitting between them. Per-file diff payloads and each
-chunk's combined diff payload carry hard byte caps. Instructions, context and truncation markers add
+**Start with** shape rules: one chunk at or below the configured file-count threshold (default ten),
+provided the combined diff fits the chunk-size limit; otherwise use adaptive directory-depth
+splitting. Attempt semantic grouping at fifteen or more files when that pass is available.
+Per-file diff payloads and each chunk's combined diff payload carry hard byte caps.
+Instructions, context and truncation markers add
 overhead beyond those caps; the complete prompt has a size warning, not a hard cap. A file whose diff
 is truncated is marked so the reviewer cannot claim Critical or High from it without reading the
 current file.

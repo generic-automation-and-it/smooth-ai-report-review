@@ -37,9 +37,9 @@ flowchart TD
     B -->|no| C[Extract medium and low findings]
     C --> D[Withhold failing-test findings and pre-decide testing gaps]
     D --> E[Model edits within scope]
-    E --> F[Revert protected test and evaluation edits]
-    F --> G[Verify pinned tooling is unmodified]
-    G --> H{Regression, failed explicit command, timeout, exhausted budget or unavailable baseline?}
+    E --> G[Verify pinned tooling is unmodified]
+    G --> F[Revert protected test and evaluation edits]
+    F --> H{Regression, failed explicit command, timeout, exhausted budget or unavailable baseline?}
     H -->|yes| I[Keep fixes, publish diff, skip push]
     H -->|no| J[Exclude scratch paths, rebase and push]
     J --> K[Comment summary and upload redacted artifact]
