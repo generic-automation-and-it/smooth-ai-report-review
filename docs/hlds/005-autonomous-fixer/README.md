@@ -63,15 +63,17 @@ gating: any nonzero exit blocks publication. Blocked fixes are preserved and pub
 
 ### 4. Bound and audit the loop
 
-The workflow triggers only after a successful gate run, never on forks, and only against a fresh
-artifact. The incremental cap bounds cycles, and a cycle with no edits ends the loop. Auto-fix
+Automatically, the workflow triggers only after a successful gate run and requires a fresh
+review. Manual dispatch provides an explicit recovery path against an existing eligible gate
+review. Both paths reject forks and enforce the configured incremental-cycle cap, which manual
+dispatch may explicitly override. A cycle with no edits ends the loop. Auto-fix
 commits exclude workflow scratch and tooling paths, rebase before pushing, and upload a redacted
 artifact.
 
 **Acceptance criteria / DoD**
 
 - The loop stops at the cycle cap or at a no-edit cycle.
-- A stale or non-actionable review artifact is not processed.
+- Automatic runs reject reviews predating the triggering gate run; both paths reject non-actionable reviews.
 - Workflow-file edits are downgraded to a skipped push unless a workflow-scoped token is available.
 - No artifact is uploaded if redaction cannot run.
 

@@ -84,7 +84,7 @@ for any parser.
 ## Guiding Principle — Evidence earns severity; judgement never rewrites evidence
 
 - A model opinion is not evidence, and a heuristic is not a verdict.
-- Conservative merging protects the author from a stricter duplicate.
+- Conservative merging preserves the most severe duplicate claim while choosing more cautious routing.
 - Every consumer reads the same ordered document, not a private copy.
 
 ## Related HLDs

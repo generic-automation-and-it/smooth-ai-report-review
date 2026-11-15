@@ -36,11 +36,11 @@ flowchart TD
     C --> D{Explicit execution?}
     D -->|no| E[Stop: read-only analysis]
     D -->|yes| F[Apply authorized fixes]
-    F --> G{Source is Copilot?}
+    F --> K[Commit and push applied fixes, if any]
+    K --> G{Source is Copilot?}
     G -->|yes| H[Reply to and resolve each processed thread]
     G -->|no| I[Append AI Review Notes and Skip Areas bullets]
     I --> J[Verify bullets in live PR body]
-    H --> K[Commit with trigger; empty re-verification commit when Critical or High]
-    J --> K
-    K --> L[Push to trigger the next full review]
+    H --> L[Create and push a separate empty re-verification commit when Critical or High]
+    J --> L
 ```

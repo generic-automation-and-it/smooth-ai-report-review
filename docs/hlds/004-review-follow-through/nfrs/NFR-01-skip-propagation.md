@@ -11,7 +11,9 @@ bullet fails the run rather than reporting success.
 ## Verification
 
 After writing the description, re-fetch it, extract the Skip Areas section, and grep each bullet's
-unique skip-reason tail. Retry once to rule out read lag; if the bullet is still absent, fail.
+unique skip-reason tail. Re-fetch once to rule out read lag; if the bullet is still absent,
+repeat the bullet update and verify again. Never report completion while any skipped item's
+bullet remains absent from the live Skip Areas section.
 
 **Test mapping:** `test-skip-bullet-format.sh` and `test-copilot-review.sh`.
 

@@ -4,8 +4,9 @@
 
 ## Requirement
 
-No enrichment failure blocks, fails or softens a review. A missing or failed graph, provenance
-digest or version check omits only its own block. Each network version check is capped at five
+No enrichment failure blocks, fails or softens a review. A missing or failed graph or provenance
+digest omits its corresponding context. Failed version lookups leave the latest version unknown;
+detected installed-version lines remain visible. Each network version check is capped at five
 seconds, and each graph slice respects its byte cap including the truncation marker.
 
 ## Verification

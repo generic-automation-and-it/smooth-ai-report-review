@@ -13,8 +13,9 @@
 
 **Adopt** a primary-then-secondary chain per chunk. The chunk budget is a floor that scales with
 prompt size up to a ceiling, and the budget is split across the chain once there is enough room for
-both stages. A chunk that stops producing tool events is killed early as a routing event, not as a
-slow success.
+both stages. A chunk whose stderr stream stops growing for the stall threshold is killed early
+as a routing event, not as a slow success. Streaming stderr text counts as progress even without
+tool events.
 
 A failed chunk gets exactly one retry with the same scaled budget; the retry drops the split
 because a retry that cannot differ is not a retry. A chunk that fails twice stays failed. When every
