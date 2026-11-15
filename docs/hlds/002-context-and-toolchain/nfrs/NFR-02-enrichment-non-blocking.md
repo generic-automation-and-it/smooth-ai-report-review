@@ -14,6 +14,8 @@ Inject a missing graph, a failed build, a malformed slice and an unreachable ver
 assert the review proceeds, the verdict is unchanged, and metadata records enrichment availability
 separately from review coverage.
 
+**Test mapping:** `test-code-graph.sh`, `test-graph-signals-slice.sh`, `test-check-versions.sh` and `test-blame-digest.sh`.
+
 ## Acceptance Criteria
 
 - Every injected failure still yields a posted review.

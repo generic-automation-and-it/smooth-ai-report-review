@@ -14,6 +14,8 @@ Exercise the action matrix as automated cases: incremental-with-no-findings, ful
 full-with-Critical, full-with-a-failed-chunk, and all-models-failed. Assert both the posted state
 and the header banner against the same failure count.
 
+**Test mapping:** `test-run-review.sh` (action matrix) and `test-incremental-body.sh` (incremental verdict).
+
 ## Acceptance Criteria
 
 - No incremental case yields approve.

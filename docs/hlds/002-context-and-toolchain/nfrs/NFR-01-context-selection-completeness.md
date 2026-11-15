@@ -14,6 +14,8 @@ Run the scope filter against fixtures derived from the configured instruction pa
 each fail-open case and both glob syntaxes. Assert the retained and dropped sets explicitly, not
 only that the command succeeds.
 
+**Test mapping:** `test-context-scope.sh` and `test-find-context-files.sh`.
+
 ## Acceptance Criteria
 
 - Every fail-open fixture survives.

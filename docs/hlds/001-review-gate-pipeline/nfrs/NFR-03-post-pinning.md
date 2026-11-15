@@ -15,6 +15,8 @@ Assert the posted review's `commit_id` equals the reviewed SHA in a posting test
 gate-authored reviews per run from the PR timeline. Include a case where the PR head advances
 between the review and the post, and an uncertain-verification retry case.
 
+**Test mapping:** `test-post-review.sh` and `test-minimize-reviews.sh`.
+
 ## Acceptance Criteria
 
 - No review is anchored to a commit other than the one reviewed.

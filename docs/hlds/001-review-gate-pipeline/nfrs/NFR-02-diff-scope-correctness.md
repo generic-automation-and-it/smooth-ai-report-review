@@ -14,6 +14,8 @@ Run deterministic cases over shallow, grafted, already-fetched and divergent his
 the resolved range and the failure path. Include a case where the base branch gained commits after
 the branch point, and a case where only `--unshallow` or `--deepen` can restore ancestry.
 
+**Test mapping:** `test-diff-base.sh` and `test-run-review.sh`.
+
 ## Acceptance Criteria
 
 - Resolved cases review only commits reachable from the reviewed head.

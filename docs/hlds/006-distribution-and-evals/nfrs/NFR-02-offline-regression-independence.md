@@ -14,6 +14,8 @@ Run `opencode-v2-regressions` in a fork-like context with no secrets, and in a p
 match its relevance rules; assert completion and a check result in both. Confirm `llm-evals` is
 configured as report-only.
 
+**Test mapping:** `eval/test-evals.sh` and `run-regressions.sh`.
+
 ## Acceptance Criteria
 
 - `opencode-v2-regressions` succeeds without secrets or network model calls.

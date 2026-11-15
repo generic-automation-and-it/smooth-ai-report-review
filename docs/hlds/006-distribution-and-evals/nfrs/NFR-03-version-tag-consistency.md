@@ -14,6 +14,8 @@ Check that the tag-update logic derives `vN` from the manifest's major version a
 that tag to the resolved default-branch HEAD. Scan the repository for a package manifest or publish
 workflow.
 
+**Test mapping:** no dedicated suite; `update-major-tag.yml` is the verification mechanism.
+
 ## Acceptance Criteria
 
 - The tag name is derived from the manifest's major version and its target is the default-branch HEAD.

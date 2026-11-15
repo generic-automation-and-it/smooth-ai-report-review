@@ -14,6 +14,8 @@ Run the formatting guard over sample reviews and Skip Areas writes, asserting th
 and the absence of an auto-linking token. Include a finding line carrying a permalink and assert the
 link is removed.
 
+**Test mapping:** `test-skip-bullet-format.sh`.
+
 ## Acceptance Criteria
 
 - No written identifier renders as a cross-referenced issue link.

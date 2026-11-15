@@ -13,6 +13,8 @@ class-prefixed tokens. Permalinks never change a parsed identifier.
 Render fixture reviews containing every item class and scan the output for `#` plus a digit. Parse
 the same body with links enabled and disabled and compare the extracted identifiers.
 
+**Test mapping:** `test-finding-links.sh` and `test-merge-findings.sh`.
+
 ## Acceptance Criteria
 
 - The scan finds zero auto-linking identifier tokens.

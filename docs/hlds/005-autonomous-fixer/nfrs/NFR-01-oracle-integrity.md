@@ -14,6 +14,8 @@ Feed a staged fix that edits a test, a framework file and an evaluation manifest
 reverted before staging and named in the summary. Repeat with the flag on and assert only test and
 framework edits survive while evaluation edits are still reverted.
 
+**Test mapping:** `test-filter-test-self-fix.sh`.
+
 ## Acceptance Criteria
 
 - The committed diff contains zero protected paths when the flag is off.

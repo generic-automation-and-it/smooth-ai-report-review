@@ -13,6 +13,8 @@ Run the merge twice over a fixed fixture set containing duplicates, conflicting 
 missing chunk; compare the full JSON and rendered numbering. Include a partial-coverage fixture and
 assert the missing chunk appears in the coverage block.
 
+**Test mapping:** `test-merge-findings.sh`.
+
 ## Acceptance Criteria
 
 - Repeated merges are byte-identical.

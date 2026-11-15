@@ -13,6 +13,8 @@ review. Every run uploads an audit artifact only after redaction succeeds.
 Exercise cap-reached, no-edit, fork, stale-artifact and redaction-failure cases. Assert the cycle
 count, the stop reason, and the artifact presence or absence.
 
+**Test mapping:** `test-soft-items-workflow.sh`, `test-select-ai-analyse-artifact.sh` and `test-analyse-tooling-verify.sh`.
+
 ## Acceptance Criteria
 
 - No epoch exceeds the configured cycle cap.

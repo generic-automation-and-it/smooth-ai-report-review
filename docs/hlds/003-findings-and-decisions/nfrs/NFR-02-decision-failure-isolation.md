@@ -14,6 +14,8 @@ Fault-inject a missing key, an unreachable endpoint, a non-JSON response and a p
 diff the merged document against a control run and assert that only the expected decision fields
 differ.
 
+**Test mapping:** `test-score-findings-decisions.sh` and `test-decisions-hardening.sh`.
+
 ## Acceptance Criteria
 
 - Disabled and preflight-failed runs match the control byte for byte.

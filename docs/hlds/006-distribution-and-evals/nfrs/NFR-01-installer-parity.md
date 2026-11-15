@@ -14,6 +14,8 @@ Normalize both ports' owned lists and compare them; run each port twice against 
 repository and a fixture machine-wide store; inject empty, whitespace-only and non-object manifests.
 Assert owned files, link records and manifest state.
 
+**Test mapping:** `scripts/test-install-skills.sh`.
+
 ## Acceptance Criteria
 
 - Owned lists compare equal.

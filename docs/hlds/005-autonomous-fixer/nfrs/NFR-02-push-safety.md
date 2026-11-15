@@ -15,6 +15,8 @@ Exercise auto-detected green-to-red, red-before-and-after and all-green cases, p
 exhausted budgets, unavailable baselines and failed explicit commands. Assert the push outcome,
 the skip reason, and the presence of the published diff.
 
+**Test mapping:** `test-run-test-gate.sh`.
+
 ## Acceptance Criteria
 
 - Green-to-red and timeout cases never push.

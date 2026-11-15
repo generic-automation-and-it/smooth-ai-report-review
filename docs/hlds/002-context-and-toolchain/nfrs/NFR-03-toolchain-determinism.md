@@ -17,6 +17,8 @@ result, unreadable-binding with successful liveness, combined unreadable-binding
 and missing-model-key cases. Assert the exit status and that the resolved config differs only by the
 added keys.
 
+**Test mapping:** `test-install-opencode.sh`, `test-opencode-health.sh`, `test-prepare-opencode-models.sh` and `test-install-rtk.sh`.
+
 ## Acceptance Criteria
 
 - v1 is rejected in every path.
