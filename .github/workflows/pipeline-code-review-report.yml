@@ -85,7 +85,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'RTK binary version pin (LADR-054, e.g. "0.44.1"). On OpenCode v2 the binary remains installed, but plugin initialization is bypassed unless RTK exposes --opencode-v2. Blank → OPENCODE_TOOL_RTK_VERSION Variable.'
+        description: 'RTK binary version pin (LADR-054, e.g. "1.2.0"). On OpenCode v2 the binary remains installed, but its plugin is initialized only for RTK >= 0.52.0. Blank → OPENCODE_TOOL_RTK_VERSION Variable.'
         required: false
         type: string
         default: ''
@@ -193,7 +193,7 @@ on:
         type: string
         default: ''
       rtk_version:
-        description: 'RTK binary version pin (LADR-054). On OpenCode v2 the binary remains installed, but plugin initialization is bypassed unless RTK exposes --opencode-v2. Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable.'
+        description: 'RTK binary version pin (LADR-054). On OpenCode v2 the binary remains installed, but its plugin is initialized only for RTK >= 0.52.0. Same semantics as the workflow_dispatch input — blank falls through to the OPENCODE_TOOL_RTK_VERSION Variable.'
         required: false
         type: string
         default: ''

@@ -219,8 +219,8 @@ jobs:
       # agents_md_exempt_paths: '.docs/release-notes'
       # opencode_config: .github/opencode.json   # ship your OWN opencode.json (path in YOUR repo);
       #                                           # must keep {env:OPENCODE_*} credential placeholders
-      # rtk_version: '0.44.1'                    # RTK binary version pin (LADR-054). On OpenCode v2 the binary remains installed,
-      #                                           # but plugin initialization is bypassed unless RTK exposes --opencode-v2.
+      # rtk_version: '1.2.0'                     # RTK binary version pin (LADR-054). On OpenCode v2 the binary remains installed,
+      #                                           # but its plugin is initialized only for RTK >= 0.52.0.
       #                                           # Blank → OPENCODE_TOOL_RTK_VERSION Variable
     # Explicit mapping works for same-org AND cross-org callers. Only the selected
     # provider's key needs to exist in your repo/org; unset ones resolve empty and

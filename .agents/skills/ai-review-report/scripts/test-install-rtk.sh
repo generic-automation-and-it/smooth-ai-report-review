@@ -90,6 +90,8 @@ ok "a v-prefixed pin (v0.44.1) is not double-prefixed"
 
 grep -q '✓ rtk ready (version: 0.44.1)' "${tmp_dir}/pinned.stdout" \
   || fail "install-rtk.sh did not report success after a pinned install (stdout: $(cat "${tmp_dir}/pinned.stdout"))"
+grep -q '^RTK_INIT_ARGS=init -g --opencode --auto-patch --hook-only$' "${tmp_dir}/pinned.log" \
+  || fail "without OpenCode v2 on PATH, RTK was not initialized through --opencode"
 ok "pinned install completes and verifies the installed version"
 
 echo ""
@@ -116,23 +118,42 @@ STUB
 chmod +x "$v2_bin/opencode"
 run_install v2_legacy \
   PATH="${v2_bin}:${stub_bin}:/usr/bin:/bin" \
-  STUB_RTK_INIT_HELP="--opencode"
+  STUB_INSTALLED_VERSION="0.51.9"
 grep -q '^RTK_VERSION_SEEN=<unset>$' "${tmp_dir}/v2_legacy.log" \
   || fail "OpenCode v2 did not retain/install the RTK binary"
 grep -q '^RTK_INIT_ARGS=' "${tmp_dir}/v2_legacy.log" \
-  && fail "legacy --opencode initialization ran on OpenCode v2"
-grep -q "OpenCode integration was bypassed.*does not expose 'rtk init --opencode-v2'" "${tmp_dir}/v2_legacy.stdout" \
-  || fail "v2 bypass did not explain the missing compatible RTK plugin"
-ok "OpenCode v2 retains RTK but bypasses the incompatible legacy plugin non-fatally"
+  && fail "a pre-0.52.0 RTK wrote its v1-only plugin on OpenCode v2"
+grep -q "OpenCode integration was bypassed: OpenCode v2 needs rtk >= 0.52.0" "${tmp_dir}/v2_legacy.stdout" \
+  || fail "v2 bypass did not name the minimum compatible RTK release"
+ok "OpenCode v2 retains a pre-0.52.0 RTK but bypasses its v1-only plugin non-fatally"
 
-run_install v2_compatible \
-  PATH="${v2_bin}:${stub_bin}:/usr/bin:/bin" \
-  STUB_RTK_INIT_HELP="--opencode --opencode-v2"
-grep -q '^RTK_INIT_ARGS=init -g --opencode-v2 --auto-patch --hook-only$' "${tmp_dir}/v2_compatible.log" \
-  || fail "OpenCode v2 did not initialize RTK through --opencode-v2 when advertised"
-grep -q '✓ rtk ready (version: 0.44.1)' "${tmp_dir}/v2_compatible.stdout" \
-  || fail "compatible OpenCode v2 integration did not report RTK ready"
-ok "OpenCode v2 automatically activates a future --opencode-v2 integration"
+for rtk_version in 0.52.0 1.2.0; do
+  run_install "v2_compatible_${rtk_version}" \
+    PATH="${v2_bin}:${stub_bin}:/usr/bin:/bin" \
+    STUB_INSTALLED_VERSION="${rtk_version}"
+  grep -q '^RTK_INIT_ARGS=init -g --opencode --auto-patch --hook-only$' "${tmp_dir}/v2_compatible_${rtk_version}.log" \
+    || fail "OpenCode v2 did not initialize RTK ${rtk_version} through --opencode"
+  grep -q "✓ rtk ready (version: ${rtk_version})" "${tmp_dir}/v2_compatible_${rtk_version}.stdout" \
+    || fail "OpenCode v2 integration with RTK ${rtk_version} did not report RTK ready"
+  grep -q 'bypassed' "${tmp_dir}/v2_compatible_${rtk_version}.stdout" \
+    && fail "RTK ${rtk_version} still warned about a bypass on OpenCode v2"
+  ok "OpenCode v2 initializes RTK ${rtk_version} through --opencode with no bypass warning"
+done
+
+echo ""
+echo "=========================================="
+echo "Testing OpenCode v2 compatibility floor"
+echo "=========================================="
+
+# shellcheck source=lib/rtk-opencode-compat.sh
+. "${SCRIPT_DIR}/lib/rtk-opencode-compat.sh"
+for v in 0.52.0 v0.52.0 0.52.1 0.60.0 1.0.0 1.2.0 10.0.0; do
+  rtk_supports_opencode_v2 "$v" || fail "rtk ${v} should support OpenCode v2"
+done
+for v in "" unknown 0.44.1 0.51.9 0.9.99; do
+  rtk_supports_opencode_v2 "$v" && fail "rtk '${v}' should not support OpenCode v2"
+done
+ok "the 0.52.0 floor compares versions numerically and rejects empty/unparseable input"
 
 echo ""
 echo "=========================================="
