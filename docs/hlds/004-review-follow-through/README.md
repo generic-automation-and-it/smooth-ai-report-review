@@ -34,14 +34,17 @@ mode combinations are rejected before any edit.
 
 ### 2. Route results by review source
 
-A Copilot review is processed per thread: every handled issue gets a reply and its thread is
-resolved, plus one summary comment. Any other review appends AI Review Notes to the PR description
-and writes every skipped item into the Skip Areas bullets, then verifies those bullets in the live
-body.
+For Copilot issues with mapped inline comments and threads, reply and resolve each processed
+thread. Issues without that mapping are reported only through the single review-level summary
+comment, which includes all processed issues. Any other review appends AI Review Notes to the PR
+description and writes every skipped item into the Skip Areas bullets, then verifies those bullets
+in the live body.
 
 **Acceptance criteria / DoD**
 
-- Every processed Copilot thread is replied to and resolved; unrelated threads are untouched.
+- Every processed Copilot issue with a mapped inline comment and thread receives a reply and
+  resolution; unrelated threads are untouched.
+- Copilot issues without that mapping appear in the review-level summary comment only.
 - Every skipped item has a Skip Areas bullet containing the skip-reason marker after the edit.
 - The verification reads only the Skip Areas section, not the whole body.
 

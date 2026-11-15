@@ -24,13 +24,17 @@ not the model — controls.
 ### 1. Keep the scope narrow
 
 Only gate-authored Medium and Low findings are eligible. Critical and High findings are omitted
-entirely — no fix row and no skip row. Every in-scope identifier receives exactly one decision, and
-the workflow fills any omission deterministically.
+entirely — no fix row and no skip row (prompt-enforced). Exactly one decision per in-scope identifier
+is also prompt-enforced; the workflow deterministically appends missing rows, but does not validate
+row uniqueness.
 
 **Acceptance criteria / DoD**
 
-- No Critical or High finding appears in the fixer's table.
-- Every in-scope identifier has exactly one row, including residual-risk and testing-gap items.
+- No Critical or High finding appears in the fixer's table. (prompt-enforced)
+- Missing in-scope rows, including residual-risk and testing-gap items, are appended by the
+  deterministic completeness pass.
+- Every in-scope identifier has exactly one row. (prompt-enforced; uniqueness is not mechanically
+  validated)
 - Testing gaps are pre-decided skip while test self-fix is off.
 
 ### 2. Protect the independent oracles
@@ -45,7 +49,7 @@ failing test are withheld before the model sees them.
 - Zero test, framework or evaluation files are committed while the self-fix flag is off.
 - Evaluation files are never committed, even when the self-fix flag is on.
 - A withheld finding is named in the summary so the filtering is auditable.
-- No production change is made to satisfy a failing test.
+- No production change is made to satisfy a failing test. (prompt-enforced)
 
 ### 3. Push only when safety was established
 

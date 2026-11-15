@@ -27,7 +27,8 @@ C4Context
 ## Follow-Through Flow
 
 Analysis is the default; execution is explicit. The source decides the routing channel, and the
-final commit hands control back to the gate.
+final commit hands control back to the gate. Copilot issues without mapped inline comments and
+threads skip reply and resolution; all processed issues appear in one review-level summary comment.
 
 ```mermaid
 flowchart TD
@@ -38,9 +39,12 @@ flowchart TD
     D -->|yes| F[Apply authorized fixes]
     F --> K[Commit and push applied fixes, if any]
     K --> G{Source is Copilot?}
-    G -->|yes| H[Reply to and resolve each processed thread]
+    G -->|yes| M{Issue has mapped comment and thread?}
+    M -->|yes| H[Reply to and resolve processed thread]
+    M -->|no: summary-only| N[Post one summary comment for all processed issues]
+    H --> N
     G -->|no| I[Append AI Review Notes and Skip Areas bullets]
     I --> J[Verify bullets in live PR body]
-    H --> L[Create and push a separate empty re-verification commit when Critical or High]
+    N --> L[Create and push a separate empty re-verification commit when Critical or High]
     J --> L
 ```
