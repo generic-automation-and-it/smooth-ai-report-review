@@ -29,4 +29,4 @@ citation never raises confidence or severity.
 ## Related
 
 - Canonical **LADR-055**, **LADR-119** in [ai-review-report AGENTS.md](../../../../.agents/skills/ai-review-report/AGENTS.md);
-  standards-citation behavior in [root AGENTS.md](../../../../AGENTS.md).
+  standards-citation prompt rule in [review-in-chunks.sh](../../../../.agents/skills/ai-review-report/scripts/review-in-chunks.sh).
