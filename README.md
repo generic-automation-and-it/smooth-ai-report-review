@@ -146,6 +146,7 @@ The review transport is provider-agnostic: `opencode` sends chunks to the base U
 | `OPENCODE_REVIEW_REPORT_RUN_ON_DRAFT` / `OPENCODE_ANALYSE_RUN_ON_DRAFT` | `false`. Truthy reviews or auto-fixes drafts. Separate knobs on purpose. |
 | `OPENCODE_REVIEW_REPORT_DISABLE_AGENTS_MD_CHECK` | `1` (check off; set `0` to enforce). When off, the review notes that keeping AI agent contextual knowledge current is still good practice. |
 | `OPENCODE_REVIEW_REPORT_SUMMARY_TIMEOUT` | `600`. Total budget (seconds) for the aggregation summary call, split between the orchestrator and the review-model fallback. A timeout follows the summary-failure path and can never make a review greener; non-integers fall back to `600`. |
+| `OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS` | `1` (on). Each numbered finding ends with ` · [open](<server>/<repo>/blob/<reviewed-sha>/<path>#L<line>)` built from `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY` and the reviewed SHA; presentation only, no parser reads it (LADR-122). No link for a missing/invalid input, non-numeric line, non-repo-relative path or T/R/P item; local runs have no `GITHUB_REPOSITORY` and stay link-free. An over-limit body drops the links before truncation. Declared in both workflow packagings. |
 
 ### Graph and decisions
 

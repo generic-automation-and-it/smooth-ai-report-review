@@ -59,6 +59,23 @@ decisions_on=false
 printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS:-0}" | tr '[:upper:]' '[:lower:]' \
   | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' && decisions_on=true
 
+# LADR-122 head-SHA permalinks (default on; explicit 0/false/no/off disables).
+# Inputs come from the environment so aggregate-reviews.sh needs no new argument.
+# Each one is validated before it can reach markdown link syntax; any missing or
+# odd input renders no link at all, never a guessed one.
+link_base=""
+links_flag="$(printf '%s' "${OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS:-1}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+link_server="${GITHUB_SERVER_URL:-https://github.com}"
+link_server="${link_server%/}"
+link_repo="${GITHUB_REPOSITORY:-}"
+link_sha="${OPENCODE_REVIEW_REPORT_DIFF_TO_SHA:-}"
+if ! printf '%s' "$links_flag" | grep -qxE '0|false|no|off' \
+   && printf '%s' "$link_server" | grep -qxE 'https?://[A-Za-z0-9.:-]+' \
+   && printf '%s' "$link_repo" | grep -qxE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+' \
+   && printf '%s' "$link_sha" | grep -qxE '[0-9a-f]{7,64}'; then
+  link_base="${link_server}/${link_repo}/blob/${link_sha}"
+fi
+
 # LADR-119: quote verification writes its own report file; the merged document
 # gains no key (R6). Absent report → empty line → byte-identical Coverage block.
 qv_line=""
@@ -151,6 +168,21 @@ jq -r '
       ( (($ds.suppressed // []) | length) - 10 | if . > 0 then "  - …and \(.) further suppressed finding\(if . == 1 then "" else "s" end)" else empty end )
     end;
 
+  # LADR-122: the last segment of a finding line, after decision_suffix, so the
+  # label and the file:line span stay byte-identical for every parser. Only a
+  # positive integer line links; a range, blank or zero line is never guessed.
+  # Each path segment is URI-encoded on its own so the slashes survive. Only a
+  # repo-relative path links: the chunk prompt asks for absolute read_file paths
+  # (LADR-090), so a finding can name a runner path that no blob URL resolves.
+  def finding_link:
+    if $link_base == "" then ""
+    elif ((.file // "") | type) != "string" then ""
+    elif (.file // "") | test("^$|^/|^[A-Za-z]:|\\\\|(^|/)[.][.](/|$)") then ""
+    elif ((.line | type) == "number" and .line >= 1 and .line == (.line | floor))
+         or ((.line | type) == "string" and (.line | test("^[1-9][0-9]*$")))
+    then " · [open](\($link_base)/\(.file | split("/") | map(@uri) | join("/"))#L\(.line))"
+    else "" end;
+
   def chunk_ref:
     if (. | length) == 0 then ""
     elif (. | length) == 1 then " (chunk \(.[0]))"
@@ -203,6 +235,7 @@ jq -r '
     + "`"
     + (.chunks // [] | chunk_ref)
     + decision_suffix($ds)
+    + finding_link
     + (if (.why_it_matters // "") != "" then "\n   - \(.why_it_matters | clean)" else "" end);
 
   # Residual risks and testing gaps render into the Medium tier as ordinary
@@ -348,4 +381,4 @@ jq -r '
   ""
 ' --arg failed_chunks "$failed_chunks" --arg total_chunks "$total_chunks" \
     --arg missing_chunks "$missing_chunks" --argjson decisions_on "$decisions_on" \
-    --arg qv "$qv_line" --arg dl "${_RUN_DEADLINE_LINE:-}" "$merged"
+    --arg link_base "$link_base" --arg qv "$qv_line" --arg dl "${_RUN_DEADLINE_LINE:-}" "$merged"
