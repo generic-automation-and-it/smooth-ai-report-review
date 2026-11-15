@@ -90,14 +90,16 @@ base and file limit, and does not post, minimize reviews or run the graph by def
 
 ### 6. Decline work the gate cannot review meaningfully
 
-Two deterministic gates can end a run without a model review: a trivial PR whose changed files stay
-inside the lockfile and manifest allowlist, and an optional documentation-context validation gate.
-Both fail open: any doubt runs the full review.
+Trivial-PR skip first requires every changed file to stay inside the lockfile and manifest allowlist,
+then requires an exact case-insensitive `yes` from a model. Any other answer or model failure runs
+the full review. The optional documentation-context validation gate is deterministic and blocks
+only when explicitly enforced.
 
 **Acceptance criteria / DoD**
 
-- A trivial PR with one changed file outside the allowlist runs the full review; a skip posts
-  guidance and exits green.
+- One changed file outside the allowlist runs the full review without a triviality model call.
+- An allowlisted PR skips only after an exact affirmative model answer; any other answer or model
+  failure runs the full review. A skip posts guidance and exits green.
 - The documentation validation gate blocks only when explicitly enforced.
 - Trusted `/ai-review` comments and manual dispatch always run the full review.
 
@@ -140,7 +142,7 @@ detail stays with the entrypoint and its tests. See [`./ladrs/`](./ladrs/).
 | [LADR-03](./ladrs/LADR-03-bounded-review-chain.md) | A bounded two-tier chain with one retry per chunk | Accepted |
 | [LADR-04](./ladrs/LADR-04-fail-closed-coverage.md) | Lost coverage fails closed; incremental reviews never approve | Accepted |
 | [LADR-05](./ladrs/LADR-05-one-entrypoint-two-packagings.md) | One entrypoint serves both packagings | Accepted |
-| [LADR-06](./ladrs/LADR-06-no-review-gates-fail-open.md) | Deterministic no-review gates fail open | Accepted |
+| [LADR-06](./ladrs/LADR-06-no-review-gates-fail-open.md) | No-review gates fail open | Accepted |
 
 **Delegated to the entrypoint:** trivial-PR skip (canonical LADR-059), EXIT-trap run artifacts
 (LADR-062), bounded GitHub retry allowlist (LADR-078), commit-pinned posting (LADR-109), and

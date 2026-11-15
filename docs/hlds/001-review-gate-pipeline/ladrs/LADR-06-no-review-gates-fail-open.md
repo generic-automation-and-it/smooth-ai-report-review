@@ -1,4 +1,4 @@
-# LADR-06: Deterministic No-Review Gates Fail Open
+# LADR-06: No-Review Gates Fail Open
 
 **Status:** Accepted
 
@@ -10,14 +10,15 @@
 
 ## Decision
 
-**Adopt** deterministic pre-review gates that may post guidance and end the run without a model call.
-Trivial-PR skip requires every changed file to stay inside the lockfile and manifest allowlist; one
-file outside it runs the full review. The documentation gate blocks only when explicitly enforced.
+**Adopt** a two-stage trivial-PR skip: every changed file must first stay inside the lockfile and
+manifest allowlist, then a model must return an exact case-insensitive `yes`. One file outside the
+allowlist, any other answer, or a model failure runs the full review.
+The optional documentation validation gate is deterministic and blocks only when explicitly enforced.
 Trusted `/ai-review` comments and manual dispatch always run the full review.
 
 ## Consequences
 
-- Lockfile-only PRs avoid model cost without hiding a reviewable change.
+- Confirmed trivial PRs avoid the full review's model cost, but still require a classification call.
 - A gate miss fails open to the full review.
 - Operators can disable the documentation check without changing review coverage.
 - A skip still posts a comment, so the PR state stays visible.
