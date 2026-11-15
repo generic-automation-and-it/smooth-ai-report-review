@@ -31,8 +31,8 @@ flowchart TD
     T[Trigger: PR event, trusted comment or dispatch] --> B[Resolve diff base]
     B -->|not an ancestor| F[Fail the run: no review]
     B --> D[Collect diff and changed files]
-    D --> G{Scope gates}
-    G -->|too many files or trivial| S[Post guidance and stop]
+    D --> G{Scope gates: size, trivial, docs check}
+    G -->|too many files, trivial or docs failure| S[Post guidance and stop]
     G --> C[Chunk by shape]
     C --> X[Build per-chunk context]
     X --> R[Review: primary then secondary]

@@ -17,7 +17,8 @@ names the failed chunks in a banner. Coverage gaps are reported as informational
 never count toward the verdict.
 
 Incremental reviews never approve, because they cannot prove the absence of blockers in code they
-did not re-read. Only a full review may approve or clear a block.
+did not re-read. Only a full review may approve or clear a block. When every model is unavailable,
+no chunk can be reviewed; the gate posts request-changes and exits green.
 
 ## Consequences
 

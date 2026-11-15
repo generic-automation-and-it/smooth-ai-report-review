@@ -5,8 +5,9 @@
 ## Requirement
 
 An incremental review never posts an approve verdict. Any run with at least one unresolved chunk
-failure posts request-changes regardless of the model's recommendation. A full review may approve
-only when coverage is complete and no Critical or High finding survives the evidence gate.
+failure posts request-changes regardless of the model's recommendation. When every review model is
+unavailable, the gate posts request-changes and exits green. A full review may approve only when
+coverage is complete and no Critical or High finding survives the evidence gate.
 
 ## Verification
 

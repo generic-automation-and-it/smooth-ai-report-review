@@ -13,7 +13,7 @@
 
 **Adopt** one rule for every full review: resolve a true merge-base between the base branch and the
 reviewed head, then diff that ancestor against the head. If resolution fails, the run fails and
-posts nothing.
+posts no review; a best-effort error comment may still be posted.
 
 Incremental reviews are different by design: they diff the selected previous reviewed commit
 against the head and never resolve ancestry of their own. A plain re-fetch does not undo a shallow
