@@ -18,4 +18,4 @@ Read [`README.md`](./README.md) first — the gate's goals, LADRs and NFRs live 
 
 | Date | Change | Ref |
 | :---- | :---- | :---- |
-| 2026-11-15 | Authored from the delivered gate contract | — |
+| 2026-11-15 | Created as-built record | — |

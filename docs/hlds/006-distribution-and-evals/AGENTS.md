@@ -14,4 +14,4 @@ Read [`README.md`](./README.md) first — this design's goals, LADRs and NFRs li
 
 | Date | Change | Ref |
 | :---- | :---- | :---- |
-| 2026-11-15 | Authored from the delivered distribution and evaluation contract | — |
+| 2026-11-15 | Created as-built record | — |
