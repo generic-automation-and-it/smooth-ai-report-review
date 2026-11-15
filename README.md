@@ -182,4 +182,5 @@ Install the skills with `scripts/install-skills.sh` (the core pair, `ai-review` 
 | [code-review-local.yml](docs/examples/code-review-local.yml) | Allow-list local-job caller (pinned SHA) |
 | [install-skills.sh](scripts/install-skills.sh) + [SKILLS_INSTALLER.md](scripts/SKILLS_INSTALLER.md) | Skills installer contract |
 | [AGENTS.md](AGENTS.md) | Repo contract: path coupling, credential rules, consumption modes |
+| [docs/hlds](docs/hlds/README.md) | Design records: intent, LADRs and NFRs per owned feature group |
 | [CHANGELOG](.agents/skills/ai-review-report/references/CHANGELOG.md) | Dated audit trail |

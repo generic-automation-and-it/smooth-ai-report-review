@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Project rules and their scope live in [`.github/instructions/AGENTS.md`](.github/instructions/AGENTS.md) — read it for the rule index. This file is the gate's architecture contract, not the rule set.
+Project rules and their scope live in [`.github/instructions/AGENTS.md`](.github/instructions/AGENTS.md) — read it for the rule index. This file is the gate's architecture contract, not the rule set. Design records live in [`docs/hlds/`](docs/hlds/README.md) — one HLD per owned feature group. They are subordinate to the canonical skill `SKILL.md`/`AGENTS.md` and this file; update the affected HLD when they change.
 
 Standalone home for the automated PR code-review gate (`.github/workflows/pipeline-code-review-report.yml`, chunked review via opencode, driven by the `ai-review-report` skill) plus the `ai-review` (read-only analysis by default; explicit per-item decisions or `--fix` apply fix/skip) and `ai-analyse` (autonomous Low/Medium fixes) skills. The gate has **two packagings** sharing one entrypoint, `.agents/skills/ai-review-report/scripts/run-review.sh`: the reusable workflow (default, `uses:`) and a local-job caller (`docs/examples/code-review-local.yml`) for consumers under `allowed_actions: "selected"` whose cross-org reusable-workflow call is refused.
 
