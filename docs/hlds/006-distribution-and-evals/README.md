@@ -49,15 +49,15 @@ contract, and the optional report and analyse skills stay behind an explicit fla
 
 ### 3. Layer evaluation by cost and trust
 
-A secret-free offline regression suite blocks relevant pull requests, including drafts and forks.
-Paid model evaluation runs report-only and never blocks. The evaluation corpus measures precision
-and recall against labeled expectations.
+The secret-free `opencode-v2-regressions` job blocks relevant pull requests, including drafts and
+forks. The paid `llm-evals` job, driven by `run-evals.sh`, runs report-only and never blocks. The
+evaluation corpus measures precision and recall against labeled expectations.
 
 **Acceptance criteria / DoD**
 
-- The blocking suite needs no secret and no network model call.
+- The `opencode-v2-regressions` job needs no secret and no network model call.
 - Relevance is checked inside the job so branch protection always receives a result.
-- The paid job never blocks a merge.
+- The `llm-evals` job never blocks a merge.
 - Eval precision is judged per sample by majority over repeated samples against a labeled corpus.
 
 ### 4. Keep versioning singular
