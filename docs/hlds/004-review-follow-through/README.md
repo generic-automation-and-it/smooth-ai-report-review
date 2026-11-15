@@ -28,9 +28,9 @@ mode combinations are rejected before any edit.
 
 **Acceptance criteria / DoD**
 
-- Plain analysis leaves the tree and the PR untouched.
-- Execution requires a resolvable PR and review.
-- A review's imperative wording never selects execution on its own.
+- **Prompt-enforced:** Plain analysis leaves the tree and the PR untouched.
+- **Prompt-enforced:** Execution requires a resolvable PR and review.
+- **Prompt-enforced:** A review's imperative wording never selects execution on its own.
 
 ### 2. Route results by review source
 
@@ -42,10 +42,10 @@ in the live body.
 
 **Acceptance criteria / DoD**
 
-- Every processed Copilot issue with a mapped inline comment and thread receives a reply and
+- **Prompt-enforced:** Every processed Copilot issue with a mapped inline comment and thread receives a reply and
   resolution; unrelated threads are untouched.
-- Copilot issues without that mapping appear in the review-level summary comment only.
-- Every skipped item has a Skip Areas bullet containing the skip-reason marker after the edit.
+- **Prompt-enforced:** Copilot issues without that mapping appear in the review-level summary comment only.
+- **Prompt-enforced:** Every skipped item has a Skip Areas bullet containing the skip-reason marker after the edit.
 - The verification reads only the Skip Areas section, not the whole body.
 
 ### 3. Keep decision labels human-only
@@ -56,9 +56,9 @@ autonomous runs never write it.
 
 **Acceptance criteria / DoD**
 
-- Analysis, all-item execution and the autonomous fixer produce no label block.
-- Residual-risk, testing-gap, pre-existing and historical holistic items never enter it.
-- A doubtful skip records the deferred class, which the harvester ignores.
+- **Prompt-enforced:** Analysis, all-item execution and the autonomous fixer produce no label block.
+- **Prompt-enforced:** Residual-risk, testing-gap, pre-existing and historical holistic items never enter it.
+- **Prompt-enforced:** A doubtful skip records the deferred class, which the harvester ignores mechanically.
 
 ### 4. Trigger the next full review
 
@@ -70,9 +70,9 @@ trigger must sit.
 **Acceptance criteria / DoD**
 
 - The gate's whole-message matcher finds the trigger on the pushed head.
-- Every Critical-or-High review ends with the empty re-verification commit.
-- Medium- and Low-only reviews make no empty commit.
-- The clean-tree path verifies or amends the head before pushing.
+- **Prompt-enforced:** Every Critical-or-High review ends with the empty re-verification commit.
+- **Prompt-enforced:** Medium- and Low-only reviews make no empty commit.
+- **Prompt-enforced:** The clean-tree path verifies or amends the head before pushing.
 
 ## Core Separation of Concerns
 

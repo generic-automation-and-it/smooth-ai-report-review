@@ -24,7 +24,8 @@ so a suite that cleans its own scratch directories cannot delete the gate's repo
 - One confirmed stale auto-detected suite cannot switch the loop off.
 - A failed explicit command blocks without a HEAD-baseline comparison.
 - A real regression always stops publication.
-- Blocked fixes are preserved and published rather than discarded.
+- Test-gate-blocked summaries publish up to 30,000 bytes of tracked-file diff and list new-file names;
+  new file contents and a complete recovery patch are not preserved in the run artifact.
 - The gate cannot report a phantom regression from a suite that never ran.
 
 ## Related

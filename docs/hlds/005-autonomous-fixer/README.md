@@ -56,14 +56,17 @@ failing test are withheld before the model sees them.
 Auto-detected suites use regression-relative gating: a suite that passes at HEAD and fails after
 the fix blocks the push; failures confirmed at HEAD are reported without blocking. Timeouts,
 exhausted budgets and unavailable baselines fail closed. An explicit test command uses absolute
-gating: any nonzero exit blocks publication. Blocked fixes are preserved and published for a human.
+gating: any nonzero exit blocks publication. A test-gate-blocked summary publishes up to 30,000 bytes
+of tracked-file diff and lists new-file names for a human; new file contents and a complete recovery
+patch are not preserved in the run artifact.
 
 **Acceptance criteria / DoD**
 
 - No push occurs over a green-to-red regression.
 - An auto-detected suite confirmed already red at HEAD is reported without blocking.
 - A failed explicit command, exhausted budget or unavailable baseline blocks publication.
-- A gate timeout always results in a skipped push with the fix diff published.
+- A gate timeout always results in a skipped push with a reason, up to 30,000 bytes of tracked-file
+  diff, and new-file names published; complete fix recovery is not guaranteed.
 
 ### 4. Bound and audit the loop
 

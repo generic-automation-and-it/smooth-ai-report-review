@@ -55,7 +55,7 @@ become a verdict on its own.
 **Acceptance criteria / DoD**
 
 - A failed graph build yields a review without graph blocks.
-- No graph signal alone justifies Critical or High, or satisfies quote-the-line evidence.
+- **Prompt-enforced:** No graph signal alone justifies Critical or High, or satisfies quote-the-line evidence.
 - Version notices are bounded and never fail the run.
 
 ### 4. Pin and verify the toolchain

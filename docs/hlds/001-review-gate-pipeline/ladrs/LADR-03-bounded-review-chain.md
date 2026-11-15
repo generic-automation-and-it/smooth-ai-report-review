@@ -17,9 +17,11 @@ both stages. A chunk whose stderr stream stops growing for the stall threshold i
 as a routing event, not as a slow success. Streaming stderr text counts as progress even without
 tool events.
 
-A failed chunk gets exactly one retry with the same scaled budget; the retry drops the split
+A failed chunk gets at most one retry with the same scaled budget; the retry drops the split
 because a retry that cannot differ is not a retry. A chunk that fails twice stays failed. When every
-chunk of a multi-chunk PR fails, the sweep is skipped: that is a dead endpoint.
+chunk of a multi-chunk PR fails, the sweep is skipped: that is a dead endpoint. The sweep is also
+skipped once the opt-in total-run deadline has been reached, including for chunks that failed
+before it (canonical LADR-121).
 
 ## Consequences
 
@@ -30,4 +32,4 @@ chunk of a multi-chunk PR fails, the sweep is skipped: that is a dead endpoint.
 
 ## Related
 
-- Canonical **LADR-002**, **LADR-065**, **LADR-081**, **LADR-082**, **LADR-084**, **LADR-102** in [ai-review-report AGENTS.md](../../../../.agents/skills/ai-review-report/AGENTS.md).
+- Canonical **LADR-002**, **LADR-065**, **LADR-081**, **LADR-082**, **LADR-084**, **LADR-102**, **LADR-121** in [ai-review-report AGENTS.md](../../../../.agents/skills/ai-review-report/AGENTS.md).

@@ -54,7 +54,8 @@ variable work. An oversized PR is blocked rather than reviewed unreliably.
 
 Each chunk runs through a primary and a secondary model; when the total budget is large enough to
 split, the split leaves the fallback a real turn. A stalled chunk is killed early, and a failed
-chunk gets exactly one retry before the report is assembled.
+chunk gets at most one retry before the report is assembled. The retry sweep is skipped when every
+chunk of a multi-chunk PR fails or the opt-in total-run deadline has been reached (canonical LADR-121).
 
 **Acceptance criteria / DoD**
 

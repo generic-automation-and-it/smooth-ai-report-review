@@ -10,9 +10,12 @@ written text, and a copied finding link is stripped before writing.
 
 ## Verification
 
-Run the formatting guard over sample reviews and Skip Areas writes, asserting the identifier form
-and the absence of an auto-linking token. Include a finding line carrying a permalink and assert the
-link is removed.
+The mapped test is a static instruction guard: it checks that the skill specifies permalink removal
+before writing Skip Areas bullets and summary-table rows. It does not process sample reviews or
+validate written output.
+
+Manually verify sample reviews and Skip Areas output for verbatim identifier form, absence of
+auto-linking tokens, and removal of finding permalinks without changing identifier or skip text.
 
 **Test mapping:** `test-skip-bullet-format.sh`.
 
