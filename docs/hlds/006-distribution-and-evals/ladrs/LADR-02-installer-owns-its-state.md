@@ -25,7 +25,7 @@ would otherwise run. The manifest is written last, and a corrupt manifest is a h
 - The two ports stay interchangeable and parity is testable.
 - Consumers who want the CI gate get it from a workflow channel or the documented workflow copy,
   never from an installed skill copy.
-- One documented profile edit remains, with its own snapshot and uninstall path.
+- One documented profile edit remains (`~/.zshrc` / `~/.bashrc`), with its own snapshot and uninstall path.
 
 ## Related
 

@@ -36,10 +36,10 @@ flowchart TD
     B --> D[Merge by file, line and title using conservative rules]
     D --> E[Demote unsupported confidence and suppress weak non-critical items]
     E --> C{Tree quote verification enabled? Default off}
-    C -->|yes| V[Verify at reviewed revision; demote definite misses and suppress weak non-critical items]
+    C -->|yes| V[Verify at reviewed revision, demote definite misses and suppress weak non-critical items]
     C -->|no| F{Decision scoring enabled?}
     V --> F
-    F -->|yes| G[Annotate scores; filter only inside the coverage fence]
+    F -->|yes| G[Annotate scores, filter only inside the coverage fence]
     F -->|no| H[Render merged findings]
     G --> H
     H --> I[Post one ordered document and record coverage]

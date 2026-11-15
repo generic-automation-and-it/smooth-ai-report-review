@@ -13,7 +13,8 @@
 
 **Keep** the decision model as a judge over the merged document. It scores support, severity,
 pre-existing status, actionability and fix-or-skip, but never rewrites severity, confidence or
-verification. Its PR-level answers are facts for the orchestrator, not verdict inputs.
+verification. Its PR-level answers are facts for the orchestrator, not verdict inputs. The judge
+has no chat surface, so it is called over raw HTTP with its own preflight, not through opencode.
 
 Annotation is the default. Suppression is a separate mode, fenced by full coverage and no unresolved
 chunk failure, and degrades to annotation otherwise. Escalation from merged findings is

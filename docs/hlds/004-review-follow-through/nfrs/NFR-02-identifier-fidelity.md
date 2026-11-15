@@ -22,6 +22,9 @@ link is removed.
 - Class-prefixed identifiers are bolded and never renumber a finding.
 - A stripped permalink changes no identifier or skip text.
 
+Renderer-side identifier safety is owned by [003 NFR-03](../../003-findings-and-decisions/nfrs/NFR-03-identifier-safety.md);
+this NFR covers identifiers the consumer writes.
+
 ## Applies To
 
 Goal 2 and Goal 3; every table row and skip bullet the consumer writes.

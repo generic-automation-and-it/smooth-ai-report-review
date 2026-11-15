@@ -12,9 +12,9 @@
 ## Decision
 
 **Adopt** a mechanical, fail-closed coverage rule. An out-of-band failure flag per chunk — never a
-grep of review text — forces request-changes when any chunk remains unresolved, and the posted body
-names the failed chunks in a banner. Coverage gaps are reported as informational items only and
-never count toward the verdict.
+grep of review text — forces request-changes when any chunk remains unresolved; the banner carries
+the failed count, and each per-chunk section carries the identity. Coverage gaps are reported as
+informational items only and never count toward the verdict.
 
 Incremental reviews never approve, because they cannot prove the absence of blockers in code they
 did not re-read. Only a full review may approve or clear a block. When every model is unavailable,
