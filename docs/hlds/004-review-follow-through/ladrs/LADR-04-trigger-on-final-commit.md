@@ -14,14 +14,12 @@
 ## Decision
 
 **Place** the review trigger in the last pushed commit's message, preferably immediately before a
-final trailer block so trailers continue to parse. The dedicated commit path always carries it. When
-a review contains any Critical or High finding, every execution fix commit carries the trigger and
-one additional empty re-verification commit follows the routing edits.
+final trailer block so trailers continue to parse. The dedicated commit path always carries it. The
+execution-side trigger and empty re-verification rule is owned by
+[root AGENTS.md](../../../../AGENTS.md); this decision records only where the trigger sits.
 
 A clean-working-tree run verifies or amends the head before pushing, because the commit is unpushed
-and an untriggered head would produce an incremental review instead of a full one. Only on the
-dedicated commit-and-push path do earlier chunk commits omit the trigger; execution fix commits all
-carry it as their last body line when the review contains any Critical or High finding.
+and an untriggered head would produce an incremental review instead of a full one.
 
 ## Consequences
 

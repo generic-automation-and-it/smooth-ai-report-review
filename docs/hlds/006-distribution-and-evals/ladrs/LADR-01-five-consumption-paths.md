@@ -18,7 +18,9 @@ marketplace plugin, and the documented copy-install.
 Gate-running channels resolve the same entrypoint; skill channels resolve the same skill folders.
 The installer and marketplace deliver skills only, never the CI gate. The reusable workflow resolves
 its tooling from the job's workflow ref, never from the caller's commit, because the caller's commit
-does not exist in this repository.
+does not exist in this repository. RTK pins are not uniform: the reusable workflow's `rtk_version`
+input wins over the `OPENCODE_TOOL_RTK_VERSION` Variable, while the local-job packaging reads only
+the Variable.
 
 ## Consequences
 

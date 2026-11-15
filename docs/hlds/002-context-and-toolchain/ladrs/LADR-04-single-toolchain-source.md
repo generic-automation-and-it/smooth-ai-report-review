@@ -30,3 +30,4 @@ shared compatibility floor.
 ## Related
 
 - Canonical **LADR-048**, **LADR-054**, **LADR-087**, **LADR-107** in [ai-review-report AGENTS.md](../../../../.agents/skills/ai-review-report/AGENTS.md).
+- Secret handling for config placeholders and workflow env mapping: [skill-secret-handling](../../../../.github/instructions/skills/skill-secret-handling.instructions.scoped.md).

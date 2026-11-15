@@ -26,6 +26,12 @@ convenience.
 - The richer document remains available for a future, deliberate migration.
 - The workflow's filters and tests continue to target one input shape.
 
+## Open
+
+- Migrate selection from severity to `autofix_class` routing in `ci_temp/findings.merged.json`; it
+  needs its own trust-boundary work and test updates. Owner: platform; trigger: a deliberate
+  selection-predicate change.
+
 ## Related
 
 - Canonical **LADR-042** in [ai-review-report AGENTS.md](../../../../.agents/skills/ai-review-report/AGENTS.md);
