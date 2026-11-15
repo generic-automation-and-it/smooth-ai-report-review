@@ -10,6 +10,7 @@
 - A re-verification pass needs a stable head after all routing writes are complete.
 - The dedicated commit path wants a full review every time; review execution wants one only after
   high-severity work.
+- An incremental review cannot prove the absence of blockers, so its trigger must force a full review.
 
 ## Decision
 

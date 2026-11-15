@@ -13,7 +13,7 @@
 
 **Support** five channels: the reusable workflow with side-checked pinned tooling, a local-job caller
 that checks out this repository at a pinned commit, the skills installer, the Claude Code
-marketplace plugin, and the documented copy-install.
+marketplace plugins, and the documented copy-install.
 
 Gate-running channels resolve the same entrypoint; skill channels resolve the same skill folders.
 The installer and marketplace deliver skills only, never the CI gate. The reusable workflow resolves

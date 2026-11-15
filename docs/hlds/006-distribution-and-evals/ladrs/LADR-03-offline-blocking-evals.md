@@ -30,4 +30,5 @@ measurement noise rather than a verdict.
 ## Related
 
 - Canonical **LADR-033**, **LADR-069**, **LADR-087** in [ai-review-report AGENTS.md](../../../../.agents/skills/ai-review-report/AGENTS.md);
-  blocking job in [llm-eval-harness.yml](../../../../.github/workflows/llm-eval-harness.yml).
+  blocking `opencode-v2-regressions` job in [llm-eval-harness.yml](../../../../.github/workflows/llm-eval-harness.yml),
+  which also carries the report-only `llm-evals` job.
