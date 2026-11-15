@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | Accepted (as built, 2026-11-15) |
-| **Owner** | Platform Engineering |
+| **Owner** | `ai-review` + `git-commit-review-push` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Evidence** | [ai-review SKILL.md](../../../.agents/skills/ai-review/SKILL.md) + [git-commit-review-push SKILL.md](../../../.agents/skills/git-commit-review-push/SKILL.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-15 |
 
 > Design record for the delivered consumer skill and commit trigger. It states **intent + spec**;
@@ -59,9 +60,9 @@ autonomous runs never write it.
 ### 4. Trigger the next full review
 
 The dedicated commit-and-push path always requests a full review: only its final chunk commit carries
-the review trigger, before any trailer block. During review execution, when the review contains any
-Critical or High finding (fixed or skipped), every fix commit carries the trigger as its last body
-line. A separate mandatory empty re-verification commit follows the result-routing writes.
+the review trigger, before any trailer block. During review execution, the trigger and empty
+re-verification rule in [root AGENTS.md](../../../AGENTS.md) applies; this HLD records only where the
+trigger must sit.
 
 **Acceptance criteria / DoD**
 

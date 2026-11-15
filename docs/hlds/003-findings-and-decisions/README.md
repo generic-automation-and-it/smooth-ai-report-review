@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | Accepted (as built, 2026-11-15) |
-| **Owner** | Platform Engineering |
+| **Owner** | `ai-review-report` (consumed by `ai-review` and `ai-analyse`) |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [findings-schema.json](../../../.agents/skills/ai-review-report/assets/findings-schema.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-15 |
 
 > Design record for the delivered findings pipeline. It states **intent + spec**; execution
@@ -107,6 +108,10 @@ for any parser.
 | [LADR-03](./ladrs/LADR-03-deterministic-merge-numbering.md) | Merge and numbering are deterministic; coverage is loud | Accepted |
 | [LADR-04](./ladrs/LADR-04-decision-model-judges-only.md) | The decision model judges, never authors, and softens only inside a fence | Accepted |
 | [LADR-05](./ladrs/LADR-05-presentation-only-links.md) | Permalinks and cross-reference repair are presentation-only | Accepted |
+
+**Delegated to the findings pipeline:** recommendation sync (canonical LADR-085), holistic-section
+removal (LADR-100), consumer routing completeness (LADR-101), quote verification (LADR-119),
+author-notes envelope (LADR-118), and eval intents (LADR-111).
 
 ## Non-Functional Requirements
 

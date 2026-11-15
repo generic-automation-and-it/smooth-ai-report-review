@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | Accepted (as built, 2026-11-15) |
-| **Owner** | Platform Engineering |
+| **Owner** | `ai-analyse` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Evidence** | [ai-analyse SKILL.md](../../../.agents/skills/ai-analyse/SKILL.md) + [pipeline-ai-analyse.yml](../../../.github/workflows/pipeline-ai-analyse.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-15 |
 
 > Design record for the delivered autonomous fixer. It states **intent + spec**; execution

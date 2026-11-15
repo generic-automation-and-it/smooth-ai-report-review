@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | Accepted (as built, 2026-11-15) |
-| **Owner** | Platform Engineering |
+| **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [opencode.json](../../../.agents/skills/ai-review-report/assets/opencode.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-15 |
 
 > Design record for the delivered context layer and runtime pinning. It states **intent + spec**;
@@ -104,6 +105,9 @@ verdict preserves one source of truth for review decisions.
 | [LADR-02](./ladrs/LADR-02-runtime-agents-delivery.md) | Rules reach the model as a generated runtime `AGENTS.md` | Accepted |
 | [LADR-03](./ladrs/LADR-03-enrichment-is-advisory.md) | Graph and provenance signals are hints, never verdicts | Accepted |
 | [LADR-04](./ladrs/LADR-04-single-toolchain-source.md) | One install source per tool with a hard v2 floor | Accepted |
+
+**Delegated to the runtime contract:** version notices (canonical LADR-053), blame provenance
+(LADR-061), config quarantine (LADR-103), and legacy rule-path removal (LADR-105).
 
 ## Non-Functional Requirements
 

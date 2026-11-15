@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | Accepted (as built, 2026-11-15) |
-| **Owner** | Platform Engineering |
+| **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [AGENTS.md](../../../.agents/skills/ai-review-report/AGENTS.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-15 |
 
 > Design record for the delivered gate. It states **intent + spec** — what the gate guarantees and
@@ -123,6 +124,10 @@ detail stays with the entrypoint and its tests. See [`./ladrs/`](./ladrs/).
 | [LADR-03](./ladrs/LADR-03-bounded-review-chain.md) | A bounded two-tier chain with one retry per chunk | Accepted |
 | [LADR-04](./ladrs/LADR-04-fail-closed-coverage.md) | Lost coverage fails closed; incremental reviews never approve | Accepted |
 | [LADR-05](./ladrs/LADR-05-one-entrypoint-two-packagings.md) | One entrypoint serves both packagings | Accepted |
+
+**Delegated to the entrypoint:** trivial-PR skip (canonical LADR-059), EXIT-trap run artifacts
+(LADR-062), bounded GitHub retry allowlist (LADR-078), commit-pinned posting (LADR-109), and
+all-models-failed handling (LADR-021).
 
 ## Non-Functional Requirements
 

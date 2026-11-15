@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | Accepted (as built, 2026-11-15) |
-| **Owner** | Platform Engineering |
+| **Owner** | Repository platform |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Evidence** | [SKILLS_INSTALLER.md](../../../scripts/SKILLS_INSTALLER.md) + [plugin.json](../../../.claude-plugin/plugin.json) + [llm-eval-harness.yml](../../../.github/workflows/llm-eval-harness.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-15 |
 
 > Design record for the delivered distribution and evaluation platform. It states **intent + spec**;
@@ -30,7 +31,9 @@ the CI gate. No channel carries its own copy of gate logic.
 
 - Every gate-running channel resolves the same entrypoint; every skill channel resolves the same
   skill folders.
-- Each channel states its pin explicitly and resolves the same artifacts.
+- Each channel states its pin explicitly and resolves the same artifacts. RTK pins differ by
+  channel: the reusable workflow's `rtk_version` input wins over the
+  `OPENCODE_TOOL_RTK_VERSION` Variable, while the local-job packaging reads only the Variable.
 - No channel requires a second copy of review behavior to stay current.
 
 ### 2. Keep the installer self-contained
