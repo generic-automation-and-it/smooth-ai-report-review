@@ -72,6 +72,19 @@ compatibility floor.
 - A missing model key is added without altering existing metadata.
 - An RTK below the floor keeps its binary, warns and skips initialization.
 
+### 5. Select the provider and model surface
+
+Provider selection maps one selector to one provider ID, credential set and SDK surface: eight
+selectors across native APIs, compatible gateways and three OpenCode Go surfaces. The default is
+OpenAI; non-OpenAI runs must supply provider-relative model IDs for every tier.
+
+**Acceptance criteria / DoD**
+
+- A selector resolves to exactly one provider ID and credential set.
+- A model family or surface mismatch aborts before any review call.
+- Dispatch presets override the Variables and still require that provider's key.
+- An unknown selector fails instead of falling back to a default.
+
 ## Core Separation of Concerns
 
 > Context informs, the toolchain executes, and neither decides the verdict.
@@ -105,6 +118,7 @@ verdict preserves one source of truth for review decisions.
 | [LADR-02](./ladrs/LADR-02-runtime-agents-delivery.md) | Rules reach the model as a generated runtime `AGENTS.md` | Accepted |
 | [LADR-03](./ladrs/LADR-03-enrichment-is-advisory.md) | Graph and provenance signals are hints, never verdicts | Accepted |
 | [LADR-04](./ladrs/LADR-04-single-toolchain-source.md) | One install source per tool with a hard v2 floor | Accepted |
+| [LADR-05](./ladrs/LADR-05-one-selector-provider-surface.md) | One selector resolves the provider and model surface | Accepted |
 
 **Delegated to the runtime contract:** version notices (canonical LADR-053), blame provenance
 (LADR-061), config quarantine (LADR-103), and legacy rule-path removal (LADR-105).

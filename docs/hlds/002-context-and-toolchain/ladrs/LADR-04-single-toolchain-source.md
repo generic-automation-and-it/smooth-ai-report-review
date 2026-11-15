@@ -17,8 +17,9 @@ the service after preparing the managed config, and health verification confirms
 config is the one loaded.
 
 Requested model IDs absent from the config are registered as empty entries at runtime, without
-touching existing metadata. The RTK plugin is initialized only when the installed version meets the
-shared compatibility floor.
+touching existing metadata. Registration is advisory, not a provider, family or surface-policy
+bypass. The RTK plugin is initialized only when the installed version meets the shared compatibility
+floor.
 
 ## Consequences
 
