@@ -1,0 +1,24 @@
+# NFR-01: Skip Durability
+
+**Status:** Accepted
+
+## Requirement
+
+Every skipped item from a non-Copilot review appears as a Skip Areas bullet in the live PR
+description before the run reports completion. Verification reads only that section, and a missing
+bullet fails the run rather than reporting success.
+
+## Verification
+
+After writing the description, re-fetch it, extract the Skip Areas section, and grep each bullet's
+unique skip-reason tail. Retry once to rule out read lag; if the bullet is still absent, fail.
+
+## Acceptance Criteria
+
+- Each skipped item has one bullet with its identifier, anchor and skip reason.
+- A bullet absent from the live body blocks completion.
+- Existing description sections are preserved verbatim.
+
+## Applies To
+
+Goal 2; the non-Copilot routing path.

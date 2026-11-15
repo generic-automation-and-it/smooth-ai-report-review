@@ -1,0 +1,113 @@
+# Distribution and Evaluation — High-Level Design
+
+| | |
+|---|---|
+| **Status** | Accepted (as built, 2026-11-15) |
+| **Owner** | Platform Engineering |
+| **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
+| **Last updated** | 2026-11-15 |
+
+> Design record for the delivered distribution and evaluation platform. It states **intent + spec**;
+> execution sequencing lives in the issue tracker.
+
+## Intent
+
+A review gate is only trustworthy if every consumer runs the same pinned code and if regressions are
+measured before release. This design specifies the supported consumption paths, the installer that
+places the skills, the layered evaluation that protects the gate, and the single version manifest
+that keeps channels aligned.
+
+## Key Goals
+
+### 1. Give every channel one source of truth
+
+The reusable workflow side-checks pinned tooling; the local-job caller checks out this repository at
+a pinned commit; the installer copies the owned skills; the marketplace exposes the same skill
+folders; and the copy-install path is documented. The installer and marketplace deliver skills, not
+the CI gate. No channel carries its own copy of gate logic.
+
+**Acceptance criteria / DoD**
+
+- Every gate-running channel resolves the same entrypoint; every skill channel resolves the same
+  skill folders.
+- Each channel states its pin explicitly and resolves the same artifacts.
+- No channel requires a second copy of review behavior to stay current.
+
+### 2. Keep the installer self-contained
+
+The installer owns only its own store and manifest, installs skills only, and never edits another
+tool's configuration beyond its documented profile exception. Both language ports implement one
+contract, and the optional report and analyse skills stay behind an explicit flag.
+
+**Acceptance criteria / DoD**
+
+- The owned skill lists are identical in both ports after normalization.
+- Repeated runs reconcile flags without duplicating state.
+- A corrupt manifest is a hard error and is left untouched.
+- No tool configuration file is read or written outside the documented profile block.
+- Purging removes only links whose target is inside the installer's own store.
+
+### 3. Layer evaluation by cost and trust
+
+A secret-free offline regression suite blocks relevant pull requests, including drafts and forks.
+Paid model evaluation runs report-only and never blocks. The evaluation corpus measures precision
+and recall against labeled expectations.
+
+**Acceptance criteria / DoD**
+
+- The blocking suite needs no secret and no network model call.
+- Relevance is checked inside the job so branch protection always receives a result.
+- The paid job never blocks a merge.
+- Eval precision is judged per sample by majority over repeated samples against a labeled corpus.
+
+### 4. Keep versioning singular
+
+The plugin manifest is the only version manifest. A major tag moves only from that version, and a
+release tag must match it. The retired package channel is not reintroduced.
+
+**Acceptance criteria / DoD**
+
+- The major tag update fails when the tag does not match the manifest version.
+- No package manifest or publish workflow exists.
+- No consumer channel depends on a package registry.
+
+## Core Separation of Concerns
+
+> One source of truth, many delivery channels, and an evaluation layer that never ships the gate.
+
+Distribution moves the same artifacts; it does not fork behavior. Evaluation observes the gate from
+outside, so it can fail without changing what consumers run. Versioning names the artifacts once.
+
+## Guiding Principle — Distribute the same code, prove it from outside
+
+- A consumer's channel is a delivery mechanism, not a variant.
+- Evaluation is an independent observer, never a runtime dependency.
+- A version exists in exactly one place.
+
+## Related HLDs
+
+- [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the artifact being distributed.
+- [005 Autonomous Low and Medium Fixer](../005-autonomous-fixer/README.md) — the optional skill behind the install flag.
+
+---
+
+## Diagrams
+
+- [System Context (C1) + delivery channels](./diagrams/c4-context.md)
+
+## Architecture Decisions (LADRs)
+
+| LADR | Decision | Status |
+|------|----------|--------|
+| [LADR-01](./ladrs/LADR-01-five-consumption-paths.md) | Five consumption paths share one source of truth | Accepted |
+| [LADR-02](./ladrs/LADR-02-installer-owns-its-state.md) | The installer owns its own state and installs skills only | Accepted |
+| [LADR-03](./ladrs/LADR-03-offline-blocking-evals.md) | Offline regressions block; paid model evals report only | Accepted |
+| [LADR-04](./ladrs/LADR-04-single-version-manifest.md) | The plugin manifest is the only version manifest | Accepted |
+
+## Non-Functional Requirements
+
+| NFR | Attribute | Target (summary) | Status |
+|-----|-----------|------------------|--------|
+| [NFR-01](./nfrs/NFR-01-installer-parity.md) | Installer parity | Identical owned lists; idempotent reconciliation | Accepted |
+| [NFR-02](./nfrs/NFR-02-offline-regression-independence.md) | Evaluation independence | Blocking suite needs no secret or model call | Accepted |
+| [NFR-03](./nfrs/NFR-03-version-tag-consistency.md) | Version consistency | Major tag always matches the manifest version | Accepted |
