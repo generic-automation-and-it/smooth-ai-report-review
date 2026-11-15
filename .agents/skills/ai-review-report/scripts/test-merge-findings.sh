@@ -21,6 +21,7 @@ EXTRACT_SH="$SCRIPT_DIR/lib/extract-findings-json.sh"
 RENDER_SH="$SCRIPT_DIR/lib/render-findings-summary.sh"
 SCORE_SH="$SCRIPT_DIR/eval/lib/score-review.sh"
 ANALYSE_SCOPE_SH="$SCRIPT_DIR/lib/extract-ai-analyse-scope.sh"
+STRIP_SH="$SCRIPT_DIR/lib/strip-finding-links.sh"
 # LADR-122 links read these from the environment. The goldens below are the
 # pre-link body, so a runner that sets them (Actions always sets
 # GITHUB_REPOSITORY) must not flip them; test-finding-links.sh owns the linked shape.
@@ -1580,6 +1581,96 @@ FM
     "$(grep -cE '#[0-9]' "$TMP_DIR/s29-fixes.md" || true)"
 else
   echo "⏭️  renumber-suggested-fixes.sh or jq missing — skipping Test 29g-m"
+fi
+
+# --- Test 30: standards attribution survives the real consumer path ----------
+# The chunk prompt asks a standards-violation finding to name the applicable
+# rule, its source and a short excerpt in the description (A2). That text lives
+# in why_it_matters, so prove it survives the REAL merge, render, scorer and
+# analyse-scope extraction with severity and counts unchanged. The excerpt omits
+# the rule-number token a posted body would autolink rather than relying on the
+# renderer to sanitise raw rule text (LADR-067).
+_attr_why='`src/rules/api.instructions.md` §Validation requires a closed format enum — **format MUST be one of the listed values** — and the handler passes the query value through unchecked, so an unknown format reaches the serializer. The rule numbering (…) is omitted here rather than reproduced.'
+# One finding body, parameterised only by its description, so the attributed
+# and plain controls cannot drift apart on any other field.
+_attr_finding() {
+  jq -nc --arg why "$1" '{
+  title: "Export format is never validated",
+  severity: "medium",
+  file: "src/Export.cs",
+  line: 88,
+  why_it_matters: $why,
+  confidence: 100,
+  verified: true,
+  first_evidence: "src/Export.cs:88 -- var format = request.QueryString[\"format\"];",
+  pre_existing: false,
+  requires_verification: false,
+  autofix_class: "manual",
+  owner: "downstream-resolver"
+}'
+}
+_attr_json="$(_attr_finding "$_attr_why")"
+printf '%s' "[$(doc 0 "$_attr_json")]" | merge > "$TMP_DIR/attr-merged.json"
+check "Test 30a: merge keeps the rule source in the description" "1" \
+  "$(jq -r '.findings[0].why_it_matters' "$TMP_DIR/attr-merged.json" | grep -cF 'src/rules/api.instructions.md' || true)"
+check "Test 30b: merge keeps the excerpt meaning" "1" \
+  "$(jq -r '.findings[0].why_it_matters' "$TMP_DIR/attr-merged.json" | grep -cF 'format MUST be one of the listed values' || true)"
+check "Test 30c: first_evidence stays the motivating code quote" "1" \
+  "$(jq -r '.findings[0].first_evidence' "$TMP_DIR/attr-merged.json" | grep -cF 'request.QueryString' || true)"
+
+bash "$RENDER_SH" "$TMP_DIR/attr-merged.json" > "$TMP_DIR/attr-rendered.md"
+check "Test 30d: renderer carries the source into the posted bullet" "1" \
+  "$(grep -cF 'src/rules/api.instructions.md' "$TMP_DIR/attr-rendered.md" || true)"
+check "Test 30e: renderer carries the excerpt markup intact" "1" \
+  "$(grep -cF '**format MUST be one of the listed values**' "$TMP_DIR/attr-rendered.md" || true)"
+check "Test 30f: attributed output autolinks nothing (LADR-067)" "0" \
+  "$(grep -cE '#[0-9]' "$TMP_DIR/attr-rendered.md" || true)"
+
+# The same defect with a plain description is the control: attribution is
+# description content, never a severity signal, so both must score identically.
+_plain_json="$(_attr_finding 'The export format is never validated, so an unknown value reaches the serializer.')"
+printf '%s' "[$(doc 0 "$_plain_json")]" | merge > "$TMP_DIR/plain-merged.json"
+bash "$RENDER_SH" "$TMP_DIR/plain-merged.json" > "$TMP_DIR/plain-rendered.md"
+
+if [ -x "$SCORE_SH" ]; then
+  _attr_scored="$(bash "$SCORE_SH" "$TMP_DIR/attr-rendered.md" | tr '\n' ',' | sed 's/,$//')"
+  _plain_scored="$(bash "$SCORE_SH" "$TMP_DIR/plain-rendered.md" | tr '\n' ',' | sed 's/,$//')"
+  check "Test 30g: attribution does not change the scored severity" "$_plain_scored" "$_attr_scored"
+  check "Test 30h: the attributed medium finding is still counted" "MEDIUM" "$_attr_scored"
+else
+  echo "⏭️  score-review.sh not executable — skipping attribution scoring cross-check"
+fi
+
+if [ -x "$ANALYSE_SCOPE_SH" ]; then
+  _attr_scope="$(bash "$ANALYSE_SCOPE_SH" "$TMP_DIR/attr-rendered.md")"
+  check "Test 30i: ai-analyse still extracts the attributed finding" "true" \
+    "$(printf '%s' "$_attr_scope" | jq -r '.has_low_medium')"
+  check "Test 30j: the attributed finding is in the analyse Medium section" "true" \
+    "$(printf '%s' "$_attr_scope" | jq -r '.medium | test("Export format is never validated")')"
+else
+  echo "⏭️  extract-ai-analyse-scope.sh not executable — skipping attribution scope cross-check"
+fi
+
+# LADR-122 permalinks are presentation only. Render the same attributed document
+# with links on, strip them, and prove the result is byte-identical to the
+# unlinked body — so attribution never depends on which link mode posted it.
+_sha="0123456789abcdef0123456789abcdef01234567"
+GITHUB_REPOSITORY="owner/repo" GITHUB_SERVER_URL="https://github.com" \
+  OPENCODE_REVIEW_REPORT_DIFF_TO_SHA="$_sha" OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1 \
+  bash "$RENDER_SH" "$TMP_DIR/attr-merged.json" > "$TMP_DIR/attr-linked.md"
+check "Test 30k: the linked render carries the permalink suffix" "1" \
+  "$(grep -cF ' · [open](https://github.com/owner/repo/blob/'"$_sha"'' "$TMP_DIR/attr-linked.md" || true)"
+if [ -x "$STRIP_SH" ]; then
+  bash "$STRIP_SH" < "$TMP_DIR/attr-linked.md" > "$TMP_DIR/attr-stripped.md"
+  check "Test 30l: stripping links restores the unlinked attributed body" "" \
+    "$(diff "$TMP_DIR/attr-rendered.md" "$TMP_DIR/attr-stripped.md")"
+  if [ -x "$SCORE_SH" ]; then
+    check "Test 30m: the stripped body scores the same as the unlinked one" \
+      "$(bash "$SCORE_SH" "$TMP_DIR/attr-rendered.md" | tr '\n' ',' | sed 's/,$//')" \
+      "$(bash "$SCORE_SH" "$TMP_DIR/attr-stripped.md" | tr '\n' ',' | sed 's/,$//')"
+  fi
+else
+  echo "⏭️  strip-finding-links.sh not executable — skipping link-strip round-trip"
 fi
 
 echo ""
