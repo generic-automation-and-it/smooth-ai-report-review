@@ -7,6 +7,9 @@ None contains an implementation plan; execution lives in the issue tracker.
 These records describe delivered systems, so each README's status is `Accepted (as built)` — an
 extension of the create-hld status vocabulary for an as-built design.
 
+Eval corpus and harness assets are owned by the `ai-review-report` skill; the platform layer governs
+their gating and release role. See [eval AGENTS.md](../../.agents/skills/ai-review-report/scripts/eval/AGENTS.md).
+
 | HLD | Owner skill | Scope |
 |---|---|---|
 | [001 PR Review Gate Pipeline](./001-review-gate-pipeline/README.md) | `ai-review-report` | Diff scope, chunking, review chain, coverage, verdict and posting |
