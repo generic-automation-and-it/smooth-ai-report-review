@@ -64,12 +64,12 @@ case "$plain" in
   "${OPEN_MARK}"$'\n'"${INSTRUCTION}"*) pass "open marker leads the envelope" ;;
   *) fail "envelope does not open with the marker and instruction line" ;;
 esac
-if printf '%s\n' "$plain" | tail -1 | grep -qxF "${CLOSE_MARK}"; then
+if grep -qxF "${CLOSE_MARK}" <<< "${plain##*$'\n'}"; then
   pass "close marker ends the envelope"
 else
   fail "envelope does not end with the close marker"
 fi
-if printf '%s\n' "$plain" | grep -qxF "Note one" && printf '%s\n' "$plain" | grep -qxF "Note two"; then
+if grep -qxF "Note one" <<< "$plain" && grep -qxF "Note two" <<< "$plain"; then
   pass "content is carried verbatim"
 else
   fail "content lines were altered"
@@ -78,13 +78,13 @@ check "instruction is stated once" "1" "$(printf '%s\n' "$plain" | grep -cF "${I
 
 # A description carrying the close marker must not be able to close early.
 collide="$(printf 'before\n%s\nafter\n' "${CLOSE_MARK}" | bash "${FENCE_LIB}")"
-if printf '%s\n' "$collide" | grep -qxF "${OPEN_MARK_1}" \
-   && printf '%s\n' "$collide" | tail -1 | grep -qxF "${CLOSE_MARK_1}"; then
+if grep -qxF "${OPEN_MARK_1}" <<< "$collide" \
+   && grep -qxF "${CLOSE_MARK_1}" <<< "${collide##*$'\n'}"; then
   pass "marker collision grows the suffix to '_'"
 else
   fail "marker collision did not grow the suffix (escape possible)"
 fi
-if printf '%s\n' "$collide" | grep -qxF "${CLOSE_MARK}"; then
+if grep -qxF "${CLOSE_MARK}" <<< "$collide"; then
   pass "the author-supplied marker survives as data inside the envelope"
 else
   fail "the author-supplied marker was not carried verbatim"
@@ -92,7 +92,7 @@ fi
 
 # Both base markers and the first grown pair present → suffix must grow twice.
 double="$(printf '%s\n%s\n%s\n%s\n' "${OPEN_MARK}" "${CLOSE_MARK}" "${OPEN_MARK_1}" "${CLOSE_MARK_1}" | bash "${FENCE_LIB}")"
-if printf '%s\n' "$double" | tail -1 | grep -qxF "<<<END-UNTRUSTED-AUTHOR-NOTES__>>>"; then
+if grep -qxF "<<<END-UNTRUSTED-AUTHOR-NOTES__>>>" <<< "${double##*$'\n'}"; then
   pass "a second collision grows the suffix again"
 else
   fail "suffix stopped growing while a marker still collides"
@@ -128,7 +128,8 @@ check "empty content emits nothing" "" "$(printf '' | bash "${FENCE_LIB}")"
 check "whitespace-only content emits nothing" "" "$(printf '  \n\t\n' | bash "${FENCE_LIB}")"
 
 printf 'from a file\n' > "${TMP_DIR}/notes.txt"
-if bash "${FENCE_LIB}" "${TMP_DIR}/notes.txt" | grep -qxF "from a file"; then
+fenced_file="$(bash "${FENCE_LIB}" "${TMP_DIR}/notes.txt")"
+if grep -qxF "from a file" <<< "${fenced_file}"; then
   pass "file-argument form fences the file content"
 else
   fail "file-argument form did not fence the file content"
