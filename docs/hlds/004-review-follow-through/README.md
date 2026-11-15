@@ -58,10 +58,10 @@ autonomous runs never write it.
 
 ### 4. Trigger the next full review
 
-The last pushed commit carries the review trigger in its message, before any trailer block. The
-dedicated commit path always requests a full review; review execution adds the trigger only when a
-Critical or High finding was processed, plus a mandatory empty re-verification commit. Earlier chunk
-commits never carry the trigger.
+The dedicated commit-and-push path always requests a full review: only its final chunk commit carries
+the review trigger, before any trailer block. During review execution, when the review contains any
+Critical or High finding (fixed or skipped), every fix commit carries the trigger as its last body
+line. A separate mandatory empty re-verification commit follows the result-routing writes.
 
 **Acceptance criteria / DoD**
 

@@ -11,16 +11,17 @@
 
 ## Decision
 
-**Declare** the plugin manifest as the sole version source. The major tag moves from that version,
-and a release tag must match it. The package channel is retired: no package manifest, no publish
-workflow, and no consumer path depends on a registry.
+**Declare** the plugin manifest as the sole version source. The updater derives the floating major
+tag (`vN`) from that version and moves it to the default-branch HEAD; it does not validate release
+tags. The package channel is retired: no package manifest, no publish workflow, and no consumer
+path depends on a registry.
 
 Marketplace entries point at the same skill folders as every other channel.
 
 ## Consequences
 
 - One version names every channel.
-- A mismatched tag fails the update instead of shipping a misleading major.
+- The floating major tag follows the default-branch HEAD rather than a validated release tag.
 - Releasing costs one version bump in one file.
 - Consumers using a registry must migrate to a workflow or installer channel.
 

@@ -1,4 +1,4 @@
-# LADR-02: Chunk by Shape with Hard Prompt Budgets
+# LADR-02: Chunk by Shape with Hard Diff-Payload Budgets
 
 **Status:** Accepted
 
@@ -12,9 +12,11 @@
 ## Decision
 
 **Start with** shape rules: one chunk at or below ten files; semantic grouping at fifteen or more
-when that pass is available; directory-depth splitting between them. Every chunk prompt carries hard
-per-file and per-chunk byte caps; a file whose diff is truncated is marked so the reviewer cannot
-claim Critical or High from it without reading the current file.
+when that pass is available; directory-depth splitting between them. Per-file diff payloads and each
+chunk's combined diff payload carry hard byte caps. Instructions, context and truncation markers add
+overhead beyond those caps; the complete prompt has a size warning, not a hard cap. A file whose diff
+is truncated is marked so the reviewer cannot claim Critical or High from it without reading the
+current file.
 
 Changed-file count above the configured limit is a separate gate: the PR receives a
 request-changes review asking for a split rather than a partial review.

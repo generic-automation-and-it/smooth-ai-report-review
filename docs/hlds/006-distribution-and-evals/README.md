@@ -62,12 +62,13 @@ and recall against labeled expectations.
 
 ### 4. Keep versioning singular
 
-The plugin manifest is the only version manifest. A major tag moves only from that version, and a
-release tag must match it. The retired package channel is not reintroduced.
+The plugin manifest is the only version manifest. The updater derives the floating major tag from
+that version and moves it to the default-branch HEAD; it does not validate release tags. The retired
+package channel is not reintroduced.
 
 **Acceptance criteria / DoD**
 
-- The major tag update fails when the tag does not match the manifest version.
+- The updater derives `vN` from the manifest's major version and points it at the default-branch HEAD.
 - No package manifest or publish workflow exists.
 - No consumer channel depends on a package registry.
 

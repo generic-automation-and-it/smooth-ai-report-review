@@ -26,16 +26,20 @@ C4Context
 
 ## Context Selection Flow
 
-Candidates are filtered by their own declared scope; every uncertain case survives.
+Custom candidates are filtered by their own declared scope; every uncertain case survives.
+Native `AGENTS.md` files stay on OpenCode's runtime discovery path and are never concatenated.
 
 ```mermaid
 flowchart TD
-    A[Discover native AGENTS.md and scoped instructions] --> B[Collect chunk file list]
+    N[Native AGENTS.md files] --> O[OpenCode native runtime loading]
+    A[Discover scoped instructions and explicit mandatory non-AGENTS.md paths] --> B[Collect chunk file list]
     B --> C{Declared scope matches a chunk file?}
     C -->|yes| K[Keep rule]
     C -->|no, proven mismatch| D[Drop rule]
     C -->|missing or unparseable scope| K
-    K --> E[Strip frontmatter and concatenate content]
+    B -->|mandatory path: bypass scope| K
+    K --> E[Strip frontmatter and concatenate custom content]
     E --> F[Write generated AGENTS.md for the chunk]
     F --> G[Run review from that directory]
+    G --> O
 ```

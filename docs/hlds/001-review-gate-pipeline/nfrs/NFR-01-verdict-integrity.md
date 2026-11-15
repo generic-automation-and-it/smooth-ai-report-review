@@ -18,8 +18,9 @@ and the header banner against the same failure count.
 
 - No incremental case yields approve.
 - A failed chunk yields request-changes and a banner naming the failed count.
-- A complete full review with no surviving Critical/High is eligible for approve and is not blocked
-  by any guard.
+- A complete full review with no surviving Critical/High is eligible for approve when summary
+  generation succeeds, or complete usable structured coverage allows deterministic recommendation
+  sync to recover a summary-only failure. A deliberate comment verdict remains a comment.
 
 ## Applies To
 

@@ -5,8 +5,8 @@ merge, judgement and rendering is what keeps every consumer stable.
 
 ## System Context (C1)
 
-The pipeline receives chunk reviews and their structured sidecars, verifies quotes against the
-reviewed tree, optionally calls a decision endpoint, and renders the document that is posted.
+The pipeline receives chunk reviews and their structured sidecars, merges them, optionally verifies
+quotes against the reviewed tree, optionally calls a decision endpoint, and renders the posted document.
 
 ```mermaid
 C4Context
@@ -19,23 +19,26 @@ C4Context
     System_Ext(github, "GitHub API", "Receives the posted review body")
 
     Rel(gate, findings, "Supplies chunk documents", "filesystem")
-    Rel(findings, repo, "Verifies quoted lines and context", "filesystem")
+    Rel(findings, repo, "Optionally verifies quoted lines and reads context", "filesystem")
     Rel(findings, judge, "Sends typed scoring questions", "HTTPS")
     Rel(findings, github, "Posts the rendered review", "HTTPS REST")
 ```
 
 ## Finding Lifecycle
 
-Each claim is extracted once, merged conservatively, optionally judged, then rendered for every
-consumer from one ordered document.
+Each claim is extracted once, merged conservatively and confidence-gated, optionally tree-verified
+and judged, then rendered for every consumer from one ordered document. Tree verification is off
+by default.
 
 ```mermaid
 flowchart TD
     A[Chunk review plus structured sidecar] --> B[Extract sidecar, excluding its sentinel range]
-    B --> C[Verify quoted lines at the reviewed revision]
-    C --> D[Merge by file, line and title using conservative rules]
+    B --> D[Merge by file, line and title using conservative rules]
     D --> E[Demote unsupported confidence and suppress weak non-critical items]
-    E --> F{Decision scoring enabled?}
+    E --> C{Tree quote verification enabled? Default off}
+    C -->|yes| V[Verify at reviewed revision; demote definite misses and suppress weak non-critical items]
+    C -->|no| F{Decision scoring enabled?}
+    V --> F
     F -->|yes| G[Annotate scores; filter only inside the coverage fence]
     F -->|no| H[Render merged findings]
     G --> H

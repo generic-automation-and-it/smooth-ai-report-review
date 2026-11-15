@@ -21,7 +21,7 @@ citation never raises confidence or severity.
 
 ## Consequences
 
-- Unverifiable claims cannot block a merge, but impact remains visible.
+- Unverifiable non-critical claims are suppressed; Critical claims remain visible and can still block.
 - Reviewers get an explicit count of demoted findings.
 - Omissions are quoted by where the missing code belongs, not by a nearby mention.
 - Generated-symbol claims can cite the generating construct, so a failed literal search is not proof.

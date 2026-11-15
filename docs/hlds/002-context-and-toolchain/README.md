@@ -66,7 +66,8 @@ compatibility floor.
 **Acceptance criteria / DoD**
 
 - A v1 binary is rejected even if cached or already on PATH.
-- A config binding that is foreign or unreadable is fatal.
+- A foreign config binding is fatal regardless of liveness. An unreadable binding is fatal unless
+  the liveness probe also fails; that combined diagnostic failure is advisory in CI.
 - A missing model key is added without altering existing metadata.
 - An RTK below the floor keeps its binary, warns and skips initialization.
 

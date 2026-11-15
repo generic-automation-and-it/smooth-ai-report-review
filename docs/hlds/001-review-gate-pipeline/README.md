@@ -36,13 +36,15 @@ since the last reviewed commit.
 
 ### 2. Bound the work per call
 
-Changed files are grouped by shape, and every chunk prompt carries a hard limit. The chunk clock
-scales with prompt size rather than staying fixed against variable work. An oversized PR is blocked
-rather than reviewed unreliably.
+Changed files are grouped by shape, with hard per-file and per-chunk diff-payload limits. Instructions,
+context and truncation markers add overhead beyond those limits; the complete prompt has a size
+warning, not a hard cap. The chunk clock scales with prompt size rather than staying fixed against
+variable work. An oversized PR is blocked rather than reviewed unreliably.
 
 **Acceptance criteria / DoD**
 
-- No chunk prompt exceeds its per-file or per-chunk byte cap.
+- Per-file diff payloads and each chunk's combined diff payload stay within their byte caps;
+  instructions, context and truncation markers are additional.
 - A PR above the file-count limit receives a split-request verdict, not a review.
 - Deterministic shape cases produce the same chunk count and grouping; semantic grouping may vary
   between runs.
@@ -117,7 +119,7 @@ detail stays with the entrypoint and its tests. See [`./ladrs/`](./ladrs/).
 | LADR | Decision | Status |
 |------|----------|--------|
 | [LADR-01](./ladrs/LADR-01-diff-scope-resolved-or-fail.md) | The diff base is a resolved ancestor or the run stops | Accepted |
-| [LADR-02](./ladrs/LADR-02-shape-based-chunking.md) | Chunk by shape with hard prompt budgets | Accepted |
+| [LADR-02](./ladrs/LADR-02-shape-based-chunking.md) | Chunk by shape with hard diff-payload budgets | Accepted |
 | [LADR-03](./ladrs/LADR-03-bounded-review-chain.md) | A bounded two-tier chain with one retry per chunk | Accepted |
 | [LADR-04](./ladrs/LADR-04-fail-closed-coverage.md) | Lost coverage fails closed; incremental reviews never approve | Accepted |
 | [LADR-05](./ladrs/LADR-05-one-entrypoint-two-packagings.md) | One entrypoint serves both packagings | Accepted |

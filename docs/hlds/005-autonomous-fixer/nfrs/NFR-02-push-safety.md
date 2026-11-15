@@ -4,19 +4,22 @@
 
 ## Requirement
 
-No push occurs when a suite passes at the pre-fix head and fails after the edits, or when the test
-gate times out. An already-red suite does not block. A blocked run keeps the fixes, sets the push to
-skipped with a reason, and publishes the diff.
+No push occurs when an auto-detected suite passes at HEAD and fails after the edits. Auto-detected
+failures confirmed at HEAD do not block. Timeouts, exhausted budgets and unavailable baselines
+fail closed. An explicit test command uses absolute gating: any nonzero exit blocks publication.
+A blocked run keeps the fixes, sets the push to skipped with a reason, and publishes the diff.
 
 ## Verification
 
-Exercise green-to-red, red-before-and-after, all-green and timeout cases. Assert the push outcome,
+Exercise auto-detected green-to-red, red-before-and-after and all-green cases, plus timeouts,
+exhausted budgets, unavailable baselines and failed explicit commands. Assert the push outcome,
 the skip reason, and the presence of the published diff.
 
 ## Acceptance Criteria
 
 - Green-to-red and timeout cases never push.
-- Already-red suites are reported without blocking.
+- Auto-detected suites confirmed already red at HEAD are reported without blocking.
+- Failed explicit commands, exhausted budgets and unavailable baselines never push.
 - Every blocked case exposes the fix diff and its reason.
 
 ## Applies To

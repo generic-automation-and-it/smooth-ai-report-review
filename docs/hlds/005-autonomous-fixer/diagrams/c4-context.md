@@ -27,6 +27,8 @@ C4Context
 ## Fixer Loop
 
 Each cycle narrows the findings, protects the oracle, and publishes only what the gate approved.
+Auto-detected suites gate on regressions; explicit test commands gate on any nonzero exit.
+Timeouts, exhausted budgets and unavailable baselines fail closed.
 
 ```mermaid
 flowchart TD
@@ -37,7 +39,7 @@ flowchart TD
     D --> E[Model edits within scope]
     E --> F[Revert protected test and evaluation edits]
     F --> G[Verify pinned tooling is unmodified]
-    G --> H{Test gate: green to red or timeout?}
+    G --> H{Regression, failed explicit command, timeout, exhausted budget or unavailable baseline?}
     H -->|yes| I[Keep fixes, publish diff, skip push]
     H -->|no| J[Exclude scratch paths, rebase and push]
     J --> K[Comment summary and upload redacted artifact]

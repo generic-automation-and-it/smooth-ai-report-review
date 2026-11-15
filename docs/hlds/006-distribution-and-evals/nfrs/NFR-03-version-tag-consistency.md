@@ -4,17 +4,19 @@
 
 ## Requirement
 
-The major tag moves only to a release tag whose version matches the plugin manifest. No package
-manifest or publish workflow exists, and no supported consumer channel depends on a registry.
+The updater derives the floating major tag (`vN`) from the plugin manifest and moves it to the
+default-branch HEAD, without validating a release tag. No package manifest or publish workflow
+exists, and no supported consumer channel depends on a registry.
 
 ## Verification
 
-Run the tag-update logic against a matching tag and a mismatched tag; assert that only the matching
-case moves the major tag. Scan the repository for a package manifest or publish workflow.
+Check that the tag-update logic derives `vN` from the manifest's major version and creates or updates
+that tag to the resolved default-branch HEAD. Scan the repository for a package manifest or publish
+workflow.
 
 ## Acceptance Criteria
 
-- A mismatched tag fails without moving the major tag.
+- The tag name is derived from the manifest's major version and its target is the default-branch HEAD.
 - No package manifest or publish workflow is present.
 - Every documented channel resolves its version from the plugin manifest or its own explicit pin.
 

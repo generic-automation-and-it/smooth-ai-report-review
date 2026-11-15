@@ -14,8 +14,9 @@
 
 Safe, well-evidenced low and medium findings should not wait for a human to apply them. At the same
 time, the fixer must never become an oracle that grades its own work. This design specifies a
-narrow scope, deterministic fences around tests and evaluation, a regression-relative test gate, and
-a bounded loop that the workflow — not the model — controls.
+narrow scope, deterministic fences around tests and evaluation, a test gate that is regression-relative
+for auto-detected suites and absolute for an explicit command, and a bounded loop that the workflow —
+not the model — controls.
 
 ## Key Goals
 
@@ -47,14 +48,16 @@ failing test are withheld before the model sees them.
 
 ### 3. Push only when safety was established
 
-The test gate is regression-relative: only a suite that passes before the fix and fails after it
-blocks the push. A suite that was already red is reported but does not block. A timeout always
-blocks, and blocked fixes are preserved and published for a human.
+Auto-detected suites use regression-relative gating: a suite that passes at HEAD and fails after
+the fix blocks the push; failures confirmed at HEAD are reported without blocking. Timeouts,
+exhausted budgets and unavailable baselines fail closed. An explicit test command uses absolute
+gating: any nonzero exit blocks publication. Blocked fixes are preserved and published for a human.
 
 **Acceptance criteria / DoD**
 
 - No push occurs over a green-to-red regression.
-- An already-red suite is reported without blocking.
+- An auto-detected suite confirmed already red at HEAD is reported without blocking.
+- A failed explicit command, exhausted budget or unavailable baseline blocks publication.
 - A gate timeout always results in a skipped push with the fix diff published.
 
 ### 4. Bound and audit the loop
@@ -104,7 +107,7 @@ action outside the model's reach.
 | [LADR-01](./ladrs/LADR-01-severity-only-scope.md) | Selection stays severity-based; merged JSON is not consumed yet | Accepted |
 | [LADR-02](./ladrs/LADR-02-test-in-the-loop.md) | Test and evaluation edits are off by default and reverted deterministically | Accepted |
 | [LADR-03](./ladrs/LADR-03-failing-test-is-signal.md) | Failing-test findings are withheld before the model sees them | Accepted |
-| [LADR-04](./ladrs/LADR-04-regression-relative-gate.md) | Only green-to-red suites block; timeouts always block | Accepted |
+| [LADR-04](./ladrs/LADR-04-regression-relative-gate.md) | Auto-detected suites gate on regressions; explicit commands gate absolutely | Accepted |
 | [LADR-05](./ladrs/LADR-05-workflow-owns-side-effects.md) | The workflow owns every side effect and fences its own tooling | Accepted |
 
 ## Non-Functional Requirements

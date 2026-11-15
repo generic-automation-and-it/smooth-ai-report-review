@@ -1,4 +1,4 @@
-# LADR-04: Only Green-to-Red Suites Block; Timeouts Always Block
+# LADR-04: Regression-Relative Suites, Absolute Explicit Commands
 
 **Status:** Accepted
 
@@ -11,16 +11,18 @@
 
 ## Decision
 
-**Gate** on regression only: a suite that passes before the fix and fails after it blocks the push.
-A suite that was already red is reported without blocking. A timeout always blocks because the
-absence of evidence is not evidence of safety.
+**Gate auto-detected suites** on regression: a suite that passes at HEAD and fails after the fix
+blocks the push. Failures confirmed at HEAD are reported without blocking. Timeouts, exhausted
+budgets and unavailable baselines fail closed because the absence of evidence is not evidence of
+safety. An explicit test command uses absolute gating: any nonzero exit blocks publication.
 
 The gate keeps all of its own state outside the repository and publishes from a single exit path,
 so a suite that cleans its own scratch directories cannot delete the gate's report mid-run.
 
 ## Consequences
 
-- One stale suite cannot switch the loop off.
+- One confirmed stale auto-detected suite cannot switch the loop off.
+- A failed explicit command blocks without a HEAD-baseline comparison.
 - A real regression always stops publication.
 - Blocked fixes are preserved and published rather than discarded.
 - The gate cannot report a phantom regression from a suite that never ran.
