@@ -131,16 +131,24 @@ has "ai-review: opt-in and read-only, fail-open" "$ROOT/.agents/skills/ai-review
 # `grep -F` treated the two lines as alternatives.
 _tmp_doc="$(mktemp)"
 printf 'line one\nline three\n' > "$_tmp_doc"
-_before_pass=$pass _before_fail=$fail
-has "self-check: a half-present multi-line needle fails" "$_tmp_doc" "line one
+# The probe's own counter change is undone, and the verdict goes through ok_if,
+# so a matcher that regressed to OR fails the SUITE — printing a ❌ without
+# incrementing fail left this guard unable to catch the bug it exists for.
+check_multiline_guard() {  # 0 = the matcher is AND; 1 = it ORs lines
+  local before_pass before_fail caught=0
+  before_pass=$pass before_fail=$fail
+  has "self-check probe" "$_tmp_doc" "line one
 line two" >/dev/null
-if [ "$fail" -eq "$((_before_fail + 1))" ]; then
-  echo "  ✅ self-check: multi-line needles are matched whole (AND, not OR)"
-  pass=$((_before_pass + 1))
-else
-  echo "  ❌ self-check: a half-present multi-line needle still passed"
-fi
-fail=$_before_fail
+  [ "$fail" -gt "$before_fail" ] && caught=1
+  pass=$before_pass fail=$before_fail
+  [ "$caught" = 1 ]
+}
+ok_if "self-check: multi-line needles are matched whole (AND, not OR)" "$(check_multiline_guard && echo 1 || echo 0)"
+# And prove the guard does not pass silently: with an always-matching matcher
+# (the OR regression) it must report failure, not success.
+_guard_regressed=0
+( has() { return 0; }; check_multiline_guard ) || _guard_regressed=1
+ok_if "the guard reports failure when the matcher regresses" "$_guard_regressed"
 rm -f "$_tmp_doc"
 
 echo ""
