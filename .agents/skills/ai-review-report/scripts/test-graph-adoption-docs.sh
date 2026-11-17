@@ -22,8 +22,15 @@ fail=0
 # the large files (root AGENTS.md, the SKILL.md files) this suite asserts on.
 _flat_tmp="$(mktemp)"
 trap 'rm -f "$_flat_tmp"' EXIT
-flat_needle() { printf '%s' "$1" | tr -s '[:space:]' ' '; }
-flat_into() { tr -s '[:space:]' ' ' < "$1" > "$_flat_tmp" 2>/dev/null; }
+# awk, not tr: GNU tr (on PATH in CI and here via coreutils gnubin) mangled
+# this tree's AGENTS.md — the phrase was simply gone from its output, while BSD
+# tr kept it — so the assertion depended on which tr was first on PATH. awk is
+# the same binary in both environments.
+# One line, words joined by single spaces, no trailing space on the needle —
+# a trailing space would never match text the phrase continues into (a comma).
+flat_lines() { awk '{ gsub(/[[:space:]]+/, " "); sub(/^ /, ""); sub(/ $/, ""); if (NR > 1) printf " "; printf "%s", $0 }'; }
+flat_needle() { printf '%s\n' "$1" | flat_lines; }
+flat_into() { flat_lines < "$1" > "$_flat_tmp" 2>/dev/null; }
 has() {  # has <label> <file> <fixed string>
   local needle; needle="$(flat_needle "$3")"
   if [ -f "$2" ] && flat_into "$2" && grep -qF -- "$needle" "$_flat_tmp"; then echo "  ✅ $1"; pass=$((pass + 1)); else echo "  ❌ $1 — '$3' not in ${2#"$ROOT"/}"; fail=$((fail + 1)); fi
