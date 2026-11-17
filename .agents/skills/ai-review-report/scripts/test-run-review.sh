@@ -1257,6 +1257,8 @@ check 'deadline "abc" is unset' "false|" "$(deadline_eval abc 5)"
 check 'deadline "600" at t=5 is not reached' "false|600" "$(deadline_eval 600 5)"
 check 'deadline "600" at t=700 is reached' "true|600" "$(deadline_eval 600 700)"
 check 'deadline "1" at t=1 is reached' "true|1" "$(deadline_eval 1 1)"
+check "the aggregation child receives _RUN_DEADLINE_SECONDS" "1" \
+  "$(printf '%s\n' "$deadline_block" | grep -c '^export _RUN_DEADLINE_SECONDS$' || true)"
 check "local-review.sh carries the same below-1 guard" "1" \
   "$(grep -c 'A value below 1 is unset' "$SCRIPT_DIR/local-review.sh" || true)"
 

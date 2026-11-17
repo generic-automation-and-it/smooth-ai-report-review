@@ -1632,6 +1632,10 @@ _RUN_DEADLINE_REACHED=false
 if [ -n "$_RUN_DEADLINE_SECONDS" ] && [ "$_RUN_ELAPSED_SECONDS" -ge "$_RUN_DEADLINE_SECONDS" ]; then
   _RUN_DEADLINE_REACHED=true
 fi
+# Both reach the aggregation child, which renders the Coverage run-time line from
+# _RUN_DEADLINE_SECONDS; exporting only the reached flag silently dropped that
+# line from every bounded CI review (local-review.sh already exports both).
+export _RUN_DEADLINE_SECONDS
 export _RUN_DEADLINE_REACHED
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${TOTAL_CHUNKS}" \
