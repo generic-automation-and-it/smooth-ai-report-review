@@ -849,6 +849,16 @@ run_deadline_case() {
     "$(grep '^unreviewed_chunks=' "$out" | tail -1 | cut -d= -f2)"
   check "deadline: the retry sweep is skipped" "1" \
     "$(grep -c 'Retry sweep skipped: run deadline reached' "${TMP_DIR}/deadline.log")"
+  # The launch loop checks BETWEEN launches, so a deadline that passes while the
+  # last chunks run must be caught again after the parallel wait — otherwise the
+  # retry sweep below launches a fresh model call past the operator's cap.
+  check "deadline: re-evaluated after the parallel wait, before the outcome is emitted" "1" \
+    "$(awk '
+       /^CHUNK_NUM=\$TOTAL_CHUNKS$/ { launched = NR }
+       /re-evaluated after the parallel wait/ { recheck = NR }
+       /^# Hand the deadline outcome/ { emit = NR }
+       END { print (launched && recheck && emit && launched < recheck && recheck < emit) ? 1 : 0 }' \
+       .agents/skills/ai-review-report/scripts/review-in-chunks.sh)"
 
   # Aggregation fails closed on the same list, even with the stub's APPROVE.
   GITHUB_OUTPUT="${TMP_DIR}/deadline-agg.out" \
@@ -867,6 +877,18 @@ run_deadline_case() {
     "$(grep -c 'Aggregation summary skipped: the opt-in run deadline was reached' "${TMP_DIR}/deadline-agg.log")"
   check "deadline: the verdict fails closed" "request_changes" \
     "$(grep '^review_action=' "${TMP_DIR}/deadline-agg.out" | tail -1 | cut -d= -f2)"
+  # A deadline that passed DURING execution launches every chunk, so
+  # UNREVIEWED_COUNT is 0 and the coverage banner never renders. The body must
+  # still name the deadline instead of claiming the summary hit an error.
+  GITHUB_OUTPUT="${TMP_DIR}/deadline-mid.out" \
+  PATH="${test_repo}/bin:${PATH}" \
+  UNREVIEWED_CHUNKS="" _RUN_ELAPSED_SECONDS=700 _RUN_DEADLINE_SECONDS=600 _RUN_DEADLINE_REACHED=true \
+  bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh "1" "test-model" "full" "aaaaaaa1234" "1" "bbbbbbb5678" "test expertise" "none" \
+    > "${TMP_DIR}/deadline-mid.log" 2>&1 || true
+  check "deadline: the summary is named as skipped, not failed" "1" \
+    "$(grep -c 'skipped: the opt-in run deadline was reached' ci_temp/final_review.md)"
+  check "deadline: the body never claims the summary hit an error" "0" \
+    "$(grep -c 'encountered an error' ci_temp/final_review.md)"
 
   # The Coverage line is gated on the DEADLINE, not on elapsed: elapsed is
   # always known, so an elapsed-only gate would add the line to every unbounded

@@ -1616,16 +1616,22 @@ unset _structured_findings
 # scripts inherit the start epoch instead.
 _RUN_ELAPSED_SECONDS=$(( $(date +%s) - OPENCODE_REVIEW_REPORT_RUN_STARTED_AT ))
 export _RUN_ELAPSED_SECONDS
-export _RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
 # Checked again before the aggregation summary (LADR-121): the deadline stops
 # new model work, and the summary is the last such call.
-_RUN_DEADLINE_REACHED=false
+# A value below 1 is unset, exactly as review-in-chunks.sh reads it: 0 is the
+# repo-wide "disabled" convention (STALL_TIMEOUT), and treating it as an
+# already-reached 0-second deadline skipped the summary of a full run.
+_RUN_DEADLINE_SECONDS=""
 case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
   ''|*[!0-9]*) ;;
-  *) if [ "${_RUN_ELAPSED_SECONDS}" -ge "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" ]; then
-       _RUN_DEADLINE_REACHED=true
+  *) if [ "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" -ge 1 ]; then
+       _RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}"
      fi ;;
 esac
+_RUN_DEADLINE_REACHED=false
+if [ -n "$_RUN_DEADLINE_SECONDS" ] && [ "$_RUN_ELAPSED_SECONDS" -ge "$_RUN_DEADLINE_SECONDS" ]; then
+  _RUN_DEADLINE_REACHED=true
+fi
 export _RUN_DEADLINE_REACHED
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${TOTAL_CHUNKS}" \

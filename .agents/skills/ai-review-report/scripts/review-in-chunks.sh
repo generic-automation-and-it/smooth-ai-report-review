@@ -2029,6 +2029,18 @@ done
 # Restore CHUNK_NUM to total for downstream output
 CHUNK_NUM=$TOTAL_CHUNKS
 
+# LADR-121: re-evaluated after the parallel wait, because the launch loop only
+# checks BETWEEN launches — a deadline that passed while the last chunks ran
+# left _deadline_expired=false, and the retry sweep below would then spend a
+# fresh model call past the cap the operator set. Every chunk was launched, so
+# there is nothing to add to the unreviewed channel; only the outcome changes.
+if [ "$_deadline_expired" = false ] && [ "$_DEADLINE_AT" -gt 0 ] \
+   && [ "$(date +%s)" -ge "$_DEADLINE_AT" ]; then
+  _deadline_expired=true
+  echo ""
+  echo "⏱️  Run deadline reached (${RUN_DEADLINE_SECONDS}s) during execution — no further budget is spent"
+fi
+
 # Hand the deadline outcome to run-review.sh. Emitted only when the deadline
 # fired, so an unbounded run's outputs are byte-identical to today.
 if [ "$_deadline_expired" = true ]; then

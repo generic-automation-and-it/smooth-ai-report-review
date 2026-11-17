@@ -590,7 +590,14 @@ if [ "$agg_ok" = "true" ]; then
   echo "✅ PR summary generated successfully (model: $ORCHESTRATOR_MODEL_ID)"
 else
   _summary_failure="Summary generation encountered an error."
-  if [ "$SUMMARY_TIMED_OUT" = "true" ]; then
+  # LADR-121: a deadline that passed during execution (every chunk launched, so
+  # UNREVIEWED_COUNT is 0 and the coverage banner below never renders) reached
+  # this branch through the skipped summary. Saying "encountered an error" for a
+  # deliberate budget stop is false; name the deadline instead.
+  if [ "${_RUN_DEADLINE_REACHED:-false}" = "true" ]; then
+    echo "⏱️  Summary skipped by the opt-in run deadline - using fallback"
+    _summary_failure="Summary generation was skipped: the opt-in run deadline was reached (LADR-121). Review the chunk sections below."
+  elif [ "$SUMMARY_TIMED_OUT" = "true" ]; then
     echo "❌ Summary generation timed out (${SUMMARY_TIMEOUT}s budget, LADR-092) - using fallback"
     _summary_failure="Summary generation timed out (${SUMMARY_TIMEOUT}s budget; the run log names each model and how long it ran)."
   else
