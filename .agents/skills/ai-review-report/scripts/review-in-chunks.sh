@@ -95,6 +95,14 @@ graph_signals_enabled() {
   printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
 }
 
+# Opt-in removed-symbol hints (LADR-050 amendment, graph >= 2.4.0). Default OFF
+# until the deletion-regression eval proves benefit; falsy → the removed TSV is
+# never read and the chunk prompt stays byte-identical.
+graph_removed_signals_enabled() {
+  local v="${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}"
+  printf '%s' "${v,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
+}
+
 # LADR-102: per-chunk stall detection. Same tokenized truthy test as the
 # structured-findings gate above, so a pathological value like `1true` lands on
 # the same side of the line everywhere. DEFAULT ON, matching
@@ -1201,17 +1209,31 @@ EOF
   # the opt-in flag, an available graph, and a non-empty slice. Absence is the
   # normal case — a chunk of docs or a repo the graph could not parse gets no
   # block and no mention that one was expected.
-  local _sig_slice="" _sig_lib
+  local _sig_slice="" _sig_lib _sig_args=() _sig_extra=""
   local _sig_file="ci_temp/chunk_${chunk_num}_graph_signals.md"
   rm -f "$_sig_file" 2>/dev/null || true
   if graph_signals_enabled; then
     _sig_lib="$(dirname "${BASH_SOURCE[0]}")/lib/graph-signals-slice.sh"
+    # The removed TSV is passed only with its flag on, so flag-off reads nothing.
+    if graph_removed_signals_enabled; then
+      _sig_args=("${GRAPH_SIGNALS_TSV:-ci_temp/graph_review_signals.tsv}" ci_temp/graph_removed_signals.tsv)
+    fi
     if [ -f "$_sig_lib" ]; then
       # Files go NUL-separated on stdin: this is a bash array and its members may
       # contain spaces or globs. Exit 3 is "nothing to say", not a failure.
       _sig_slice="$(printf '%s\0' "${files[@]}" \
         | OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES="${OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES:-1024}" \
-          bash "$_sig_lib" 2>/dev/null)" || _sig_slice=""
+          bash "$_sig_lib" ${_sig_args[@]+"${_sig_args[@]}"} 2>/dev/null)" || _sig_slice=""
+    fi
+    # Guidance for the newer hint shapes is added only when the slice actually
+    # carries one, so a slice without them keeps today's prompt bytes.
+    if printf '%s' "$_sig_slice" | grep -q 'reached only through a caller'; then
+      _sig_extra="${_sig_extra}
+\"Reached only through a caller\" means the graph found a test that exercises the function only indirectly, through a caller — not that the function is untested. Do not report it as missing tests."
+    fi
+    if printf '%s' "$_sig_slice" | grep -q '^Removed symbols the graph still records users for:'; then
+      _sig_extra="${_sig_extra}
+A removed-symbol line is what the graph still records as using a symbol this PR deleted. Graph edges can be stale or incomplete: open each listed user and confirm it still references the symbol before reporting anything. Never claim the change \"will break\" on this hint alone, and never raise a Critical or High from it without quoted evidence of a remaining reference."
     fi
     if [ -n "$_sig_slice" ]; then
       cat >> ci_temp/chunk_${chunk_num}_prompt.txt << EOF
@@ -1220,7 +1242,7 @@ EOF
 
 ${_sig_slice}
 
-These are structural hints, not defects or exhaustive coverage measurements. A risk score is not a severity. "No test coverage detected by graph" means no covering test edge was found; dynamic calls, conventions and unsupported constructs may hide real tests. Verify the source before reporting a gap; neither signal alone justifies a Critical or High. Quote-the-line evidence is still required. Do not infer reachability or caller completeness from these two signals.
+These are structural hints, not defects or exhaustive coverage measurements. A risk score is not a severity. "No test coverage detected by graph" means no covering test edge was found; dynamic calls, conventions and unsupported constructs may hide real tests. Verify the source before reporting a gap; neither signal alone justifies a Critical or High. Quote-the-line evidence is still required. Do not infer reachability or caller completeness from these two signals.${_sig_extra}
 EOF
       # Per-chunk audit data, never a verdict channel. Reset above on retry so
       # a later empty slice cannot inherit a previous attempt's enrichment.
@@ -2006,6 +2028,18 @@ done
 
 # Restore CHUNK_NUM to total for downstream output
 CHUNK_NUM=$TOTAL_CHUNKS
+
+# LADR-121: re-evaluated after the parallel wait, because the launch loop only
+# checks BETWEEN launches — a deadline that passed while the last chunks ran
+# left _deadline_expired=false, and the retry sweep below would then spend a
+# fresh model call past the cap the operator set. Every chunk was launched, so
+# there is nothing to add to the unreviewed channel; only the outcome changes.
+if [ "$_deadline_expired" = false ] && [ "$_DEADLINE_AT" -gt 0 ] \
+   && [ "$(date +%s)" -ge "$_DEADLINE_AT" ]; then
+  _deadline_expired=true
+  echo ""
+  echo "⏱️  Run deadline reached (${RUN_DEADLINE_SECONDS}s) during execution — no further budget is spent"
+fi
 
 # Hand the deadline outcome to run-review.sh. Emitted only when the deadline
 # fired, so an unbounded run's outputs are byte-identical to today.

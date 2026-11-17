@@ -22,9 +22,9 @@ validation run; `scaffold-hld.sh` does not create the row.
 | HLD | Owner | Scope |
 |---|---|---|
 | [001 PR Review Gate Pipeline](./001-review-gate-pipeline/README.md) | `ai-review-report` | Diff scope, no-review gates, chunking, review chain, coverage, verdict and posting |
-| [002 Context Delivery and Toolchain](./002-context-and-toolchain/README.md) | `ai-review-report` | Scoped context, runtime `AGENTS.md`, provider transport, graph hints, pinned OpenCode v2 |
-| [003 Findings Integrity and Decision Scoring](./003-findings-and-decisions/README.md) | `ai-review-report` (consumed by both consumers) | Evidence gate, merge and numbering, decision judge, presentation |
+| [002 Context Delivery and Toolchain](./002-context-and-toolchain/README.md) | `ai-review-report` | Scoped context, runtime `AGENTS.md`, provider transport, graph hints (risk, coverage, opt-in deleted-symbol), pinned OpenCode v2 |
+| [003 Findings Integrity and Decision Scoring](./003-findings-and-decisions/README.md) | `ai-review-report` (consumed by both consumers) | Evidence gate, merge and numbering, decision judge, presentation (including the opt-in Structural Risk section) |
 | [004 Review Follow-Through](./004-review-follow-through/README.md) | `ai-review` + `git-commit-review-push` | Analysis and execution, source routing, skip bullets, commit trigger |
-| [005 Autonomous Low and Medium Fixer](./005-autonomous-fixer/README.md) | `ai-analyse` | Scope, oracle fences, test gate, bounded push loop |
-| [006 Distribution and Evaluation](./006-distribution-and-evals/README.md) | Repository platform | Consumption channels, installer contract, workflow input surface, layered evals, release flow and versioning |
+| [005 Autonomous Low and Medium Fixer](./005-autonomous-fixer/README.md) | `ai-analyse` | Scope, oracle fences, test gate, bounded push loop, joinable skips |
+| [006 Distribution and Evaluation](./006-distribution-and-evals/README.md) | Repository platform | Consumption channels, installer contract, workflow input surface, layered evals and report-only measurement, release flow and versioning |
 | [007 Pi Agent Backend](./007-pi-agent-backend/README.md) *(Draft)* | `ai-review-report` + `ai-analyse` | Second CLI backend behind one selector: instruction delivery, tool lockdown, configuration isolation, fixer parity |

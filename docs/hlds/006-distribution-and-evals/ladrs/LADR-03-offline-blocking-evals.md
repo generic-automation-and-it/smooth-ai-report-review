@@ -20,6 +20,10 @@ report-only.
 Precision against a labeled corpus is judged per sample by majority, because a single draw is
 measurement noise rather than a verdict.
 
+New measurement series — graph-hint uptake and accuracy, autonomous-skip recurrence, hint
+attribution of harvested labels — are report-only. They are printed after the verdict and never
+gate a run or a release.
+
 ## Consequences
 
 - Deterministic regressions protect every consumer from a broken toolchain.

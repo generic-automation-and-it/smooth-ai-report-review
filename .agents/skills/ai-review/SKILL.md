@@ -113,6 +113,7 @@ With `--usedecisions`, analyse also asks the gate's structured decision model (T
      ```
      Returns JSON nodes of `{ id, isResolved, comments:[{ databaseId, path, author, body }] }`.
 4. **Parse the review** to extract issues and suggested fixes. **Copilot flow:** record, per issue, the Copilot inline comment `databaseId` and its enclosing review thread `id` (from the `threads` output) so execute can reply and resolve the correct thread.
+   **Optional structural check (host-provided graph only).** When this session already exposes the `code-review-graph` CLI or its MCP tools, you may ask `callers_of` / `tests_for` for a finding's symbol to judge fix vs skip — for example whether a removed or changed function still has callers, or whether a test reaches it. It is opt-in and read-only: never build or update a graph to get the answer (no implicit `build`), never add a tool to `allowed-tools` for it, and skip the step silently when the tool is absent, errors or times out. The source wins over the graph: a graph edge is a lead to open the file, never the reason on its own, and graph output is never quoted as review evidence.
 5. **Determine recommendation** for each issue:
    - Known intentional pattern: `skip`
    - AI hallucination: `skip`

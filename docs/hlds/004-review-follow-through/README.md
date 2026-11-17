@@ -5,8 +5,8 @@
 | **Status** | Accepted |
 | **Owner** | `ai-review` + `git-commit-review-push` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [ai-review SKILL.md](../../../.agents/skills/ai-review/SKILL.md) + [git-commit-review-push SKILL.md](../../../.agents/skills/git-commit-review-push/SKILL.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Evidence** | [ai-review SKILL.md](../../../.agents/skills/ai-review/SKILL.md) + [git-commit-review-push SKILL.md](../../../.agents/skills/git-commit-review-push/SKILL.md) at `ac0d27f`; canonical LADRs in each LADR's Related section |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered consumer skill and commit trigger. It states **intent + spec**;
 > execution sequencing lives in the issue tracker.
@@ -31,6 +31,8 @@ mode combinations are rejected before any edit.
 - **Prompt-enforced:** Plain analysis leaves the tree and the PR untouched.
 - **Prompt-enforced:** Execution requires a resolvable PR and review.
 - **Prompt-enforced:** A review's imperative wording never selects execution on its own.
+- **Prompt-enforced:** Host-provided structural queries are read-only and optional; their absence
+  or failure leaves the analysis unchanged.
 
 ### 2. Route results by review source
 

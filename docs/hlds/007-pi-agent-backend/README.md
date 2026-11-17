@@ -30,12 +30,17 @@ model call is backend-neutral.
 
 **Acceptance criteria / DoD**
 
-- The selector resolves to exactly one backend, and the OpenCode path is unchanged when it is
-  selected.
+- The selector resolves to exactly one backend, and the OpenCode path is unchanged **by the
+  selector** — shared-layer behaviour (context, gate-computed enrichment, post-processing) evolves
+  for both backends alike and is never a backend variant.
 - The selected runtime resolves from one pinned install source; a missing or mismatched runtime fails
   before any model call.
 - The selector is declared in every packaging's environment contract in the same change.
 - No review behaviour or post-processing step exists in a backend-specific variant.
+- Gate-computed prompt enrichment — the code-graph hints of
+  [002 Goal 3](../002-context-and-toolchain/README.md) — is part of the shared prompt: computed
+  before any model call and delivered identically to both backends, never re-implemented inside a
+  backend adapter.
 - A backend failure maps to the same failure channel the gate already handles.
 
 ### 2. Deliver the same instructions before the first turn

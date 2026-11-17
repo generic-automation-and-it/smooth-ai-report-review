@@ -19,6 +19,10 @@ Execution requires a resolvable PR and review so results can be routed. If an it
 a defensible decision or a required fix has no safe concrete action, stop before editing and report
 the unresolved analysis rather than executing a subset.
 
+A structural query against a code graph the host already provides (`callers_of`, `tests_for`) may
+inform a recommendation. It never builds or updates a graph implicitly, never widens the tool
+allowlist, and the source wins over the graph.
+
 ## Consequences
 
 - Reading a review can never surprise the author with a changed branch.

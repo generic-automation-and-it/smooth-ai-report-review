@@ -147,7 +147,10 @@ echo "=========================================="
 
 # shellcheck source=lib/rtk-opencode-compat.sh
 . "${SCRIPT_DIR}/lib/rtk-opencode-compat.sh"
-for v in 0.52.0 v0.52.0 0.52.1 0.60.0 1.0.0 1.2.0 10.0.0; do
+# "0.52" is a real `rtk --version` shape (install-rtk.sh's parser accepts 1-3
+# components); sort -V orders it BEFORE "0.52.0", which used to reject a release
+# exactly at the floor.
+for v in 0.52 0.52.0 v0.52.0 v0.52 0.52.1 0.60.0 1.0.0 1.2.0 10.0.0; do
   rtk_supports_opencode_v2 "$v" || fail "rtk ${v} should support OpenCode v2"
 done
 for v in "" unknown 0.44.1 0.51.9 0.9.99; do

@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Owner** | `ai-analyse` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [ai-analyse SKILL.md](../../../.agents/skills/ai-analyse/SKILL.md) + [pipeline-ai-analyse.yml](../../../.github/workflows/pipeline-ai-analyse.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
+| **Evidence** | [ai-analyse SKILL.md](../../../.agents/skills/ai-analyse/SKILL.md) + [pipeline-ai-analyse.yml](../../../.github/workflows/pipeline-ai-analyse.yml) at `ac0d27f`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-17 |
 
 > Design record for the delivered autonomous fixer. It states **intent + spec**; execution
@@ -36,6 +36,8 @@ row uniqueness.
 - Every in-scope identifier has exactly one row. (prompt-enforced; uniqueness is not mechanically
   validated)
 - Testing gaps are pre-decided skip while test self-fix is off.
+- Host-provided structural context may inform a FIX/SKIP decision but never widens the severity
+  scope. (prompt-enforced)
 
 ### 2. Protect the independent oracles
 
@@ -86,6 +88,19 @@ before pushing, and upload a redacted artifact.
   checks.
 - Workflow-file edits are downgraded to a skipped push unless a workflow-scoped token is available.
 - No artifact is uploaded if redaction cannot run.
+
+### 5. Make every autonomous skip joinable
+
+Every autonomous skip is named in the summary with its identifier, file, summary text and reason,
+so a later measurement can join it to the next review. The fixer never claims that a skip propagates
+to the next round: autonomous skips are not written as Skip Areas bullets. The recurrence
+measurement and its fields (`unmatched_skips`, `unavailable`) are owned by HLD-006 NFR-04, not by
+the fixer's design.
+
+**Acceptance criteria / DoD**
+
+- Each SKIP row carries the identifier, file, summary and reason columns.
+- No fixer output states that a skipped finding will not be raised again.
 
 ## Core Separation of Concerns
 

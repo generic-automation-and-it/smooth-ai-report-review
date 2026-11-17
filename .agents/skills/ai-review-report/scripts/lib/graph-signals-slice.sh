@@ -1,11 +1,20 @@
 #!/bin/bash
-# LADR-050: offline per-chunk risk + inferred test-coverage hints.
-# Usage: printf '%s\0' "${files[@]}" | bash graph-signals-slice.sh [signals.tsv]
+# LADR-050: offline per-chunk risk + inferred test-coverage hints, plus the
+# opt-in removed-symbol class.
+# Usage: printf '%s\0' "${files[@]}" | bash graph-signals-slice.sh [signals.tsv] [removed.tsv]
 # Exit 0 = slice, 3 = no rows/insufficient cap, 1 = unusable input/dependency.
 # Bash 3.2 compatible. No vendor CLI, git or network; stdout is data only.
+#
+# removed.tsv (optional, five columns: file_rel, old_line_start, name,
+# used_by_total, first_user) renders FIRST, at most three rows and one third of
+# the byte cap; risk rows and gaps share what is left. The caller passes it only
+# when its flag is on. Absent, empty or unmatched → output byte-identical to the
+# single-TSV form. A malformed removed row drops the removed block, never the
+# risk/gap block.
 set -euo pipefail
 
 TSV="${1:-${GRAPH_SIGNALS_TSV:-ci_temp/graph_review_signals.tsv}}"
+REMOVED_TSV="${2:-}"
 MAX_BYTES="${OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES:-1024}"
 case "$MAX_BYTES" in ''|*[!0-9]*) MAX_BYTES=1024 ;; esac
 # Reject overflow before arithmetic, and use decimal even for leading zeroes.
@@ -40,7 +49,8 @@ if ! LC_ALL=C awk -F'\t' '
         ($3 + 0) < ($2 + 0) ||
         ($5 != "-" && ($5 !~ /^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$/ ||
                        ($5 + 0) < 0 || ($5 + 0) > 1)) ||
-        ($6 != "true" && $6 != "false")) exit 1
+        ($6 != "true" && $6 != "false" && $6 != "indirect" &&
+         ($6 !~ /^indirect:/ || unsafe(substr($6, 10)) || substr($6, 10) == ""))) exit 1
     name = $4
     # Legacy qualified_name values include an absolute path before ::. Keep
     # ordinary C++/language namespaces intact (Class::method is not a path).
@@ -54,7 +64,48 @@ if ! LC_ALL=C awk -F'\t' '
 ' "$work/files" "$TSV" > "$work/selected"; then
   exit 1
 fi
-[ -s "$work/selected" ] || exit 3
+
+# Removed-symbol block: validated separately so a bad row costs only this block.
+: > "$work/removed"
+if [ -n "$REMOVED_TSV" ] && [ -f "$REMOVED_TSV" ] && [ -r "$REMOVED_TSV" ]; then
+  if LC_ALL=C awk -F'\t' '
+    function unsafe(s, lower) {
+      lower = tolower(s)
+      return s ~ /[`[:cntrl:]]|#[0-9]|🔴|🟠|🟡|🔵/ ||
+        lower ~ /issues found|###[[:space:]]*file:/
+    }
+    FILENAME == ARGV[1] { want[$0] = 1; next }
+    $1 in want {
+      if (NF != 5 || $1 ~ /^\/|^[A-Za-z]:|(^|\/)\.\.?($|\/)/ || unsafe($1) ||
+          $2 !~ /^[1-9][0-9]*$/ || $3 == "" || unsafe($3) || $3 ~ /^\// ||
+          $4 !~ /^[1-9][0-9]*$/ || $5 == "" || unsafe($5) || $5 ~ /^\//) exit 1
+      if (++n > 3) exit 0
+      users = ($4 == 1) ? "1 user" : $4 " users"
+      eg = ($5 == "-") ? "" : " (e.g. " $5 ")"
+      line[n] = sprintf("`%s:%s` %s — removed by this PR; the graph still records %s%s — verify they were updated or removed.", $1, $2, $3, users, eg)
+    }
+    END {
+      if (n > 3) n = 3
+      if (n) {
+        print "Removed symbols the graph still records users for:"
+        for (i = 1; i <= n; i++) print line[i]
+      }
+    }
+  ' "$work/files" "$REMOVED_TSV" > "$work/removed.all"; then
+    removed_cap=$((MAX_BYTES / 3))
+    LC_ALL=C awk -v room="$removed_cap" '
+      { size = length($0) + 1; if (used + size > room) exit; print; used += size }
+    ' "$work/removed.all" > "$work/removed" || : > "$work/removed"
+    # A heading with no row under it says nothing.
+    [ "$(wc -l < "$work/removed" | tr -d ' ')" -ge 2 ] || : > "$work/removed"
+  fi
+fi
+
+if [ ! -s "$work/selected" ]; then
+  [ -s "$work/removed" ] || exit 3
+  cat "$work/removed"
+  exit 0
+fi
 LC_ALL=C sort -t"$(printf '\t')" -k5,5gr "$work/selected" > "$work/rows" || exit 1
 
 if ! awk -F'\t' '
@@ -62,6 +113,8 @@ if ! awk -F'\t' '
     printf "`%s:%s` %s", $1, $2, $4
     if ($5 != "-") printf " — risk %s", $5
     if ($6 == "true") printf " — no test coverage detected by graph"
+    else if ($6 == "indirect") printf " — no direct test; reached only through a caller"
+    else if ($6 ~ /^indirect:/) printf " — no direct test; reached only through a caller (%s)", substr($6, 10)
     printf "\n"
   }
   $6 == "true" && gaps < 3 {
@@ -75,19 +128,43 @@ if ! awk -F'\t' '
   exit 1
 fi
 
+# The removed block and its separating blank line come out of the same cap.
+removed_bytes=0
+if [ -s "$work/removed" ]; then
+  removed_bytes=$(( $(wc -c < "$work/removed" | tr -d ' ') + 1 ))
+fi
+budget=$((MAX_BYTES - removed_bytes))
+
+emit_removed() {
+  if [ -s "$work/removed" ]; then
+    cat "$work/removed"
+    printf '\n'
+  fi
+}
+
 total="$(wc -c < "$work/body" | tr -d ' ')"
-if [ "$total" -le "$MAX_BYTES" ]; then
+if [ "$total" -le "$budget" ]; then
+  emit_removed
   cat "$work/body"
 else
   printf '... truncated (graph signals capped at %s bytes)\n' "$MAX_BYTES" > "$work/marker"
   marker_bytes="$(wc -c < "$work/marker" | tr -d ' ')"
-  room=$((MAX_BYTES - marker_bytes))
-  [ "$room" -gt 0 ] || exit 3
+  room=$((budget - marker_bytes))
+  if [ "$room" -le 0 ]; then
+    [ -s "$work/removed" ] || exit 3
+    cat "$work/removed"
+    exit 0
+  fi
   # Whole lines preserve UTF-8, references and risk numbers. LC_ALL=C makes
   # length byte-based on both BSD and GNU awk; the marker is inside the cap.
   LC_ALL=C awk -v room="$room" '
     { size = length($0) + 1; if (used + size > room) exit; print; used += size }
   ' "$work/body" > "$work/out" || exit 1
-  [ -s "$work/out" ] || exit 3
+  if [ ! -s "$work/out" ]; then
+    [ -s "$work/removed" ] || exit 3
+    cat "$work/removed"
+    exit 0
+  fi
+  emit_removed
   cat "$work/out" "$work/marker"
 fi

@@ -259,6 +259,7 @@ cat > "$BIN/code-review-graph" <<'SHIM'
 [ -n "${CRG_MARKER:-}" ] && printf '%s\n' "$*" >> "$CRG_MARKER"
 case "${CRG_MODE:-ok}" in
   ok) printf '%s' '{"status":"ok","results":[{"name":"caller_fn","qualified_name":"b.caller_fn","file_path":"src/b.sh","line_start":5,"line_end":9}]}' ;;
+  abs) ROOT="$(git rev-parse --show-toplevel)"; printf '%s' "{\"status\":\"ok\",\"results\":[{\"kind\":\"Function\",\"name\":\"caller_fn\",\"qualified_name\":\"b.caller_fn\",\"file_path\":\"$ROOT/src/b.sh\",\"line_start\":5,\"line_end\":9},{\"kind\":\"File\",\"name\":\"$ROOT/src/b.sh\",\"file_path\":\"$ROOT/src/b.sh\",\"line_start\":1}]}" ;;
   fail) exit 2 ;;
   notfound) printf '%s' '{"status":"not_found","results":[]}' ;;
 esac
@@ -327,6 +328,18 @@ check "Test 2o: the caller block and the named-file hunk coexist" "1|1" \
   "$(printf '%s\n' "$ctx" | grep -c 'Caller sites of `a.do_thing`')|$(printf '%s\n' "$ctx" | grep -c 'Hunk of `src/b.sh`')"
 # Ordering is the guarantee: the optional block comes after the evidence that
 # already existed, so enabling it cannot displace that evidence.
+# The CLI returns ABSOLUTE file_path on the query path (verified against the
+# installed graph), and a runner prefix burns most of the caller share. A
+# File-kind row is not a call site, so it must not be rendered.
+reset_stub cc_abs
+merged_doc "$TMP_DIR/cc_abs.json" "$F1"
+(cd "$SB" && CRG_MODE=abs _DECISIONS_SOURCE_REV="$HEAD_SHA" _DECISIONS_GRAPH_JSON="$TMP_DIR/graph.json" \
+  OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT=1 scorer "$TMP_DIR/cc_abs.json" >/dev/null 2>&1)
+ctx_abs="$(ctx_of "gate alpha")"
+check "Test 2i3: absolute caller paths are relativized" "1" \
+  "$(printf '%s\n' "$ctx_abs" | grep -c '^src/b.sh:5 caller_fn$')"
+check "Test 2i4: a File-kind row is not rendered as a call site" "0" \
+  "$(printf '%s\n' "$ctx_abs" | grep -cE '^/?[^ ]*/src/b\.sh:1 |^src/b\.sh:1 ')"
 check "Test 2o2: caller sites are appended after the named-file hunk" "1" \
   "$(printf '%s\n' "$ctx" | awk '/Hunk of `src\/b.sh`/ { h = NR } /Caller sites of/ { c = NR } END { print (h && c && c > h) ? 1 : 0 }')"
 

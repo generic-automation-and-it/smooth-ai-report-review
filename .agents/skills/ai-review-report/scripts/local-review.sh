@@ -232,6 +232,13 @@ export OPENCODE_REVIEW_REPORT_ENABLE_QUOTE_VERIFICATION
 # Caller context (LADR-120) — OFF by default; mirrors the gate.
 OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT="${OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT:-0}"
 export OPENCODE_REVIEW_REPORT_ENABLE_CALLER_CONTEXT
+# Graph data adoption (LADR-050 amendment) — all OFF by default; mirrors the
+# gate. Normally no-op here: this entrypoint builds no graph and passes no graph
+# data to aggregation, so only a caller-supplied signals TSV is ever read.
+OPENCODE_REVIEW_REPORT_GRAPH_CHURN="${OPENCODE_REVIEW_REPORT_GRAPH_CHURN:-0}"
+OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS="${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}"
+OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK="${OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK:-0}"
+export OPENCODE_REVIEW_REPORT_GRAPH_CHURN OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK
 # Total-run deadline (LADR-121) — unset by default; mirrors the gate. The start
 # epoch is assigned above, outside the extracted initialization block.
 OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
@@ -737,14 +744,20 @@ echo ""
 # LADR-121: mirrors the gate's aggregation inputs — elapsed time, the deadline,
 # and whether it was reached before the summary call.
 _RUN_ELAPSED_SECONDS=$(( $(date +%s) - OPENCODE_REVIEW_REPORT_RUN_STARTED_AT ))
-_RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}"
-_RUN_DEADLINE_REACHED=false
+# A value below 1 is unset, exactly as review-in-chunks.sh reads it: 0 is the
+# repo-wide "disabled" convention (STALL_TIMEOUT), and treating it as an
+# already-reached 0-second deadline skipped the summary of a full run.
+_RUN_DEADLINE_SECONDS=""
 case "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS:-}" in
   ''|*[!0-9]*) ;;
-  *) if [ "$_RUN_ELAPSED_SECONDS" -ge "$OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS" ]; then
-       _RUN_DEADLINE_REACHED=true
+  *) if [ "${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}" -ge 1 ]; then
+       _RUN_DEADLINE_SECONDS="${OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS}"
      fi ;;
 esac
+_RUN_DEADLINE_REACHED=false
+if [ -n "$_RUN_DEADLINE_SECONDS" ] && [ "$_RUN_ELAPSED_SECONDS" -ge "$_RUN_DEADLINE_SECONDS" ]; then
+  _RUN_DEADLINE_REACHED=true
+fi
 export _RUN_ELAPSED_SECONDS _RUN_DEADLINE_SECONDS _RUN_DEADLINE_REACHED
 
 bash "$SCRIPT_DIR/aggregate-reviews.sh" \

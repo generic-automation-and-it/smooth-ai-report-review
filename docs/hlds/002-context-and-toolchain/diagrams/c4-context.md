@@ -14,7 +14,7 @@ C4Context
 
     System(gate, "PR Review Gate", "Selects applicable context, enriches chunks and pins the runtime")
     System_Ext(repo, "Reviewed Repository", "AGENTS.md, scoped instruction files and source tree")
-    System_Ext(graph, "Code Review Graph", "Structural risk and inferred coverage data")
+    System_Ext(graph, "Code Review Graph", "Structural risk (including change-frequency), inferred coverage and deleted-symbol data")
     System_Ext(runtime, "OpenCode v2 Runtime", "Model transport, config binding and health surface")
     System_Ext(model, "Model Endpoint", "Selected provider API or compatible gateway")
 

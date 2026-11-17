@@ -39,6 +39,6 @@ flowchart TD
     R -->|chunk passed| M[Merge findings and coverage]
     R -->|chunk failed| Y[Retry once]
     Y --> M
-    M --> A[Aggregate summary and derive action]
+    M --> A[Aggregate summary (assemble structural hints when enabled) and derive action]
     A --> P[Post pinned review and upload artifact]
 ```

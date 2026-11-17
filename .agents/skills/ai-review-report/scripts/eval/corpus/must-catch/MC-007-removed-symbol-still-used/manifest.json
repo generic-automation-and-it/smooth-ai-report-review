@@ -1,0 +1,14 @@
+{
+  "id": "MC-007-removed-symbol-still-used",
+  "kind": "must-catch",
+  "label": "MC-007",
+  "min_severity": "HIGH",
+  "note": "Deletion regression: normalize_sku is deleted from catalog/pricing.py while the unchanged src/orders/checkout.py still imports and calls it, so importing the checkout module raises ImportError and every checkout fails. The caller is outside the diff; graph/ seeds the removed-symbol hint (read only with OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS on) so the eval measures whether the hint lifts recall without a graph build.",
+  "known_true_positive": {
+    "title": "checkout.py still imports normalize_sku, which this PR deleted from catalog/pricing.py",
+    "severity": "high",
+    "file": "src/orders/checkout.py",
+    "evidence_line": "from catalog.pricing import normalize_sku, price_with_tax",
+    "why_it_matters": "checkout.py imports normalize_sku at module load, so after this deletion importing the checkout module raises ImportError and every checkout path fails."
+  }
+}

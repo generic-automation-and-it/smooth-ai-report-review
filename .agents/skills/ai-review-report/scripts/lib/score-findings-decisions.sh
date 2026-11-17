@@ -679,7 +679,7 @@ code_context_for() {
   if [ "$caller_context_on" = true ] && [ "$allow_callers" = true ] \
      && [ -n "${fname:-}" ] && [ -n "$source_rev" ] \
      && command -v code-review-graph >/dev/null 2>&1; then
-    local qout qrc=0 callers_max used room header_bytes caller_header_fmt
+    local qout qrc=0 callers_max used room header_bytes caller_header_fmt caller_root
     # Without a timeout utility the query has no deadline, and an optional hint
     # must never stall scoring: omit it exactly as a failed query is omitted.
     if command -v timeout >/dev/null 2>&1; then
@@ -691,10 +691,18 @@ code_context_for() {
     if [ "$qrc" -eq 0 ] && [ -n "$qout" ] \
        && printf '%s' "$qout" | jq -e '.status == "ok"' >/dev/null 2>&1; then
       : > "$work/f_${idx}.callers"
-      printf '%s' "$qout" | jq -r '
+      # Query results carry ABSOLUTE file_path (verified against the CLI), and a
+      # runner prefix eats most of the ~600-byte share, cutting the site list.
+      # Relativize as every other graph consumer does. A File-kind row is not a
+      # call site — it reports the file's own line, not the caller — so it is
+      # dropped rather than spending the share.
+      caller_root="$(git rev-parse --show-toplevel 2>/dev/null)/"
+      printf '%s' "$qout" | jq -r --arg root "$caller_root" '
         [ (.results // [])[]
           | select((.file_path // "") != "")
-          | "\(.file_path):\(.line_start // "?") \(.name // .qualified_name // "?")" ]
+          | select((.kind // "") != "File")
+          | (.file_path | ltrimstr($root)) as $f
+          | "\($f):\(.line_start // "?") \(.name // .qualified_name // "?")" ]
         | .[0:5] | join("\n")' > "$work/f_${idx}.callers" 2>/dev/null || : > "$work/f_${idx}.callers"
       if [ -s "$work/f_${idx}.callers" ]; then
         # The whole block — header, sites and cap_copy's truncation marker —

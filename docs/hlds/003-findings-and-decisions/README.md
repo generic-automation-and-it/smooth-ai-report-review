@@ -5,8 +5,8 @@
 | **Status** | Accepted |
 | **Owner** | `ai-review-report` (consumed by `ai-review` and `ai-analyse`) |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [findings-schema.json](../../../.agents/skills/ai-review-report/assets/findings-schema.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [findings-schema.json](../../../.agents/skills/ai-review-report/assets/findings-schema.json) at `ac0d27f`; canonical LADRs in each LADR's Related section |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered findings pipeline. It states **intent + spec**; execution
 > sequencing lives in the issue tracker.
@@ -74,6 +74,8 @@ range, and an unterminated block never becomes a failed chunk.
 - Every consumer parser produces identical results with links enabled or disabled.
 - A fix whose finding was dropped is reworded without a number and explained.
 - A partial or malformed sidecar never writes a chunk-failure flag.
+- With the structural block present or absent, every consumer parser returns identical results,
+  because the block sits outside the ordered findings document.
 
 ## Core Separation of Concerns
 
@@ -111,6 +113,7 @@ for any parser.
 | [LADR-03](./ladrs/LADR-03-deterministic-merge-numbering.md) | Merge and numbering are deterministic; coverage is loud | Accepted |
 | [LADR-04](./ladrs/LADR-04-decision-model-judges-only.md) | The decision model judges, never authors, and softens only inside a fence | Accepted |
 | [LADR-05](./ladrs/LADR-05-presentation-only-links.md) | Permalinks and cross-reference repair are presentation-only | Accepted |
+| [LADR-06](./ladrs/LADR-06-structural-risk-presentation-only.md) | Structural risk is a presentation-only section | Accepted |
 
 **Delegated to the findings pipeline:** recommendation sync (canonical LADR-085), holistic-section
 removal (LADR-100), consumer routing completeness (LADR-101), quote verification (LADR-119),

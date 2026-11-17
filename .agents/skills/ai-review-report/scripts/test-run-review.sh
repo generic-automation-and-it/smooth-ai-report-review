@@ -1231,6 +1231,37 @@ for _entry in "${_adoption_vars[@]}"; do
 done
 unset _adoption_vars _entry _var _def _file
 
+# ── Deadline variable: below 1 is unset (LADR-121) ─────────────────────────
+# review-in-chunks.sh reads a value < 1 as unset (the repo-wide "disabled"
+# convention), so the gate must too: treating "0" as an already-reached
+# 0-second deadline skipped the summary of a full run. The block is EXTRACTED
+# from run-review.sh and executed, so a reverted guard fails here.
+deadline_block="$(awk '
+  /^# A value below 1 is unset/ { f = 1 }
+  f && /^export _RUN_DEADLINE_REACHED$/ { exit }
+  f' "$RUN_REVIEW")"
+if printf '%s\n' "$deadline_block" | grep -q '_RUN_DEADLINE_SECONDS=""'; then
+  echo "  ✅ deadline block extracted from run-review.sh"
+  pass=$((pass + 1))
+else
+  echo "  ❌ could not extract the deadline block from run-review.sh"
+  fail=$((fail + 1))
+fi
+deadline_eval() {
+  OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="$1" _RUN_ELAPSED_SECONDS="$2" \
+    bash -c "$(printf '%s\n' "$deadline_block"; printf 'printf "%%s|%%s" "$_RUN_DEADLINE_REACHED" "${_RUN_DEADLINE_SECONDS:-}"')"
+}
+check 'deadline "0" is unset, not reached at t=5' "false|" "$(deadline_eval 0 5)"
+check 'deadline "" is unset' "false|" "$(deadline_eval "" 5)"
+check 'deadline "abc" is unset' "false|" "$(deadline_eval abc 5)"
+check 'deadline "600" at t=5 is not reached' "false|600" "$(deadline_eval 600 5)"
+check 'deadline "600" at t=700 is reached' "true|600" "$(deadline_eval 600 700)"
+check 'deadline "1" at t=1 is reached' "true|1" "$(deadline_eval 1 1)"
+check "the aggregation child receives _RUN_DEADLINE_SECONDS" "1" \
+  "$(printf '%s\n' "$deadline_block" | grep -c '^export _RUN_DEADLINE_SECONDS$' || true)"
+check "local-review.sh carries the same below-1 guard" "1" \
+  "$(grep -c 'A value below 1 is unset' "$SCRIPT_DIR/local-review.sh" || true)"
+
 # ── Final report ───────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="

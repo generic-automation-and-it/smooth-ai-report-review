@@ -11,9 +11,21 @@
 #                                       Repo-relative, risk-desc, with the test_gaps
 #                                       join already resolved. The ONLY artifact a
 #                                       chunk reviewer reads (lib/graph-signals-slice.sh).
+#   ci_temp/graph_removed_signals.tsv  — deleted symbols the graph still records
+#                                       users for. Written only when
+#                                       OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS
+#                                       is truthy; empty otherwise.
+#   ci_temp/graph_state.json           — {graph_version, churn_status,
+#                                       removed_symbols_total}. Metadata and the
+#                                       Coverage degradation line read it; every
+#                                       field is empty/null when the CLI or graph
+#                                       is unavailable.
 #
 # Inputs (env vars):
 #   MERGE_BASE_FOR_DIFF — git ref to diff against (set by run-review.sh Step 9)
+#   OPENCODE_REVIEW_REPORT_GRAPH_CHURN — truthy → pass --churn (default 0)
+#   OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS — truthy → write the removed-
+#                                       symbol TSV (default 0)
 #
 # Exit codes:
 #   0 — success (analysis produced, even if empty)
@@ -31,22 +43,45 @@ WORK_DIR="ci_temp"
 # Ensure work directory exists
 mkdir -p "$WORK_DIR"
 
+# Same tokenized truthy test as every other gate flag (LADR-049/050).
+flag_on() {
+  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'
+}
+
+# graph_state.json is written on every path, so a consumer never has to tell a
+# missing file from an unavailable graph. jq is optional here: without it the
+# fallback writes the all-empty document, which claims nothing.
+write_graph_state() {
+  local version="${1:-}" churn="${2:-}" removed="${3:-null}"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg v "$version" --arg c "$churn" --argjson r "$removed" \
+      '{graph_version:$v, churn_status:$c, removed_symbols_total:$r}' \
+      > "$WORK_DIR/graph_state.json" 2>/dev/null && return 0
+  fi
+  printf '{"graph_version":"","churn_status":"","removed_symbols_total":null}\n' > "$WORK_DIR/graph_state.json"
+}
+
+empty_outputs() {
+  : > "$WORK_DIR/graph_risk_summary.md"
+  : > "$WORK_DIR/graph_file_risks.txt"
+  : > "$WORK_DIR/graph_review_signals.tsv"
+  : > "$WORK_DIR/graph_removed_signals.tsv"
+}
+
 # --- Preflight ----------------------------------------------------------------
 if ! command -v code-review-graph >/dev/null 2>&1; then
   echo "⚠️  code-review-graph not found on PATH — skipping graph analysis" >&2
   : > "$WORK_DIR/graph_detect_changes.json"
-  : > "$WORK_DIR/graph_risk_summary.md"
-  : > "$WORK_DIR/graph_file_risks.txt"
-  : > "$WORK_DIR/graph_review_signals.tsv"
+  empty_outputs
+  write_graph_state
   exit 0
 fi
 
 if [ ! -d ".code-review-graph" ] || [ ! -f ".code-review-graph/graph.db" ]; then
   echo "⚠️  Code graph not built — skipping detect-changes analysis" >&2
   : > "$WORK_DIR/graph_detect_changes.json"
-  : > "$WORK_DIR/graph_risk_summary.md"
-  : > "$WORK_DIR/graph_file_risks.txt"
-  : > "$WORK_DIR/graph_review_signals.tsv"
+  empty_outputs
+  write_graph_state
   exit 0
 fi
 
@@ -82,18 +117,25 @@ REPO_PREFIX="${REPO_ROOT%/}/"
 # output IS the structured JSON (see .context/bug-detect-changes-format-flag.md
 # for how this was discovered and confirmed against the installed CLI).
 # `--brief` produces a human-readable summary instead, which we don't want here.
+# Best-effort: only a parsed x.y.z is recorded. An unparseable version stays
+# empty, and an empty version never produces a degradation line (R13).
+GRAPH_VERSION="$(code-review-graph --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+DETECT_ARGS=(detect-changes --base "$BASE_REF")
+if flag_on "${OPENCODE_REVIEW_REPORT_GRAPH_CHURN:-0}"; then
+  DETECT_ARGS+=(--churn)
+fi
+
 ANALYSIS_START="$(date +%s)"
 
-if code-review-graph detect-changes --base "$BASE_REF" \
+if code-review-graph "${DETECT_ARGS[@]}" \
     > "$WORK_DIR/graph_detect_changes.json" 2>"$WORK_DIR/graph_detect_changes_stderr.log"; then
   echo "✓ detect-changes completed (JSON output)"
 else
   echo "⚠️  detect-changes failed — skipping graph enrichment" >&2
   cat "$WORK_DIR/graph_detect_changes_stderr.log" 2>/dev/null | head -10 || true
   : > "$WORK_DIR/graph_detect_changes.json"
-  : > "$WORK_DIR/graph_risk_summary.md"
-  : > "$WORK_DIR/graph_file_risks.txt"
-  : > "$WORK_DIR/graph_review_signals.tsv"
+  empty_outputs
+  write_graph_state "$GRAPH_VERSION"
   exit 0
 fi
 
@@ -131,18 +173,16 @@ ANALYSIS_TIME=$((ANALYSIS_END - ANALYSIS_START))
 # Check if jq is available for JSON parsing
 if ! command -v jq >/dev/null 2>&1; then
   echo "⚠️  jq not available — cannot parse graph JSON (producing empty summaries)" >&2
-  : > "$WORK_DIR/graph_risk_summary.md"
-  : > "$WORK_DIR/graph_file_risks.txt"
-  : > "$WORK_DIR/graph_review_signals.tsv"
+  empty_outputs
+  write_graph_state "$GRAPH_VERSION"
   exit 0
 fi
 
 # Validate JSON is non-empty and parseable
 if [ ! -s "$WORK_DIR/graph_detect_changes.json" ] || ! jq empty "$WORK_DIR/graph_detect_changes.json" 2>/dev/null; then
   echo "⚠️  Graph JSON empty or invalid — skipping summary generation" >&2
-  : > "$WORK_DIR/graph_risk_summary.md"
-  : > "$WORK_DIR/graph_file_risks.txt"
-  : > "$WORK_DIR/graph_review_signals.tsv"
+  empty_outputs
+  write_graph_state "$GRAPH_VERSION"
   exit 0
 fi
 
@@ -184,6 +224,11 @@ echo "  Files with changed functions: ${FILE_COUNT:-0}"
 #             handled in score-findings-decisions.sh). `0 // "-"` is correct —
 #             jq treats 0 as truthy, so a genuine 0.0 survives.
 #   untested  joined from test_gaps[] here, once, rather than in each consumer.
+#             `true`/`false`, or — graph ≥2.3.9 — `indirect` / `indirect:<test>`
+#             when the gap's `coverage` is "indirect" (a test reaches it only
+#             through a caller; `<test>` is the first `covered_by` entry). A gap
+#             without a `coverage` field keeps today's `true`: per-entry field
+#             absence never implies an old graph.
 #             Join is by qualified_name (falling back to name) first and by
 #             line_start second. The asymmetry matters: a missed match is a
 #             marker that never appears, while a false match is a coverage
@@ -210,12 +255,21 @@ if jq -r --arg root "$REPO_PREFIX" '
     select(startswith("/") | not);
   def line: type == "number" and . > 0 and floor == .;
   def risk: type == "number" and . >= 0 and . <= 1;
+  def caller:
+    ((.covered_by // []) | if type == "array" then .[0] else null end) as $t
+    | if ($t | type) == "string" then
+        ($t | select(safe_text) | ltrimstr($root) | select(startswith("/") | not)) // null
+      else null end;
+  def mark:
+    if .coverage == "indirect" then
+      (caller) as $c | if $c then "indirect:" + $c else "indirect" end
+    else "true" end;
   ((.test_gaps // [])
     | map(select(.line_start | line) |
           { f: (.file | relpath), n: symbol,
-            l: (.line_start | tostring) })) as $gaps
-  | ($gaps | map(.f + "\t" + .n) | INDEX(.)) as $byName
-  | ($gaps | map(.f + "\t" + .l) | INDEX(.)) as $byLine
+            l: (.line_start | tostring), m: mark })) as $gaps
+  | ($gaps | map({key: (.f + "\t" + .n), value: .m}) | from_entries) as $byName
+  | ($gaps | map({key: (.f + "\t" + .l), value: .m}) | from_entries) as $byLine
   | ((.changed_functions // []) | map({f:(.file_path | relpath), n:symbol}) |
      group_by(.f + "\t" + .n) |
      map({key:(.[0].f + "\t" + .[0].n), value:length}) | from_entries) as $nameCounts
@@ -226,9 +280,9 @@ if jq -r --arg root "$REPO_PREFIX" '
   | (.file_path | relpath) as $rel
   | symbol as $nm
   | [$rel, .line_start, (.line_end // .line_start), $nm, (.risk_score // "-"),
-     (if (($nameCounts[$rel + "\t" + $nm] == 1 and $byName[$rel + "\t" + $nm]) or
-          $byLine[$rel + "\t" + (.line_start | tostring)])
-      then "true" else "false" end)] | @tsv
+     (if ($nameCounts[$rel + "\t" + $nm] == 1 and $byName[$rel + "\t" + $nm]) then
+        $byName[$rel + "\t" + $nm]
+      else ($byLine[$rel + "\t" + (.line_start | tostring)] // "false") end)] | @tsv
 ' "$WORK_DIR/graph_detect_changes.json" > "$_sig_raw" 2>/dev/null; then
   LC_ALL=C sort -t$'\t' -k5,5gr "$_sig_raw" > "$WORK_DIR/graph_review_signals.tsv" || \
     : > "$WORK_DIR/graph_review_signals.tsv"
@@ -237,6 +291,51 @@ else
   : > "$WORK_DIR/graph_review_signals.tsv"
 fi
 rm -f "$_sig_raw"
+
+# --- Removed-symbol signals (opt-in) -----------------------------------------
+# graph ≥2.4.0 lists symbols a pure-deletion hunk removed, with what the graph
+# still records as using them. A SEPARATE artifact: graph_review_signals.tsv's
+# six-column validator rejects any other arity, and this class is opt-in while
+# that one is default-on.
+#
+# Columns: file_rel, old_line_start, name, used_by_total, first_user.
+# Only rows with at least one recorded user — a deletion nothing references is
+# not a hint. first_user is "-" when the payload names none.
+: > "$WORK_DIR/graph_removed_signals.tsv"
+if flag_on "${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}"; then
+  if ! jq -r --arg root "$REPO_PREFIX" '
+    def safe_text:
+      type == "string" and length > 0 and
+      (test("[\\x00-\\x1f\\x7f`]|#[0-9]|🔴|🟠|🟡|🔵|(?i:issues found|###[[:space:]]*file:)") | not);
+    def relpath:
+      select(safe_text) | ltrimstr($root) |
+      select((test("^/|^[A-Za-z]:|(^|/)\\.\\.?($|/)") | not));
+    def line: type == "number" and . > 0 and floor == .;
+    def short:
+      select(safe_text) | ltrimstr($root) |
+      if test("::") and startswith("/") then sub("^[^:]*::"; "") else . end |
+      select(startswith("/") | not);
+    (.removed_symbols // [])[]
+    | select(.old_line_start | line)
+    | select((.used_by_total | type) == "number" and .used_by_total > 0 and (.used_by_total | floor) == .used_by_total)
+    | ((.file // "") | relpath) as $rel
+    | ((.file // "") | ltrimstr($root)) as $file
+    | ((.qualified_name // .name // "") | short | ltrimstr($file + "::")) as $nm
+    | (((.used_by // [])[0].qualified_name // null) | if . == null then "-" else ((short) // "-") end) as $user
+    | [$rel, .old_line_start, $nm, .used_by_total, $user] | @tsv
+  ' "$WORK_DIR/graph_detect_changes.json" > "$WORK_DIR/graph_removed_signals.tsv" 2>/dev/null; then
+    echo "⚠️  removed-symbol TSV generation failed — continuing without removed-symbol hints" >&2
+    : > "$WORK_DIR/graph_removed_signals.tsv"
+  fi
+fi
+
+CHURN_STATUS="$(jq -r '.churn_status // "" | if type == "string" then . else "" end' \
+  "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || true)"
+case "$CHURN_STATUS" in ok|unavailable|off) ;; *) CHURN_STATUS="" ;; esac
+REMOVED_TOTAL="$(jq -r '.removed_symbols_total // null | if type == "number" then . else null end' \
+  "$WORK_DIR/graph_detect_changes.json" 2>/dev/null || echo null)"
+case "$REMOVED_TOTAL" in ''|*[!0-9]*) REMOVED_TOTAL=null ;; esac
+write_graph_state "$GRAPH_VERSION" "$CHURN_STATUS" "$REMOVED_TOTAL"
 
 SIGNALS_COUNT="$(wc -l < "$WORK_DIR/graph_review_signals.tsv" 2>/dev/null | tr -d ' ')"
 # Counted with awk, not `grep -c`. grep exits 1 when it matches nothing, so the
@@ -354,3 +453,4 @@ echo "  JSON: $WORK_DIR/graph_detect_changes.json"
 echo "  Summary: $WORK_DIR/graph_risk_summary.md"
 echo "  File risks: $WORK_DIR/graph_file_risks.txt (${FILE_COUNT:-0} files)"
 echo "  Review signals: $WORK_DIR/graph_review_signals.tsv (${SIGNALS_COUNT:-0} functions)"
+echo "  Graph state: $WORK_DIR/graph_state.json (version ${GRAPH_VERSION:-unknown}, churn ${CHURN_STATUS:-not reported})"
