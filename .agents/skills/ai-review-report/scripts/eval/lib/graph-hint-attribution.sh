@@ -8,10 +8,15 @@
 #
 # Source: the run artifact's graph/chunk_<n>_graph_signals.md for each chunk the
 # finding names (its `(chunk n)` back-reference). Kinds, from the slice line(s)
-# for the finding's file:
-#   deleted-symbol  "removed by this PR"
-#   coverage        "no test coverage detected by graph" or "reached only through a caller"
-#   risk            "— risk <score>"; plus churn when metadata churn_status is "ok"
+# for the finding's file, read BY SECTION — the slice puts a claim's wording in a
+# section heading, so a file listed only under "Changed functions with no test
+# coverage detected by graph:" carries the coverage claim without that phrase on
+# its own line:
+#   deleted-symbol  a row under "Removed symbols the graph still records users for:"
+#   coverage        a row under the no-test-coverage heading, or a main row whose
+#                   wording says "reached only through a caller"
+#   risk            a main row with "— risk <score>"; plus churn when metadata
+#                   churn_status is "ok"
 # A missing graph/ dir, no chunk number, or a named chunk without its slice is
 # never guessed: ["none"] with attribution_unavailable true. Slices present but
 # no line for the file: ["none"] with attribution_unavailable false.
@@ -28,18 +33,28 @@ chunks="$(printf '%s' "$chunks" | tr ',' '\n' | grep -E '^[0-9]+$' || true)"
 churn=""
 [ -n "$meta" ] && [ -s "$meta" ] && churn="$(jq -r '.churn_status // "" | strings' "$meta" 2>/dev/null || true)"
 
-lines=""
+found=""
 for n in $chunks; do
   slice="$dir/chunk_${n}_graph_signals.md"
   [ -s "$slice" ] || unavailable
-  lines="${lines}$(grep -F -- "\`${file}:" "$slice" || true)
+  found="${found}$(awk -v want="\`${file}:" '
+    /^Removed symbols the graph still records users for:$/ { sec = "removed"; next }
+    /^Changed functions with no test coverage detected by graph:$/ { sec = "gap"; next }
+    index($0, want) != 1 { next }
+    sec == "removed" { print "deleted-symbol"; next }
+    sec == "gap"     { print "coverage"; next }
+    {
+      if ($0 ~ /— risk [0-9]/) print "risk"
+      if ($0 ~ /reached only through a caller|no test coverage detected by graph/) print "coverage"
+    }
+  ' "$slice" || true)
 "
 done
 
 kinds=()
-printf '%s' "$lines" | grep -q 'removed by this PR' && kinds+=(deleted-symbol)
-printf '%s' "$lines" | grep -qE 'no test coverage detected by graph|reached only through a caller' && kinds+=(coverage)
-if printf '%s' "$lines" | grep -qE ' — risk [0-9]'; then
+printf '%s' "$found" | grep -qx 'deleted-symbol' && kinds+=(deleted-symbol)
+printf '%s' "$found" | grep -qx 'coverage' && kinds+=(coverage)
+if printf '%s' "$found" | grep -qx 'risk'; then
   kinds+=(risk)
   [ "$churn" = "ok" ] && kinds+=(churn)
 fi

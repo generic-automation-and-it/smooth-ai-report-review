@@ -113,6 +113,13 @@ check "slices present, no line for the file → none, attribution available" '{"
   "$(bash "$ATTR" "$TMP/run/graph" "$TMP/run/metadata.json" src/zzz.py 1)"
 check "the chunk's slice absent → none + attribution_unavailable" '{"graph_hint":["none"],"attribution_unavailable":true}' \
   "$(bash "$ATTR" "$TMP/run/graph" "$TMP/run/metadata.json" src/a.py 9)"
+# A file listed ONLY under the coverage-gap heading carries the claim in the
+# heading, not on its own line; the helper must read sections, not lines.
+printf '`src/a.py:10` alpha — risk 0.8\n\nChanged functions with no test coverage detected by graph:\n`src/gap.py:7` gapfn\n`src/gap.py:9` gapfn2\n' > "$TMP/run/graph/chunk_3_graph_signals.md"
+check "gap-list-only file is attributed coverage" '{"graph_hint":["coverage"],"attribution_unavailable":false}' \
+  "$(bash "$ATTR" "$TMP/run/graph" "$TMP/run/metadata.json" src/gap.py 3)"
+check "a risk row without coverage wording stays risk-only" '{"graph_hint":["risk","churn"],"attribution_unavailable":false}' \
+  "$(bash "$ATTR" "$TMP/run/graph" "$TMP/run/metadata.json" src/a.py 3)"
 check "no graph dir → none + attribution_unavailable" '{"graph_hint":["none"],"attribution_unavailable":true}' \
   "$(bash "$ATTR" "$TMP/nowhere" "$TMP/run/metadata.json" src/a.py 1)"
 check "no chunk back-reference → none + attribution_unavailable" '{"graph_hint":["none"],"attribution_unavailable":true}' \
@@ -136,6 +143,14 @@ cat > "$TMP/ci/reviews/chunk_0.findings.json" << 'JSON'
 JSON
 check "must-catch row: cited 2, gap claims 1, accepted 1" "$(printf 'MC-X\tmust-catch\t2\t1\t1\t0')" "$(bash "$MET" "$TMP/mc.json" "$TMP/ci")"
 check "must-not-flag row: the medium-or-above gap claim is rejected" "$(printf 'DR-X\tmust-not-flag\t2\t1\t0\t1')" "$(bash "$MET" "$TMP/mnf.json" "$TMP/ci")"
+# Risk-only evidence whose target happens to contain "test" is not a coverage
+# claim; classification reads the query and the result wording, not every field.
+cat > "$TMP/ci/reviews/chunk_1.findings.json" << 'JSON'
+{"findings":[{"file":"src/a.py","severity":"low","graph_evidence":{"query":"changed_functions","target":"test_checkout","result_summary":"risk 0.62"}}]}
+JSON
+printf 'slice\n' > "$TMP/ci/chunk_1_graph_signals.md"; printf 'review\n' > "$TMP/ci/reviews/chunk_1.md"
+check "risk-only evidence naming a test_* target is not a gap claim" "$(printf 'MC-X\tmust-catch\t3\t1\t1\t0')" "$(bash "$MET" "$TMP/mc.json" "$TMP/ci")"
+rm -f "$TMP/ci/reviews/chunk_1.findings.json" "$TMP/ci/chunk_1_graph_signals.md" "$TMP/ci/reviews/chunk_1.md"
 mkdir -p "$TMP/hints"
 { bash "$MET" "$TMP/mc.json" "$TMP/ci"; bash "$MET" "$TMP/mc.json" "$TMP/ci"; } > "$TMP/hints/MC-X.tsv"
 bash "$MET" "$TMP/mnf.json" "$TMP/ci" > "$TMP/hints/DR-X.tsv"

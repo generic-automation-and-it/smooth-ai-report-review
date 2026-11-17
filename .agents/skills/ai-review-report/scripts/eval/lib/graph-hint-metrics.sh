@@ -71,7 +71,13 @@ cat "$ci"/reviews/chunk_*.findings.json 2>/dev/null \
   | jq -rs --arg id "$id" --arg kind "$kind" --arg tp "$tp_file" '
       [ .[] | (.findings // [])[] ] as $all
       | ($all | map(select((.graph_evidence | type) == "object"))) as $cited
-      | ($cited | map(select((.graph_evidence | tostring | ascii_downcase) | test("test|coverage|gap")))) as $gaps
+      # A coverage claim is identified by its QUERY or its RESULT wording, never
+      # by every field of the serialized object: `tostring` matched a function
+      # named test_* under a risk query, inflating the coverage counters.
+      | ($cited | map(select(
+          (((.graph_evidence.query // "") | ascii_downcase) | test("test_gaps|coverage"))
+          or (((.graph_evidence.result_summary // "") | ascii_downcase)
+              | test("no test edge|no direct test|only through a caller|test coverage"))))) as $gaps
       | [ $id, $kind, ($cited | length), ($gaps | length),
           (if $kind == "must-catch" then ($gaps | map(select(.file == $tp)) | length) else 0 end),
           (if $kind == "must-not-flag" then ($gaps | map(select(.severity == "critical" or .severity == "high" or .severity == "medium")) | length) else 0 end)
