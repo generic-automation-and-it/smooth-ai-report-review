@@ -10,11 +10,27 @@ H="${ROOT}/docs/hlds"
 
 pass=0
 fail=0
+# Whitespace is collapsed in BOTH the file and the needle before matching:
+# `grep -F` treats a multi-line needle as one ALTERNATIVE per line, so an
+# assertion quoting a phrase that wraps in the document passed when only one of
+# its lines existed. Collapsed, the phrase is one substring, so a reflow or a
+# dropped half fails.
+#
+# The flattened file goes to a TEMP FILE, never through a pipe. `printf … | grep
+# -q` is the repo's documented pipefail hazard (#207): grep exits at the match,
+# printf takes SIGPIPE, and pipefail turns a MATCH into a failure — on exactly
+# the large files (root AGENTS.md, the SKILL.md files) this suite asserts on.
+_flat_tmp="$(mktemp)"
+trap 'rm -f "$_flat_tmp"' EXIT
+flat_needle() { printf '%s' "$1" | tr -s '[:space:]' ' '; }
+flat_into() { tr -s '[:space:]' ' ' < "$1" > "$_flat_tmp" 2>/dev/null; }
 has() {  # has <label> <file> <fixed string>
-  if [ -f "$2" ] && grep -qF -- "$3" "$2"; then echo "  ✅ $1"; pass=$((pass + 1)); else echo "  ❌ $1 — '$3' not in ${2#"$ROOT"/}"; fail=$((fail + 1)); fi
+  local needle; needle="$(flat_needle "$3")"
+  if [ -f "$2" ] && flat_into "$2" && grep -qF -- "$needle" "$_flat_tmp"; then echo "  ✅ $1"; pass=$((pass + 1)); else echo "  ❌ $1 — '$3' not in ${2#"$ROOT"/}"; fail=$((fail + 1)); fi
 }
 lacks() {
-  if [ -f "$2" ] && ! grep -qF -- "$3" "$2"; then echo "  ✅ $1"; pass=$((pass + 1)); else echo "  ❌ $1 — '$3' unexpectedly in ${2#"$ROOT"/}"; fail=$((fail + 1)); fi
+  local needle; needle="$(flat_needle "$3")"
+  if [ -f "$2" ] && flat_into "$2" && ! grep -qF -- "$needle" "$_flat_tmp"; then echo "  ✅ $1"; pass=$((pass + 1)); else echo "  ❌ $1 — '$3' unexpectedly in ${2#"$ROOT"/}"; fail=$((fail + 1)); fi
 }
 ok_if() { if [ "$2" = 1 ]; then echo "  ✅ $1"; pass=$((pass + 1)); else echo "  ❌ $1"; fail=$((fail + 1)); fi; }
 
@@ -94,6 +110,23 @@ for skill in ai-review ai-analyse; do
 done
 has "ai-analyse: headless CI out of scope" "$ROOT/.agents/skills/ai-analyse/SKILL.md" "Headless CI is out of scope"
 has "ai-review: opt-in and read-only, fail-open" "$ROOT/.agents/skills/ai-review/SKILL.md" "skip the step silently when the tool is absent, errors or times out"
+
+# The helper itself: a needle whose second line is absent must FAIL. Without
+# this, a reflow or a dropped half of a quoted phrase passed silently because
+# `grep -F` treated the two lines as alternatives.
+_tmp_doc="$(mktemp)"
+printf 'line one\nline three\n' > "$_tmp_doc"
+_before_pass=$pass _before_fail=$fail
+has "self-check: a half-present multi-line needle fails" "$_tmp_doc" "line one
+line two" >/dev/null
+if [ "$fail" -eq "$((_before_fail + 1))" ]; then
+  echo "  ✅ self-check: multi-line needles are matched whole (AND, not OR)"
+  pass=$((_before_pass + 1))
+else
+  echo "  ❌ self-check: a half-present multi-line needle still passed"
+fi
+fail=$_before_fail
+rm -f "$_tmp_doc"
 
 echo ""
 echo "=========================================="
