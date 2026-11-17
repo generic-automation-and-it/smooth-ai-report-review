@@ -67,6 +67,7 @@ credential paths. Lockdown is proven by behaviour, not by sharing one configurat
 - No review invocation can edit, write, or reach a shell or network tool; no fixer invocation can
   reach a shell or network tool.
 - An unresolvable path in the fixer fails closed.
+- Reads and searches on credential and VCS paths are denied to the reviewer on both backends.
 - Built-in, extension and MCP tools are all covered by the same role contract.
 - Workflow-level permissions, persisted credentials and hook-proof git remain workflow-owned and are
   unaffected by the backend.

@@ -16,6 +16,8 @@
 **Define lockdown as a behaviour contract per role** — which tool classes exist, which paths are
 writable — and implement it with each backend's native mechanism. Parity is judged by negative tests
 that attempt a denied action and observe it blocked, never by comparing configuration files.
+Read-only includes denial of reads and searches on credential and VCS paths; the same paths are denied
+to the fixer.
 
 Where a backend can only enforce a policy through executable extension code, that code is treated as
 a pinned, verified part of the toolchain, not as model-editable content.
@@ -27,11 +29,6 @@ a pinned, verified part of the toolchain, not as model-editable content.
 - Two implementations must be kept aligned; drift is a real maintenance cost.
 - The extension-based side adds an executable component inside the model process, so it must be
   pinned and verified like any other tool.
-
-## Open
-
-- Whether read-path denial (credential and VCS paths) is required for the reviewer on both backends
-  is a security decision pending review of current OpenCode behaviour.
 
 ## Related
 
