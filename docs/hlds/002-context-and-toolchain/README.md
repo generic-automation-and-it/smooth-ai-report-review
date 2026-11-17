@@ -109,6 +109,7 @@ verdict preserves one source of truth for review decisions.
 - [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the consumer of this layer.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — what the enriched chunk produces.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — the runtime contract this layer's delivery is parameterized by (Draft).
 
 ---
 

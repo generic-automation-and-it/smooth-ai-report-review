@@ -122,6 +122,7 @@ action outside the model's reach.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — the findings this fixer consumes.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — the human-driven sibling path.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the run that triggers this loop.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — the second runtime that must preserve these safety guarantees (Draft).
 
 ---
 

@@ -4,8 +4,9 @@ Design records for the review gate solution, one per owned feature group. Each f
 same contract: a README with intent and goals, strategic LADRs, measurable NFRs, and a C1 diagram.
 None contains an implementation plan; execution lives in the issue tracker.
 
-These records describe delivered systems; each README's status is `Accepted`, and its `Evidence` row
-names the delivered commit and source paths.
+Delivered records are `Accepted`, and each carries an `Evidence` row naming the delivered commit and
+source paths. A `Draft` record specifies intent only: it claims no delivered behaviour and carries
+no Evidence.
 
 Eval corpus and harness assets are owned by the `ai-review-report` skill; the platform layer governs
 their gating and release role. See [eval AGENTS.md](../../.agents/skills/ai-review-report/scripts/eval/AGENTS.md).
@@ -26,3 +27,4 @@ validation run; `scaffold-hld.sh` does not create the row.
 | [004 Review Follow-Through](./004-review-follow-through/README.md) | `ai-review` + `git-commit-review-push` | Analysis and execution, source routing, skip bullets, commit trigger |
 | [005 Autonomous Low and Medium Fixer](./005-autonomous-fixer/README.md) | `ai-analyse` | Scope, oracle fences, test gate, bounded push loop, joinable skips |
 | [006 Distribution and Evaluation](./006-distribution-and-evals/README.md) | Repository platform | Consumption channels, installer contract, workflow input surface, layered evals and report-only measurement, release flow and versioning |
+| [007 Pi Agent Backend](./007-pi-agent-backend/README.md) *(Draft)* | `ai-review-report` + `ai-analyse` | Second CLI backend behind one selector: instruction delivery, tool lockdown, configuration isolation, fixer parity |

@@ -128,6 +128,7 @@ the two would let review generation depend on the state of a working tree it doe
 - [002 Context Delivery and Toolchain](../002-context-and-toolchain/README.md) — what each chunk is given.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — how findings become the verdict.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — what happens after the review is posted.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — the second runtime this pipeline can invoke (Draft).
 
 ---
 

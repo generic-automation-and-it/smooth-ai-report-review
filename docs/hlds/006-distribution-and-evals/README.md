@@ -110,6 +110,7 @@ outside, so it can fail without changing what consumers run. Versioning names th
 - [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the artifact being distributed.
 - [005 Autonomous Low and Medium Fixer](../005-autonomous-fixer/README.md) — the optional skill behind the install flag.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — an additional runtime pin and selector on the distribution surface (Draft).
 
 ---
 

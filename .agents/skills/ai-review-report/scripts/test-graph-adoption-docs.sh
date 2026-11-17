@@ -93,7 +93,15 @@ has "index 002 names the deleted-symbol hint" "$H/README.md" "graph hints (risk,
 has "index 003 names the Structural Risk section" "$H/README.md" "presentation (including the opt-in Structural Risk section)"
 has "index 005 names joinable skips" "$H/README.md" "bounded push loop, joinable skips"
 has "index 006 names report-only measurement" "$H/README.md" "layered evals and report-only measurement"
-ok_if "no HLD folder added (six)" "$([ "$(find "$H" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9]-*' | wc -l | tr -d ' ')" = 6 ] && echo 1 || echo 0)"
+# The structural invariant, not a count: every numbered folder has an index row,
+# and every index row points at a folder that exists. A hard-coded six broke the
+# moment main added HLD-007, though the graph adoption itself adds no folder.
+_missing=""
+for _d in $(find "$H" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9]-*' -exec basename {} \; | sort); do
+  grep -qF "(./${_d}/README.md)" "$H/README.md" || _missing="${_missing} ${_d}"
+done
+ok_if "every HLD folder has an index row, and the graph adoption adds none" "$([ -z "$_missing" ] && echo 1 || echo 0)"
+ok_if "the graph adoption's own HLDs are all indexed" "$(for _d in 002-context-and-toolchain 003-findings-and-decisions 005-autonomous-fixer 006-distribution-and-evals; do grep -qF "(./${_d}/README.md)" "$H/README.md" || echo x; done | wc -l | tr -d ' ' | grep -qx 0 && echo 1 || echo 0)"
 for d in 001-review-gate-pipeline 002-context-and-toolchain 003-findings-and-decisions 004-review-follow-through 005-autonomous-fixer 006-distribution-and-evals; do
   readme="$H/$d/README.md"
   ok_if "$d Evidence names a 7-hex commit" "$(grep -E '^\| \*\*Evidence\*\* \|.*`[0-9a-f]{7}`' "$readme" >/dev/null && echo 1 || echo 0)"
