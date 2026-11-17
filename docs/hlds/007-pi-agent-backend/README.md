@@ -80,7 +80,9 @@ credential its selected provider needs.
 **Acceptance criteria / DoD**
 
 - Project-level configuration in the reviewed checkout has no effect on either backend.
-- The model process environment contains only the selected provider's key.
+- For the second backend, the model process environment contains only the selected provider's key.
+  The OpenCode path keeps today's job-scope export until the allow-list hardening is adopted
+  separately.
 - No credential value appears in any file the model can read.
 - A provider selector resolves to the same provider and model identity on both backends.
 

@@ -14,8 +14,10 @@
 
 **Both backends are configured from a gate-owned location that exists outside the reviewed
 checkout**, and credentials reach the model process only through an environment allow-list
-restricted to the selected provider's key. Configuration from the reviewed repository is neither
-merged, executed nor trusted.
+restricted to the selected provider's key. Automatically discovered project configuration from the
+reviewed repository is neither merged, executed nor trusted; a configuration file the gate itself
+selects through its documented override input — a repo-relative override such as canonical
+LADR-047's — is gate-selected and allowed.
 
 For a backend whose configuration is a directory rather than a single file, the gate assembles that
 directory from its own assets; for one with a single-file override, the managed file wins.
@@ -33,6 +35,8 @@ and project extensions stay unloaded.
 
 - Whether the second backend's project trust should be explicitly declined on every invocation or
   left to its headless default is an implementation choice, provided the outcome above holds.
+- Applying the single-credential allow-list to the OpenCode path is a separate hardening decision;
+  this delivery applies it to the second backend, so the OpenCode path's behaviour stays unchanged.
 
 ## Related
 
