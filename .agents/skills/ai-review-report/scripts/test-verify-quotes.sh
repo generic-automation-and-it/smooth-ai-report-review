@@ -110,6 +110,33 @@ check "real quote: kept in findings" "1" "$(jq -r '.findings | length' "$m")"
 check "real quote: anchor kept at 100" "100" "$(jq -r '.findings[0].confidence' "$m")"
 check "real quote: nothing demoted" "0" "$(jq -r '.demoted' "$r")"
 
+# An ABSOLUTE evidence path: the chunk prompt tells the model to read files by
+# absolute path, so this is the documented normal form. It must still verify —
+# an unrelativized prefix made every such quote an absent_file skip, which left
+# a fabricated quote at 100 and blocking.
+doc="$(mk_doc "[$(finding high 100 "${REPO}/src/a.cs:2 -- var account = await _db.Accounts.FindAsync(accountId);" src/a.cs 2)]")"
+m="${TMP_DIR}/abspath.merged.json"; r="${TMP_DIR}/abspath.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "absolute evidence path: verified" "verified" "$(jq -r '.findings[0].result // "missing"' "$r")"
+check "absolute evidence path: anchor kept at 100" "100" "$(jq -r '.findings[0].confidence' "$m")"
+check "absolute evidence path: nothing skipped" "0" "$(jq -r '.skipped' "$r")"
+
+# A fabricated quote under an absolute path must still DEMOTE — the fix must not
+# turn the check into a rubber stamp.
+doc="$(mk_doc "[$(finding high 100 "${REPO}/src/a.cs:2 -- var account = SomethingElse(completelyDifferent);" src/a.cs 2)]")"
+m="${TMP_DIR}/abspath-fake.merged.json"; r="${TMP_DIR}/abspath-fake.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "fabricated quote under an absolute path: demoted" "1" "$(jq -r '.demoted' "$r")"
+
+# A path OUTSIDE the repo is still a skip, never a demotion.
+doc="$(mk_doc "[$(finding high 100 "/outside/repo.cs:2 -- var account = SomethingElse(completelyDifferent);" src/a.cs 2)]")"
+m="${TMP_DIR}/outside.merged.json"; r="${TMP_DIR}/outside.report.json"
+printf '%s\n' "$doc" > "$m"
+bash "$VERIFY" "$m" "$r" "$REV" >/dev/null 2>&1
+check "an absolute path outside the repo stays a skip" "absent_file" "$(jq -r '.findings[0].reason // "missing"' "$r")"
+
 echo ""
 echo "Part 2 — file resolution and reporting"
 

@@ -86,6 +86,14 @@ record() { # result reason extra-json
     >> "${WORK_DIR}/entries.jsonl"
 }
 
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+repo_root="${repo_root%/}"
+# git resolves symlinks (macOS /var -> /private/var) while a shell's `pwd` may
+# not, so keep both forms; the model's absolute path comes from the runner's
+# own cwd and may use either.
+repo_pwd="$(pwd 2>/dev/null || true)"
+repo_pwd="${repo_pwd%/}"
+
 while IFS= read -r row; do
   idx="$(jq -r '.idx' <<< "$row")"
   ffile="$(jq -r '.file' <<< "$row")"
@@ -96,6 +104,17 @@ while IFS= read -r row; do
   if [[ "$ev" =~ ^(.+):([0-9]+(-[0-9]+)?)[[:space:]]*(--|-|:)[[:space:]]*(.+)$ ]]; then
     qfile="${BASH_REMATCH[1]}"
     quote="${BASH_REMATCH[5]}"
+    # The chunk prompt tells the model to read files by ABSOLUTE path, so a
+    # quoted prefix often is one. A git object path is repo-relative, and an
+    # absolute prefix made every such quote an absent_file skip — the check was
+    # inert on its own documented input. Strip the repo root; a path outside
+    # the repo still fails the lookup below and stays a skip.
+    if [ -n "$repo_root" ] && [ "${qfile#"$repo_root"/}" != "$qfile" ]; then
+      qfile="${qfile#"$repo_root"/}"
+    elif [ -n "$repo_pwd" ] && [ "$repo_pwd" != "$repo_root" ] && [ "${qfile#"$repo_pwd"/}" != "$qfile" ]; then
+      qfile="${qfile#"$repo_pwd"/}"
+    fi
+    case "$qfile" in ./*) qfile="${qfile#./}" ;; esac
   else
     skipped=$((skipped + 1)); record "$idx" "$ffile" "skip" "unrecognised_prefix"; continue
   fi
