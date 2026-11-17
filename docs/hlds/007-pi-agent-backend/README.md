@@ -42,7 +42,9 @@ model call is backend-neutral.
 
 Scoped rule selection stays deterministic and backend-neutral: the per-chunk instruction artifact is
 built once, and each backend receives it through its own supported delivery channel before the first
-model call. Exactly one copy of each applicable rule is delivered.
+model call. Exactly one copy of each applicable rule is delivered. Widening the consumed rule
+directories — for example consumer `.claude/rules` or `.agents/rules` — is out of scope for this
+delivery; LADR-02 records the trigger for that separate decision.
 
 **Acceptance criteria / DoD**
 
