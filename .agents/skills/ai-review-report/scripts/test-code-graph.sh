@@ -1017,6 +1017,187 @@ else
   pass "Test 12: the slice lib is offline (no opencode/gh/curl)"
 fi
 
+# --- Test 13: graph >= 2.4.0 data — state, churn, removed rows, coverage ------
+# V1/V2/V3 of the graph-data adoption. The mock emits the upstream 2.4.0 shape:
+# churn_status, removed_symbols[] with used_by/used_by_total, and test_gaps[]
+# entries carrying coverage "none"/"indirect" with covered_by.
+echo ""
+echo "Test 13: graph >= 2.4.0 data — state file, --churn, removed TSV, indirect coverage"
+
+mkdir -p .code-review-graph
+echo "fake-db" > .code-review-graph/graph.db
+args_log="${tmp_dir}/crg_args.log"
+cat > "${mock_bin}/code-review-graph" <<MOCK_EOF
+#!/bin/bash
+if [ "\$1" = "--version" ]; then echo "code-review-graph \${MOCK_CRG_VERSION:-2.4.0}"; exit 0; fi
+if [ "\$1" = "detect-changes" ]; then
+  echo "\$*" >> "${args_log}"
+  ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  cat <<JSON_EOF
+{
+  "risk_score": 0.61,
+  "churn_status": "\${MOCK_CHURN_STATUS:-ok}",
+  "changed_functions": [
+    {"file_path": "\$ROOT/src/a.py", "line_start": 10, "line_end": 20, "name": "alpha", "risk_score": 0.8},
+    {"file_path": "\$ROOT/src/b.py", "line_start": 5, "line_end": 9, "name": "beta", "risk_score": 0.3},
+    {"file_path": "\$ROOT/src/c.py", "line_start": 3, "line_end": 4, "name": "gamma", "risk_score": 0.2}
+  ],
+  "test_gaps": [
+    {"file": "\$ROOT/src/a.py", "line_start": 10, "name": "alpha", "coverage": "none"},
+    {"file": "\$ROOT/src/b.py", "line_start": 5, "name": "beta", "coverage": "indirect", "covered_by": ["\$ROOT/tests/test_b.py::test_beta_via_caller"]},
+    {"file": "\$ROOT/src/c.py", "line_start": 3, "name": "gamma", "coverage": "indirect"}
+  ],
+  "removed_symbols": [
+    {"name": "gone", "qualified_name": "\$ROOT/src/a.py::gone", "file": "\$ROOT/src/a.py", "old_line_start": 40, "old_line_end": 44, "risk_score": 0.5,
+     "used_by": [{"qualified_name": "\$ROOT/src/d.py::caller_one"}], "used_by_total": 2},
+    {"name": "unused", "qualified_name": "\$ROOT/src/a.py::unused", "file": "\$ROOT/src/a.py", "old_line_start": 50, "old_line_end": 51, "risk_score": 0.1,
+     "used_by": [], "used_by_total": 0},
+    {"name": "bad#1name", "qualified_name": "bad#1name", "file": "\$ROOT/src/a.py", "old_line_start": 60, "risk_score": 0.1,
+     "used_by": [], "used_by_total": 1},
+    {"name": "outside", "qualified_name": "outside", "file": "/elsewhere/x.py", "old_line_start": 1, "risk_score": 0.1,
+     "used_by": [], "used_by_total": 1}
+  ],
+  "removed_symbols_total": 4,
+  "affected_flows": [{"name": "flow-a", "criticality": 0.5, "node_count": 3}]
+}
+JSON_EOF
+  exit 0
+fi
+exit 0
+MOCK_EOF
+chmod +x "${mock_bin}/code-review-graph"
+
+# Flags off: no --churn, empty removed TSV, state recorded.
+rm -rf ci_temp && mkdir -p ci_temp && : > "$args_log"
+PATH="${mock_bin}:${PATH}" MERGE_BASE_FOR_DIFF="origin/main" \
+  bash "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test13.out" 2>&1 || {
+    cat "${tmp_dir}/test13.out"; fail "Test 13: detect-changes should succeed"; }
+grep -q -- '--churn' "$args_log" && fail "Test 13: --churn passed with the churn flag unset"
+[ -f ci_temp/graph_removed_signals.tsv ] && [ ! -s ci_temp/graph_removed_signals.tsv ] \
+  || fail "Test 13: removed TSV must exist and stay empty with its flag off"
+jq -e '.graph_version == "2.4.0" and .churn_status == "ok" and .removed_symbols_total == 4' ci_temp/graph_state.json >/dev/null \
+  || { cat ci_temp/graph_state.json; fail "Test 13: graph_state.json fields wrong"; }
+pass "Test 13: flags off — no --churn, no removed rows, state recorded"
+
+# Coverage column: none → true, indirect + covered_by → indirect:<test>, indirect alone → indirect.
+awk -F'\t' '$4 == "alpha" && $6 == "true" { a = 1 }
+            $4 == "beta"  && $6 == "indirect:tests/test_b.py::test_beta_via_caller" { b = 1 }
+            $4 == "gamma" && $6 == "indirect" { c = 1 }
+            NF != 6 { bad = 1 }
+            END { exit (a && b && c && !bad) ? 0 : 1 }' ci_temp/graph_review_signals.tsv \
+  || { cat ci_temp/graph_review_signals.tsv; fail "Test 13: coverage column not classified"; }
+pass "Test 13: test_gaps coverage classified into the six-column TSV (true / indirect / indirect:<test>)"
+
+# Flags on: --churn passed, removed TSV has only safe in-repo rows with users.
+rm -rf ci_temp && mkdir -p ci_temp && : > "$args_log"
+PATH="${mock_bin}:${PATH}" MERGE_BASE_FOR_DIFF="origin/main" \
+  OPENCODE_REVIEW_REPORT_GRAPH_CHURN=1 OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS=true \
+  bash "${LIB_DIR}/detect-changes-graph.sh" > "${tmp_dir}/test13b.out" 2>&1 || {
+    cat "${tmp_dir}/test13b.out"; fail "Test 13: detect-changes should succeed (flags on)"; }
+grep -q -- 'detect-changes --base origin/main --churn' "$args_log" \
+  || { cat "$args_log"; fail "Test 13: --churn not passed with the churn flag on"; }
+REM=ci_temp/graph_removed_signals.tsv
+[ "$(wc -l < "$REM" | tr -d ' ')" = "1" ] || { cat "$REM"; fail "Test 13: removed TSV should hold exactly one safe row with users"; }
+IFS=$'\t' read -r r_file r_line r_name r_users r_first < "$REM"
+[ "$r_file" = "src/a.py" ] && [ "$r_line" = "40" ] && [ "$r_name" = "gone" ] && [ "$r_users" = "2" ] && [ "$r_first" = "src/d.py::caller_one" ] \
+  || { cat "$REM"; fail "Test 13: removed row columns wrong"; }
+awk -F'\t' 'NF != 5 { exit 1 }' "$REM" || fail "Test 13: removed TSV must have five columns"
+awk -F'\t' 'NF != 6 { exit 1 }' ci_temp/graph_review_signals.tsv || fail "Test 13: six-column signals TSV changed arity"
+pass "Test 13: flags on — --churn passed; removed TSV is five columns, relativized, unsafe/outside/no-user rows dropped"
+
+# CLI absent → every state field empty.
+rm -rf ci_temp && mkdir -p ci_temp
+PATH="/usr/bin:/bin" bash "${LIB_DIR}/detect-changes-graph.sh" > /dev/null 2>&1 || true
+jq -e '.graph_version == "" and .churn_status == "" and .removed_symbols_total == null' ci_temp/graph_state.json >/dev/null \
+  || { cat ci_temp/graph_state.json; fail "Test 13: CLI absent must leave every state field empty"; }
+pass "Test 13: CLI absent — graph_state.json carries no fields"
+
+# --- Test 14: the Coverage degradation line (R13) -----------------------------
+echo ""
+echo "Test 14: graph-coverage-line.sh — one line, only for an enabled feature"
+COV="${LIB_DIR}/graph-coverage-line.sh"
+st="${tmp_dir}/state.json"
+cov() { GRAPH_ANALYSIS_AVAILABLE="${GA:-true}" bash "$COV" "$st"; }
+
+printf '{"graph_version":"2.4.0","churn_status":"ok","removed_symbols_total":0}\n' > "$st"
+[ -z "$(OPENCODE_REVIEW_REPORT_GRAPH_CHURN=1 OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS=1 cov)" ] \
+  || fail "Test 14: a healthy graph must add no Coverage line"
+printf '{"graph_version":"2.4.0","churn_status":"unavailable","removed_symbols_total":0}\n' > "$st"
+[ "$(OPENCODE_REVIEW_REPORT_GRAPH_CHURN=1 cov)" = "- **Graph enrichment degraded:** churn unavailable" ] \
+  || fail "Test 14: churn unavailable must render one line when churn is enabled"
+[ -z "$(OPENCODE_REVIEW_REPORT_GRAPH_CHURN=0 cov)" ] || fail "Test 14: churn unavailable with churn off must stay silent"
+printf '{"graph_version":"2.3.7","churn_status":"","removed_symbols_total":null}\n' > "$st"
+out="$(OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS=0 cov)"
+[ "$out" = "- **Graph enrichment degraded:** test-gap classification unavailable (graph < 2.3.9)" ] \
+  || { echo "$out"; fail "Test 14: old graph must name only the enabled feature (deleted-symbol off)"; }
+out="$(OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS=1 cov)"
+[ "$out" = "- **Graph enrichment degraded:** deleted-symbol hints unavailable (graph < 2.4.0); test-gap classification unavailable (graph < 2.3.9)" ] \
+  || { echo "$out"; fail "Test 14: both degradations must share one line"; }
+[ -z "$(OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS=0 cov)" ] || fail "Test 14: signals off must suppress the coverage-classification clause"
+printf '{"graph_version":"2.3.9","churn_status":"","removed_symbols_total":null}\n' > "$st"
+[ -z "$(cov)" ] || fail "Test 14: 2.3.9 has coverage classification"
+printf '{"graph_version":"","churn_status":"","removed_symbols_total":null}\n' > "$st"
+[ -z "$(OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS=1 OPENCODE_REVIEW_REPORT_GRAPH_CHURN=1 cov)" ] \
+  || fail "Test 14: an unknown version must never claim an old graph"
+printf '{"graph_version":"2.3.7"}\n' > "$st"
+[ -z "$(GA=failed cov)" ] || fail "Test 14: a graph that did not run must add no line"
+[ -z "$(GRAPH_ANALYSIS_AVAILABLE=true bash "$COV")" ] || fail "Test 14: no state path → no line"
+pass "Test 14: degradation line only for enabled features, version-driven, one line"
+
+# --- Test 15: slice — removed block, indirect wording, byte identity ----------
+echo ""
+echo "Test 15: graph-signals-slice.sh — removed rows first, capped; indirect wording"
+printf 'src/a.py\t10\t20\talpha\t0.8\ttrue\n'                                  > "${tmp_dir}/s15.tsv"
+printf 'src/b.py\t5\t9\tbeta\t0.3\tindirect:tests/test_b.py::test_beta\n'    >> "${tmp_dir}/s15.tsv"
+printf 'src/c.py\t3\t4\tgamma\t0.2\tindirect\n'                              >> "${tmp_dir}/s15.tsv"
+for i in 1 2 3 4; do printf 'src/a.py\t4%s\tgone%s\t2\tcaller_one\n' "$i" "$i"; done > "${tmp_dir}/r15.tsv"
+files15='src/a.py\0src/b.py\0src/c.py\0'
+
+base="$(printf "$files15" | bash "$SLICE" "${tmp_dir}/s15.tsv")"
+same="$(printf "$files15" | bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/absent.tsv")"
+: > "${tmp_dir}/empty.tsv"
+same2="$(printf "$files15" | bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/empty.tsv")"
+[ "$base" = "$same" ] && [ "$base" = "$same2" ] || fail "Test 15: absent/empty removed TSV must leave the slice byte-identical"
+printf '%s\n' "$base" | grep -qx '`src/b.py:5` beta — risk 0.3 — no direct test; reached only through a caller (tests/test_b.py::test_beta)' \
+  || { printf '%s\n' "$base"; fail "Test 15: indirect + covered_by wording"; }
+printf '%s\n' "$base" | grep -qx '`src/c.py:3` gamma — risk 0.2 — no direct test; reached only through a caller' \
+  || { printf '%s\n' "$base"; fail "Test 15: indirect without covered_by wording"; }
+printf '%s\n' "$base" | grep -qx '`src/a.py:10` alpha — risk 0.8 — no test coverage detected by graph' \
+  || fail "Test 15: none/true keeps the old wording"
+printf '%s\n' "$base" | awk '/^Changed functions with no test coverage/ { g = 1; next } g && /beta|gamma/ { bad = 1 } END { exit bad }' \
+  || fail "Test 15: indirect gaps must not be listed as having no test coverage"
+grep -q 'degraded\|unavailable' <<< "$base" && fail "Test 15: per-entry field absence must not produce a degradation line"
+pass "Test 15: coverage wording — indirect (with/without caller), none unchanged, no degradation text"
+
+out="$(printf "$files15" | bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/r15.tsv")"
+first="$(printf '%s\n' "$out" | head -n1)"
+[ "$first" = "Removed symbols the graph still records users for:" ] || { printf '%s\n' "$out"; fail "Test 15: removed block must render first"; }
+big="$(printf "$files15" | OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES=4000 bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/r15.tsv")"
+[ "$(printf '%s\n' "$big" | grep -c 'removed by this PR; the graph still records 2 users (e.g. caller_one) — verify they were updated or removed.')" = "3" ] \
+  || { printf '%s\n' "$big"; fail "Test 15: at most three removed rows"; }
+printf '%s\n' "$out" | grep -q 'removed by this PR' || fail "Test 15: the default cap must fit at least one removed row"
+printf '%s\n' "$out" | grep -q 'will break' && fail "Test 15: removed wording must never say 'will break'"
+removed_part="$(printf '%s\n' "$out" | awk 'NF == 0 { exit } { print }')"
+[ "$(printf '%s\n' "$removed_part" | wc -c | tr -d ' ')" -le $((1024 / 3)) ] || fail "Test 15: removed block exceeds a third of the cap"
+printf '%s\n' "$out" | grep -q '`src/a.py:10` alpha' || fail "Test 15: risk rows must follow the removed block"
+pass "Test 15: removed rows first, three max, within a third of the cap, risk rows follow"
+
+for cap in 200 400 700; do
+  o="$(printf "$files15" | OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES=$cap bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/r15.tsv" || true)"
+  [ "$(printf '%s\n' "$o" | wc -c | tr -d ' ')" -le "$((cap + 1))" ] || { printf '%s\n' "$o"; fail "Test 15: cap ${cap} exceeded"; }
+done
+pass "Test 15: the total slice stays within the byte cap with removed rows"
+
+o="$(printf 'src/zz.py\0' | bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/r15.tsv" || true)"
+[ -z "$o" ] || fail "Test 15: removed rows for another chunk's file must not render"
+printf 'src/new.py\t1\t2\tn\t0.1\tfalse\n' > "${tmp_dir}/s15b.tsv"
+o="$(printf 'src/a.py\0' | bash "$SLICE" "${tmp_dir}/s15b.tsv" "${tmp_dir}/r15.tsv")"
+printf '%s\n' "$o" | head -n1 | grep -q '^Removed symbols' || fail "Test 15: a deletion-only chunk must still render its removed block"
+printf 'src/a.py\t1\tbad`name\t2\t-\n' > "${tmp_dir}/r15bad.tsv"
+o="$(printf "$files15" | bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/r15bad.tsv")"
+[ "$o" = "$base" ] || fail "Test 15: a malformed removed row must drop only the removed block"
+pass "Test 15: removed rows scoped to the chunk; deletion-only chunk renders; malformed rows drop only their block"
+
 # --- Cleanup ------------------------------------------------------------------
 rm -rf .code-review-graph ci_temp
 

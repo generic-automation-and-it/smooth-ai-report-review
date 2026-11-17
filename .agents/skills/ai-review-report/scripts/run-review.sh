@@ -165,6 +165,17 @@ OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS="${OPENCODE_REVIEW_REPORT_ENABLE_GR
 OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION="${OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION:-}"
 export OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
 export OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION
+# Graph data adoption (LADR-050 amendment, HLD-003 LADR-06) — all three OFF by
+# default until measured. CHURN passes --churn to detect-changes; REMOVED_SIGNALS
+# adds the opt-in deleted-symbol hint class to the chunk slice (graph >= 2.4.0);
+# STRUCTURAL_RISK adds the presentation-only report block. Each falsy → today's
+# prompt and body bytes.
+OPENCODE_REVIEW_REPORT_GRAPH_CHURN="${OPENCODE_REVIEW_REPORT_GRAPH_CHURN:-0}"
+OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS="${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}"
+OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK="${OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK:-0}"
+export OPENCODE_REVIEW_REPORT_GRAPH_CHURN
+export OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS
+export OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK
 
 # RTK token optimization (LADR-054) — opt-in OpenCode plugin, re-adopted after
 # LADR-014's Gemini-CLI hook was superseded by the opencode transport
@@ -538,6 +549,12 @@ assemble_run_artifacts() {
         [ -s "$signals_slice" ] || continue
         cp "$signals_slice" "$dir/graph/$(basename "$signals_slice")" 2>/dev/null || true
       done
+      # The opt-in removed-symbol rows ship only when their flag fed the slices.
+      if [ -s "$WORK_DIR/graph_removed_signals.tsv" ] \
+         && printf '%s' "${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}" | tr '[:upper:]' '[:lower:]' \
+            | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
+        cp "$WORK_DIR/graph_removed_signals.tsv" "$dir/graph/graph_removed_signals.tsv" 2>/dev/null || true
+      fi
     fi
   fi
   # LADR-098: the judge's own context, so /ai-review and ai-analyse can tell
@@ -607,6 +624,18 @@ assemble_run_artifacts() {
     printf '%s' "$unreviewed_json" | jq -e . >/dev/null 2>&1 || unreviewed_json='[]'
   fi
 
+  # Graph version and churn state (graph_state.json from detect-changes-graph.sh).
+  # Metadata only — never a body line. Every field empty/null when absent.
+  local graph_version="" churn_status="" removed_symbols_total='null'
+  if [ -s "$WORK_DIR/graph_state.json" ]; then
+    graph_version="$(jq -r '.graph_version // "" | strings' "$WORK_DIR/graph_state.json" 2>/dev/null)"
+    churn_status="$(jq -r '.churn_status // "" | strings' "$WORK_DIR/graph_state.json" 2>/dev/null)"
+    removed_symbols_total="$(jq -r '.removed_symbols_total // null | numbers' "$WORK_DIR/graph_state.json" 2>/dev/null)"
+  fi
+  printf '%s' "$graph_version" | grep -qxE '[0-9]+\.[0-9]+\.[0-9]+' || graph_version=""
+  case "$churn_status" in ok|unavailable|off) ;; *) churn_status="" ;; esac
+  case "$removed_symbols_total" in ''|*[!0-9]*) removed_symbols_total='null' ;; esac
+
   cat > "$dir/metadata.json" <<METADATA_EOF
 {
   "run_id": "${GITHUB_RUN_ID:-local}",
@@ -624,6 +653,9 @@ assemble_run_artifacts() {
   "graph_signals": ${graph_signals},
   "graph_signals_chunks": ${graph_signals_chunks},
   "graph_analysis_available": "${graph_analysis_available}",
+  "graph_version": "${graph_version}",
+  "churn_status": "${churn_status}",
+  "removed_symbols_total": ${removed_symbols_total},
   "decisions_summary": ${decisions_json:-null},
   "quote_verification": ${quote_verification_json:-null},
   "run_deadline_seconds": ${deadline_json:-null},
@@ -1593,7 +1625,9 @@ bash "$SCRIPT_DIR/aggregate-reviews.sh" \
   "${EXPERTISE_STATEMENT}" \
   "${last_full_review_status:-none}" \
   "${OPENCODE_VERSION_INFO:-}" \
-  "${OPENCODE_VERSION_FOOTER:-}"
+  "${OPENCODE_VERSION_FOOTER:-}" \
+  "$WORK_DIR/graph_detect_changes.json" \
+  "$WORK_DIR/graph_state.json"
 
 # --- Step 19: Minimize previous reviews (full only) --------------------------
 if [ "$review_type" = "full" ] && [ "$validation_passed" != "false" ]; then
@@ -1618,6 +1652,16 @@ MAX_BODY_SIZE=65000
 BODY_SIZE="$(wc -c < "$WORK_DIR/review_comment.md" | tr -d ' ')"
 LOGS_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID:-0}"
 echo "Review body size: ${BODY_SIZE} characters (limit: ${MAX_BODY_SIZE})"
+# HLD-001 Goal 4: the presentation-only Structural Risk block is the first
+# thing dropped — whole — before any compaction or head/tail truncation.
+if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ] && [ -f "$WORK_DIR/structural_risk_emitted" ]; then
+  bash "$SCRIPT_DIR/lib/strip-structural-risk.sh" < "$WORK_DIR/review_comment.md" > "$WORK_DIR/review_comment_nograph.md" \
+    && [ -s "$WORK_DIR/review_comment_nograph.md" ] \
+    && mv "$WORK_DIR/review_comment_nograph.md" "$WORK_DIR/review_comment.md"
+  rm -f "$WORK_DIR/review_comment_nograph.md"
+  BODY_SIZE="$(wc -c < "$WORK_DIR/review_comment.md" | tr -d ' ')"
+  echo "  Structural Risk block dropped from the oversize body: ${BODY_SIZE} characters"
+fi
 if [ "$BODY_SIZE" -gt "$MAX_BODY_SIZE" ]; then
   echo "⚠️  Review body exceeds limit — building compact version"
   # Only the aggregator's out-of-band marker list is authoritative. The review

@@ -472,7 +472,7 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
   - `run-review.sh` Step 13.5 (between context discovery and AGENTS.md validation), gated by `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` (truthy `1/true/yes/on`, case-insensitive, default `1`). `OPENCODE_TOOL_CODE_REVIEW_GRAPH_VERSION` pins the package.
   - Both degrade gracefully; the review never blocks on a graph failure.
   - `actions/cache` for `.code-review-graph/` in **both** packagings, keyed on source-tree hashes (so the graph invalidates when code changes) + lockfile hashes + schema version. The cache step's `if:` uses `contains()` to match `run-review.sh`'s wider truthy set.
-  - Outputs `ci_temp/graph_detect_changes.json`, `ci_temp/graph_risk_summary.md`, `ci_temp/graph_file_risks.txt`, and (LADR-050) `ci_temp/graph_review_signals.tsv`. The CLI reports absolute paths; `detect-changes-graph.sh` relativizes them, so the derived artifacts carry **repo-relative** paths.
+  - Outputs `ci_temp/graph_detect_changes.json`, `ci_temp/graph_risk_summary.md`, `ci_temp/graph_file_risks.txt`, (LADR-050) `ci_temp/graph_review_signals.tsv`, and (LADR-050 amendment) `ci_temp/graph_removed_signals.tsv` plus `ci_temp/graph_state.json`. The CLI reports absolute paths; `detect-changes-graph.sh` relativizes them, so the derived artifacts carry **repo-relative** paths.
   - Cache keys now include shell and additional parsed languages in both packagings (`-v2`). This improves saved-cache reuse, not correctness: `build-code-graph.sh` refreshes restored graphs even on an exact hit.
   - **Amended by LADR-050**: per-chunk injection is enabled by default, with an explicit falsy opt-out. Grouping (LADR-051) and aggregation enrichment (LADR-052) are outside this change.
 - **Consequences**: `build-code-graph.sh` is the single install source of truth for `code-review-graph` (root `AGENTS.md` Non-Negotiable).
@@ -1354,6 +1354,11 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
   - Review-quality benefit remains unmeasured. The previously quoted 28% file coverage is withdrawn: it compared cumulative HEAD-to-base graph results with individual-commit file counts. Paired live measurements are still needed to quantify benefit; deterministic tests establish wiring, safety guards, default-on behavior and explicit opt-out.
   - `ai-analyse` gets the artifact, **not** a consumer. It fetches the gate artifact in exactly one place (the decisions branch), so a second fetch is a new gated step, not a one-liner, and it must honour LADR-098's reviewed-SHA guard. When a consumer is added, an untested marker may become a **residual note only** — never a test edit, which LADR-045 and `filter-test-self-fix.sh` would revert anyway.
   - Cache-key language coverage is expanded identically in both packagings. Restored graphs were already refreshed by the build library; this is not a stale-graph correctness fix.
+- **Amendment (2026-11-17, #256) — graph ≥ 2.4.0 data, opt-in and measurable**:
+  - **Third hint class, opt-in.** `OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS` (default `0` until the deletion-regression eval measures it) feeds `removed_symbols[]` rows still recorded as used into a **separate** five-column `ci_temp/graph_removed_signals.tsv` (`file_rel, old_line_start, name, used_by_total, first_user`) — never into the six-column TSV. The slice takes it as `$2` and renders it first, at most three rows and one third of the cap. Wording states what the graph records ("still records N users — verify"), never "will break"; the hint alone never supports Critical/High. Flag off: the file is not read and the prompt is byte-identical. A malformed removed row drops only the removed block.
+  - **Honest coverage wording.** The `untested` column may also carry `indirect` / `indirect:<test>` (graph ≥ 2.3.9 `coverage: "indirect"`): rendered "no direct test; reached only through a caller", kept out of the no-coverage gap list, risk undiscounted. A gap without a `coverage` field keeps today's wording. Extra guidance sentences are emitted only when the slice carries the new shape, so a pre-2.3.9 slice keeps today's prompt bytes.
+  - **Churn and state are metadata, not hints.** `OPENCODE_REVIEW_REPORT_GRAPH_CHURN` (default `0`) passes `--churn`; `graph_state.json` records `graph_version`, `churn_status`, `removed_symbols_total` into `metadata.json`. The posted body gains at most **one** Coverage line (`lib/graph-coverage-line.sh`), only for an **enabled** feature that degraded — churn unavailable, or a parsed `graph_version` below the feature's floor. Per-entry field absence never implies an old graph; an unknown version never produces the line.
+  - **Rejected:** folding removed rows or coverage into the six-column TSV's arity (breaks its validator for every consumer); default-on for an unmeasured hint class.
 - **See also**: LADR-049, LADR-031, LADR-035, LADR-045, LADR-055, LADR-062, LADR-067, LADR-085, LADR-093.
 
 ### LADR-118: Author-supplied review notes reach both prompts inside a collision-safe data envelope
@@ -1558,6 +1563,9 @@ No backend test projects: the gate's tests are offline shell harnesses under `sc
 | L0 | `../../../scripts/test-install-skills.sh` (repo root) | skills installer, both ports and their parity, `lib/resolve-repo-root.sh` (LADR-108) |
 | L0 | `scripts/test-prepare-opencode-models.sh` | absent-only runtime model registration, atomic failure/no-op contracts, four entrypoint initialization flows and analyse step handoff (LADR-107) |
 | L0 | `scripts/test-install-rtk.sh`, `scripts/test-check-versions.sh`, `scripts/test-minimize-reviews.sh`, `scripts/test-balance-fences.sh`, `scripts/test-validate-agents-md.sh`, `scripts/test-validate-agents-md-disable.sh` | RTK, version notices, review minimisation, fence hygiene, AGENTS.md validator contract/pipefail/renames and check toggle (#207) |
+| L0 | `scripts/test-code-graph.sh`, `scripts/test-graph-signals-slice.sh`, `scripts/test-graph-signals-artifact.sh` | graph producer, signals/removed TSVs, coverage classification, the slice and its cap, graph state in metadata, the Coverage degradation line, packaging parity (LADR-049/050) |
+| L0 | `scripts/test-structural-risk.sh` | presentation-only Structural Risk block: gating, placement and fallbacks, byte-exact strip, flag on/off parity of action and parsers through the real aggregator, size-ladder rung |
+| L0 | `scripts/test-graph-self-review.sh` | report-only skip recurrence, harvested hint attribution, eval hint uptake/accuracy |
 | L0 | `scripts/eval/test-evals.sh`, `scripts/eval/test-decisions-report.sh` | eval harness structure and the decision measurement (no paid calls) |
 | L1 | `scripts/eval/local-evals.sh`, `llm-eval-harness.yml` `llm-evals` job | the paid corpus eval (report-only) |
 
@@ -1594,6 +1602,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-050 amended: opt-in removed-symbol hint class (separate TSV), indirect-coverage wording, churn flag, graph state in metadata, one Coverage line only for an enabled feature's degradation; presentation-only Structural Risk block (HLD-003 LADR-06); report-only skip-recurrence and hint-attribution metrics. | #256 |
 | 2026-11-14 | Posted reviews renamed to Smooth AI Review with powered-by OpenCode footer, ASCII banner removed, matchers accept both headers, README/SKILL.md non-affiliation notes. | LADR-112 |
 |------|--------|-----|
 | 2026-11-14 | Opt-in total-run deadline: no chunk launches and no retry spend after it; unlaunched chunks on a not-reviewed channel, aggregation fails closed with a banner naming them, elapsed and deadline in metadata and one Coverage line. | LADR-121 |

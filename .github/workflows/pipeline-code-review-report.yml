@@ -468,6 +468,13 @@ jobs:
       # Set the Variable to 0/false/no/off to disable only prompt enrichment.
       OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS || '1' }}
       OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES || '1024' }}
+      # Graph data adoption — all OFF until measured. CHURN adds detect-changes
+      # --churn; REMOVED_SIGNALS adds the opt-in deleted-symbol hint class to the
+      # chunk slice (graph >= 2.4.0); STRUCTURAL_RISK adds the presentation-only
+      # report block (outside findings, counts and verdict).
+      OPENCODE_REVIEW_REPORT_GRAPH_CHURN: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_CHURN || '0' }}
+      OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS || '0' }}
+      OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK || '0' }}
       # Author-notes data fence (LADR-118) — ON by default: author-supplied notes
       # are untrusted input, so both prompt builders wrap them in a collision-safe
       # envelope. A falsy Variable restores the pre-fence prompt byte-for-byte.

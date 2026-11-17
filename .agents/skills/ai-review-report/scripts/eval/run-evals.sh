@@ -171,6 +171,8 @@ echo ""
 WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/llm-evals.XXXXXX")"
 trap 'rm -rf "$WORK_ROOT"' EXIT
 DECISIONS_DIR="$WORK_ROOT/decisions"
+GRAPH_HINTS_DIR="$WORK_ROOT/graph_hints"
+mkdir -p "$GRAPH_HINTS_DIR"
 mkdir -p "$DECISIONS_DIR"
 
 # record_decisions <manifest> <sandbox>
@@ -282,6 +284,16 @@ run_fixture() {
     git diff --name-only -z "$from_sha..$to_sha" > ci_temp/changed_files.txt
     printf '%s\n' "$DR_STANDARDS_DEST" > ci_temp/context_files.txt
 
+    # Optional graph data: a fixture's graph/ folder seeds the two signal TSVs
+    # the chunk slice reads, so graph hints are exercised without building a
+    # graph (the paid path stays cheap). Which hint classes are read is still
+    # decided by the same flags the gate uses.
+    if [ -d "$fdir/graph" ]; then
+      [ -f "$fdir/graph/graph_review_signals.tsv" ] && cp "$fdir/graph/graph_review_signals.tsv" ci_temp/graph_review_signals.tsv
+      [ -f "$fdir/graph/graph_removed_signals.tsv" ] && cp "$fdir/graph/graph_removed_signals.tsv" ci_temp/graph_removed_signals.tsv
+      export GRAPH_ANALYSIS_AVAILABLE=true
+    fi
+
     # Optional PR-prose inputs (LADR-111). The destination names are the ones the
     # entrypoints write and review-in-chunks.sh reads; absent files create nothing.
     [ -f "$fdir/pr_description.md" ] && cp "$fdir/pr_description.md" ci_temp/pr_description.txt
@@ -338,6 +350,10 @@ run_fixture() {
   # Measurement only (EVAL_DECISIONS): after the verdict inputs are fixed, so it
   # cannot influence them. Output goes to files, never to this function's stdout.
   [ "$DECISIONS_ON" = 1 ] && record_decisions "$manifest" "$sandbox" >/dev/null 2>&1
+  # Graph-hint uptake/accuracy: report-only, from this sample's own slices and
+  # sidecars. Empty output when the fixture showed no graph hint.
+  bash "$SCRIPT_DIR/lib/graph-hint-metrics.sh" "$manifest" "$sandbox/ci_temp" \
+    >> "$GRAPH_HINTS_DIR/$(basename "$fdir").tsv" 2>/dev/null || true
   # Keep the review around for the caller to optionally archive on failure.
   echo "$review_md|$sevs"
   return 0
@@ -727,6 +743,14 @@ if [ "$fail" -eq 0 ]; then
   echo "✅ EVAL PASSED — no precision regressions, recall above threshold."
 else
   echo "🛑 EVAL FAILED."
+fi
+
+# Graph-hint measurement: printed AFTER the verdict and never allowed to alter
+# `fail`. Uptake = findings that cite graph_evidence; accuracy = graph-cited
+# test-gap claims on the seeded defect's file in a must-catch fixture (accepted)
+# vs at Critical/High/Medium in a must-not-flag fixture (rejected).
+if [ "$SELFTEST" != "1" ]; then
+  bash "$SCRIPT_DIR/lib/graph-hint-metrics.sh" --summary "$GRAPH_HINTS_DIR" || true
 fi
 
 # Decision-model measurement: printed AFTER the verdict and never allowed to

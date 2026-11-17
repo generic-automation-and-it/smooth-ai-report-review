@@ -153,6 +153,7 @@ The review transport is provider-agnostic: `opencode` sends chunks to the base U
 | Variable | Set to |
 |---|---|
 | `OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS` / `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS` / `OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES` | `1` / `1` / `1024`. Graph analysis plus risk and coverage hints in each chunk prompt. Falsy disables; the byte cap bounds each slice. |
+| `OPENCODE_REVIEW_REPORT_GRAPH_CHURN` / `OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS` / `OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK` | `0` / `0` / `0`. Opt-in graph data: the change-frequency risk term, deleted-symbol hints in the chunk slice (graph ≥ 2.4.0), and a presentation-only Structural Risk report block outside findings, counts and verdict. Falsy keeps today's prompt and report. |
 | `OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS` + `_DECISIONS_*` | `0` (off). `annotate` shows scores; `filter` suppresses non-critical findings below the threshold, with full coverage required. |
 
 ### Fixer (`ai-analyse`)

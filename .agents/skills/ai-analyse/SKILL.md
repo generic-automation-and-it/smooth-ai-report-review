@@ -84,6 +84,10 @@ A line that reads `🎯 Decision model: uncertain, leans … (confidence NN%)` m
 
 Configuration — clones of the gate's six Variables: `OPENCODE_ANALYSE_ENABLE_DECISIONS` (default `0`, never inherited from the gate), `OPENCODE_ANALYSE_DECISIONS_PROVIDER` / `_MODEL` / `_TIMEOUT` (blank → the gate's `OPENCODE_REVIEW_REPORT_DECISIONS_*`; the model is inherited only together with the provider), `OPENCODE_ANALYSE_DECISIONS_MODE` (`annotate` default / `filter`) and `OPENCODE_ANALYSE_DECISIONS_MIN_PROBABILITY` (`0.5`). The key is the decision provider's existing Secret (`OPENCODE_GO_OPENAI_API_KEY` or `OPENCODE_OPENROUTER_API_KEY`).
 
+### Host-provided structural queries (optional, interactive only)
+
+In a local `/ai-analyse` session whose host already exposes the `code-review-graph` CLI or its MCP tools, you may ask `callers_of` / `tests_for` for a finding's symbol before deciding FIX or SKIP. Headless CI is out of scope: the `analyse` agent there has no such tool. The step is opt-in, read-only and fail-open — never build or update a graph for it, never add a tool to `allowed-tools`, and decide exactly as you would without it when the tool is absent, errors or times out. Structural context may inform a FIX/SKIP decision but never widens the severity scope (Critical/High stay omitted), and the source wins over the graph.
+
 ## Decision Rules
 
 - Known intentional pattern: `SKIP`

@@ -46,6 +46,7 @@ Per fixture, `run-evals.sh` builds a `mktemp` git sandbox (`before/` or empty ba
 - **`EVAL_SAMPLES=1` is the default; >1 amplifies noise.** It makes precision worst-case and recall majority. To diagnose flakiness use `EVAL_SAMPLES=3` with `EVAL_FILTER=DR-NNN`.
 - **`test-evals.sh` must stay green — the selftest seam is the contract.** If you change `lib/score-review.sh`, `run-evals.sh`'s scoring call, or the result-table format, update the canned `<id>/selftest-review.md` fixtures and aggregation cases.
 - **Self-test → paid-call path is a one-way trip.** A paid-only branch not exercised by `EVAL_SELFTEST` can no longer be regress-tested; the triage archive is guarded by `EVAL_ARTIFACT_DIR` precisely to keep the default path unchanged (unset for `local-evals.sh` and the self-test). Inspect the archive before deciding a FAIL is a real regression vs fixture hygiene.
+- **Graph hints come from fixture data, never a graph build.** A fixture's optional `graph/` folder seeds `graph_review_signals.tsv` / `graph_removed_signals.tsv` into the sandbox and marks the graph available; the gate's own flags (e.g. `OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS`) still decide what the slice reads. Hint uptake/accuracy (`lib/graph-hint-metrics.sh`) and `measure-skip-recurrence.sh` are report-only, printed after the verdict, and report `unavailable` rather than zero when an input is missing (HLD-006 NFR-04).
 - **Don't bake fixture content into `run-evals.sh`.** The corpus is data; new DRs/MCs go under `corpus/`. The runner only walks manifests and sets up sandboxes.
 
 ## Quality Constraints
@@ -58,6 +59,7 @@ Per fixture, `run-evals.sh` builds a `mktemp` git sandbox (`before/` or empty ba
 
 | Date | Change | Ref |
 |:-----|:-------|:----|
+| 2026-11-17 | Fixture `graph/` seeds graph TSVs; MC-007 deletion recall fixture; report-only hint uptake/accuracy, skip recurrence, harvested `graph_hint`. | #256 |
 | 2026-09-27 | `fix_skip` measured; eval scores as the gate does (code context, chunk rules); unanswered questions stay in denominators; harvester keeps `head`, `base_tip`, gate prediction. | LADR-098 |
 | 2026-09-27 | `/ai-review execute` label blocks harvested via `--from-pr`/`--scan`; deferred never a label; latest decision wins. | LADR-096 |
 | 2026-09-27 | Real labelled findings: `supported` mean 0.43 — filter/demote would hide real problems; `supported` must not filter. | LADR-093 |

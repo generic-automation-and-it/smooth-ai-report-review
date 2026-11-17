@@ -11,7 +11,7 @@ fi
 # Script: aggregate-reviews.sh
 # Purpose: Aggregate chunked reviews and generate PR summary
 # Usage: Called from pipeline-code-review-report.yml workflow
-# Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS $9=OPENCODE_VERSION_INFO $10=OPENCODE_VERSION_FOOTER
+# Arguments: $1=TOTAL_CHUNKS $2=OPENCODE_MODEL_ID $3=REVIEW_TYPE $4=FROM_SHA $5=FILES_CHANGED $6=CURRENT_SHA $7=EXPERTISE_STATEMENT $8=LAST_FULL_REVIEW_STATUS $9=OPENCODE_VERSION_INFO $10=OPENCODE_VERSION_FOOTER $11=GRAPH_DETECT_JSON $12=GRAPH_STATE_FILE
 #
 # $9/$10 are rendered by lib/check-versions.sh. They are passed positionally,
 # not read from the environment: this script runs as a child process, so an
@@ -28,6 +28,11 @@ EXPERTISE_STATEMENT="$7"
 LAST_FULL_REVIEW_STATUS="${8:-none}"
 OPENCODE_VERSION_INFO="${9:-}"
 OPENCODE_VERSION_FOOTER="${10:-}"
+# $11/$12: graph data for the presentation-only Structural Risk block and the
+# Coverage degradation line. Positional for the same reason as $9/$10 (LADR-053).
+# Blank → no block, no line.
+GRAPH_DETECT_JSON="${11:-}"
+GRAPH_STATE_FILE="${12:-}"
 
 if [ -z "$TOTAL_CHUNKS" ] || [ -z "$OPENCODE_MODEL_ID" ] || [ -z "$EXPERTISE_STATEMENT" ]; then
   echo "Error: Missing required arguments"
@@ -756,7 +761,13 @@ if [ -s "$MERGED_FINDINGS_FILE" ]; then
     if [ -n "${_RUN_DEADLINE_SECONDS:-}" ] && [ -n "${_RUN_ELAPSED_SECONDS:-}" ]; then
       _RUN_DEADLINE_LINE="- **Run time:** ${_RUN_ELAPSED_SECONDS}s elapsed (opt-in deadline ${_RUN_DEADLINE_SECONDS}s)"
     fi
+    # Graph enrichment degradation (R13): one line, only for an enabled feature.
+    _GRAPH_COVERAGE_LINE=""
+    if [ -n "$GRAPH_STATE_FILE" ]; then
+      _GRAPH_COVERAGE_LINE="$(bash "$(dirname "${BASH_SOURCE[0]}")/lib/graph-coverage-line.sh" "$GRAPH_STATE_FILE" 2>/dev/null || true)"
+    fi
     if _QUOTE_VERIFICATION_JSON="ci_temp/quote_verification.json" _RUN_DEADLINE_LINE="$_RUN_DEADLINE_LINE" \
+       _GRAPH_COVERAGE_LINE="$_GRAPH_COVERAGE_LINE" \
        bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-findings-summary.sh" \
          "$MERGED_FINDINGS_FILE" "$FAILED_CHUNK_COUNT" "$TOTAL_CHUNKS" "$MISSING_SIDECAR_CHUNKS" > ci_temp/issues_summary.md 2>/dev/null \
        && [ -s ci_temp/issues_summary.md ]; then
@@ -1122,6 +1133,25 @@ EOF
 # Empty when the version could not be determined.
 if [ -n "$OPENCODE_VERSION_FOOTER" ]; then
   echo "$OPENCODE_VERSION_FOOTER" >> ci_temp/final_review.md
+fi
+
+# HLD-003 LADR-06: the presentation-only Structural Risk block. Placed into the
+# fully assembled body, after the action inputs (pr_summary.md, the merged
+# findings) were read, so it cannot change counts, MACHINE_READABLE_ACTION or
+# the posted state. Every step is best-effort; a failure leaves the body as is.
+rm -f ci_temp/structural_risk_block.md ci_temp/structural_risk_emitted
+if [ -n "$GRAPH_DETECT_JSON" ]; then
+  bash "$(dirname "${BASH_SOURCE[0]}")/lib/render-structural-risk.sh" \
+    "$GRAPH_DETECT_JSON" "$GRAPH_STATE_FILE" > ci_temp/structural_risk_block.md 2>/dev/null || true
+  if [ -s ci_temp/structural_risk_block.md ]; then
+    bash "$(dirname "${BASH_SOURCE[0]}")/lib/insert-structural-risk.sh" \
+      ci_temp/final_review.md ci_temp/structural_risk_block.md || true
+    # Out-of-band flag for run-review.sh's size ladder: only a block this run
+    # emitted is ever stripped, never marker-shaped review prose.
+    grep -qxF '<!-- ai-review-report:structural-risk:begin -->' ci_temp/final_review.md 2>/dev/null \
+      && : > ci_temp/structural_risk_emitted
+    echo "🧭 Structural Risk block added (presentation only)"
+  fi
 fi
 
 # LADR-093 label channel: an invisible marker naming the run whose artifact

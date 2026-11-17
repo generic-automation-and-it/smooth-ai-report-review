@@ -75,7 +75,7 @@ on:
         required: false
         type: string
       decisions:
-        description: "Measure decisions (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only; adds a paid decision request per sample finding, plus a calibration of 20 planted findings in three variants (about 180 small decision-provider requests; no chat model)."
+        description: "Measure decisions (1/0; blank = OPENCODE_REVIEW_REPORT_ENABLE_DECISIONS Variable). Report-only; adds a paid decision request per sample finding, plus a calibration of 21 planted findings in three variants (about 190 small decision-provider requests; no chat model)."
         required: false
         type: string
 
@@ -131,7 +131,9 @@ jobs:
           # test-recommend-fix-skip.sh exercises their decision scripts
           # (LADR-097): without them a PR touching only those scripts passed
           # this required job without running the suite that tests them.
-          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|docs/examples/|\.github/opencode\.json$|README\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
+          # docs/hlds/ and the root AGENTS.md are asserted by
+          # test-graph-adoption-docs.sh (HLD sync, H11).
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.agents/skills/ai-analyse/|\.agents/skills/ai-review/|\.github/workflows/|docs/examples/|docs/hlds/|\.github/opencode\.json$|README\.md$|AGENTS\.md$|scripts/|\.claude-plugin/plugin\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "✅ OpenCode v2 review-pipeline files changed — running deterministic regressions."
           else
@@ -208,6 +210,19 @@ jobs:
             # and the single Coverage line.
             .agents/skills/ai-review-report/scripts/test-verify-quotes.sh
             .agents/skills/ai-review-report/scripts/test-graph-signals-artifact.sh
+            # HLD-003 LADR-06: the presentation-only Structural Risk block —
+            # gating, content safety, placement and every fail-open fallback,
+            # byte-exact strip, flag on/off parity of review_action and parser
+            # output through the real aggregate-reviews.sh, and the size-ladder
+            # rung that drops it before compaction.
+            .agents/skills/ai-review-report/scripts/test-structural-risk.sh
+            # HLD-006 NFR-04: report-only self-review measurements — skip
+            # recurrence (unmatched counted, unavailable never zero), graph-hint
+            # attribution of harvested labels, eval hint uptake/accuracy.
+            .agents/skills/ai-review-report/scripts/test-graph-self-review.sh
+            # H11/I7: HLD sync clauses, index rows, Evidence/Last updated, and the
+            # optional host-provided graph step in /ai-review and /ai-analyse.
+            .agents/skills/ai-review-report/scripts/test-graph-adoption-docs.sh
             # LADR-060: the verification lens is diverted BEFORE the doc-only test,
             # so the static order check cannot see the allowlist arms - only this
             # harness runs the real script (workflow chunk -> lens, markdown AND
@@ -398,6 +413,11 @@ jobs:
       OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_PROVIDER || 'OPENCODE-GO-DECISIONS' }}
       OPENCODE_REVIEW_REPORT_DECISIONS_MODEL: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_MODEL || '' }}
       OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT: ${{ vars.OPENCODE_REVIEW_REPORT_DECISIONS_TIMEOUT || '20' }}
+      # Opt-in removed-symbol hints: follow the gate's own Variable, so the eval
+      # measures the hint classes the gate actually ships. Fixtures with a graph/
+      # folder seed the signal TSVs; the flag decides whether the removed rows are
+      # read. Graph-hint uptake/accuracy is printed report-only after the verdict.
+      OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS || '0' }}
 
     steps:
       - name: Checkout Code

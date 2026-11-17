@@ -273,6 +273,72 @@ for var in OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS OPENCODE_REVIEW_REPORT_GRAPH_SIG
   fi
 done
 
+# ── 8. Graph version / churn state reach metadata.json only ─────────────────
+reset_sandbox
+seed_signals
+OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS=1
+printf '{"graph_version":"2.4.0","churn_status":"unavailable","removed_symbols_total":3}\n' > "${WORK_DIR}/graph_state.json"
+assemble_run_artifacts
+if jq -e '.graph_version == "2.4.0" and .churn_status == "unavailable" and .removed_symbols_total == 3' "$meta" > /dev/null; then
+  ok "metadata.json records graph_version, churn_status and removed_symbols_total"
+else
+  bad "metadata.json misses the graph state fields"
+  sed 's/^/       /' "$meta"
+fi
+
+reset_sandbox
+printf '{"graph_version":"not a version","churn_status":"weird","removed_symbols_total":"x"}\n' > "${WORK_DIR}/graph_state.json"
+assemble_run_artifacts
+if jq -e '.graph_version == "" and .churn_status == "" and .removed_symbols_total == null' "$meta" > /dev/null; then
+  ok "malformed graph state degrades to empty metadata fields (valid JSON)"
+else
+  bad "malformed graph state leaked into metadata.json"
+  sed 's/^/       /' "$meta"
+fi
+
+reset_sandbox
+assemble_run_artifacts
+if jq -e '.graph_version == "" and .churn_status == "" and .removed_symbols_total == null' "$meta" > /dev/null; then
+  ok "no graph state → empty metadata fields"
+else
+  bad "absent graph state did not yield empty metadata fields"
+fi
+
+# ── 9. Removed-symbol rows ship only with their flag ────────────────────────
+for v in 0 1; do
+  reset_sandbox
+  seed_signals
+  printf 'src/a.cs\t40\tGone\t2\t-\n' > "${WORK_DIR}/graph_removed_signals.tsv"
+  OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS=1
+  OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS="$v"
+  assemble_run_artifacts
+  if [ "$v" = 1 ] && [ -f "${RUN_DIR}/graph/graph_removed_signals.tsv" ]; then
+    ok "removed TSV ships with its flag on"
+  elif [ "$v" = 0 ] && [ ! -e "${RUN_DIR}/graph/graph_removed_signals.tsv" ]; then
+    ok "removed TSV stays out with its flag off"
+  else
+    bad "removed TSV shipping does not follow its flag (flag=${v})"
+  fi
+done
+unset OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS
+
+# ── 10. The three opt-in graph Variables are in both packagings and README ───
+for var in OPENCODE_REVIEW_REPORT_GRAPH_CHURN OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK; do
+  for wf in "${REPO_ROOT}/.github/workflows/pipeline-code-review-report.yml" \
+            "${REPO_ROOT}/docs/examples/code-review-local.yml"; do
+    if grep -q "${var}: \${{ vars.${var} || '0' }}" "$wf"; then
+      ok "$(basename "$wf") declares default-off ${var}"
+    else
+      bad "$(basename "$wf") does not declare default-off ${var} (packaging parity)"
+    fi
+  done
+  if grep -q "$var" "${REPO_ROOT}/README.md" && grep -q "${var}:-0" "$RUN_REVIEW"; then
+    ok "README documents ${var} and run-review.sh defaults it off"
+  else
+    bad "${var} missing from README or run-review.sh default"
+  fi
+done
+
 echo ""
 echo "=========================================="
 echo "Results: ${pass} passed, ${fail} failed"

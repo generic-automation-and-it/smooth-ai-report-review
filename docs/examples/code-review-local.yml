@@ -463,6 +463,10 @@ jobs:
           # env vars, including default-on behavior and explicit opt-out.
           OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS || '1' }}
           OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES || '1024' }}
+          # Graph data adoption — mirrors the reusable workflow; all OFF by default.
+          OPENCODE_REVIEW_REPORT_GRAPH_CHURN: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_CHURN || '0' }}
+          OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS || '0' }}
+          OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK: ${{ vars.OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK || '0' }}
           # Author-notes data fence (LADR-118) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_AUTHOR_FENCE || '1' }}
           # Quote verification (LADR-119) — mirrors the reusable workflow.

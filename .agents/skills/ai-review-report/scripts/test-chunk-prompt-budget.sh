@@ -371,8 +371,8 @@ TSV
 
   local run_dir prompts=() prompt
   run_dir=0
-  while [ "${run_dir}" -lt 10 ]; do
-    local label flag with_tsv graph_state=true structured=1
+  while [ "${run_dir}" -lt 12 ]; do
+    local label flag with_tsv graph_state=true structured=1 removed_flag=0
     case "${run_dir}" in
       # A: flag on, signals present — the block must appear.
       0) label="signals-on";  flag=1; with_tsv=1 ;;
@@ -387,6 +387,10 @@ TSV
       7) label="sidecar-off"; flag=1; with_tsv=1; structured=0 ;;
       8) label="default-unset"; flag=unused; with_tsv=1 ;;
       9) label="default-empty"; flag=""; with_tsv=1 ;;
+      # Opt-in removed-symbol class: rows on disk, flag off → identical to
+      # signals-on; flag on → the removed block and its guidance appear.
+      10) label="removed-off"; flag=1; with_tsv=1; removed_flag=0 ;;
+      11) label="removed-on"; flag=1; with_tsv=1; removed_flag=1 ;;
     esac
 
     rm -rf ci_temp/reviews
@@ -394,6 +398,10 @@ TSV
     rm -f ci_temp/chunk_*_prompt.txt
     cp "${TMP_DIR}/graph-signals.tsv" ci_temp/graph_review_signals.tsv
     [ "${with_tsv}" -eq 1 ] || rm -f ci_temp/graph_review_signals.tsv
+    rm -f ci_temp/graph_removed_signals.tsv
+    case "$label" in
+      removed-*) printf 'huge/f01.txt\t40\tOldHelper\t2\tcaller_one\n' > ci_temp/graph_removed_signals.tsv ;;
+    esac
     if [ "$label" = signals-malformed ]; then
       printf 'huge/f01.txt\tbad\t20\tBad\t0.8\ttrue\n' > ci_temp/graph_review_signals.tsv
     fi
@@ -409,6 +417,7 @@ TSV
     GRAPH_ANALYSIS_AVAILABLE="$graph_state" \
     OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS="$structured" \
     OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS_MAX_BYTES="${cap}" \
+    OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS="$removed_flag" \
     "${flag_env[@]}" bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh "${from_sha}" "${to_sha}" "test-model" "test expertise" \
       > "${TMP_DIR}/${label}.log" 2>&1 || run_rc=$?
     if [ "$label" = slice-missing ]; then
@@ -537,6 +546,23 @@ TSV
       fail "graph signals: $label failed to enable the graph hints by default"
     fi
   done
+  if diff -rq "${TMP_DIR}/signals-on.prompts" "${TMP_DIR}/removed-off.prompts" > /dev/null; then
+    pass "graph signals: removed rows on disk with their flag off leave the prompts byte-identical"
+  else
+    fail "graph signals: the removed-symbol TSV changed the prompts although its flag is off"
+  fi
+  if grep -q '^Removed symbols the graph still records users for:$' "${TMP_DIR}/removed-on.prompts"/* \
+     && grep -q 'removed by this PR; the graph still records 2 users (e.g. caller_one) — verify they were updated or removed.' "${TMP_DIR}/removed-on.prompts"/* \
+     && grep -q 'A removed-symbol line is what the graph still records' "${TMP_DIR}/removed-on.prompts"/*; then
+    pass "graph signals: the removed block and its guidance render with the flag on"
+  else
+    fail "graph signals: the removed block or its guidance is missing with the flag on"
+  fi
+  if grep -q 'A removed-symbol line is what the graph still records' "${TMP_DIR}/signals-on.prompts"/*; then
+    fail "graph signals: removed-symbol guidance leaked into a prompt without removed rows"
+  else
+    pass "graph signals: removed-symbol guidance appears only with removed rows"
+  fi
   for label in signals-absent graph-failed graph-disabled signals-malformed slice-missing; do
     if diff -rq "$baseline" "${TMP_DIR}/${label}.prompts" > /dev/null; then
       pass "graph signals: $label produces byte-identical full prompts to flag-off"

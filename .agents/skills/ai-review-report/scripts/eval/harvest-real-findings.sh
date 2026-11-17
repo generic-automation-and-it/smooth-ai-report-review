@@ -44,6 +44,11 @@
 # this human decision is measured against) and the full reviewed head plus the
 # base branch tip, from which a later re-score resolves the merge base.
 #
+# Each record also carries `graph_hint` (the graph hint kinds the reviewer was
+# shown for the finding's file: deleted-symbol, coverage, risk, churn, or none)
+# and `attribution_unavailable` (true when the run artifact had no slice to
+# check) — report-only, so fp labels can be attributed to a hint class.
+#
 # Writes one record per labelled finding to --out (default: the committed
 # corpus/real-findings/), in the shape lib/decisions-report.py reads:
 #   tp → kind must-catch,    min_severity = the finding's own severity
@@ -215,7 +220,14 @@ for spec in "$@"; do
   jq -e --argjson n "$n" '[.findings[] | select(.["#"] == $n)] | length == 1' "$merged" >/dev/null \
     || { echo "❌ run $RUN has no finding $n." >&2; exit 2; }
   out="$OUT/pr${PR:-unknown}-run${RUN}-f${n}.json"
-  jq --argjson n "$n" --arg label "$label" --arg reason "$reason" --arg run "$RUN" --arg sha "$sha" --arg pr "${PR:-}" \
+  # Which graph hint the reviewer saw for this finding's file (NFR-04): from
+  # the artifact's per-chunk slices via the finding's chunk back-reference;
+  # never guessed when the artifact or that chunk's slice is absent.
+  f_file="$(jq -r --argjson n "$n" '.findings[] | select(.["#"] == $n) | .file // ""' "$merged")"
+  f_chunks="$(jq -r --argjson n "$n" '.findings[] | select(.["#"] == $n) | (.chunks // []) | map(tostring) | join(",")' "$merged")"
+  hint_json="$(bash "$SCRIPT_DIR/lib/graph-hint-attribution.sh" "$(dirname "$merged")/graph" "$meta" "$f_file" "$f_chunks")"
+  jq -e 'type == "object"' <<< "$hint_json" >/dev/null 2>&1 || hint_json='{"graph_hint":["none"],"attribution_unavailable":true}'
+  jq --argjson n "$n" --argjson hint "$hint_json" --arg label "$label" --arg reason "$reason" --arg run "$RUN" --arg sha "$sha" --arg pr "${PR:-}" \
      --arg head "$head_full" --arg base_tip "$base_tip" '
     .decisions_summary as $ds
     | (.findings[] | select(.["#"] == $n)) as $f
@@ -236,6 +248,9 @@ for spec in "$@"; do
                  + (if $head != "" then { head: $head } else {} end)
                  + (if $base_tip != "" then { base_tip: $base_tip } else {} end)),
         provider: $ds.provider, model: $ds.model,
+        # Report-only attribution of an fp to the graph hint shown (NFR-04).
+        graph_hint: $hint.graph_hint,
+        attribution_unavailable: $hint.attribution_unavailable,
         findings: [ $f | { severity, verified: (.verified == true), confidence, title, why_it_matters,
                            file, line, first_evidence,
                            supported: (.decisions.supported // null),

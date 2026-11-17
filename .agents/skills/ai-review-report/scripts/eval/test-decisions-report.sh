@@ -349,10 +349,10 @@ check "4c: every planted evidence line exists in its fixture file" "0" \
 CAL="$TMP/cal"
 ( export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0
   bash "$SCRIPT_DIR/calibrate-decisions.sh" "$CAL" > "$TMP/cal.log" 2>&1 )
-check "4d: calibration scores 20 planted findings in each of three variants" "20/20/20" \
+check "4d: calibration scores 21 planted findings in each of three variants" "21/21/21" \
   "$(ls "$CAL/as-is" | wc -l | tr -d ' ')/$(ls "$CAL/stripped" | wc -l | tr -d ' ')/$(ls "$CAL/stripped+rules" | wc -l | tr -d ' ')"
-check "4e: ground truth holds — all 14 planted FPs count as DR re-raises, all 6 TPs as catches (every variant)" "3" \
-  "$(grep -cE '^ +base +14/14 +6/6 ' "$TMP/cal.log")"
+check "4e: ground truth holds — all 14 planted FPs count as DR re-raises, all 7 TPs as catches (every variant)" "3" \
+  "$(grep -cE '^ +base +14/14 +7/7 ' "$TMP/cal.log")"
 # Code comments only: Markdown headings (DR-014 ships its LADR document, which
 # is the point of that fixture) and C# directives such as `#nullable` are not
 # comments and must survive.
@@ -365,13 +365,13 @@ check "4f2: the as-is variant keeps them (the two variants really differ)" "true
   "$(find "$CAL"/work/as-is-* -path '*/.git' -prune -o -name '*.cs' -type f -print0 | xargs -0 grep -lE '^[[:space:]]*//' 2>/dev/null | grep -q . && echo true || echo false)"
 check "4g: every planted finding quotes its code line (no line-not-found fallback)" "0" \
   "$(jq -r '.findings[0].first_evidence' "$CAL"/work/*/ci_temp/findings.merged.json | grep -cE ' -- $' || true)"
-check "4i: only the rules variant sends project rules (the DR standards)" "0/20" \
+check "4i: only the rules variant sends project rules (the DR standards)" "0/21" \
   "$(cat "$CAL"/work/stripped-*/ci_temp/score.log >/dev/null 2>&1; jq -s '[.[] | select(.findings[0].sanctioned != null)] | length' "$CAL"/stripped/*.json)/$(jq -s '[.[] | select(.findings[0].sanctioned != null)] | length' "$CAL"/stripped+rules/*.json)"
 check "4j: the rules report adds the sanctioned section and the rule policies" "1/1/1" \
   "$(grep -c '1b. `sanctioned`' "$TMP/cal.log")/$(grep -cE '^ +rules@0.50 ' "$TMP/cal.log")/$(grep -cE '^ +either@0.50 ' "$TMP/cal.log")"
 ( cd "$TMP" && export PATH="$TMP/bin:$PATH" OPENCODE_GO_OPENAI_API_KEY=k _DECISIONS_RETRY_DELAY=0 \
   && bash "$SCRIPT_DIR/calibrate-decisions.sh" rel-out > "$TMP/cal-rel.log" 2>&1 )
-check "4k: a RELATIVE out_dir still collects every record (workers cd into sandboxes)" "60" \
+check "4k: a RELATIVE out_dir still collects every record (workers cd into sandboxes)" "63" \
   "$(find "$TMP/rel-out/as-is" "$TMP/rel-out/stripped" "$TMP/rel-out/stripped+rules" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
 check "4h: run-evals runs the calibration only with the measurement, and it cannot abort" "1" \
   "$(grep -c 'calibrate-decisions.sh" "\${EVAL_ARTIFACT_DIR:+\$EVAL_ARTIFACT_DIR/calibration}" || true' "$RUN_EVALS")"
