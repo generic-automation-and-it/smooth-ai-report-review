@@ -27,6 +27,8 @@ branch on it. An unknown selector fails before any model call rather than fallin
 - Two install/version-pin paths, each with a single source of truth, and two runtime test matrices
   must be maintained.
 - A backend-specific failure must be translated into the gate's existing failure taxonomy.
+- Shared-layer changes — context selection, gate-computed enrichment, merging and presentation —
+  land once and apply to both backends; only the runtime changes with the selector.
 
 ## Open
 
