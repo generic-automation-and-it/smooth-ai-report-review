@@ -63,7 +63,8 @@ evaluation corpus measures precision and recall against labeled expectations.
 - The `llm-evals` job never blocks a merge.
 - Eval precision is judged per sample by majority over repeated samples against a labeled corpus.
 - The corpus includes a deletion-regression recall fixture, and the paid run reports graph-hint
-  uptake and accuracy and autonomous-skip recurrence as report-only series.
+  uptake and accuracy as report-only series. Autonomous-skip recurrence is measured separately
+  with `measure-skip-recurrence.sh <analyse-summary.md> <next-review.md>` or `--pr <N>`.
 
 ### 4. Keep versioning singular
 
