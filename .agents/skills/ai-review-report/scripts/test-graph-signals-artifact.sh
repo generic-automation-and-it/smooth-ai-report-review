@@ -322,6 +322,33 @@ for v in 0 1; do
 done
 unset OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS
 
+# A deletion-only review: the risk/coverage TSV is empty, but the removed rows
+# rendered a slice. The enrichment the chunk saw must still ship and be counted.
+for v in 1 0; do
+  reset_sandbox
+  : > "${WORK_DIR}/graph_review_signals.tsv"
+  printf 'src/a.cs\t40\tGone\t2\t-\n' > "${WORK_DIR}/graph_removed_signals.tsv"
+  printf 'Removed symbols the graph still records users for:\n`src/a.cs:40` Gone — removed by this PR\n' > "${WORK_DIR}/chunk_0_graph_signals.md"
+  OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS=1
+  OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS="$v"
+  assemble_run_artifacts
+  if [ "$v" = 1 ]; then
+    if jq -e '.graph_signals == true and .graph_signals_chunks == 1' "$meta" > /dev/null \
+       && [ -f "${RUN_DIR}/graph/graph_removed_signals.tsv" ] && [ -f "${RUN_DIR}/graph/chunk_0_graph_signals.md" ] \
+       && [ ! -e "${RUN_DIR}/graph/graph_review_signals.tsv" ]; then
+      ok "removed-only enrichment ships its slice and removed TSV and is counted"
+    else
+      bad "removed-only enrichment was lost from the run artifact"
+      sed 's/^/       /' "$meta"
+    fi
+  elif jq -e '.graph_signals == false' "$meta" > /dev/null && [ ! -e "${RUN_DIR}/graph" ]; then
+    ok "removed rows with their flag off claim no enrichment"
+  else
+    bad "removed rows with their flag off claimed enrichment"
+  fi
+done
+unset OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS
+
 # ── 10. The three opt-in graph Variables are in both packagings and README ───
 for var in OPENCODE_REVIEW_REPORT_GRAPH_CHURN OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK; do
   for wf in "${REPO_ROOT}/.github/workflows/pipeline-code-review-report.yml" \

@@ -532,28 +532,40 @@ assemble_run_artifacts() {
   local graph_signals_chunks=0 signals_slice
   local graph_analysis_available="${GRAPH_ANALYSIS_AVAILABLE:-unknown}"
   case "$graph_analysis_available" in true|failed|disabled) ;; *) graph_analysis_available=unknown ;; esac
-  if [ -s "$WORK_DIR/graph_review_signals.tsv" ] \
-     && [ "$graph_analysis_available" != failed ] && [ "$graph_analysis_available" != disabled ] \
+  # A slice may come from the risk/coverage TSV, the opt-in removed-symbol TSV,
+  # or both (a deletion-only chunk renders removed rows alone), so rendered
+  # slices are counted first and each non-empty producer TSV ships on its own.
+  local graph_shipped removed_on=false
+  printf '%s' "${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}" | tr '[:upper:]' '[:lower:]' \
+    | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on' && removed_on=true
+  if [ "$graph_analysis_available" != failed ] && [ "$graph_analysis_available" != disabled ] \
+     && { [ -s "$WORK_DIR/graph_review_signals.tsv" ] \
+          || { [ "$removed_on" = true ] && [ -s "$WORK_DIR/graph_removed_signals.tsv" ]; }; } \
      && printf '%s' "${OPENCODE_REVIEW_REPORT_GRAPH_SIGNALS:-1}" | tr '[:upper:]' '[:lower:]' \
         | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
     for signals_slice in "$WORK_DIR"/chunk_*_graph_signals.md; do
       [ -s "$signals_slice" ] || continue
       graph_signals_chunks=$((graph_signals_chunks + 1))
     done
-    if [ "$graph_signals_chunks" -gt 0 ] \
-       && mkdir -p "$dir/graph" 2>/dev/null \
-       && [ ! -d "$dir/graph/graph_review_signals.tsv" ] \
-       && cp "$WORK_DIR/graph_review_signals.tsv" "$dir/graph/graph_review_signals.tsv" 2>/dev/null; then
-      graph_signals="true"
-      for signals_slice in "$WORK_DIR"/chunk_*_graph_signals.md; do
-        [ -s "$signals_slice" ] || continue
-        cp "$signals_slice" "$dir/graph/$(basename "$signals_slice")" 2>/dev/null || true
-      done
+    if [ "$graph_signals_chunks" -gt 0 ] && mkdir -p "$dir/graph" 2>/dev/null; then
+      graph_shipped=true
+      if [ -s "$WORK_DIR/graph_review_signals.tsv" ]; then
+        { [ ! -d "$dir/graph/graph_review_signals.tsv" ] \
+          && cp "$WORK_DIR/graph_review_signals.tsv" "$dir/graph/graph_review_signals.tsv" 2>/dev/null; } \
+          || graph_shipped=false
+      fi
       # The opt-in removed-symbol rows ship only when their flag fed the slices.
-      if [ -s "$WORK_DIR/graph_removed_signals.tsv" ] \
-         && printf '%s' "${OPENCODE_REVIEW_REPORT_GRAPH_REMOVED_SIGNALS:-0}" | tr '[:upper:]' '[:lower:]' \
-            | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
-        cp "$WORK_DIR/graph_removed_signals.tsv" "$dir/graph/graph_removed_signals.tsv" 2>/dev/null || true
+      if [ "$removed_on" = true ] && [ -s "$WORK_DIR/graph_removed_signals.tsv" ]; then
+        { [ ! -d "$dir/graph/graph_removed_signals.tsv" ] \
+          && cp "$WORK_DIR/graph_removed_signals.tsv" "$dir/graph/graph_removed_signals.tsv" 2>/dev/null; } \
+          || graph_shipped=false
+      fi
+      if [ "$graph_shipped" = true ]; then
+        graph_signals="true"
+        for signals_slice in "$WORK_DIR"/chunk_*_graph_signals.md; do
+          [ -s "$signals_slice" ] || continue
+          cp "$signals_slice" "$dir/graph/$(basename "$signals_slice")" 2>/dev/null || true
+        done
       fi
     fi
   fi

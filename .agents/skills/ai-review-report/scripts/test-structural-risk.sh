@@ -141,6 +141,40 @@ check "Issues Summary without Recommendation and no rule: appended at the end" \
   "<!-- ai-review-report:structural-risk:end -->" "$(grep -v '^$' "${TMP_DIR}/body.md" | tail -n1)"
 check "appended: prose unchanged after strip (one trailing blank)" "$(printf '%s\n\n' "$BODY_ISSUES_ONLY")" "$(bash "$STRIP" < "${TMP_DIR}/body.md"; echo)"
 
+BODY_FENCED='## 🔍 Issues Summary
+
+### 🟡 Medium Priority Issues
+1. 🟡 [VERIFIED] Medium Priority: thing — `src/a.py:3`
+   - the report must contain:
+
+```markdown
+## 📋 Overall Summary
+---
+```
+
+## 📝 Suggested Fixes
+Fix it.
+
+## 🎯 Recommendation
+**MACHINE_READABLE_ACTION:** comment'
+place "$BODY_FENCED"
+check "fenced example heading: block still lands before Suggested Fixes, outside the fence" "## 📝 Suggested Fixes" \
+  "$(awk -v m='<!-- ai-review-report:structural-risk:end -->' 'f && NF { print; exit } $0 == m { f = 1 }' "${TMP_DIR}/body.md")"
+check "fenced example heading: the quoted fence is unchanged" "$(printf '%s\n' "$BODY_FENCED")" "$(bash "$STRIP" < "${TMP_DIR}/body.md")"
+BODY_FENCED_ONLY='## 🤖 Smooth AI Review
+
+```
+## 🔍 Issues Summary
+## 🎯 Recommendation
+```
+
+---
+
+prose'
+place "$BODY_FENCED_ONLY"
+check "anchors only inside a fence are not anchors: fallback before the first real rule" "---" \
+  "$(awk -v m='<!-- ai-review-report:structural-risk:end -->' 'f && NF { print; exit } $0 == m { f = 1 }' "${TMP_DIR}/body.md")"
+
 printf 'x\n' > "${TMP_DIR}/plain.md"
 bash "$INSERT" "${TMP_DIR}/plain.md" "${TMP_DIR}/missing-block.md"; rc=$?
 check "missing block file: exit 0, body untouched" "0:x" "${rc}:$(cat "${TMP_DIR}/plain.md")"

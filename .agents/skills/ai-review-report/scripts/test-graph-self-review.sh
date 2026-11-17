@@ -69,6 +69,31 @@ printf 'no heading\n' > "$TMP/other.md"
 check "a non-summary comment → unavailable" "unavailable" "$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/other.md" "$TMP/review.md" | jq -r .status)"
 check "a review without an Issues Summary → unavailable" "unavailable" "$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/summary.md" "$TMP/other.md" | jq -r .status)"
 
+cat > "$TMP/prose-review.md" << 'MD'
+## 🔍 Issues Summary
+
+### 🟡 Medium Priority Issues
+1. **Retry loop has no backoff** in `src/a.sh:40` — add exponential backoff.
+
+## 🎯 Recommendation
+MD
+check "an Issues Summary the parser cannot read → unavailable, not a zero" "unavailable" \
+  "$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/summary.md" "$TMP/prose-review.md" | jq -r .status)"
+cat > "$TMP/clean-review.md" << 'MD'
+## 🔍 Issues Summary
+
+### 🟡 Medium Priority Issues
+None found
+
+### 🔵 Low Priority
+- None found.
+- **R1)** 🟡 Residual risk: advisory only — `src/x.sh:1`
+
+## 🎯 Recommendation
+MD
+out="$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/summary.md" "$TMP/clean-review.md")"
+check "a genuinely clean review is still measured (zero reappeared)" "measured/0" "$(jq -r '"\(.status)/\(.reappeared)"' <<< "$out")"
+
 echo ""
 echo "2. hint attribution from the run artifact"
 ATTR="$EVAL/lib/graph-hint-attribution.sh"
@@ -99,6 +124,7 @@ printf '{"id":"MC-X","kind":"must-catch","known_true_positive":{"file":"src/a.py
 printf '{"id":"DR-X","kind":"must-not-flag"}\n' > "$TMP/mnf.json"
 check "no slice shown → no row" "" "$(bash "$MET" "$TMP/mc.json" "$TMP/ci")"
 printf 'x\n' > "$TMP/ci/chunk_0_graph_signals.md"
+printf 'review\n' > "$TMP/ci/reviews/chunk_0.md"
 cat > "$TMP/ci/reviews/chunk_0.findings.json" << 'JSON'
 {"findings":[
  {"file":"src/a.py","severity":"high","graph_evidence":{"query":"test_gaps","target":"alpha","result_summary":"no test coverage"}},
@@ -113,6 +139,21 @@ mkdir -p "$TMP/hints"
 bash "$MET" "$TMP/mnf.json" "$TMP/ci" > "$TMP/hints/DR-X.tsv"
 check "summary line" " Graph hints (report-only): uptake 6 cited finding(s) over 3 sample(s) in 2 fixture(s); test-gap claims 3 — accepted 2, rejected 1" \
   "$(bash "$MET" --summary "$TMP/hints")"
+# NFR-04: a missing or malformed sidecar is unavailable, never zero counts.
+cp -R "$TMP/ci" "$TMP/ci-missing"; printf 'review\n' > "$TMP/ci-missing/reviews/chunk_1.md"
+check "a reviewed chunk without a sidecar → unavailable, not zeros" "$(printf 'MC-X\tmust-catch\tunavailable')" "$(bash "$MET" "$TMP/mc.json" "$TMP/ci-missing")"
+cp -R "$TMP/ci" "$TMP/ci-bad"; printf 'not json\n' > "$TMP/ci-bad/reviews/chunk_0.findings.json"
+check "a malformed sidecar → unavailable" "$(printf 'MC-X\tmust-catch\tunavailable')" "$(bash "$MET" "$TMP/mc.json" "$TMP/ci-bad")"
+cp -R "$TMP/ci-missing" "$TMP/ci-failed"; : > "$TMP/ci-failed/reviews/chunk_1.failed"
+check "a failed chunk has no review to measure and is skipped" "$(printf 'MC-X\tmust-catch\t2\t1\t1\t0')" "$(bash "$MET" "$TMP/mc.json" "$TMP/ci-failed")"
+bash "$MET" "$TMP/mc.json" "$TMP/ci-missing" >> "$TMP/hints/MC-X.tsv"
+check "summary counts unavailable samples apart and keeps them out of the totals" \
+  " Graph hints (report-only): uptake 6 cited finding(s) over 3 sample(s) in 2 fixture(s); test-gap claims 3 — accepted 2, rejected 1; 1 sample(s) unavailable (missing or malformed sidecar), excluded" \
+  "$(bash "$MET" --summary "$TMP/hints")"
+mkdir -p "$TMP/hints-u"; bash "$MET" "$TMP/mc.json" "$TMP/ci-missing" > "$TMP/hints-u/MC-X.tsv"
+check "all samples unavailable → the summary says unavailable, never zero" \
+  " Graph hints (report-only): unavailable — every sample with a graph hint lacked a usable sidecar; 1 sample(s) unavailable (missing or malformed sidecar), excluded" \
+  "$(bash "$MET" --summary "$TMP/hints-u")"
 check "summary with nothing shown says so" " Graph hints              : no graph hints shown in any sample (report-only)" \
   "$(bash "$MET" --summary "$TMP/empty-dir")"
 

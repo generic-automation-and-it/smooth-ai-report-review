@@ -65,6 +65,20 @@ findings="$(bash "$PARSER" "$review" 2>/dev/null | jq -c '[.findings[]? | {file,
 [ -n "$findings" ] || unavailable "next review unparseable"
 grep -q '^## 🔍 Issues Summary' "$review" || unavailable "next review has no Issues Summary"
 
+# The parser reads only the rendered structured-findings grammar. An Issues
+# Summary written in any other shape (the orchestrator's own prose, an older
+# format) parses to fewer findings than it lists, and joining against that
+# would report a false zero. Count the list items under the severity headings —
+# excluding "None found", the R/T/P bullets and indented sub-bullets — and give
+# up when the parser saw fewer. A genuinely clean review lists none.
+listed="$(awk '
+  /^## / { in_issues = ($0 ~ /^## 🔍 Issues Summary/); in_sev = 0; next }
+  in_issues && /^### / { in_sev = ($0 ~ /^### (🔴|🟠|🟡|🔵)/); next }
+  in_issues && in_sev && /^([0-9]+\.|[-*]) / && !/None found/ && !/^- \*\*[RTPH][0-9]+\)\*\*/ { n++ }
+  END { print n + 0 }' "$review")"
+parsed="$(jq 'length' <<< "$findings")"
+[ "$listed" -le "$parsed" ] || unavailable "next review lists $listed finding(s) but only $parsed parse in the structured grammar"
+
 # SKIP rows → {file, summary}. Cells are trimmed and stripped of bold/code marks.
 skips="$(awk -F'|' '
   function clean(s) { gsub(/\*\*|`/, "", s); gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
