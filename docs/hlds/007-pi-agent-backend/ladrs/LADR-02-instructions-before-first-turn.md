@@ -21,7 +21,10 @@ before the first model call. Selection logic, frontmatter stripping, source labe
 exact-`AGENTS.md` exclusion stay backend-neutral; only delivery is backend-specific.
 
 Delivery must not depend on a path-list read round-trip, and must not rely on an undocumented
-directory walk for correctness.
+directory walk for correctness. Native exact `AGENTS.md`/`CLAUDE.md` discovery stays enabled; the
+generated artifact carries only the custom scoped set. If a backend's injection mode would suppress
+native discovery, the adapter must supply that native context explicitly, so the delivered set is the
+union of both.
 
 ## Consequences
 
@@ -35,6 +38,8 @@ directory walk for correctness.
 - Per-file rule precision inside a chunk is deferred (LADR-05).
 - Widening the consumed rule-source set — for example consumer rule directories — is a separate
   decision, triggered by a named consumer requirement.
+- Rule-size caps and content-hash deduplication are context-layer hardening owned by 002 and the
+  skill, not by this backend contract.
 
 ## Related
 
