@@ -184,6 +184,31 @@ place "$BODY_FENCED_ONLY"
 check "anchors only inside a fence are not anchors: fallback before the first real rule" "---" \
   "$(awk -v m='<!-- ai-review-report:structural-risk:end -->' 'f && NF { print; exit } $0 == m { f = 1 }' "${TMP_DIR}/body.md")"
 
+# A review that QUOTES the heading and both markers inside a fenced example must
+# not have the quoted begin paired with the genuine end — that would delete the
+# findings between them.
+BODY_FENCED_PAIR='## 🔍 Issues Summary
+
+1. 🟠 [VERIFIED] High Priority: real finding — `src/a.py:9`
+   - the report contains:
+
+```markdown
+## 🧭 Structural Risk (graph)
+<!-- ai-review-report:structural-risk:begin -->
+```
+
+KEEP_THIS_FINDING
+
+## 🎯 Recommendation
+**MACHINE_READABLE_ACTION:** comment'
+place "$BODY_FENCED_PAIR"
+check "a fenced quoted pair does not swallow the real content" "1" \
+  "$(bash "$STRIP" < "${TMP_DIR}/body.md" | grep -c 'KEEP_THIS_FINDING')"
+check "the real block is still the one removed" "1" \
+  "$(bash "$STRIP" < "${TMP_DIR}/body.md" | grep -cx '## 🧭 Structural Risk (graph)')"
+check "the fenced example is preserved verbatim" "1" \
+  "$(bash "$STRIP" < "${TMP_DIR}/body.md" | grep -cx '<!-- ai-review-report:structural-risk:begin -->')"
+
 printf 'x\n' > "${TMP_DIR}/plain.md"
 bash "$INSERT" "${TMP_DIR}/plain.md" "${TMP_DIR}/missing-block.md"; rc=$?
 check "missing block file: exit 0, body untouched" "0:x" "${rc}:$(cat "${TMP_DIR}/plain.md")"
