@@ -57,7 +57,11 @@ body="$(jq -r --arg root "$root" --arg churn "$churn" '
   | (.risk_score | num) as $overall
   | ($gaps | map(select(.coverage == "indirect")) | length) as $indirect
   | (($gaps | length) - $indirect) as $direct
-  | ($cf | map(.file_path | relpath?) | unique | length) as $files
+  # Counted over the raw path strings, not the rendered ones: a path that fails
+  # relpath is never printed, but it is still a file, and counting only
+  # renderable paths printed "3 across 0 file(s)".
+  | ($cf | map(.file_path | strings) | unique | length) as $files
+  | ((.functions_truncated // false) | if type == "boolean" then . else false end) as $trunc
   | ($removed
       | map(select((.used_by_total | num) != null and .used_by_total > 0))
       | map(((.file // "") | ltrimstr($root)) as $file
@@ -76,7 +80,10 @@ body="$(jq -r --arg root "$root" --arg churn "$churn" '
            elif ($risks | length) > 0 then (($risks | max) | r2) + " (highest changed function)"
            else "not reported" end)
         + " · change frequency " + $churn_text,
-      "- **Changed functions:** \($cf | length) across \($files) file(s); \($risks | map(select(. >= 0.7)) | length) at risk 0.7 or above",
+      "- **Changed functions:** \($cf | length)"
+        + (if $files > 0 then " across \($files) file(s)" else "" end)
+        + "; \($risks | map(select(. >= 0.7)) | length) at risk 0.7 or above"
+        + (if $trunc then " — graph list truncated, counts are lower bounds" else "" end),
       "- **Affected flows:** \($flows)",
       "- **Test gaps (graph-inferred):** \($direct) with no test edge found, \($indirect) reached only through a caller",
       ( if ($still_used | length) > 0 then

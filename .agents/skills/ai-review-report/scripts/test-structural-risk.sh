@@ -80,6 +80,15 @@ check "no '#'+digits anywhere in the block" "0" "$(printf '%s\n' "$BLOCK" | grep
 check "no severity emoji or label in the block" "0" "$(printf '%s\n' "$BLOCK" | grep -cE '🔴|🟠|🟡|🔵|Critical|High Priority|Medium Priority|Low Priority')"
 check "no numbered (finding-shaped) line in the block" "0" "$(printf '%s\n' "$BLOCK" | grep -cE '^[0-9]+\. ')"
 check "no R/T/P identifier in the block" "0" "$(printf '%s\n' "$BLOCK" | grep -cE '\*\*[RTP][0-9]+\)\*\*')"
+# Paths that cannot be printed (outside the repo, or a root mismatch) must not
+# make the count contradict the rows: counting only renderable paths printed
+# "3 across 0 file(s)".
+printf '{"changed_functions":[{"file_path":"/elsewhere/a.py","risk_score":0.8},{"file_path":"/elsewhere/a.py","risk_score":0.2},{"file_path":"/elsewhere/b.py"}]}\n' > "${TMP_DIR}/abs.json"
+check "unrenderable paths: the file count stays truthful" "1" \
+  "$(OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK=1 GRAPH_ANALYSIS_AVAILABLE=true render "${TMP_DIR}/abs.json" | grep -cx -- '- \*\*Changed functions:\*\* 3 across 2 file(s); 1 at risk 0.7 or above')"
+printf '{"changed_functions":[{"line_start":3}],"functions_truncated":true}\n' > "${TMP_DIR}/trunc.json"
+check "a truncated graph list says its counts are lower bounds" "1" \
+  "$(OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK=1 GRAPH_ANALYSIS_AVAILABLE=true render "${TMP_DIR}/trunc.json" | grep -cx -- '- \*\*Changed functions:\*\* 1; 0 at risk 0.7 or above — graph list truncated, counts are lower bounds')"
 printf '{"graph_version":"2.4.0","churn_status":"unavailable"}\n' > "${TMP_DIR}/state_u.json"
 check "churn unavailable is stated" "1" "$(OPENCODE_REVIEW_REPORT_GRAPH_STRUCTURAL_RISK=1 GRAPH_ANALYSIS_AVAILABLE=true render "$GRAPH" "${TMP_DIR}/state_u.json" | grep -c 'change frequency unavailable')"
 
@@ -269,6 +278,36 @@ STUB
     "$(bash "${LIB}/extract-ai-analyse-scope.sh" "${TMP_DIR}/off.md")" "$(bash "${LIB}/extract-ai-analyse-scope.sh" "${TMP_DIR}/on.md")"
   check "findings parser saw the stubbed finding (the comparison is not vacuous)" "1" \
     "$(bash "${LIB}/review-findings-to-json.sh" "${TMP_DIR}/on.md" | jq '.findings | length')"
+
+  # The strongest "only improvements" guarantee: handing the aggregator the two
+  # new positional inputs with every new flag falsy changes nothing at all.
+  run_agg_args() {
+    local name="$1"; shift
+    rm -rf "${SANDBOX}/ci_temp"
+    mkdir -p "${SANDBOX}/ci_temp/reviews"
+    printf '### 📄 File: `src/a.py`\n\n**Issues Found:**\n- None found.\n' > "${SANDBOX}/ci_temp/reviews/chunk_0.md"
+    : > "${TMP_DIR}/${name}.gh"
+    (
+      cd "$SANDBOX" || exit 1
+      env PATH="${TMP_DIR}/bin:${PATH}" \
+        OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai \
+        OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR=orch \
+        OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS=0 \
+        GITHUB_OUTPUT="${TMP_DIR}/${name}.gh" \
+        GRAPH_ANALYSIS_AVAILABLE=true \
+        bash .agents/skills/ai-review-report/scripts/aggregate-reviews.sh \
+          1 review full aaaaaaa1111 1 bbbbbbb2222 "test expertise" none "" "" "$@"
+    ) > "${TMP_DIR}/${name}.log" 2>&1
+    cp "${SANDBOX}/ci_temp/final_review.md" "${TMP_DIR}/${name}.md" 2>/dev/null || : > "${TMP_DIR}/${name}.md"
+  }
+  run_agg_args bare
+  run_agg_args withdata "${TMP_DIR}/g.json" "${TMP_DIR}/s.json"
+  check "new positional graph inputs with every new flag falsy change no byte of the body" \
+    "$(cat "${TMP_DIR}/bare.md")" "$(cat "${TMP_DIR}/withdata.md")"
+  check "the flag-falsy comparison produced a real body (not vacuous)" "1" \
+    "$([ -s "${TMP_DIR}/withdata.md" ] && grep -q '## 🔍 Issues Summary' "${TMP_DIR}/withdata.md" && echo 1 || echo 0)"
+  check "review_action is unchanged by the positional graph inputs" \
+    "$(grep '^review_action=' "${TMP_DIR}/bare.gh" | tail -1)" "$(grep '^review_action=' "${TMP_DIR}/withdata.gh" | tail -1)"
 fi
 
 echo ""
