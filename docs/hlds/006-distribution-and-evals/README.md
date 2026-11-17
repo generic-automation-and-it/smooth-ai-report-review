@@ -6,7 +6,7 @@
 | **Owner** | Repository platform |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [SKILLS_INSTALLER.md](../../../scripts/SKILLS_INSTALLER.md) + [plugin.json](../../../.claude-plugin/plugin.json) + [llm-eval-harness.yml](../../../.github/workflows/llm-eval-harness.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered distribution and evaluation platform. It states **intent + spec**;
 > execution sequencing lives in the issue tracker.
@@ -62,6 +62,8 @@ evaluation corpus measures precision and recall against labeled expectations.
 - Relevance is checked inside the job so branch protection always receives a result.
 - The `llm-evals` job never blocks a merge.
 - Eval precision is judged per sample by majority over repeated samples against a labeled corpus.
+- The corpus includes a deletion-regression recall fixture, and the paid run reports graph-hint
+  uptake and accuracy and autonomous-skip recurrence as report-only series.
 
 ### 4. Keep versioning singular
 
@@ -130,3 +132,7 @@ outside, so it can fail without changing what consumers run. Versioning names th
 | [NFR-01](./nfrs/NFR-01-installer-parity.md) | Installer parity | Identical owned lists; idempotent reconciliation | Accepted |
 | [NFR-02](./nfrs/NFR-02-offline-regression-independence.md) | Evaluation independence | Blocking suite needs no secret or model call | Accepted |
 | [NFR-03](./nfrs/NFR-03-version-tag-consistency.md) | Version consistency | Major tag always matches the manifest version | Accepted |
+| [NFR-04](./nfrs/NFR-04-measurement-visibility.md) | Measurement visibility | Every reappearing skip counted or `unavailable`; hint metrics never gate | Accepted |
+
+Eval corpus and harness assets are owned by the `ai-review-report` skill; this HLD governs their
+gating and release role.

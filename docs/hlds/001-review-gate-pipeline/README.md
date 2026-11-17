@@ -6,7 +6,7 @@
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [AGENTS.md](../../../.agents/skills/ai-review-report/AGENTS.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered gate. It states **intent + spec** — what the gate guarantees and
 > why. It does not contain an implementation plan; phasing and sequencing live in the issue tracker.
@@ -75,6 +75,10 @@ minimized on full runs, and an artifact is uploaded for runs that reach artifact
   uncertain retry's duplicate is cosmetic and minimized later.
 - Coverage gaps are named in the posted body and never counted as code defects.
 - Runs that reach artifact assembly upload one; preflight exits may post only an error comment.
+- Enrichment degradation is named once in Coverage and is never counted as a coverage gap or a
+  code defect.
+- The presentation-only structural block is assembled after the Issues Summary, dropped whole before
+  body truncation, and never changes counts, the action or the posted state.
 
 ### 5. Keep one entrypoint across packagings
 

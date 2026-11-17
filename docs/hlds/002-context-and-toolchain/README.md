@@ -6,7 +6,7 @@
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [opencode.json](../../../.agents/skills/ai-review-report/assets/opencode.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered context layer and runtime pinning. It states **intent + spec**;
 > implementation sequencing lives in the issue tracker.
@@ -57,6 +57,11 @@ become a verdict on its own.
 - A failed graph build yields a review without graph blocks.
 - **Prompt-enforced:** No graph signal alone justifies Critical or High, or satisfies quote-the-line evidence.
 - Version notices are bounded and never fail the run.
+- A new hint class is opt-in, and with its flag off the chunk prompt is byte-identical.
+- An installed graph too old for an enabled feature omits that feature and names it in one
+  degradation line; it never fabricates the signal.
+- Deleted-symbol and coverage-classification hints state what the graph records — "still records
+  N users", "reached only through a caller" — never that code will break or that tests do not exist.
 
 ### 4. Pin and verify the toolchain
 
@@ -117,7 +122,7 @@ verdict preserves one source of truth for review decisions.
 |------|----------|--------|
 | [LADR-01](./ladrs/LADR-01-scoped-context-fails-open.md) | Scope-filtered context, mandatory list default none | Accepted |
 | [LADR-02](./ladrs/LADR-02-runtime-agents-delivery.md) | Rules reach the model as a generated runtime `AGENTS.md` | Accepted |
-| [LADR-03](./ladrs/LADR-03-enrichment-is-advisory.md) | Graph and provenance signals are hints, never verdicts | Accepted |
+| [LADR-03](./ladrs/LADR-03-enrichment-is-advisory.md) | Graph and provenance signals are hints, never verdicts; new hint classes are opt-in | Accepted |
 | [LADR-04](./ladrs/LADR-04-single-toolchain-source.md) | One install source per tool with a hard v2 floor | Accepted |
 | [LADR-05](./ladrs/LADR-05-one-selector-provider-surface.md) | One selector resolves the provider and model surface | Accepted |
 
@@ -129,5 +134,5 @@ verdict preserves one source of truth for review decisions.
 | NFR | Attribute | Target (summary) | Status |
 |-----|-----------|------------------|--------|
 | [NFR-01](./nfrs/NFR-01-context-selection-completeness.md) | Context completeness | Zero false drops; every uncertain case retained | Accepted |
-| [NFR-02](./nfrs/NFR-02-enrichment-non-blocking.md) | Availability | Enrichment failure never blocks or softens a review | Accepted |
+| [NFR-02](./nfrs/NFR-02-enrichment-non-blocking.md) | Availability | Enrichment failure never blocks or softens a review; degradation is named once | Accepted |
 | [NFR-03](./nfrs/NFR-03-toolchain-determinism.md) | Runtime determinism | Same pin yields v2 with a verified binding | Accepted |

@@ -25,4 +25,5 @@ bullet remains absent from the live Skip Areas section.
 
 ## Applies To
 
-Goal 2; the non-Copilot routing path.
+Goal 2; the non-Copilot routing path of the human-driven `/ai-review execute`. Autonomous
+`ai-analyse` skips are out of scope here; their recurrence is measured by HLD-006 NFR-04.
