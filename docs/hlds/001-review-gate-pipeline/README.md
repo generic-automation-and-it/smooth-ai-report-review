@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [AGENTS.md](../../../.agents/skills/ai-review-report/AGENTS.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
+| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [AGENTS.md](../../../.agents/skills/ai-review-report/AGENTS.md) at `ac0d27f`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-17 |
 
 > Design record for the delivered gate. It states **intent + spec** — what the gate guarantees and

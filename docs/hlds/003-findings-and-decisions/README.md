@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Owner** | `ai-review-report` (consumed by `ai-review` and `ai-analyse`) |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [findings-schema.json](../../../.agents/skills/ai-review-report/assets/findings-schema.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
+| **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [findings-schema.json](../../../.agents/skills/ai-review-report/assets/findings-schema.json) at `ac0d27f`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-17 |
 
 > Design record for the delivered findings pipeline. It states **intent + spec**; execution

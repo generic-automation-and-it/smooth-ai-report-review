@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Owner** | Repository platform |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [SKILLS_INSTALLER.md](../../../scripts/SKILLS_INSTALLER.md) + [plugin.json](../../../.claude-plugin/plugin.json) + [llm-eval-harness.yml](../../../.github/workflows/llm-eval-harness.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
+| **Evidence** | [SKILLS_INSTALLER.md](../../../scripts/SKILLS_INSTALLER.md) + [plugin.json](../../../.claude-plugin/plugin.json) + [llm-eval-harness.yml](../../../.github/workflows/llm-eval-harness.yml) at `ac0d27f`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-17 |
 
 > Design record for the delivered distribution and evaluation platform. It states **intent + spec**;

@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Owner** | `ai-review` + `git-commit-review-push` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
-| **Evidence** | [ai-review SKILL.md](../../../.agents/skills/ai-review/SKILL.md) + [git-commit-review-push SKILL.md](../../../.agents/skills/git-commit-review-push/SKILL.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
+| **Evidence** | [ai-review SKILL.md](../../../.agents/skills/ai-review/SKILL.md) + [git-commit-review-push SKILL.md](../../../.agents/skills/git-commit-review-push/SKILL.md) at `ac0d27f`; canonical LADRs in each LADR's Related section |
 | **Last updated** | 2026-11-17 |
 
 > Design record for the delivered consumer skill and commit trigger. It states **intent + spec**;
