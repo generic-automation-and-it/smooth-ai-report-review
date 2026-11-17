@@ -634,9 +634,10 @@ jobs:
           path: .smooth-ai-review-tools
 
       # ── Code graph analysis (LADR-049) ──────────────────────────────────────
-      # Opt-in: enabled by setting OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
-      # to a truthy value (1/true/yes/on, case-insensitive) as a repo/org Variable.
-      # When enabled, the review gate builds a Tree-sitter knowledge graph of the
+      # ON BY DEFAULT (LADR-049): OPENCODE_REVIEW_REPORT_ENABLE_GRAPH_ANALYSIS
+      # resolves to '1' when the repo/org Variable is unset; a falsy value
+      # (0/false/no/off, case-insensitive) disables it. The review gate builds a
+      # Tree-sitter knowledge graph of the
       # repo and uses it for risk-scored function-level analysis. The graph DB is
       # cached between runs for fast incremental updates. The actual install + build
       # logic lives in scripts/lib/build-code-graph.sh (called from run-review.sh
