@@ -53,7 +53,9 @@ if [ "${1:-}" = "--pr" ]; then
     | map(select((.body // "") | test("(^|\n)## 🔍 Issues Summary")) | select((.submitted_at // "") > $since))
     | sort_by(.submitted_at) | first | .body // empty' "$work/reviews.json" > "$work/review.md"
   [ -s "$work/review.md" ] || unavailable "no gate review after the ai-analyse summary"
-  exec bash "${BASH_SOURCE[0]}" "$work/summary.md" "$work/review.md"
+  # Not exec: replacing the shell would skip the EXIT trap and leak $work.
+  bash "${BASH_SOURCE[0]}" "$work/summary.md" "$work/review.md"
+  exit $?
 fi
 
 summary="${1:-}"; review="${2:-}"

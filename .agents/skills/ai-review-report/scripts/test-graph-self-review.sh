@@ -67,6 +67,8 @@ check "missing summary → unavailable" "unavailable" "$(bash "$EVAL/measure-ski
 check "unavailable carries no counts" "null" "$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/none.md" "$TMP/review.md" | jq -r .skips)"
 printf 'no heading\n' > "$TMP/other.md"
 check "a non-summary comment → unavailable" "unavailable" "$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/other.md" "$TMP/review.md" | jq -r .status)"
+check "the --pr path does not exec past its EXIT trap (temp dir leak)" "0" \
+  "$(grep -c '^  exec bash' "$EVAL/measure-skip-recurrence.sh")"
 check "a review without an Issues Summary → unavailable" "unavailable" "$(bash "$EVAL/measure-skip-recurrence.sh" "$TMP/summary.md" "$TMP/other.md" | jq -r .status)"
 
 cat > "$TMP/prose-review.md" << 'MD'
