@@ -6,7 +6,7 @@
 | **Owner** | `ai-analyse` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-analyse SKILL.md](../../../.agents/skills/ai-analyse/SKILL.md) + [pipeline-ai-analyse.yml](../../../.github/workflows/pipeline-ai-analyse.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered autonomous fixer. It states **intent + spec**; execution
 > sequencing lives in the issue tracker.
@@ -107,6 +107,7 @@ action outside the model's reach.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — the findings this fixer consumes.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — the human-driven sibling path.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the run that triggers this loop.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — the second runtime that must preserve these safety guarantees (Draft).
 
 ---
 

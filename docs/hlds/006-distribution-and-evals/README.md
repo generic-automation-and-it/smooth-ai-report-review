@@ -6,7 +6,7 @@
 | **Owner** | Repository platform |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [SKILLS_INSTALLER.md](../../../scripts/SKILLS_INSTALLER.md) + [plugin.json](../../../.claude-plugin/plugin.json) + [llm-eval-harness.yml](../../../.github/workflows/llm-eval-harness.yml) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered distribution and evaluation platform. It states **intent + spec**;
 > execution sequencing lives in the issue tracker.
@@ -107,6 +107,7 @@ outside, so it can fail without changing what consumers run. Versioning names th
 - [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the artifact being distributed.
 - [005 Autonomous Low and Medium Fixer](../005-autonomous-fixer/README.md) — the optional skill behind the install flag.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — an additional runtime pin and selector on the distribution surface (Draft).
 
 ---
 

@@ -6,7 +6,7 @@
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [opencode.json](../../../.agents/skills/ai-review-report/assets/opencode.json) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered context layer and runtime pinning. It states **intent + spec**;
 > implementation sequencing lives in the issue tracker.
@@ -104,6 +104,7 @@ verdict preserves one source of truth for review decisions.
 - [HLD index](../README.md) — ownership map, numbering convention and source precedence.
 - [001 PR Review Gate Pipeline](../001-review-gate-pipeline/README.md) — the consumer of this layer.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — what the enriched chunk produces.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — the runtime contract this layer's delivery is parameterized by (Draft).
 
 ---
 
