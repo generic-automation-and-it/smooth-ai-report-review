@@ -1538,7 +1538,7 @@ This file is loaded into the chunk prompt whenever a PR touches this folder. Whe
 
 ## Test References
 
-No backend test projects: the gate's tests are offline shell harnesses under `scripts/` (stubbed `opencode`/`curl`/`gh` on `PATH`, no paid calls) plus the labelled eval corpus under `scripts/eval/corpus/` (LADR-033). The blocking job in `.github/workflows/llm-eval-harness.yml` runs the list below; add a new harness there.
+No backend test projects: the gate's tests are offline shell harnesses under `scripts/` (stubbed `opencode`/`curl`/`gh` on `PATH`, no paid calls) plus the labelled eval corpus under `scripts/eval/corpus/` (LADR-033). The blocking job in `.github/workflows/llm-eval-harness.yml` runs the list below; add a new harness there. Run that same list locally with `scripts/run-regressions.sh` (it parses the workflow's array and checks the GNU coreutils / PyYAML prerequisites) rather than looping over suites by hand.
 
 | Tier | Path | Covers |
 |------|------|--------|
@@ -1602,6 +1602,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | Test References points at `scripts/run-regressions.sh` for local runs. | #256 |
 | 2026-11-17 | LADR-050 amended: opt-in removed-symbol hint class (separate TSV), indirect-coverage wording, churn flag, graph state in metadata, one Coverage line only for an enabled feature's degradation; presentation-only Structural Risk block (HLD-003 LADR-06); report-only skip-recurrence and hint-attribution metrics. | #256 |
 | 2026-11-14 | Posted reviews renamed to Smooth AI Review with powered-by OpenCode footer, ASCII banner removed, matchers accept both headers, README/SKILL.md non-affiliation notes. | LADR-112 |
 |------|--------|-----|
