@@ -137,8 +137,8 @@ check "no anchors: prose unchanged after strip" "$(printf '%s\n' "$BODY_STUB")" 
 BODY_ISSUES_ONLY='## 🔍 Issues Summary
 1. 🟡 [VERIFIED] Medium Priority: thing — `src/a.py:3`'
 place "$BODY_ISSUES_ONLY"
-check "Issues Summary without Recommendation and no rule: appended at the end" "$BEGIN_MARK" \
-  "$(grep -n -- "$BEGIN_MARK" "${TMP_DIR}/body.md" | awk -F: -v n="$(printf '%s\n' "$BODY_ISSUES_ONLY" | wc -l | tr -d ' ')" '{ print ($1 > n) ? $2 ":" $3 ":" $4 : "early" }' | sed 's/^[^<]*//')"
+check "Issues Summary without Recommendation and no rule: appended at the end" \
+  "<!-- ai-review-report:structural-risk:end -->" "$(grep -v '^$' "${TMP_DIR}/body.md" | tail -n1)"
 check "appended: prose unchanged after strip (one trailing blank)" "$(printf '%s\n\n' "$BODY_ISSUES_ONLY")" "$(bash "$STRIP" < "${TMP_DIR}/body.md"; echo)"
 
 printf 'x\n' > "${TMP_DIR}/plain.md"
@@ -248,6 +248,26 @@ check "the strip rung is gated on the out-of-band emitted flag" "1" \
   "$(grep -c '\[ -f "\$WORK_DIR/structural_risk_emitted" \]' "$RR")"
 check "aggregate receives the graph data positionally" "1" \
   "$(grep -A2 '"\${OPENCODE_VERSION_FOOTER:-}" \\$' "$RR" | grep -c 'graph_detect_changes.json')"
+
+# Execute the real strip rung, extracted from run-review.sh, on an oversize body.
+rung="$(awk '/^# HLD-001 Goal 4: the presentation-only Structural Risk block/ { f = 1 } f { print } f && /^fi$/ { exit }' "$RR")"
+check "the strip rung extracts from run-review.sh" "1" "$(printf '%s\n' "$rung" | grep -c 'lib/strip-structural-risk.sh')"
+LADDER="${TMP_DIR}/ladder"
+mkdir -p "$LADDER"
+place "$BODY_STD"
+cp "${TMP_DIR}/body.md" "$LADDER/review_comment.md"
+: > "$LADDER/structural_risk_emitted"
+out="$( WORK_DIR="$LADDER" SCRIPT_DIR="$SCRIPT_DIR" MAX_BODY_SIZE=10 \
+        BODY_SIZE="$(wc -c < "$LADDER/review_comment.md" | tr -d ' ')"; eval "$rung"; echo "BODY_SIZE=$BODY_SIZE" )"
+check "oversize body: the block is dropped whole" "0" "$(grep -c 'structural-risk\|Structural Risk' "$LADDER/review_comment.md")"
+check "oversize body: the Issues Summary is intact (byte-identical to the body without the block)" \
+  "$(printf '%s\n' "$BODY_STD")" "$(cat "$LADDER/review_comment.md")"
+check "oversize body: BODY_SIZE is recomputed for the next rung" \
+  "BODY_SIZE=$(wc -c < "$LADDER/review_comment.md" | tr -d ' ')" "$(printf '%s\n' "$out" | tail -n1)"
+cp "${TMP_DIR}/body.md" "$LADDER/review_comment.md"
+rm -f "$LADDER/structural_risk_emitted"
+( WORK_DIR="$LADDER" SCRIPT_DIR="$SCRIPT_DIR" MAX_BODY_SIZE=10 BODY_SIZE=99999; eval "$rung" ) > /dev/null
+check "no emitted flag: the rung leaves the body alone" "1" "$(grep -cxF -- "$BEGIN_MARK" "$LADDER/review_comment.md")"
 
 echo ""
 echo "=========================================="

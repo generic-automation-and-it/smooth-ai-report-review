@@ -1216,7 +1216,7 @@ EOF
     _sig_lib="$(dirname "${BASH_SOURCE[0]}")/lib/graph-signals-slice.sh"
     # The removed TSV is passed only with its flag on, so flag-off reads nothing.
     if graph_removed_signals_enabled; then
-      _sig_args=(ci_temp/graph_review_signals.tsv ci_temp/graph_removed_signals.tsv)
+      _sig_args=("${GRAPH_SIGNALS_TSV:-ci_temp/graph_review_signals.tsv}" ci_temp/graph_removed_signals.tsv)
     fi
     if [ -f "$_sig_lib" ]; then
       # Files go NUL-separated on stdin: this is a bash array and its members may

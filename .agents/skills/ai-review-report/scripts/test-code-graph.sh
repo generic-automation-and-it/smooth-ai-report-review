@@ -1198,6 +1198,12 @@ o="$(printf "$files15" | bash "$SLICE" "${tmp_dir}/s15.tsv" "${tmp_dir}/r15bad.t
 [ "$o" = "$base" ] || fail "Test 15: a malformed removed row must drop only the removed block"
 pass "Test 15: removed rows scoped to the chunk; deletion-only chunk renders; malformed rows drop only their block"
 
+# With the removed flag on the caller names both TSVs, so it must keep honouring
+# the lib's GRAPH_SIGNALS_TSV override for the first one.
+grep -qF '_sig_args=("${GRAPH_SIGNALS_TSV:-ci_temp/graph_review_signals.tsv}" ci_temp/graph_removed_signals.tsv)' \
+  "${SCRIPT_DIR}/review-in-chunks.sh" || fail "Test 15: removed-on slice call drops the GRAPH_SIGNALS_TSV override"
+pass "Test 15: the removed-on slice call keeps the GRAPH_SIGNALS_TSV override"
+
 # --- Cleanup ------------------------------------------------------------------
 rm -rf .code-review-graph ci_temp
 
