@@ -6,7 +6,7 @@
 | **Owner** | `ai-review-report` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | [ai-review-report SKILL.md](../../../.agents/skills/ai-review-report/SKILL.md) + [AGENTS.md](../../../.agents/skills/ai-review-report/AGENTS.md) at `0a8a7a2`; canonical LADRs in each LADR's Related section |
-| **Last updated** | 2026-11-15 |
+| **Last updated** | 2026-11-17 |
 
 > Design record for the delivered gate. It states **intent + spec** — what the gate guarantees and
 > why. It does not contain an implementation plan; phasing and sequencing live in the issue tracker.
@@ -124,6 +124,7 @@ the two would let review generation depend on the state of a working tree it doe
 - [002 Context Delivery and Toolchain](../002-context-and-toolchain/README.md) — what each chunk is given.
 - [003 Findings Integrity and Decision Scoring](../003-findings-and-decisions/README.md) — how findings become the verdict.
 - [004 Review Follow-Through](../004-review-follow-through/README.md) — what happens after the review is posted.
+- [007 Pi Agent Backend](../007-pi-agent-backend/README.md) — the second runtime this pipeline can invoke (Draft).
 
 ---
 
