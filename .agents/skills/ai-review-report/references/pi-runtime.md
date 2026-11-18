@@ -10,6 +10,8 @@ Later pins: re-run the command in a section to re-measure that fact. `references
 documentation and is never read during a review.
 
 ## M1 Install
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 - `npm` route installs an exact version without a preinstalled Node check by the package itself:
   `engines` declares `node >=22.19.0`, and npm only warns when the engine is unmet unless
@@ -36,6 +38,8 @@ Observed: exact npm install of 1.5.2 succeeded (123 packages, rc 0); the install
 but cannot take a version pin.
 
 ## M2 Print contract
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 `pi --print --no-session` with the prompt on stdin writes **only the final answer** to stdout and
 nothing else. Exit codes were measured with a scripted endpoint:
@@ -61,6 +65,8 @@ The unknown-model case is not a failure: pi silently accepts an arbitrary model 
 provider, so the gate's preflight must verify the requested id itself (M3).
 
 ## M3 Providers
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 `models.json` can declare every OpenCode provider ID, including ids that shadow a pi built-in
 (`openai`, `anthropic`): a built-in ID changes that provider, any other id adds one. The SDK → pi
@@ -93,6 +99,8 @@ pi auth check --provider openrouter
 ```
 
 ## M4 Native context
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 Fixture: a git repo with root `AGENTS.md`, root `CLAUDE.md`, root `AGENTS.override.md`, nested
 `ci_temp/AGENTS.md` and `sub/AGENTS.md`; cwd is `ci_temp/chunk_1`. The system prompt each runtime sent
@@ -119,6 +127,8 @@ Consequence for the adapter: the pi native-context set is the content OpenCode l
 must be implemented explicitly if parity requires it.
 
 ## M5 Tools and permissions
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 pi's default request advertises `read`, `bash`, `edit`, `write`. Enabling the search tools with
 `--tools read,grep,find,ls` yields: `read {path, offset, limit}`, `grep {pattern (required), path,
@@ -142,6 +152,8 @@ printf 'go' | OPENCODE_DISABLE_CLAUDE_CODE=1 opencode run --standalone --agent r
 ```
 
 ## M6 Isolation
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 With `--no-approve` a hostile checkout has no effect: `.pi/settings.json`, `.pi/extensions/marker.ts`,
 `.pi/mcp.json`, `.pi/SYSTEM.md` and `.agents/skills/x/SKILL.md` neither altered the system prompt nor
@@ -164,6 +176,8 @@ printf 'go' | PI_CODING_AGENT_DIR=<gate-dir> PI_OFFLINE=1 pi --print --no-sessio
 ```
 
 ## M7 Wire shape
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 With an `openai-completions` provider pi sends `POST {baseUrl}/chat/completions` with
 `Authorization: Bearer <resolved key>` and a body carrying `model`, `messages`, `tools`,
@@ -180,6 +194,8 @@ printf 'go' | pi --print --no-session --model <provider>/<model>   # inspect the
 The L2 mock in the `pi-backend-regressions` job must implement this SSE shape, not a plain JSON body.
 
 ## M8 Attribution
+_Measured 2026-11-17 · pi 1.5.2 · OpenCode v2.0.29._
+
 
 pi is MIT licensed (`Copyright (c) 2025 Mario Zechner`, repository `earendil-works/pi`). The published
 docs describe applications "powered by Pi"; no separate trademark or notice requirement was found.
