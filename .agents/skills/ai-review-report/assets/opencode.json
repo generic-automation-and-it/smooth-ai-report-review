@@ -181,8 +181,17 @@
         "webfetch": "deny",
         "websearch": "deny",
         "execute": "deny",
-        "read": "allow",
-        "grep": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow",
+          "*.git": "deny",
+          "*.git/*": "deny",
+          "/proc/*": "deny",
+          "/proc/**": "deny"
+        },
+        "grep": "deny",
         "glob": "allow",
         "list": "allow",
         "external_directory": "allow"
@@ -207,8 +216,17 @@
         "webfetch": "deny",
         "websearch": "deny",
         "execute": "deny",
-        "read": "allow",
-        "grep": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow",
+          "*.git": "deny",
+          "*.git/*": "deny",
+          "/proc/*": "deny",
+          "/proc/**": "deny"
+        },
+        "grep": "deny",
         "glob": "allow",
         "list": "allow",
         "external_directory": "allow"

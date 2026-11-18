@@ -691,7 +691,8 @@ fi
 printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued — `alpha/a.txt:1`.\n\n%.0s' {1..20}
 RT94
 chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
-printf '{"agent":{"review":{"tools":{"webfetch":true},"permission":{"webfetch":"allow"}}}}\n' > "${_rt}/web-allowed.json"
+printf '{"agent":{"review":{"tools":{"webfetch":true},"permission":{"webfetch":"allow","grep":"deny"}}}}\n' > "${_rt}/web-allowed.json"
+printf '{"agent":{"review":{"permission":{"webfetch":"deny","grep":"allow"}}}}\n' > "${_rt}/grep-allowed.json"
 _rt94() { # _rt94 <label> <config>
   rm -rf "${_rt}/ci_temp/reviews"
   (
@@ -734,6 +735,19 @@ _ct "LADR-094 runtime: an unreadable config keeps the web wording" "1" \
   "$(_rt_has "${_rt}/rt94-noconfig.prompt" 'Webfetch fail-fast (MANDATORY)')"
 _ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" "4" \
   "$(diff "${_rt}/rt94-web.prompt" "${_rt}/rt94-default.prompt" | grep -c '^<')"
+
+# LADR-123: the grep wording follows the resolved review agent's permission.
+_ct "LADR-123 runtime: the shipped config denies grep and the prompt never names it" "0" \
+  "$(grep -c 'grep' "${_rt}/rt94-default.prompt")"
+_ct "LADR-123 runtime: grep off — the prompt names read_file instead" "1" \
+  "$(_rt_has "${_rt}/rt94-default.prompt" 'read/glob/list')"
+_rt94 rt94-grep "${_rt}/grep-allowed.json"
+_ct "LADR-123 runtime: a config that allows grep keeps the grep wording" "1" \
+  "$(_rt_has "${_rt}/rt94-grep.prompt" 'read/grep/glob/list')"
+_ct "LADR-123 runtime: a config that allows grep keeps the callsite hint" "1" \
+  "$(_rt_has "${_rt}/rt94-grep.prompt" 'resolve call sites with `grep`')"
+_ct "LADR-123 runtime: an unreadable config keeps the grep wording" "1" \
+  "$(_rt_has "${_rt}/rt94-noconfig.prompt" 'read/grep/glob/list')"
 
 [ "$_ct_fail" -eq 0 ] || exit 1
 

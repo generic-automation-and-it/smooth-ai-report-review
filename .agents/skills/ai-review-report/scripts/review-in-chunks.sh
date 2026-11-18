@@ -269,6 +269,16 @@ if [ -n "${OPENCODE_CONFIG:-}" ] && [ -r "${OPENCODE_CONFIG}" ] && command -v jq
    && jq -e '(.agent.review // {}) | (.permission.webfetch == "deny") or (.tools.webfetch == false)' "${OPENCODE_CONFIG}" >/dev/null 2>&1; then
   CHUNK_WEB_TOOLS=0
 fi
+# LADR-123: content search follows the resolved review agent's permission the
+# same way (LADR-094 pattern). WT-01 measured OpenCode matches `grep` patterns
+# on the query, not the file path, so grep cannot be path-fenced and the
+# shipped config denies it; the prompt must not name a tool the agent lacks.
+# A custom config (LADR-047) that allows grep keeps the wording byte-identical.
+CHUNK_CONTENT_SEARCH=1
+if [ -n "${OPENCODE_CONFIG:-}" ] && [ -r "${OPENCODE_CONFIG}" ] && command -v jq >/dev/null 2>&1 \
+   && jq -e '(.agent.review // {}) | (.permission.grep == "deny") or (.tools.grep == false)' "${OPENCODE_CONFIG}" >/dev/null 2>&1; then
+  CHUNK_CONTENT_SEARCH=0
+fi
 if [ "$CHUNK_WEB_TOOLS" = "1" ]; then
   CHUNK_PROMPT_PLATFORM_RULES='- **Platform-behavior claims:** if a finding depends on a claim about how an external platform or framework behaves (GitHub Actions contexts/triggers, npm/registry, git, SDK contracts) — not just on the code in the diff — that claim must itself be verified: confirmed from a context file, this repo'\''s docs, or official documentation via `webfetch`. Seeing the code in the diff does NOT verify the platform claim. If you do not verify the claim, tag the finding [SPECULATIVE] — never [VERIFIED].
 - **Webfetch fail-fast (MANDATORY):** `webfetch` and `websearch` are a bounded verification aid, not a research loop. If a fetch fails (any 4xx/5xx, timeout, or unreachable URL), do NOT retry it and do NOT try alternate URLs for the same claim — stop, tag the dependent finding [SPECULATIVE], and move on. Hard cap: at most 3 webfetch/websearch calls total per chunk (this review session), successful or not. Never fetch external docs to research secret/token formats or scanning patterns — verify suspected secrets with local `grep`/`read_file` only.'
@@ -1491,6 +1501,20 @@ EOF
       prompt_diff_total=$((prompt_diff_total + file_diff_size))
     fi
   done
+
+  # LADR-123: drop the prompt's `grep` wording when the resolved review agent
+  # denies content search. Unknown config states keep today's wording, as for
+  # web access (LADR-094).
+  if [ "$CHUNK_CONTENT_SEARCH" = "0" ]; then
+    local _cs_prompt="ci_temp/chunk_${chunk_num}_prompt.txt"
+    sed -e 's|AI agents find files via glob/grep|AI agents find files via glob/read_file|' \
+        -e 's|resolve call sites with `grep`|resolve call sites with `read_file`|' \
+        -e 's|read/grep/glob/list|read/glob/list|g' \
+        -e 's|with local `grep`/`read_file` only|with local `read_file` only|' \
+        -e 's|A failed `grep` for the literal name|A failed text search for the literal name|' \
+        -e 's|callsite completeness: grep-only|callsite completeness: text-search-only|' \
+        "$_cs_prompt" > "${_cs_prompt}.tmp" && mv "${_cs_prompt}.tmp" "$_cs_prompt"
+  fi
 
   # Get prompt size
   local prompt_size=$(wc -c < ci_temp/chunk_${chunk_num}_prompt.txt | tr -d ' ')

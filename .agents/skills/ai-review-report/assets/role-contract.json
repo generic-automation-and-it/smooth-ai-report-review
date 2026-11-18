@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "contentSearch": "deny",
+  "roles": {
+    "review": {
+      "allowedTools": ["read", "glob", "list"],
+      "deniedTools": ["edit", "write", "bash", "webfetch", "websearch", "execute", "skill", "task"],
+      "read": {
+        "denyPaths": [".env", ".env.*", ".git", ".git/**", "/proc/*", "/proc/**"],
+        "allowPaths": [".env.example"]
+      },
+      "edit": {
+        "denyPaths": ["*"],
+        "allowPaths": []
+      }
+    },
+    "analyse": {
+      "allowedTools": ["read", "glob", "list", "edit"],
+      "deniedTools": ["bash", "webfetch", "websearch", "execute", "skill", "task"],
+      "read": {
+        "denyPaths": [".env", ".env.*", ".git", ".git/**", "/proc/*", "/proc/**"],
+        "allowPaths": [".env.example"]
+      },
+      "edit": {
+        "denyPaths": [
+          ".smooth-ai-review-tools/**",
+          ".context/**",
+          "ci_temp/**",
+          ".git",
+          ".git/**",
+          ".env",
+          ".env.*"
+        ],
+        "allowPaths": [".env.example"]
+      }
+    }
+  }
+}

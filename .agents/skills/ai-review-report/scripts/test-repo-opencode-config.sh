@@ -73,3 +73,50 @@ for wf in pipeline-code-review-report.yml pipeline-ai-analyse.yml; do
     || fail "$wf does not forward OPENCODE_REVIEW_REPORT_CONFIG"
 done
 echo "✅ the gate and ai-analyse both forward OPENCODE_REVIEW_REPORT_CONFIG"
+
+# LADR-123: one role contract is the behavioural definition, and both agent
+# blocks in both config files implement it. WT-01 measured OpenCode matches
+# `grep` patterns on the query rather than the path, so content search is
+# denied rather than path-fenced, and `/proc/**` is a real read deny.
+CONTRACT="$REPO_ROOT/.agents/skills/ai-review-report/assets/role-contract.json"
+[ -f "$CONTRACT" ] || fail "role contract is missing"
+jq empty "$CONTRACT" || fail "role contract is not valid JSON"
+jq -e '.contentSearch == "deny"' "$CONTRACT" >/dev/null \
+  || fail "role contract does not record the content-search verdict"
+for role in review analyse; do
+  jq -e --arg r "$role" '.roles[$r].allowedTools and .roles[$r].deniedTools and .roles[$r].read and .roles[$r].edit' "$CONTRACT" >/dev/null \
+    || fail "role contract is incomplete for $role"
+  jq -e --arg r "$role" '.roles[$r].read.allowPaths | index(".env.example") != null' "$CONTRACT" >/dev/null \
+    || fail "role contract does not keep .env.example readable for $role"
+done
+for deny in '.env' '.env.*' '.git' '.git/**' '/proc/*' '/proc/**'; do
+  jq -e --arg d "$deny" '.roles.review.read.denyPaths | index($d) != null' "$CONTRACT" >/dev/null \
+    || fail "role contract does not deny review read on $deny"
+  jq -e --arg d "$deny" '.roles.analyse.read.denyPaths | index($d) != null' "$CONTRACT" >/dev/null \
+    || fail "role contract does not deny analyse read on $deny"
+done
+echo "✅ role contract lists both roles and their denied path classes"
+
+for cfg in "$BUILTIN" "$REPO_CONFIG"; do
+  for role in review analyse; do
+    jq -e --arg r "$role" '.agent[$r].permission.read["*"] == "allow"' "$cfg" >/dev/null \
+      || fail "$(basename "$cfg") $role read default is not allow"
+    for deny in '*.env' '*.env.*' '*.git' '*.git/*' '/proc/*' '/proc/**'; do
+      jq -e --arg r "$role" --arg d "$deny" '.agent[$r].permission.read[$d] == "deny"' "$cfg" >/dev/null \
+        || fail "$(basename "$cfg") $role read does not deny $deny"
+    done
+    jq -e --arg r "$role" '.agent[$r].permission.read["*.env.example"] == "allow"' "$cfg" >/dev/null \
+      || fail "$(basename "$cfg") $role read does not keep .env.example readable"
+    jq -e --arg r "$role" '.agent[$r].permission.grep == "deny"' "$cfg" >/dev/null \
+      || fail "$(basename "$cfg") $role content search is not denied"
+  done
+  jq -e '.agent.review.permission.edit == "deny"' "$cfg" >/dev/null \
+    || fail "$(basename "$cfg") review edit is not denied"
+  for tool in bash webfetch websearch execute; do
+    jq -e --arg t "$tool" '.agent.review.permission[$t] == "deny"' "$cfg" >/dev/null \
+      || fail "$(basename "$cfg") review $tool is not denied"
+    jq -e --arg t "$tool" '.agent.analyse.permission[$t] == "deny"' "$cfg" >/dev/null \
+      || fail "$(basename "$cfg") analyse $tool is not denied"
+  done
+done
+echo "✅ both config files implement the role contract's read and content-search denials"
