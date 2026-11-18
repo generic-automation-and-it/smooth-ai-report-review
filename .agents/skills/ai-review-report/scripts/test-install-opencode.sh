@@ -148,7 +148,9 @@ ok "a package-managed v1 shadowing the install fails loudly, not green"
 # reaching it proves the parent shell can see the validated CLI too.
 mkdir -p "$TMP/local/scripts/lib"
 cp "$SCRIPT_DIR/local-review.sh" "$TMP/local/scripts/"
-cp "$INSTALLER" "$SCRIPT_DIR/lib/resolve-repo-root.sh" "$TMP/local/scripts/lib/"
+cp "$INSTALLER" "$SCRIPT_DIR/lib/resolve-repo-root.sh" \
+   "$SCRIPT_DIR/lib/backend-selector.sh" "$SCRIPT_DIR/lib/backend-initialize.sh" \
+   "$TMP/local/scripts/lib/"
 cat > "$TMP/local/scripts/lib/resolve-provider.sh" <<'LOCAL_PROVIDER'
 [ "$(opencode --version)" = "$EXPECTED_LOCAL_VERSION" ] || exit 91
 echo "local prerequisites passed"

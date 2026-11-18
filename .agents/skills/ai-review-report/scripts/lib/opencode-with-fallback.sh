@@ -131,6 +131,13 @@ model_target() {
 }
 
 run_opencode() {
+  # LADR-124: the run seam is backend-aware. The selector is resolved first, so
+  # an unknown value fails before any model call; OpenCode stays the only
+  # accepted runtime and its argv/stdin/cwd contract is unchanged.
+  local _backend _selector_dir
+  _selector_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+  _backend="$(. "$_selector_dir/backend-selector.sh"; resolve_backend)" || return 1
+
   # --agent review (LADR-029): pin the locked-down `review` agent from
   #   opencode.json instead of the DEFAULT `build` agent. `review` has read/grep
   #   but NO skill/task/edit/write/bash, so the model cannot self-activate this

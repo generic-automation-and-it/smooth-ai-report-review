@@ -1406,10 +1406,20 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: A prompt-injected diff can no longer read `.git/config`, `.env*` or `/proc/self/environ`, and neither role can search them. Both roles lose content search on the default path — an accepted cost, because a tool that cannot be fenced by path is a wider hole than its absence; review quality under the loss is measured by the eval parity work, not assumed. `external_directory` stays `allow` (LADR-025) and the workflow-owned gaps (job-scope key export, `persist-credentials`) are unchanged.
 - **See also**: LADR-025, LADR-029, LADR-047, LADR-094, LADR-110.
 
+### LADR-124: One backend selector fronts the run, probe and initialize seams
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`lib/backend-selector.sh`, `lib/backend-initialize.sh`, `lib/backend-probe.sh`; wired in `run-review.sh`, `local-review.sh` and `aggregate-reviews.sh`; selector in both packagings; pinned by `test-backend-selector.sh` and `test-run-review.sh`)
+- **Context**: Every model call already funnels through `run_opencode`, two direct `opencode run` probes and an inline initialize block (service stop → stats → health). Adding a second runtime without forking behaviour requires those three points to become backend-aware, while the default path must stay byte-identical.
+- **Decision**: `OPENCODE_REVIEW_REPORT_BACKEND` (blank → `opencode`) chooses the runtime; any other value fails before an install, probe or model call, with a message naming the accepted values. The run seam keeps `lib/opencode-with-fallback.sh`'s file name and argument contract; the probes become `backend_probe` (the call sites keep their own `ERROR_PATTERN`/empty-output classification); initialize becomes `initialize_backend`, preserving exit-3 fatal and advisory semantics. The posted footer's runtime name and home URL come from `backend_display_name` / `backend_home_url`, so OpenCode bodies stay byte-identical.
+- **Consequences**: One env contract in every packaging, one place to add a runtime, and no dormant branch: this change accepts `opencode` only, and the pi adapter adds its branch at the same three seams. `pipeline-ai-analyse.yml` and the eval harness adopt the seams in their own units; renaming the run lib or changing its arguments still breaks every packaging.
+- **See also**: LADR-028, LADR-029, LADR-087, LADR-112.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
 
+- **One selector, three seams (LADR-124).** `OPENCODE_REVIEW_REPORT_BACKEND` is resolved before any install, probe or model call; probe through `backend_probe` and initialize through `initialize_backend`, never a direct `opencode run` or inline health block. An unknown value must fail, never fall back.
 - **Credential and VCS reads are denied by path, and `grep` is denied outright (LADR-123).** OpenCode matches `grep` permission patterns on the query, not the file path, so a path-shaped deny leaves the hole open — never re-allow content search on a role that reads untrusted diffs. `.env.example` stays readable only because its allow entry follows the deny.
 - **The side checkout resolves from `github.job_workflow_sha`, never `github.workflow_sha`** — in a reusable call the latter is the caller's commit, and checkout dies on `upload-pack: not our ref`. Invisible here: the `hashFiles` guard sends our own PRs down the in-repo tree, so the gate can be broken for every external consumer while every run in this repo is green.
 - **Editing the built-in `assets/opencode.json` means editing `.github/opencode.json` too** (LADR-047 amendment). This repo's gate loads the copy, so a permission, agent, instructions or provider change made only in the built-in never reaches this repo's own reviews; `test-repo-opencode-config.sh` fails until the copy matches outside `provider.openai.models`, and until both `pipeline-code-review-report.yml` and `pipeline-ai-analyse.yml` forward `OPENCODE_REVIEW_REPORT_CONFIG`. Gateway-specific model ids go only in the copy.
@@ -1612,6 +1622,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-124: `OPENCODE_REVIEW_REPORT_BACKEND` selects the runtime before any install/probe/model call; run, probe and initialize seams extracted to libs; footer runtime name keyed to the selector; declared in both packagings and `local-review.sh`. | #266 |
 | 2026-11-17 | LADR-123: one role contract denies `read` on credential/VCS/`/proc` paths for review and analyse, `.env.example` stays readable, and content search is denied outright because OpenCode matches grep on the query; chunk prompt grep wording follows the resolved config. | #263 |
 | 2026-11-17 | `references/pi-runtime.md` records measured pi facts and resolves D2 (floor 1.5.2), D3 (npm route), D6 (native-context set), D7 (content search denied) and D15 (`/proc/**` read deny). | #261 |
 | 2026-11-17 | Review fixes: LADR-121 deadline re-checked after the parallel wait and a value below 1 unset everywhere; deadline-skipped summary names the deadline; LADR-119 relativizes absolute evidence paths; LADR-120 caller sites repo-relative, File-kind rows dropped; RTK floor pads two-component versions. | #257 |

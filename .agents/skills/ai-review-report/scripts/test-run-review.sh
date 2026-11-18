@@ -1118,7 +1118,8 @@ unset -f _loglevel_offenders
 # out of the `if [ "$_health_rc" -eq 3 ]` block itself.
 _health_wiring() {
   local f="$1" block
-  grep -q 'opencode-health.sh" || _health_rc=\$?' "$f" || { echo bare; return; }
+  grep -qE '(opencode-health\.sh" \|\| _health_rc=\$\?|backend-initialize\.sh" "\$\{BACKEND:-opencode\}" "\$LIB_DIR" \|\| _health_rc=\$\?)' "$f" \
+    || { echo bare; return; }
   block="$(awk '/if \[ "\$_health_rc" -eq 3 \]/ { on = 1 } on { print } on && /^[[:space:]]*fi[[:space:]]*$/ { exit }' "$f")"
   [ -n "$block" ] || { echo bare; return; }
   printf '%s\n' "$block" | grep -qE '^[[:space:]]*exit 1[[:space:]]*$' && echo wired || echo bare
@@ -1141,7 +1142,7 @@ check "the health status does not reuse the EXIT trap's _rc global" \
 # local-review.sh and the eval harness abort on ANY non-zero already, so the
 # split must not have quietly relaxed them to advisory.
 check "local-review.sh still aborts on any health failure" \
-  "yes" "$(grep -q 'if ! bash "$SCRIPT_DIR/lib/opencode-health.sh"; then' "$SCRIPT_DIR/local-review.sh" && echo yes || echo no)"
+  "yes" "$(grep -q 'if ! bash "$SCRIPT_DIR/lib/backend-initialize.sh" "${BACKEND:-opencode}" "$SCRIPT_DIR/lib"; then' "$SCRIPT_DIR/local-review.sh" && echo yes || echo no)"
 unset -f _health_wiring
 
 # ── Review-type export for chunk prompts (LADR-111) ─────────────────────────
@@ -1219,6 +1220,7 @@ echo ""
 echo "Testing LADR-122 finding-link Variable in both packagings and local-review.sh"
 _adoption_vars=(
   "OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1"
+  "OPENCODE_REVIEW_REPORT_BACKEND=opencode"
 )
 for _entry in "${_adoption_vars[@]}"; do
   _var="${_entry%%=*}"; _def="${_entry#*=}"
@@ -1230,6 +1232,19 @@ for _entry in "${_adoption_vars[@]}"; do
     "$(grep -cF "export $_var=\"\${$_var:-$_def}\"" "$SCRIPT_DIR/local-review.sh" || true)"
 done
 unset _adoption_vars _entry _var _def _file
+
+# LADR-124: both probe sites go through the backend-aware helper, the initialize
+# seam is the one lib, and the footer names the runtime from the selector.
+check "run-review.sh keeps no direct 'opencode run' probe" "0" \
+  "$(grep -c 'opencode run' "$RUN_REVIEW" || true)"
+check "run-review.sh probes through backend_probe at both sites" "2" \
+  "$(grep -c 'backend_probe "\$BACKEND"' "$RUN_REVIEW" || true)"
+check "run-review.sh initializes through the backend initialize lib" "1" \
+  "$(grep -c 'backend-initialize.sh" "\${BACKEND:-opencode}" "\$LIB_DIR"' "$RUN_REVIEW" || true)"
+check "run-review.sh footers name the runtime from the selector" "6" \
+  "$(grep -c 'powered by \${BACKEND_DISPLAY_NAME} CLI' "$RUN_REVIEW" || true)"
+check "aggregate footer names the runtime from the selector" "1" \
+  "$(grep -c 'powered by \[\${BACKEND_DISPLAY_NAME}\](\${BACKEND_HOME_URL})' "$SCRIPT_DIR/aggregate-reviews.sh" || true)"
 
 # ── Deadline variable: below 1 is unset (LADR-121) ─────────────────────────
 # review-in-chunks.sh reads a value < 1 as unset (the repo-wide "disabled"

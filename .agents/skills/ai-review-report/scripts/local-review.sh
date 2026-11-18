@@ -201,6 +201,12 @@ for v in OPENCODE_REVIEW_REPORT_GEMINI_URL OPENCODE_GEMINI_API_KEY \
   harvest_var "$v" || true
 done
 
+# LADR-124: backend selector — OpenCode is the default, and an unknown value
+# fails here before anything is installed or called.
+export OPENCODE_REVIEW_REPORT_BACKEND="${OPENCODE_REVIEW_REPORT_BACKEND:-opencode}"
+. "$SCRIPT_DIR/lib/backend-selector.sh"
+BACKEND="$(resolve_backend)" || exit 1
+
 # Validate the CLI through the same installer as CI, even when it is cached.
 # PATH must also be set in this parent shell: the installer's export cannot
 # reach later local-review calls, and v1/v2 share the same command name.
@@ -290,7 +296,7 @@ fi
 # is up; it does NOT verify the upstream gateway is reachable, so it no longer
 # pre-empts a private-network/VPN hang — the process-group timeout shim below
 # still bounds any hang during the actual model calls.
-if ! bash "$SCRIPT_DIR/lib/opencode-health.sh"; then
+if ! bash "$SCRIPT_DIR/lib/backend-initialize.sh" "${BACKEND:-opencode}" "$SCRIPT_DIR/lib"; then
   echo "❌ opencode health check failed (see output above). Aborting."
   exit 1
 fi

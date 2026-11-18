@@ -122,6 +122,13 @@ export OPENCODE_REVIEW_REPORT_RUN_STARTED_AT
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
+# LADR-124: resolve the backend before anything else. An unknown selector fails
+# here — before any install, probe or model call — and never falls back.
+. "$LIB_DIR/backend-selector.sh"
+BACKEND="$(resolve_backend)" || exit 1
+BACKEND_DISPLAY_NAME="$(backend_display_name "$BACKEND")"
+BACKEND_HOME_URL="$(backend_home_url "$BACKEND")"
+. "$LIB_DIR/backend-probe.sh"
 # shellcheck disable=SC1091
 source "$LIB_DIR/parse-review-comment-options.sh"
 # Bounded retry for transient GitHub failures (LADR-078). Sourced this early
@@ -817,8 +824,8 @@ quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
 # provider, model ids and permissions and report nothing. Idempotent and free:
 # the `opencode stats` below starts a fresh one bound to our config.
 # lib/opencode-health.sh verifies the binding afterwards.
-opencode service stop >/dev/null 2>&1 || true
-opencode stats >/dev/null 2>&1 || true
+_health_rc=0
+bash "$LIB_DIR/backend-initialize.sh" "${BACKEND:-opencode}" "$LIB_DIR" || _health_rc=$?
 # Exit 3 means the managed config is NOT confirmed (foreign binding, or the
 # binding could not be read) — fatal here too, not just locally. Every other
 # non-zero is a liveness blip and stays advisory, which is LADR-028's
@@ -829,8 +836,6 @@ opencode stats >/dev/null 2>&1 || true
 # (worst) with no LADR-029 permission lockdown over untrusted PR code, while
 # `local-review.sh` aborted on the identical condition. NOT named `_rc` — the
 # EXIT trap owns that unscoped global.
-_health_rc=0
-bash "$LIB_DIR/opencode-health.sh" || _health_rc=$?
 if [ "$_health_rc" -eq 3 ]; then
   echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
   exit 1
@@ -841,12 +846,7 @@ fi
 # request-changes review from the catch-all step below.
 ERROR_PATTERN='NOT_FOUND|not found|404|quota|exhausted|rate.limit|RESOURCE_EXHAUSTED|INVALID_ARGUMENT|API_KEY_INVALID|API key not valid|400|401|authentication failed|provider error|model not found|sqlite-migration|UnknownError|Unexpected server error'
 run_probe() {
-  opencode run \
-    --agent review \
-    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/$1" \
-    --format default \
-    --log-level warn \
-    "Say 'OK'" 2>&1 || true
+  backend_probe "$BACKEND" "$OPENCODE_REVIEW_REPORT_PROVIDER_ID" "$1"
 }
 
 SELECTED_MODEL_FILE="$WORK_DIR/selected_model"
@@ -879,12 +879,7 @@ echo ""
 ORCH_PROBE_FILE="$WORK_DIR/orchestrator_probe"
 : > "$ORCH_PROBE_FILE"
 (
-  _orch_out="$(timeout 60s opencode run \
-    --agent review \
-    --model "${OPENCODE_REVIEW_REPORT_PROVIDER_ID}/${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR}" \
-    --format default \
-    --log-level warn \
-    "Say 'OK'" 2>&1 || true)"
+  _orch_out="$(backend_probe "$BACKEND" "$OPENCODE_REVIEW_REPORT_PROVIDER_ID" "$OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR" 60s)"
   if [ -z "$_orch_out" ] || echo "$_orch_out" | grep -iqE "$ERROR_PATTERN"; then
     echo "failed" > "$ORCH_PROBE_FILE"
   else
@@ -990,7 +985,7 @@ Both review models failed to respond, typically caused by token quota exhaustion
 - Re-run the review via \`/ai-review\` once resolved
 
 ---
-*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
+*Automated check by Smooth AI Review, powered by ${BACKEND_DISPLAY_NAME} CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1181,7 +1176,7 @@ This PR changes **${FILES_CHANGED}** files, which exceeds the review limit of **
 - Or, if a large changeset is unavoidable, raise the limit by setting the \`OPENCODE_REVIEW_REPORT_MAX_FILE_COUNT\` repository Variable.
 
 ---
-*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
+*Automated check by Smooth AI Review, powered by ${BACKEND_DISPLAY_NAME} CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1202,7 +1197,7 @@ if [ "$FILES_CHANGED" -eq 0 ]; then
 ✅ ${SKIP_MSG}
 
 ---
-*Automated review check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
+*Automated review check by Smooth AI Review, powered by ${BACKEND_DISPLAY_NAME} CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
     post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" COMMENT \
@@ -1253,7 +1248,7 @@ if printf '%s' "${_trivial_skip_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qx
 **Want a review anyway?** Comment \`/ai-review\` — an explicit request always bypasses this skip.
 
 ---
-*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
+*Automated check by Smooth AI Review, powered by ${BACKEND_DISPLAY_NAME} CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
         gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
           gh pr comment "${pr_number}" \
@@ -1408,7 +1403,7 @@ if [ "$review_type" = "full" ] && [ "$validation_passed" = "false" ]; then
 $(cat "$WORK_DIR/agents_validation_message.md")
 
 ---
-*Automated validation by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
+*Automated validation by Smooth AI Review, powered by ${BACKEND_DISPLAY_NAME} CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
     gh_retry --verify gh_count_gate_reviews "${pr_number}" -- \
       post_review "${GITHUB_REPOSITORY}" "${pr_number}" "${head_sha}" REQUEST_CHANGES \
@@ -1486,7 +1481,7 @@ if [ "$review_type" != "full" ] && [ "${last_full_review_status:-none}" = "CHANG
 - A full review will run when you manually request it via \`/ai-review\` or merge to main
 
 ---
-*Automated check by Smooth AI Review, powered by OpenCode CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
+*Automated check by Smooth AI Review, powered by ${BACKEND_DISPLAY_NAME} CLI. Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
   gh_retry --verify gh_count_gate_comments "${pr_number}" -- \
     gh pr comment "${pr_number}" \

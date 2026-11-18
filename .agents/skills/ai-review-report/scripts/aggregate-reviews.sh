@@ -8,6 +8,13 @@ if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
   exit 1
 fi
 
+# LADR-124: the posted footer names the runtime the selector chose.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib/backend-selector.sh"
+BACKEND="$(resolve_backend)" || exit 1
+BACKEND_DISPLAY_NAME="$(backend_display_name "$BACKEND")"
+BACKEND_HOME_URL="$(backend_home_url "$BACKEND")"
+
 # Script: aggregate-reviews.sh
 # Purpose: Aggregate chunked reviews and generate PR summary
 # Usage: Called from pipeline-code-review-report.yml workflow
@@ -1131,7 +1138,7 @@ cat >> ci_temp/final_review.md << EOF
 </details>
 
 ---
-*Automated review by Smooth AI Review, powered by [OpenCode](https://opencode.ai) using ${OPENCODE_PROVIDER_DISPLAY_NAME}*
+*Automated review by Smooth AI Review, powered by [${BACKEND_DISPLAY_NAME}](${BACKEND_HOME_URL}) using ${OPENCODE_PROVIDER_DISPLAY_NAME}*
 *Model: ${OPENCODE_MODEL_DISPLAY_NAME} | Reviewed in $TOTAL_CHUNKS chunks*
 *Not affiliated with or endorsed by Anomaly / OpenCode team.*
 EOF
