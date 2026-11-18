@@ -120,3 +120,34 @@ for cfg in "$BUILTIN" "$REPO_CONFIG"; do
   done
 done
 echo "✅ both config files implement the role contract's read and content-search denials"
+
+# LADR-123: OpenCode evaluates permission patterns in order, last match wins
+# (WT-01 M5). A deny entry that exists but sits before a wildcard allow is
+# ineffective, so assert the EFFECTIVE value for representative paths.
+_read_perm() { # _read_perm <cfg> <role> <path>
+  local cfg="$1" role="$2" p="$3" pat val out=""
+  while IFS=$'\t' read -r pat val; do
+    case "$p" in $pat) out="$val" ;; esac
+  done < <(jq -r --arg r "$role" \
+    '.agent[$r].permission.read | to_entries[] | "\(.key)\t\(.value)"' "$cfg")
+  printf '%s' "$out"
+}
+for cfg in "$BUILTIN" "$REPO_CONFIG"; do
+  for role in review analyse; do
+    for p in '.env' '.env.production' '.git/config' '.git/HEAD' '/proc/self/environ'; do
+      [ "$(_read_perm "$cfg" "$role" "$p")" = "deny" ] \
+        || fail "$(basename "$cfg") $role effective read on $p is not deny"
+    done
+    [ "$(_read_perm "$cfg" "$role" '.env.example')" = "allow" ] \
+      || fail "$(basename "$cfg") $role effective read on .env.example is not allow"
+  done
+done
+# Negative control: moving the wildcard allow last must make .env readable, so
+# this checker would catch that regression. If it still reports deny, the check
+# is not order-sensitive and the assertion above proves nothing.
+_bad_cfg="$(mktemp)"
+jq '.agent.review.permission.read |= (del(."*") + {"*": "allow"})' "$BUILTIN" > "$_bad_cfg"
+[ "$(_read_perm "$_bad_cfg" review '.env')" = "allow" ] \
+  || fail "effective read check is not order-sensitive (wildcard-last fixture still reports deny)"
+rm -f "$_bad_cfg"
+echo "✅ effective read permissions deny protected paths and keep .env.example readable"
