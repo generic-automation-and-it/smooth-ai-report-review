@@ -555,7 +555,9 @@ chmod +x "${_rt}/bin/timeout"
   git init -q; git config user.email t@e.com; git config user.name T
   mkdir -p alpha; echo one > alpha/a.txt
   git add alpha/a.txt; git commit -q -m base
-  echo two >> alpha/a.txt; git add alpha/a.txt; git commit -q -m head
+  echo two >> alpha/a.txt
+  echo 'resolve call sites with `grep`' >> alpha/a.txt   # LADR-123 data needle: never rewritten
+  git add alpha/a.txt; git commit -q -m head
   mkdir -p ci_temp; printf 'alpha/a.txt\0' > ci_temp/changed_files.txt
   SPLIT_CALLS_LOG="${_rt}/calls.log" \
   SPLIT_BUDGETS_LOG="${_rt}/budgets.log" \
@@ -737,10 +739,12 @@ _ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" 
   "$(diff "${_rt}/rt94-web.prompt" "${_rt}/rt94-default.prompt" | grep -c '^<')"
 
 # LADR-123: the grep wording follows the resolved review agent's permission.
-_ct "LADR-123 runtime: the shipped config denies grep and the prompt never names it" "0" \
-  "$(grep -c 'grep' "${_rt}/rt94-default.prompt")"
+_ct "LADR-123 runtime: the shipped config denies grep and no instruction names it" "0" \
+  "$(grep -cE 'glob/grep|read/grep/glob/list|A failed `grep`|grep-only|local `grep`/`read_file`' "${_rt}/rt94-default.prompt")"
 _ct "LADR-123 runtime: grep off — the prompt names read_file instead" "1" \
   "$(_rt_has "${_rt}/rt94-default.prompt" 'read/glob/list')"
+_ct "LADR-123 runtime: grep off — the reviewed diff keeps its own grep text" "1" \
+  "$(grep -c 'resolve call sites with `grep`' "${_rt}/rt94-default.prompt")"
 _rt94 rt94-grep "${_rt}/grep-allowed.json"
 _ct "LADR-123 runtime: a config that allows grep keeps the grep wording" "1" \
   "$(_rt_has "${_rt}/rt94-grep.prompt" 'read/grep/glob/list')"
