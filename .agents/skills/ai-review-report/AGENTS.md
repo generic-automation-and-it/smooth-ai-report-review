@@ -1415,10 +1415,20 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: One env contract in every packaging, one place to add a runtime, and no dormant branch: this change accepts `opencode` only, and the pi adapter adds its branch at the same three seams. `pipeline-ai-analyse.yml` and the eval harness adopt the seams in their own units; renaming the run lib or changing its arguments still breaks every packaging.
 - **See also**: LADR-028, LADR-029, LADR-087, LADR-112.
 
+### LADR-125: The pi runtime installs through one pinned npm source
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`lib/install-pi.sh`; pi notice in `lib/check-versions.sh`; `pi-backend-regressions` install job; pinned by `test-install-pi.sh` and `test-check-versions.sh`)
+- **Context**: A second runtime needs one install source and one pin. WT-01 measured that the official pi.dev installer always resolves the latest release from its installer API and has no exact-version argument, so it cannot honour a pin; the npm route takes an exact version but does not pin transitive dependencies, which is the accepted trade-off.
+- **Decision**: `OPENCODE_TOOL_PI_VERSION` (leading `v` stripped) installs exactly that version at or above the measured floor `1.5.2`; a blank pin reuses an installed pi at or above the floor and installs the latest only when none is present. A pin below the floor, a garbage pin, a cached binary below the floor, Node below 22.19 and npm missing all fail before any model call. The job runs `npm install -g --ignore-scripts @earendil-works/pi-coding-agent[@<exact>]` behind that Node check and repairs PATH/GITHUB_PATH. A best-effort pi version notice renders only when the backend selector is `pi`.
+- **Consequences**: One supply-chain entry point with a mechanically enforced no-raw-install rule, and a real install check in CI that needs no secret or model call. Nothing calls the installer yet; the pi adapter wires it into the run and declares the pin in the packagings.
+- **See also**: LADR-048, LADR-053, LADR-124.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
 
+- **pi installs only through `lib/install-pi.sh` (LADR-125).** The pi.dev installer cannot take an exact version, so the npm route behind a Node ≥ 22.19 check is the only path; never add an inline install to a workflow or example.
 - **One selector, three seams (LADR-124).** `OPENCODE_REVIEW_REPORT_BACKEND` is resolved before any install, probe or model call; probe through `backend_probe` and initialize through `initialize_backend`, never a direct `opencode run` or inline health block. An unknown value must fail, never fall back.
 - **Credential and VCS reads are denied by path, and `grep` is denied outright (LADR-123).** OpenCode matches `grep` permission patterns on the query, not the file path, so a path-shaped deny leaves the hole open — never re-allow content search on a role that reads untrusted diffs. `.env.example` stays readable only because its allow entry follows the deny.
 - **The side checkout resolves from `github.job_workflow_sha`, never `github.workflow_sha`** — in a reusable call the latter is the caller's commit, and checkout dies on `upload-pack: not our ref`. Invisible here: the `hashFiles` guard sends our own PRs down the in-repo tree, so the gate can be broken for every external consumer while every run in this repo is green.
@@ -1622,6 +1632,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-125: `lib/install-pi.sh` with `OPENCODE_TOOL_PI_VERSION`, floor 1.5.2, npm route behind a Node ≥ 22.19 check, cached-below-floor rejection; pi notice gated on the pi backend; blocking install job `pi-backend-regressions`. | #268 |
 | 2026-11-17 | LADR-124: `OPENCODE_REVIEW_REPORT_BACKEND` selects the runtime before any install/probe/model call; run, probe and initialize seams extracted to libs; footer runtime name keyed to the selector; declared in both packagings and `local-review.sh`. | #266 |
 | 2026-11-17 | LADR-123: one role contract denies `read` on credential/VCS/`/proc` paths for review and analyse, `.env.example` stays readable, and content search is denied outright because OpenCode matches grep on the query; chunk prompt grep wording follows the resolved config. | #263 |
 | 2026-11-17 | `references/pi-runtime.md` records measured pi facts and resolves D2 (floor 1.5.2), D3 (npm route), D6 (native-context set), D7 (content search denied) and D15 (`/proc/**` read deny). | #261 |
