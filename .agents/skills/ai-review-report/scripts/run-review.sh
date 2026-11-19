@@ -751,7 +751,19 @@ fi
 # PATH and appends to $GITHUB_PATH for follow-up steps. Guarded so a
 # missing lib (broken LADR-048 path-coupling) surfaces with the same UX
 # as the lib's other failures instead of an opaque "No such file".
-if [ -x "$LIB_DIR/install-opencode.sh" ]; then
+if [ "$BACKEND" = "pi" ]; then
+  # LADR-128: under pi, OpenCode is neither installed nor initialized (D16).
+  if [ -x "$LIB_DIR/install-pi.sh" ]; then
+    bash "$LIB_DIR/install-pi.sh" || exit 1
+  else
+    echo "❌ install-pi.sh not found at $LIB_DIR" >&2
+    exit 1
+  fi
+  _pi_bin="$(npm prefix -g 2>/dev/null)/bin"
+  export PATH="${_pi_bin}:$PATH"
+  printf '%s\n' "$_pi_bin" >> "${GITHUB_PATH:-/dev/null}"
+  unset _pi_bin
+elif [ -x "$LIB_DIR/install-opencode.sh" ]; then
   bash "$LIB_DIR/install-opencode.sh"
 else
   echo "❌ install-opencode.sh not found or not executable at $LIB_DIR/install-opencode.sh" >&2
@@ -762,7 +774,7 @@ fi
 # Re-export for this script's subsequent opencode invocations (PR #86 fix).
 # Unconditionally append to $GITHUB_PATH so follow-up steps also find opencode,
 # even on a cache hit (the lib's exit-0 cache-hit branch doesn't touch $GITHUB_PATH).
-if [ -x "$HOME/.opencode/bin/opencode" ]; then
+if [ "$BACKEND" != "pi" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then
   export PATH="$HOME/.opencode/bin:$PATH"
   echo "$HOME/.opencode/bin" >> "${GITHUB_PATH:-/dev/null}"
 fi
@@ -774,6 +786,10 @@ fi
 # degradation: a failure here must not fail the review — RTK is a token-
 # optimization enhancement, not a hard dependency like opencode itself.
 _rtk_enabled="${OPENCODE_REVIEW_REPORT_ENABLE_RTK:-1}"
+if [ "$BACKEND" = "pi" ]; then
+  echo "ℹ️  RTK is OpenCode-only; initialization skipped under the pi backend (LADR-054)"
+  _rtk_enabled=0
+fi
 if printf '%s' "${_rtk_enabled,,}" | tr -cs '[:alnum:]' '\n' | grep -qxE '1|true|yes|on'; then
   if [ -x "$LIB_DIR/install-rtk.sh" ]; then
     if bash "$LIB_DIR/install-rtk.sh"; then
@@ -815,6 +831,13 @@ bash "$LIB_DIR/ensure-opencode-models.sh" "$OPENCODE_CONFIG" \
 # rewrites the working tree for non-pull_request events.
 . "$LIB_DIR/quarantine-project-config.sh"
 quarantine_project_config "${GITHUB_WORKSPACE:-$PWD}"
+
+# LADR-128: under pi, prepare the gate-owned agent directory from the resolved
+# OpenCode roster before initialization checks it (one roster, D4).
+if [ "${BACKEND:-opencode}" = "pi" ]; then
+  . "$LIB_DIR/prepare-pi-config.sh"
+  prepare_pi_config "$SCRIPT_DIR/../assets/pi/settings.json" || exit 1
+fi
 
 # 5e. Warm the SQLite store + provider-agnostic health check.
 # Stop any leftover background service FIRST. opencode v2 runs one shared

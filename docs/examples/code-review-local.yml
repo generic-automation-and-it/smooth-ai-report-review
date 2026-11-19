@@ -483,6 +483,7 @@ jobs:
           # Finding permalinks (LADR-122) — mirrors the reusable workflow's env var.
           # LADR-124: backend selector — one runtime per run; OpenCode is the default.
           OPENCODE_REVIEW_REPORT_BACKEND: ${{ vars.OPENCODE_REVIEW_REPORT_BACKEND || 'opencode' }}
+          OPENCODE_TOOL_PI_VERSION: ${{ vars.OPENCODE_TOOL_PI_VERSION || '' }}
           OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS || '1' }}
           # Trivial-PR skip (LADR-059) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}

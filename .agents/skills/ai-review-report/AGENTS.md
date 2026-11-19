@@ -1442,10 +1442,20 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: A denied call is blocked by behaviour, not by a prompt. The module runs inside the model process, so it lives in the skill tree and is covered by the analyse workflow's pinned-tooling check; the in-repo/copy-install mode inherits the existing PR-head tooling gap. The L2 denial cases run with the real runtime in the pi adapter unit.
 - **See also**: LADR-025, LADR-029, LADR-094, LADR-123, LADR-126.
 
+### LADR-128: The review gate runs on pi behind the same selector and contract
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`opencode-with-fallback.sh` pi branch; pi branches of the probe/initialize libs; `run-review.sh`/`local-review.sh` wiring; `test-pi-adapter.sh` L1 and `test-pi-backend-l2.sh` L2)
+- **Context**: With the seams, installer, derived configuration and policy extension in place, the selector can accept a second runtime without forking prompts, post-processing or failure handling. WT-01 recorded what pi shares with OpenCode (stdin prompt, rc 0/1) and where it differs (flags, per-attempt credentials, native context, no RTK, SSE wire shape).
+- **Decision**: `OPENCODE_REVIEW_REPORT_BACKEND=pi` installs pi only (never OpenCode), prepares the gate-owned agent directory from the resolved OpenCode roster, and executes one pi process per model attempt with `--print --no-session --no-approve -nc -ns -np --no-mcp -ne -e policy.js`, the parsed model target and explicit `--append-system-prompt` context (root `AGENTS.md` plus nested ancestors, generated chunk `AGENTS.md` included once). The child environment is built by unsetting everything outside an allow-list holding exactly one provider key. Non-zero exits map to rc 1; empty and shape-rejected answers behave as for OpenCode. The probe and initialize branches keep their classification; RTK initialization is skipped with one notice; footers name the runtime from the selector. The analyse workflow and eval harness keep OpenCode until their own units.
+- **Consequences**: Consumers can run the same gate on a second runtime with the same prompt bytes and post-processing. OpenCode's default path is unchanged. The L2 job proves transport and policy against the real pinned runtime on a localhost mock, with no secret and no model network call.
+- **See also**: LADR-002, LADR-029, LADR-087, LADR-124, LADR-125, LADR-126, LADR-127.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
 
+- **pi shares the contract, not the flags (LADR-128).** The prompt, post-processing and failure taxonomy stay shared; the runtime differs in flags, per-attempt credentials, native-context delivery and no RTK. Never fork prompt text for a backend.
 - **`policy.js` is pi's lockdown (LADR-127).** It reads the role contract and fails closed; keep it consistent with the contract and never widen a role by editing the extension alone.
 - **pi's provider roster is derived, never hand-maintained (LADR-126).** `models.json` comes from the resolved `OPENCODE_CONFIG` each run; keys stay `$NAME` references and base URLs stay literal because pi does not interpolate `baseUrl`.
 - **pi installs only through `lib/install-pi.sh` (LADR-125).** The pi.dev installer cannot take an exact version, so the npm route behind a Node ≥ 22.19 check is the only path; never add an inline install to a workflow or example.
@@ -1652,6 +1662,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-128: `OPENCODE_REVIEW_REPORT_BACKEND=pi` runs the review gate on pi — pi-only install, derived agent directory, per-attempt allow-listed env with one key, explicit native context, probe/initialize branches, RTK skip, runtime-named footers; L1 adapter suite and L2 mock job. `ai-analyse` stays on OpenCode. | #274 |
 | 2026-11-17 | LADR-127: `assets/pi/policy.js` enforces the role contract on every pi tool call — tool classes, content search denied, credential/VCS/`/proc` reads, analyse edit fence, outside-root paths, fail-closed inputs; `node` prerequisite added; suite registered. | #272 |
 | 2026-11-17 | LADR-126: `prepare_pi_config` derives `models.json` from the resolved OpenCode roster into a 0700 dir outside the checkout, keys as `$NAME`, literal URLs, unmappable selected provider fails; `assets/pi/settings.json` refuses project trust. | #270 |
 | 2026-11-17 | LADR-125: `lib/install-pi.sh` with `OPENCODE_TOOL_PI_VERSION`, floor 1.5.2, npm route behind a Node ≥ 22.19 check, cached-below-floor rejection; pi notice gated on the pi backend; blocking install job `pi-backend-regressions`. | #268 |

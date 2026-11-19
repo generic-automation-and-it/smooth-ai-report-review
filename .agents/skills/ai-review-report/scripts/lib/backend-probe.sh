@@ -23,6 +23,15 @@ backend_probe() { # backend_probe <backend> <provider-id> <model> [timeout]
           "Say 'OK'" 2>&1 || true
       fi
       ;;
+    pi)
+      if [ -n "$_timeout" ]; then
+        timeout "$_timeout" pi --print --no-session --no-approve -nc -ns -np --no-mcp -ne \
+          --model "${_provider}/${_model}" "Say 'OK'" 2>&1 || true
+      else
+        pi --print --no-session --no-approve -nc -ns -np --no-mcp -ne \
+          --model "${_provider}/${_model}" "Say 'OK'" 2>&1 || true
+      fi
+      ;;
     *)
       printf '❌ Unsupported backend "%s" in backend_probe\n' "$_backend" >&2
       return 1

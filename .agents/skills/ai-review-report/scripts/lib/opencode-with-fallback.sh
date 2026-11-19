@@ -130,6 +130,69 @@ model_target() {
   esac
 }
 
+# LADR-128: pi execution. Each attempt runs in a subshell that unsets every
+# variable outside an explicit allow-list (RR3), then executes pi with the
+# gate's isolation flags, the pinned policy extension and the native-context
+# set OpenCode loads for the same cwd (WT-01 D6).
+_pi_native_context_file() { # <cwd> -> path
+  local _cwd="$1" _out _root _dir _rel
+  _out="$(mktemp)"
+  _root="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$_root" ] && [ -f "$_root/AGENTS.md" ]; then
+    cat "$_root/AGENTS.md" >> "$_out"; printf '\n\n' >> "$_out"
+  fi
+  if [ -n "$_root" ]; then
+    _rel="$(cd "$_cwd" && pwd)"
+    while [ -n "$_rel" ] && [ "$_rel" != "$_root" ]; do
+      if [ -f "$_rel/AGENTS.md" ] && [ "$_rel" != "$_root" ]; then
+        cat "$_rel/AGENTS.md" >> "$_out"; printf '\n\n' >> "$_out"
+      fi
+      _rel="$(dirname "$_rel")"
+      case "$_rel" in "$_root"*) ;; *) break ;; esac
+    done
+  elif [ -f "$_cwd/AGENTS.md" ]; then
+    cat "$_cwd/AGENTS.md" >> "$_out"; printf '\n\n' >> "$_out"
+  fi
+  printf '%s' "$_out"
+}
+
+_pi_once() { # <target> <cwd-or-empty> <prompt-file>
+  local _target="$1" _cwd="${2:-$PWD}" _in="$3" _libdir _policy _keyvar _ctx _allow _v _rc
+  _libdir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+  _policy="$_libdir/../../assets/pi/policy.js"
+  local _prov="${_target%%/*}"
+  _keyvar="$(. "$_libdir/prepare-pi-config.sh"; pi_key_var_for_provider "$_prov")" || return 1
+  _ctx="$(_pi_native_context_file "$_cwd")"
+  _allow="PATH HOME TMPDIR TMP TEMP LANG LC_ALL LC_CTYPE PI_CODING_AGENT_DIR PI_ROLE PI_WORKSPACE_ROOT PI_TELEMETRY PI_SKIP_VERSION_CHECK PI_OFFLINE $_keyvar"
+  (
+    for _v in $(compgen -e); do
+      case " $_allow " in *" $_v "*) ;; *) unset "$_v" ;; esac
+    done
+    PI_ROLE="${OPENCODE_AGENT:-review}"; export PI_ROLE
+    PI_WORKSPACE_ROOT="$_cwd"; export PI_WORKSPACE_ROOT
+    cd "$_cwd" 2>/dev/null || true
+    pi --print --no-session --no-approve -nc -ns -np --no-mcp -ne \
+      -e "$_policy" --append-system-prompt "$_ctx" --model "$_target" < "$_in"
+  ) || _rc=$?
+  rm -f "$_ctx"
+  return "${_rc:-0}"
+}
+
+_run_backend_once() { # <backend> <target> <cwd-or-empty> <prompt-file>
+  local _backend="$1" _target="$2" _cwd="$3" _in="$4"
+  case "$_backend" in
+    opencode)
+      if [ -n "$_cwd" ]; then
+        ( cd "$_cwd" && opencode run --agent "${OPENCODE_AGENT}" --model "${_target}" --format default --log-level warn < "$_in" )
+      else
+        opencode run --agent "${OPENCODE_AGENT}" --model "${_target}" --format default --log-level warn < "$_in"
+      fi
+      ;;
+    pi) _pi_once "$_target" "${_cwd:-$PWD}" "$_in" ;;
+    *) printf 'Unsupported backend "%s"\n' "$_backend" >&2; return 1 ;;
+  esac
+}
+
 run_opencode() {
   # LADR-124: the run seam is backend-aware. The selector is resolved first, so
   # an unknown value fails before any model call; OpenCode stays the only
@@ -173,21 +236,7 @@ run_opencode() {
   # caller's. Both paths are absolute when OPENCODE_RUN_CWD is set: the
   # caller's was absolutized above and mktemp returns an absolute path.
   local _in="${REASK_PROMPT:-$prompt_file}"
-  if [ -n "${OPENCODE_RUN_CWD:-}" ]; then
-    _out=$(cd "$OPENCODE_RUN_CWD" && opencode run \
-      --agent "${OPENCODE_AGENT}" \
-      --model "${_target}" \
-      --format default \
-      --log-level warn \
-      < "$_in") || return 1
-  else
-    _out=$(opencode run \
-      --agent "${OPENCODE_AGENT}" \
-      --model "${_target}" \
-      --format default \
-      --log-level warn \
-      < "$_in") || return 1
-  fi
+  _out=$(_run_backend_once "$_backend" "$_target" "${OPENCODE_RUN_CWD:-}" "$_in") || return 1
   # The byte floor is a proxy for "the model produced nothing"; when the caller
   # can name a predicate that answers the real question, the predicate decides
   # and length is not consulted at all (LADR-087). A correct review of a clean
