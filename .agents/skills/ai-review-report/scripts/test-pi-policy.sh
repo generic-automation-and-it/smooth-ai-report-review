@@ -11,10 +11,12 @@ command -v node >/dev/null 2>&1 || { echo "❌ node is required for test-pi-poli
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 ROOT="$TMP/ws"
-mkdir -p "$ROOT/sub/.git" "$ROOT/.git" "$ROOT/.smooth-ai-review-tools" "$ROOT/.context" "$ROOT/ci_temp"
+mkdir -p "$ROOT/sub/.git" "$ROOT/.git" "$ROOT/.context" "$ROOT/.smooth-ai-review-tools" "$ROOT/.smooth-ai-review-tools" "$ROOT/.context" "$ROOT/ci_temp"
 printf 'x\n' > "$ROOT/src.js"; printf 'x\n' > "$ROOT/.env"; printf 'x\n' > "$ROOT/.env.production"
 printf 'SAFE=1\n' > "$ROOT/.env.example"; printf 'x\n' > "$ROOT/.git/config"
 printf 'x\n' > "$ROOT/sub/.git/config"; printf 'x\n' > "$ROOT/sub/.env"
+printf 'x\n' > "$ROOT/.context/.env.example"
+printf 'x\n' > "$ROOT/.smooth-ai-review-tools/.env.example"
 ln -s "$ROOT/src.js" "$ROOT/link-in.js"; ln -s /etc/hosts "$ROOT/link-out.js"
 pass=0; fail=0
 check() { if [ "$3" = "$2" ]; then echo "  ✅ $1"; pass=$((pass+1)); else echo "  ❌ $1 (expected '$2', got '$3')"; fail=$((fail+1)); fi; }
@@ -89,13 +91,15 @@ CASES_ANALYSE='[
  {"id":"git-blocked","tool":"edit","input":{"path":".git/config"}},
  {"id":"env-blocked","tool":"edit","input":{"path":".env"}},
  {"id":"env-example-allowed","tool":"edit","input":{"path":".env.example"}},
+ {"id":"context-env-example-blocked","tool":"edit","input":{"path":".context/.env.example"}},
+ {"id":"tooling-env-example-blocked","tool":"edit","input":{"path":".smooth-ai-review-tools/.env.example"}},
  {"id":"read-env-blocked","tool":"read","input":{"path":".env"}},
  {"id":"new-file-allowed","tool":"edit","input":{"path":"sub/new.js"}},
  {"id":"grep-blocked","tool":"grep","input":{"pattern":"x","path":"src.js"}}
 ]'
 out="$(run_cases analyse "$ROOT" "$CASES_ANALYSE")"
 for id in edit-allowed env-example-allowed new-file-allowed; do check_result "$id" allow; done
-for id in write-blocked bash-blocked mcp-blocked tooling-blocked context-blocked temp-blocked git-blocked env-blocked read-env-blocked grep-blocked; do check_result "$id" block; done
+for id in write-blocked bash-blocked mcp-blocked tooling-blocked context-blocked temp-blocked git-blocked env-blocked read-env-blocked grep-blocked context-env-example-blocked tooling-env-example-blocked; do check_result "$id" block; done
 
 # Fail closed on missing inputs.
 out="$(run_cases "" "$ROOT" '[{"id":"no-role","tool":"read","input":{"path":"src.js"}}]')"

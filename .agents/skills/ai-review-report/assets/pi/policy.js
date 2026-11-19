@@ -50,8 +50,9 @@ function globToRegex(glob) {
   return absolute ? new RegExp(`^${escaped}$`) : new RegExp(`(^|/)${escaped}$`);
 }
 
-function matchesAny(patterns, relative, absolute) {
-  return patterns.some((p) => {
+function matchedPatterns(patterns, relative, absolute) {
+  if (!Array.isArray(patterns)) return [];
+  return patterns.filter((p) => {
     const re = globToRegex(p);
     if (p.startsWith("/")) return re.test(absolute) || re.test(relative);
     return re.test(relative) || re.test(path.basename(relative)) || re.test(absolute);
@@ -128,12 +129,19 @@ export default function policy(pi) {
     const relative = path.relative(root, resolved) || ".";
 
     const classDef = cls === "edit" ? roleDef.edit : roleDef.read;
-    const denied = matchesAny(classDef.denyPaths || [], relative, resolved);
-    if (denied) {
-      // An allow entry is an exception only outside a VCS tree; `.env.example`
-      // inside `.git/` must not become readable.
+    const denyHits = matchedPatterns(classDef.denyPaths, relative, resolved);
+    // A missing deny list is a contract fault, not "everything allowed".
+    if (!Array.isArray(classDef.denyPaths) || classDef.denyPaths.length === 0) {
+      return block(`policy: deny list missing for ${cls} (role ${role})`);
+    }
+    if (denyHits.length > 0) {
+      // The allow list only excuses credential patterns; a structural deny
+      // (.git, tooling, context, temp, "*") is never overridden, and the
+      // exception does not apply inside a VCS tree.
+      const structural = denyHits.some((p) => !/^\.env(\.|$)/.test(p));
       const underVcs = relative.split(path.sep).includes(".git");
-      if (!underVcs && matchesAny(classDef.allowPaths || [], relative, resolved)) {
+      const allowed = matchedPatterns(classDef.allowPaths || [], relative, resolved);
+      if (!structural && !underVcs && allowed.length > 0) {
         return undefined;
       }
       return block(`policy: ${cls} on "${relative}" is denied for role ${role}`);
