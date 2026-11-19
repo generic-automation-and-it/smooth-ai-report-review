@@ -22,7 +22,7 @@ if [ "$(uname -s)" = Darwin ] && command -v brew >/dev/null 2>&1; then
   coreutils="$(brew --prefix coreutils 2>/dev/null || true)"
   if [ -d "$coreutils/libexec/gnubin" ]; then export PATH="$coreutils/libexec/gnubin:$PATH"; fi
 fi
-for tool in git jq python3 timeout sort comm; do
+for tool in git jq python3 node timeout sort comm; do
   command -v "$tool" >/dev/null 2>&1 || { echo "Missing test prerequisite: $tool" >&2; exit 2; }
 done
 if ! timeout --version 2>/dev/null | grep -q 'GNU coreutils' || ! comm --version >/dev/null 2>&1; then
