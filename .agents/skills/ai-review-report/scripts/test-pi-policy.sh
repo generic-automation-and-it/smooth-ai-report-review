@@ -11,9 +11,10 @@ command -v node >/dev/null 2>&1 || { echo "❌ node is required for test-pi-poli
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 ROOT="$TMP/ws"
-mkdir -p "$ROOT/sub" "$ROOT/.git" "$ROOT/.smooth-ai-review-tools" "$ROOT/.context" "$ROOT/ci_temp"
+mkdir -p "$ROOT/sub/.git" "$ROOT/.git" "$ROOT/.smooth-ai-review-tools" "$ROOT/.context" "$ROOT/ci_temp"
 printf 'x\n' > "$ROOT/src.js"; printf 'x\n' > "$ROOT/.env"; printf 'x\n' > "$ROOT/.env.production"
 printf 'SAFE=1\n' > "$ROOT/.env.example"; printf 'x\n' > "$ROOT/.git/config"
+printf 'x\n' > "$ROOT/sub/.git/config"; printf 'x\n' > "$ROOT/sub/.env"
 ln -s "$ROOT/src.js" "$ROOT/link-in.js"; ln -s /etc/hosts "$ROOT/link-out.js"
 pass=0; fail=0
 check() { if [ "$3" = "$2" ]; then echo "  ✅ $1"; pass=$((pass+1)); else echo "  ❌ $1 (expected '$2', got '$3')"; fail=$((fail+1)); fi; }
@@ -55,6 +56,9 @@ CASES_REVIEW='[
  {"id":"env-prod-blocked","tool":"read","input":{"path":".env.production"}},
  {"id":"env-example-allowed","tool":"read","input":{"path":".env.example"}},
  {"id":"git-config-blocked","tool":"read","input":{"path":".git/config"}},
+ {"id":"nested-git-blocked","tool":"read","input":{"path":"sub/.git/config"}},
+ {"id":"nested-env-blocked","tool":"read","input":{"path":"sub/.env"}},
+ {"id":"git-env-example-blocked","tool":"read","input":{"path":".git/.env.example"}},
  {"id":"proc-blocked","tool":"read","input":{"path":"/proc/self/environ"}},
  {"id":"home-blocked","tool":"read","input":{"path":"~/.npmrc"}},
  {"id":"outside-blocked","tool":"read","input":{"path":"../outside"}},
@@ -72,7 +76,7 @@ check_result() { # check_result <id> <expected>
   check "$1 $2" "$2" "$(node -e 'const a=JSON.parse(process.argv[1]);const r=a.find(x=>x.id===process.argv[2]);process.stdout.write(r?r.result:"missing")' "$out" "$1")"
 }
 for id in read-allowed find-allowed ls-allowed env-example-allowed symlink-in-allowed; do check_result "$id" allow; done
-for id in edit-blocked write-blocked bash-blocked codemode-blocked toolsearch-blocked mcp-blocked unknown-blocked env-blocked env-prod-blocked git-config-blocked proc-blocked home-blocked outside-blocked symlink-out-blocked grep-blocked grep-pathless-blocked; do check_result "$id" block; done
+for id in edit-blocked write-blocked bash-blocked codemode-blocked toolsearch-blocked mcp-blocked unknown-blocked env-blocked env-prod-blocked git-config-blocked nested-git-blocked nested-env-blocked git-env-example-blocked proc-blocked home-blocked outside-blocked symlink-out-blocked grep-blocked grep-pathless-blocked; do check_result "$id" block; done
 
 CASES_ANALYSE='[
  {"id":"edit-allowed","tool":"edit","input":{"path":"src.js"}},

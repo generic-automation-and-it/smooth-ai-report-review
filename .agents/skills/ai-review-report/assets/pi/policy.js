@@ -38,13 +38,16 @@ function loadContract() {
 }
 
 function globToRegex(glob) {
+  const absolute = glob.startsWith("/");
   const escaped = glob
     .replace(/[.+^${}()|\\]/g, "\\$&")
     .replace(/\*\*/g, "\u0000")
     .replace(/\*/g, "[^]*")
     .replace(/\u0000/g, "[^]*")
     .replace(/\?/g, "[^/]");
-  return new RegExp(`^${escaped}$`);
+  // A relative pattern matches the name at any depth, so a nested `.git/…`
+  // cannot slip past a `.git/**` deny.
+  return absolute ? new RegExp(`^${escaped}$`) : new RegExp(`(^|/)${escaped}$`);
 }
 
 function matchesAny(patterns, relative, absolute) {
@@ -125,10 +128,14 @@ export default function policy(pi) {
     const relative = path.relative(root, resolved) || ".";
 
     const classDef = cls === "edit" ? roleDef.edit : roleDef.read;
-    if (matchesAny(classDef.allowPaths || [], relative, resolved)) {
-      return undefined;
-    }
-    if (matchesAny(classDef.denyPaths || [], relative, resolved)) {
+    const denied = matchesAny(classDef.denyPaths || [], relative, resolved);
+    if (denied) {
+      // An allow entry is an exception only outside a VCS tree; `.env.example`
+      // inside `.git/` must not become readable.
+      const underVcs = relative.split(path.sep).includes(".git");
+      if (!underVcs && matchesAny(classDef.allowPaths || [], relative, resolved)) {
+        return undefined;
+      }
       return block(`policy: ${cls} on "${relative}" is denied for role ${role}`);
     }
     return undefined;
