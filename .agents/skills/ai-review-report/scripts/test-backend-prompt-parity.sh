@@ -98,6 +98,8 @@ pi_stdin="$D/pi.stdin"
 check "the opencode stub runtime was dispatched" "yes" "$([ -s "$oc_stdin" ] && echo yes || echo no)"
 check "the pi stub runtime was dispatched" "yes" "$([ -s "$pi_stdin" ] && echo yes || echo no)"
 check "runtime stdin bytes are identical across backends" \
+  "$(sha256sum "$oc_stdin" | cut -d' ' -f1)" "$(sha256sum "$pi_stdin" | cut -d' ' -f1)"
+check "each runtime received the generated prompt file" \
   "$(sha256sum "$TMP/oc_prompt.txt" | cut -d' ' -f1)" "$(sha256sum "$pi_stdin" | cut -d' ' -f1)"
 check "the generated instruction set is identical across backends" \
   "$(sha256sum "$TMP/oc_agents.md" | cut -d' ' -f1)" "$(sha256sum "$D/ci_temp/chunk_0/AGENTS.md" | cut -d' ' -f1)"
