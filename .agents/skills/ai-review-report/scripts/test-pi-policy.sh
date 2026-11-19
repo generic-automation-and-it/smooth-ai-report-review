@@ -14,7 +14,8 @@ ROOT="$TMP/ws"
 mkdir -p "$ROOT/sub/.git" "$ROOT/.git" "$ROOT/.context" "$ROOT/.smooth-ai-review-tools" "$ROOT/.smooth-ai-review-tools" "$ROOT/.context" "$ROOT/ci_temp"
 printf 'x\n' > "$ROOT/src.js"; printf 'x\n' > "$ROOT/.env"; printf 'x\n' > "$ROOT/.env.production"
 printf 'SAFE=1\n' > "$ROOT/.env.example"; printf 'x\n' > "$ROOT/.git/config"
-printf 'x\n' > "$ROOT/sub/.git/config"; printf 'safe\n' > "$ROOT/safe.txt"; ln -s ../safe.txt "$ROOT/sub/.env"
+printf 'x\n' > "$ROOT/sub/.git/config"; printf 'safe\n' > "$ROOT/safe.txt"; printf 'SAFE=1\n' > "$ROOT/sub/.env.example"; ln -s ../safe.txt "$ROOT/sub/.env"
+ln -s ../.env "$ROOT/.env.example"
 printf 'x\n' > "$ROOT/.context/.env.example"
 printf 'x\n' > "$ROOT/.smooth-ai-review-tools/.env.example"
 ln -s "$ROOT/src.js" "$ROOT/link-in.js"; ln -s /etc/hosts "$ROOT/link-out.js"
@@ -56,7 +57,8 @@ CASES_REVIEW='[
  {"id":"unknown-blocked","tool":"frobnicate","input":{}},
  {"id":"env-blocked","tool":"read","input":{"path":".env"}},
  {"id":"env-prod-blocked","tool":"read","input":{"path":".env.production"}},
- {"id":"env-example-allowed","tool":"read","input":{"path":".env.example"}},
+ {"id":"env-example-symlink-blocked","tool":"read","input":{"path":".env.example"}},
+ {"id":"env-example-allowed","tool":"read","input":{"path":"sub/.env.example"}},
  {"id":"git-config-blocked","tool":"read","input":{"path":".git/config"}},
  {"id":"nested-git-blocked","tool":"read","input":{"path":"sub/.git/config"}},
  {"id":"nested-env-blocked","tool":"read","input":{"path":"sub/.env"}},

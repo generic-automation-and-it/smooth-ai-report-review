@@ -154,11 +154,11 @@ export default function policy(pi) {
       const structural = denyHits.some((p) => !/^\.env(\.|$)/.test(p));
       const underVcs = relative.split(path.sep).includes(".git")
         || relativeLogical.split(path.sep).includes(".git");
-      const allowed = [
-        ...matchedPatterns(classDef.allowPaths || [], relative, resolved),
-        ...matchedPatterns(classDef.allowPaths || [], relativeLogical, logicalAbs),
-      ];
-      if (!structural && !underVcs && allowed.length > 0) {
+      // The exception must hold for the resolved target too, so an
+      // `.env.example` symlink cannot expose a different protected file.
+      const allowLogical = matchedPatterns(classDef.allowPaths || [], relativeLogical, logicalAbs);
+      const allowResolved = matchedPatterns(classDef.allowPaths || [], relative, resolved);
+      if (!structural && !underVcs && allowLogical.length > 0 && allowResolved.length > 0) {
         return undefined;
       }
       return block(`policy: ${cls} on "${relative}" is denied for role ${role}`);
