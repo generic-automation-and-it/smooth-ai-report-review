@@ -461,6 +461,12 @@ jobs:
               "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-}" "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}" \
               "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}" \
               || echo "⚠️  Review fallback model registration failed — keeping the prepared config." >&2
+            if [ "$_backend" = "pi" ]; then
+              # The shared pi initializer also checks the review orchestrator.
+              bash "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" "${OPENCODE_CONFIG:-}" \
+                "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-}" "${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-}" \
+                || echo "⚠️  Review orchestrator model registration failed — keeping the prepared config." >&2
+            fi
             if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
               bash "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" "${OPENCODE_CONFIG:-}" \
                 "${OPENCODE_ANALYSE_PROVIDER_ID:-}" "${OPENCODE_ANALYSE_MODEL}" \

@@ -91,6 +91,8 @@ credential its selected provider needs.
   separately.
 - No credential value appears in any file the model can read.
 - A provider selector resolves to the same provider and model identity on both backends.
+- Analyse registers the review orchestrator required by the shared pi initializer before deriving
+  the pi roster, even though the fixer's execution chain uses only its primary and review fallbacks.
 
 ### 5. Preserve self-fix safety
 
