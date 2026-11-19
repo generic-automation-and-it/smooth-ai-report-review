@@ -127,9 +127,22 @@ export default function policy(pi) {
       return block(`policy: path "${resolved}" is outside the workspace root`);
     }
     const relative = path.relative(root, resolved) || ".";
+    // Decide on the resolved target AND the path as written: a symlink whose
+    // name is protected (`.env`) stays denied even when it targets a benign file.
+    const rawExpanded = (rawPath || ".").startsWith("~/")
+      ? path.join(os.homedir(), (rawPath || ".").slice(2))
+      : (rawPath || ".");
+    const logicalAbs = path.isAbsolute(rawExpanded) ? rawExpanded : path.resolve(root, rawExpanded);
+    if (!withinRoot(root, logicalAbs)) {
+      return block(`policy: path "${logicalAbs}" is outside the workspace root`);
+    }
+    const relativeLogical = path.relative(root, logicalAbs) || ".";
 
     const classDef = cls === "edit" ? roleDef.edit : roleDef.read;
-    const denyHits = matchedPatterns(classDef.denyPaths, relative, resolved);
+    const denyHits = [
+      ...matchedPatterns(classDef.denyPaths, relative, resolved),
+      ...matchedPatterns(classDef.denyPaths, relativeLogical, logicalAbs),
+    ];
     // A missing deny list is a contract fault, not "everything allowed".
     if (!Array.isArray(classDef.denyPaths) || classDef.denyPaths.length === 0) {
       return block(`policy: deny list missing for ${cls} (role ${role})`);
@@ -139,8 +152,12 @@ export default function policy(pi) {
       // (.git, tooling, context, temp, "*") is never overridden, and the
       // exception does not apply inside a VCS tree.
       const structural = denyHits.some((p) => !/^\.env(\.|$)/.test(p));
-      const underVcs = relative.split(path.sep).includes(".git");
-      const allowed = matchedPatterns(classDef.allowPaths || [], relative, resolved);
+      const underVcs = relative.split(path.sep).includes(".git")
+        || relativeLogical.split(path.sep).includes(".git");
+      const allowed = [
+        ...matchedPatterns(classDef.allowPaths || [], relative, resolved),
+        ...matchedPatterns(classDef.allowPaths || [], relativeLogical, logicalAbs),
+      ];
       if (!structural && !underVcs && allowed.length > 0) {
         return undefined;
       }
