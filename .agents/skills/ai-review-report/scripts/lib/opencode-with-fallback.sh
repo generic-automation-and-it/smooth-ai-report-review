@@ -169,7 +169,10 @@ _pi_once() { # <target> <cwd-or-empty> <prompt-file>
       case " $_allow " in *" $_v "*) ;; *) unset "$_v" ;; esac
     done
     PI_ROLE="${OPENCODE_AGENT:-review}"; export PI_ROLE
-    PI_WORKSPACE_ROOT="$_cwd"; export PI_WORKSPACE_ROOT
+    # The workspace boundary is the repository root, never the chunk cwd: a
+    # chunk directory would deny every legitimate read of the repo.
+    PI_WORKSPACE_ROOT="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$_cwd")"
+    export PI_WORKSPACE_ROOT
     cd "$_cwd" 2>/dev/null || true
     pi --print --no-session --no-approve -nc -ns -np --no-mcp -ne \
       -e "$_policy" --append-system-prompt "$_ctx" --model "$_target" < "$_in"

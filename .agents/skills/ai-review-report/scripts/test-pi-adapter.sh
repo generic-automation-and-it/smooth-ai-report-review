@@ -107,6 +107,23 @@ run_helper primary-model "" ""
 rc=$?
 check "empty output is rejected" "1" "$rc"
 
+# Probe isolation (LADR-128): the pi probe carries one key and loads the policy.
+cat > "$BIN/pi" <<PI
+#!/bin/bash
+printf '%s\n' "\$*" >> "$TMP/argv.log"
+env | sort > "$TMP/env.\$\$.log"
+echo OK
+PI
+chmod +x "$BIN/pi"
+rm -f "$TMP/argv.log" "$TMP"/env.*.log
+( cd "$TMP" && PATH="$BIN:/usr/bin:/bin" PI_CODING_AGENT_DIR="$TMP/agent" \
+  OPENCODE_CONFIG="$TMP/oc.json" OPENCODE_OPENAI_API_KEY=key-openai OPENCODE_ANTHROPIC_API_KEY=key-anthropic \
+  GITHUB_TOKEN=gh-token bash -c '. "$1"; backend_probe pi openai primary-model' _ "$SCRIPT_DIR/lib/backend-probe.sh" >/dev/null 2>&1 )
+probe_env="$(ls -t "$TMP"/env.*.log 2>/dev/null | head -1)"
+grep -q -- '-e .*assets/pi/policy.js' "$TMP/argv.log" && ok "the probe loads the policy extension" || bad "the probe skipped the policy extension"
+grep -q '^OPENCODE_OPENAI_API_KEY=key-openai$' "$probe_env" && ok "the probe carries its provider key" || bad "the probe lost its provider key"
+grep -q '^GITHUB_TOKEN=' "$probe_env" && bad "the probe leaked GITHUB_TOKEN" || ok "the probe strips GITHUB_TOKEN"
+
 # Initialize: version mismatch, missing directory, not-ready auth, missing model.
 init_case() { # init_case <env assignment...>
   (
