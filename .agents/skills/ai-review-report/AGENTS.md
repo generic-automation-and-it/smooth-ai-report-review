@@ -1424,10 +1424,20 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: One supply-chain entry point with a mechanically enforced no-raw-install rule, and a real install check in CI that needs no secret or model call. Nothing calls the installer yet; the pi adapter wires it into the run and declares the pin in the packagings.
 - **See also**: LADR-048, LADR-053, LADR-124.
 
+### LADR-126: pi's agent directory is derived from the resolved OpenCode roster
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`lib/prepare-pi-config.sh`; `assets/pi/settings.json`; pinned by `test-prepare-pi-config.sh`)
+- **Context**: pi reads configuration from a directory, not one file, and a second provider roster would drift from the one OpenCode already resolves. Credentials must never be written where the model can read them, and a reviewed repository must not configure the runtime.
+- **Decision**: `prepare_pi_config` builds a mode-0700 directory under `${RUNNER_TEMP:-${TMPDIR:-/tmp}}`, outside the checkout, and exports `PI_CODING_AGENT_DIR`. Its `models.json` is derived from the already-resolved `OPENCODE_CONFIG` (built-in asset, LADR-047 override, injected URL, registered models): same provider ids, model ids and literal base URLs, each key a `$NAME` reference from that provider's `{env:…}` placeholder. SDKs map to pi `api` values; a selected or chain-required provider with no mapping fails before any model call, while an unmappable unselected provider is omitted. `settings.json` comes from a committed asset with `defaultProjectTrust: "never"` and no packages, extensions, skills or prompts. `pi_key_var_for_provider` is the single provider→key-variable mapping.
+- **Consequences**: One roster with no hand-maintained copy, no credential value on disk, and project configuration can never reach pi. `URL` values must be literal because WT-01 measured that `$NAME` interpolation does not work in `baseUrl`.
+- **See also**: LADR-034, LADR-047, LADR-107, LADR-124, LADR-125.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
 
+- **pi's provider roster is derived, never hand-maintained (LADR-126).** `models.json` comes from the resolved `OPENCODE_CONFIG` each run; keys stay `$NAME` references and base URLs stay literal because pi does not interpolate `baseUrl`.
 - **pi installs only through `lib/install-pi.sh` (LADR-125).** The pi.dev installer cannot take an exact version, so the npm route behind a Node ≥ 22.19 check is the only path; never add an inline install to a workflow or example.
 - **One selector, three seams (LADR-124).** `OPENCODE_REVIEW_REPORT_BACKEND` is resolved before any install, probe or model call; probe through `backend_probe` and initialize through `initialize_backend`, never a direct `opencode run` or inline health block. An unknown value must fail, never fall back.
 - **Credential and VCS reads are denied by path, and `grep` is denied outright (LADR-123).** OpenCode matches `grep` permission patterns on the query, not the file path, so a path-shaped deny leaves the hole open — never re-allow content search on a role that reads untrusted diffs. `.env.example` stays readable only because its allow entry follows the deny.
@@ -1632,6 +1642,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-126: `prepare_pi_config` derives `models.json` from the resolved OpenCode roster into a 0700 dir outside the checkout, keys as `$NAME`, literal URLs, unmappable selected provider fails; `assets/pi/settings.json` refuses project trust. | #270 |
 | 2026-11-17 | LADR-125: `lib/install-pi.sh` with `OPENCODE_TOOL_PI_VERSION`, floor 1.5.2, npm route behind a Node ≥ 22.19 check, cached-below-floor rejection; pi notice gated on the pi backend; blocking install job `pi-backend-regressions`. | #268 |
 | 2026-11-17 | LADR-124: `OPENCODE_REVIEW_REPORT_BACKEND` selects the runtime before any install/probe/model call; run, probe and initialize seams extracted to libs; footer runtime name keyed to the selector; declared in both packagings and `local-review.sh`. | #266 |
 | 2026-11-17 | LADR-123: one role contract denies `read` on credential/VCS/`/proc` paths for review and analyse, `.env.example` stays readable, and content search is denied outright because OpenCode matches grep on the query; chunk prompt grep wording follows the resolved config. | #263 |
