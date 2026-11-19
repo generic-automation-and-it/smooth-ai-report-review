@@ -94,6 +94,15 @@ check "a selected unmappable provider fails" "1" "$rc"
 dir3="$(run_prepare "$TMP/unmappable.json" openai)"
 check "an unselected unmappable provider is omitted" "openai" "$(jq -r '.providers | keys | join(" ")' "$dir3/models.json")"
 
+cat > "$TMP/credurl.json" <<'JSON'
+{"provider":{"openai":{"npm":"@ai-sdk/openai","options":{"baseURL":"https://user:pass@example.test/v1","apiKey":"{env:OPENCODE_OPENAI_API_KEY}"},"models":{"m":{}}}}}
+JSON
+( export OPENCODE_CONFIG="$TMP/credurl.json" OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OPENAI_API_KEY=x; . "$LIB"; prepare_pi_config "$SETTINGS" >/dev/null 2>&1 ); rc=$?
+check "a credential-bearing base URL is rejected" "1" "$rc"
+
+( export OPENCODE_CONFIG="$TMP/builtin.json" OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OPENAI_API_KEY=x RUNNER_TEMP="$TMP/ws" GITHUB_WORKSPACE="$TMP/ws"; . "$LIB"; prepare_pi_config "$SETTINGS" >/dev/null 2>&1 ); rc=$?
+check "an agent directory inside the checkout is rejected" "1" "$rc"
+
 # Key helper mapping and failure.
 (
   . "$LIB"

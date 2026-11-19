@@ -70,6 +70,13 @@ prepare_pi_config() { # prepare_pi_config <settings-asset>
 
   _dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pi-agent.XXXXXX")" || return 1
   chmod 700 "$_dir" || return 1
+  local _ws _real_dir
+  _ws="$(cd "${GITHUB_WORKSPACE:-$PWD}" 2>/dev/null && pwd)" || _ws="$PWD"
+  _ws="$(cd "$_ws" 2>/dev/null && pwd -P)" || true
+  _real_dir="$(cd "$_dir" && pwd -P)"
+  case "$_real_dir" in
+    "$_ws"|"$_ws"/*) printf '❌ prepare_pi_config: agent directory is inside the checkout\n' >&2; rm -rf "$_dir"; return 1 ;;
+  esac
 
   _ids="$(jq -r '(.provider // .providers // {}) | keys[]' "$_cfg")"
   _required="${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-} ${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY:-} ${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY:-} ${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-}"
@@ -91,6 +98,9 @@ prepare_pi_config() { # prepare_pi_config <settings-asset>
         esac
       fi
       _url="$(jq -r --arg p "$_id" '((.provider // .providers)[$p].options.baseURL // "")' "$_cfg" 2>/dev/null || true)"
+      case "$_url" in
+        *://*@*) printf '❌ Provider "%s" base URL embeds credentials; a credential-free URL is required\n' "$_id" >&2; rm -rf "$_dir"; return 1 ;;
+      esac
       _key="$(pi_key_var_for_provider "$_id")" || { rm -rf "$_dir"; return 1; }
       _models="$(jq -r --arg p "$_id" '((.provider // .providers)[$p].models // {}) | keys[]' "$_cfg")"
       [ "$_first" -eq 1 ] || printf ',\n'
