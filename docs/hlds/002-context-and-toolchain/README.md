@@ -65,7 +65,7 @@ become a verdict on its own.
 
 ### 4. Pin and verify the toolchain
 
-One installer source per tool, OpenCode v2 only, config binding confirmed before any model call,
+One installer source per tool (OpenCode v2 by default, pi opt-in), config binding confirmed before any model call,
 requested model IDs registered in the resolved config, and the RTK plugin initialized only above its
 compatibility floor.
 

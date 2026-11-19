@@ -1460,6 +1460,15 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: One selector governs both workflows, and the fixer's safety is identical on both backends. Older PR tooling keeps working; a pi selection against stale tooling fails loudly rather than silently analysing on OpenCode.
 - **See also**: LADR-097, LADR-110, LADR-124, LADR-128.
 
+### LADR-130: The eval harness follows the selector and reports parity, never gates on it
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`eval/run-evals.sh`, `eval/parity-report.sh`, `llm-evals` job env and install step; pinned by `eval/test-eval-parity.sh` and `test-backend-prompt-parity.sh`)
+- **Context**: The harness drives the real chunk pipeline but installed and health-checked OpenCode itself. Measuring a second runtime requires the same selector and seam, a labelled result set, and a comparison that stays an observer — evaluation never changes a gate verdict.
+- **Decision**: `run-evals.sh` resolves the selector, requires the selected runtime, prepares the pi agent directory when `pi` is selected, and initializes through the seam; the `llm-evals` job declares the selector and pin and installs only the selected runtime. RESULTS tables name the backend. `parity-report.sh` compares a pi RESULTS list with an OpenCode one: per-fixture match/DIFF plus counts, always exit 0, never a verdict. An offline suite runs the same chunk through both dispatch paths with stub runtimes and asserts byte-identical prompt and instruction-set hashes.
+- **Consequences**: N1 quality can be measured without changing either run's verdicts, and N2 parity is proven deterministically rather than inferred from a paid run. The paid eval stays report-only and no new blocking paid job exists.
+- **See also**: LADR-049, LADR-050, LADR-124, LADR-128, LADR-129.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1671,6 +1680,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-130: the eval harness resolves the backend selector, requires/prepares the selected runtime, initializes through the seam and labels RESULTS by backend; `parity-report.sh` is report-only; offline prompt/instruction-set parity suite added. | #278 |
 | 2026-11-17 | LADR-129: `pipeline-ai-analyse.yml` reads `OPENCODE_REVIEW_REPORT_BACKEND`/`OPENCODE_TOOL_PI_VERSION`, installs pi only when selected, prepares the derived directory and adopts the guarded initialize seam; fences, test gate and commit step unchanged; runtime sentence made backend-neutral. | #276 |
 | 2026-11-17 | LADR-128: `OPENCODE_REVIEW_REPORT_BACKEND=pi` runs the review gate on pi — pi-only install, derived agent directory, per-attempt allow-listed env with one key, explicit native context, probe/initialize branches, RTK skip, runtime-named footers; L1 adapter suite and L2 mock job. `ai-analyse` stays on OpenCode. | #274 |
 | 2026-11-17 | LADR-127: `assets/pi/policy.js` enforces the role contract on every pi tool call — tool classes, content search denied, credential/VCS/`/proc` reads, analyse edit fence, outside-root paths, fail-closed inputs; `node` prerequisite added; suite registered. | #272 |
