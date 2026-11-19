@@ -422,6 +422,9 @@ jobs:
           if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/backend-selector.sh" ]; then
             . "${REVIEW_SKILL_DIR}/scripts/lib/backend-selector.sh"
             _backend="$(resolve_backend)" || exit 1
+          elif [ "${OPENCODE_REVIEW_REPORT_BACKEND:-opencode}" != "opencode" ]; then
+            echo "❌ Selected backend requires newer PR tooling (backend-selector.sh missing)." >&2
+            exit 1
           fi
           if [ "$_backend" = "pi" ]; then
             # LADR-128: pi-only install; OpenCode is never installed or initialized.
@@ -484,6 +487,7 @@ jobs:
             if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/prepare-pi-config.sh" ]; then
               . "${REVIEW_SKILL_DIR}/scripts/lib/prepare-pi-config.sh"
               prepare_pi_config "${REVIEW_SKILL_DIR}/assets/pi/settings.json" || exit 1
+              printf 'PI_CODING_AGENT_DIR=%s\n' "$PI_CODING_AGENT_DIR" >> "$GITHUB_ENV"
             else
               echo "❌ This PR's tooling predates the pi backend (prepare-pi-config.sh missing)." >&2
               exit 1
