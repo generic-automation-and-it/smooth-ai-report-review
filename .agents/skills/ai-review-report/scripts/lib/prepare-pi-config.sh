@@ -9,7 +9,24 @@
 # references, never values. Function-local variables only.
 
 pi_key_var_for_provider() { # pi_key_var_for_provider <provider-id>
-  local _id="$1" _cfg="${OPENCODE_CONFIG:-}" _placeholder
+  local _id="$1" _cfg="${OPENCODE_CONFIG:-}" _placeholder=""
+  # The resolved config's placeholder wins for EVERY id, so a credential
+  # override in an LADR-047 config reaches pi; known ids are only the fallback.
+  if [ -n "$_cfg" ] && [ -r "$_cfg" ] && command -v jq >/dev/null 2>&1; then
+    _placeholder="$(jq -r --arg p "$_id" \
+      '((.provider // .providers // {})[$p].options.apiKey // "")' "$_cfg" 2>/dev/null || true)"
+    case "$_placeholder" in
+      '{env:'*'}') _placeholder="${_placeholder#\{env:}"; _placeholder="${_placeholder%\}}" ;;
+      '') ;;
+      *) printf '❌ Provider "%s" has a literal apiKey; a {env:NAME} reference is required for pi\n' "$_id" >&2; return 1 ;;
+    esac
+    if [ -n "$_placeholder" ]; then
+      printf '%s' "$_placeholder" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' \
+        || { printf '❌ Provider "%s" placeholder is not a valid variable name\n' "$_id" >&2; return 1; }
+      printf '%s' "$_placeholder"
+      return 0
+    fi
+  fi
   case "$_id" in
     gemini) printf 'OPENCODE_GEMINI_API_KEY' ;;
     github-copilot) printf 'OPENCODE_COPILOT_API_KEY' ;;
@@ -20,16 +37,6 @@ pi_key_var_for_provider() { # pi_key_var_for_provider <provider-id>
     go-responses) printf 'OPENCODE_GO_OPENAI_API_KEY' ;;
     openrouter) printf 'OPENCODE_OPENROUTER_API_KEY' ;;
     *)
-      if [ -n "$_cfg" ] && [ -r "$_cfg" ] && command -v jq >/dev/null 2>&1; then
-        _placeholder="$(jq -r --arg p "$_id" \
-          '((.provider // .providers // {})[$p].options.apiKey // "")' "$_cfg" 2>/dev/null || true)"
-        _placeholder="${_placeholder#\{env:}"
-        _placeholder="${_placeholder%\}}"
-        if [ -n "$_placeholder" ] && [ "$_placeholder" != "$_id" ]; then
-          printf '%s' "$_placeholder"
-          return 0
-        fi
-      fi
       printf '❌ No pi credential mapping for provider "%s"\n' "$_id" >&2
       return 1
       ;;
