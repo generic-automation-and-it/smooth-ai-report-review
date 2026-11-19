@@ -1451,6 +1451,15 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: Consumers can run the same gate on a second runtime with the same prompt bytes and post-processing. OpenCode's default path is unchanged. The L2 job proves transport and policy against the real pinned runtime on a localhost mock, with no secret and no model network call.
 - **See also**: LADR-002, LADR-029, LADR-087, LADR-124, LADR-125, LADR-126, LADR-127.
 
+### LADR-129: The autonomous fixer reads the same backend selector
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`pipeline-ai-analyse.yml` env and initialize step; `ai-analyse/SKILL.md` runtime sentence; pinned by the packaging assertions and the pi adapter chain case)
+- **Context**: The analyse workflow runs from the default branch against the analysed PR's scripts, edits the checkout through an edit-only agent and commits on its own. A second runtime must not fork its safety fences, and a default-branch YAML must keep working against older PR tooling.
+- **Decision**: The analyse job declares `OPENCODE_REVIEW_REPORT_BACKEND` and `OPENCODE_TOOL_PI_VERSION` with the gate's expressions (no separate analyse selector). It resolves the backend through the guarded selector lib, installs pi only when `pi` is selected, prepares the derived pi agent directory, and initializes through the guarded backend seam; with the seam absent it runs today's inline OpenCode block, and with `pi` selected and pi tooling absent it fails before any model call. All fences, the test gate, the FIX/SKIP contract and `Commit fixes` stay unchanged; the only inlined-prompt edit is the runtime sentence becoming backend-neutral.
+- **Consequences**: One selector governs both workflows, and the fixer's safety is identical on both backends. Older PR tooling keeps working; a pi selection against stale tooling fails loudly rather than silently analysing on OpenCode.
+- **See also**: LADR-097, LADR-110, LADR-124, LADR-128.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
@@ -1662,6 +1671,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | LADR-129: `pipeline-ai-analyse.yml` reads `OPENCODE_REVIEW_REPORT_BACKEND`/`OPENCODE_TOOL_PI_VERSION`, installs pi only when selected, prepares the derived directory and adopts the guarded initialize seam; fences, test gate and commit step unchanged; runtime sentence made backend-neutral. | #276 |
 | 2026-11-17 | LADR-128: `OPENCODE_REVIEW_REPORT_BACKEND=pi` runs the review gate on pi — pi-only install, derived agent directory, per-attempt allow-listed env with one key, explicit native context, probe/initialize branches, RTK skip, runtime-named footers; L1 adapter suite and L2 mock job. `ai-analyse` stays on OpenCode. | #274 |
 | 2026-11-17 | LADR-127: `assets/pi/policy.js` enforces the role contract on every pi tool call — tool classes, content search denied, credential/VCS/`/proc` reads, analyse edit fence, outside-root paths, fail-closed inputs; `node` prerequisite added; suite registered. | #272 |
 | 2026-11-17 | LADR-126: `prepare_pi_config` derives `models.json` from the resolved OpenCode roster into a 0700 dir outside the checkout, keys as `$NAME`, literal URLs, unmappable selected provider fails; `assets/pi/settings.json` refuses project trust. | #270 |
