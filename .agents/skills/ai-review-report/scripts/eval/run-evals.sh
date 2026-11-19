@@ -127,7 +127,7 @@ if [ "$SELFTEST" != "1" ] && [ -f "$SKILL_SCRIPTS_DIR/lib/backend-selector.sh" ]
 fi
 
 if [ "$SELFTEST" != "1" ]; then
-  if [ "$_backend" = "pi" ]; then
+  if [ "${_backend:-opencode}" = "pi" ]; then
     command -v pi >/dev/null 2>&1 || die "pi runtime not found (install: bash \"$SKILL_SCRIPTS_DIR/lib/install-pi.sh\")."
   else
   command -v opencode >/dev/null 2>&1 || die "opencode v2 CLI not found (install: bash \"$SKILL_SCRIPTS_DIR/lib/install-opencode.sh\" && export PATH=\"\$HOME/.opencode/bin:\$PATH\" — the installer only sets PATH in its own shell, so export it here before re-running; the shared installer honours OPENCODE_CLI_VERSION, a raw curl drifts from CI)."
@@ -161,13 +161,13 @@ if [ "$SELFTEST" != "1" ]; then
   # workflow's own `opencode stats` — owns the config for the rest of the run
   # and silently ignores the OPENCODE_CONFIG just exported (LADR-087). Stop it
   # so the health check below starts a fresh service bound to ours.
-  if [ "$_backend" = "pi" ]; then
+  if [ "${_backend:-opencode}" = "pi" ]; then
     . "$SKILL_SCRIPTS_DIR/lib/prepare-pi-config.sh"
     prepare_pi_config "$SKILL_SCRIPTS_DIR/../assets/pi/settings.json" || die "pi configuration preparation failed"
   fi
   _health_rc=0
   if [ -f "$SKILL_SCRIPTS_DIR/lib/backend-initialize.sh" ]; then
-    bash "$SKILL_SCRIPTS_DIR/lib/backend-initialize.sh" "$_backend" "$SKILL_SCRIPTS_DIR/lib" || _health_rc=$?
+    bash "$SKILL_SCRIPTS_DIR/lib/backend-initialize.sh" "${_backend:-opencode}" "$SKILL_SCRIPTS_DIR/lib" || _health_rc=$?
   else
     opencode service stop >/dev/null 2>&1 || true
     bash "$SKILL_SCRIPTS_DIR/lib/opencode-health.sh" || _health_rc=$?
@@ -709,7 +709,7 @@ echo ""
 echo "=========================================="
 echo " RESULTS"
 echo "=========================================="
-echo " Backend: ${_backend} (${OPENCODE_TOOL_PI_VERSION:-unpinned on opencode})"
+echo " Backend: ${_backend:-opencode} (${OPENCODE_TOOL_PI_VERSION:-unpinned on opencode})"
 printf '%-14s %-34s %-6s %s\n' "KIND" "FIXTURE" "RESULT" "DETAIL"
 printf '%-14s %-34s %-6s %s\n' "----" "-------" "------" "------"
 # Guard the expansion: macOS bash 3.2 errors on "${arr[@]}" for an empty array
