@@ -74,7 +74,7 @@ check "settings load no prompts" "0" "$(jq -r '.prompts | length' "$dir/settings
 
 case "$dir" in "$TMP/runner"/*) ok "the directory lives under RUNNER_TEMP";; *) bad "directory outside RUNNER_TEMP: $dir";; esac
 case "$dir" in "$TMP/ws"/*) bad "the directory must not live under the workspace";; *) ok "the directory is outside the workspace";; esac
-check "directory mode is 700" "700" "$(stat -f '%Lp' "$dir" 2>/dev/null || stat -c '%a' "$dir")"
+check "directory mode is 700" "700" "$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%Lp' "$dir")"
 
 # Override follows the override, not the built-in.
 cat > "$TMP/override.json" <<'JSON'
