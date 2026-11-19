@@ -13,6 +13,7 @@ check() { if [ "$3" = "$2" ]; then echo "  ✅ $1"; pass=$((pass+1)); else echo 
 
 D="$TMP/repo"
 mkdir -p "$D/.agents/skills/ai-review-report/scripts/lib" "$D/bin" "$D/ci_temp"
+D="$(cd "$D" && pwd -P)"
 cp "$SCRIPT_DIR/review-in-chunks.sh" "$D/.agents/skills/ai-review-report/scripts/"
 for lib in count-changed-files.sh extract-findings-json.sh validate-chunk-timeout.sh \
            split-chunk-budget.sh review-has-shape.sh build-runtime-agents.sh \
@@ -28,6 +29,15 @@ cp "$REPO_ROOT/.agents/skills/ai-review-report/assets/pi/policy.js" "$D/.agents/
 cat > "$D/bin/opencode" <<OC
 #!/bin/bash
 cat > "$D/oc.stdin"
+_root="\$(git -C "\$PWD" rev-parse --show-toplevel 2>/dev/null || printf '%s' "\$PWD")"
+_root="\$(cd "\$_root" 2>/dev/null && pwd -P)"
+: > "$D/oc.ctx"
+[ -f "\$_root/AGENTS.md" ] && cat "\$_root/AGENTS.md" >> "$D/oc.ctx"
+_rel="\$(pwd -P)"
+while [ "\$_rel" != "\$_root" ]; do
+  [ -f "\$_rel/AGENTS.md" ] && cat "\$_rel/AGENTS.md" >> "$D/oc.ctx"
+  _rel="\$(dirname "\$_rel")"
+done
 printf '### Stub Review\\n\\n- 🔵 [VERIFIED] Low Priority: stub — \`alpha/a.txt:1\`.\\n\\n%.0s' {1..20}
 OC
 chmod +x "$D/bin/opencode"
@@ -59,7 +69,7 @@ mkdir -p "$D/agent"
 run_path() { # run_path <backend>
   local backend="$1"
   rm -rf "$D/ci_temp/reviews" "$D/ci_temp/chunk_0_prompt.txt" "$D/ci_temp/chunk_0" \
-         "$D/oc.stdin" "$D/pi.stdin" "$D/pi.ctx"
+         "$D/oc.stdin" "$D/oc.ctx" "$D/pi.stdin" "$D/pi.ctx"
   ( cd "$D" \
     && OPENCODE_REVIEW_REPORT_BACKEND="$backend" OPENCODE_REVIEW_REPORT_PROVIDER=OPENAI \
        OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary \
@@ -80,6 +90,7 @@ run_path opencode
 cp "$D/ci_temp/chunk_0_prompt.txt" "$TMP/oc_prompt.txt"
 cp "$D/ci_temp/chunk_0/AGENTS.md" "$TMP/oc_agents.md"
 cp "$D/oc.stdin" "$TMP/oc_stdin"
+cp "$D/oc.ctx" "$TMP/oc_ctx"
 oc_stdin="$TMP/oc_stdin"
 run_path pi
 pi_stdin="$D/pi.stdin"
@@ -90,6 +101,9 @@ check "runtime stdin bytes are identical across backends" \
   "$(sha256sum "$TMP/oc_prompt.txt" | cut -d' ' -f1)" "$(sha256sum "$pi_stdin" | cut -d' ' -f1)"
 check "the generated instruction set is identical across backends" \
   "$(sha256sum "$TMP/oc_agents.md" | cut -d' ' -f1)" "$(sha256sum "$D/ci_temp/chunk_0/AGENTS.md" | cut -d' ' -f1)"
+check "the complete delivered context is identical across backends (line set)" \
+  "$(grep -v '^$' "$TMP/oc_ctx" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)" \
+  "$(grep -v '^$' "$D/pi.ctx" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)"
 check "pi receives the root context marker" "1" "$(grep -c 'ROOT-CTX-MARKER' "$D/pi.ctx" 2>/dev/null || true)"
 _gen_line="$(awk 'NF { print; exit }' "$D/ci_temp/chunk_0/AGENTS.md" 2>/dev/null)"
 check "pi receives the generated chunk instructions" "1" \
