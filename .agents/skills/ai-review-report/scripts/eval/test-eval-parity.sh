@@ -11,6 +11,7 @@ pass=0; fail=0
 check() { if [ "$3" = "$2" ]; then echo "  ✅ $1"; pass=$((pass+1)); else echo "  ❌ $1 (expected '$2', got '$3')"; fail=$((fail+1)); fi; }
 
 printf 'must-catch|MC-001|CAUGHT|ok\nmust-not-flag|DR-001|CLEAN|ok\nmust-catch|MC-002|MISSED|detail\n' > "$TMP/pi.txt"
+printf 'must-catch|MC-001|CAUGHT|ok\nmust-catch|MC-099|CAUGHT|ok\n' > "$TMP/oc-only.txt"
 printf 'must-catch|MC-001|CAUGHT|ok\nmust-not-flag|DR-001|FLAGGED|detail\nmust-catch|MC-002|MISSED|detail\n' > "$TMP/oc.txt"
 
 out="$(bash "$REPORT" "$TMP/pi.txt" "$TMP/oc.txt")"; rc=$?
@@ -25,6 +26,9 @@ check "a differing fixture is marked DIFF" "1" "$(printf '%s' "$out" | grep -c '
 check "the counts are reported" "1" "$(printf '%s' "$out" | grep -c 'match: 2 · differ: 1')"
 check "the section never assigns a fail verdict" "0" "$(printf '%s' "$out" | grep -c '^.*|.*fail' || true)"
 check "the section states it is measured, never gated" "1" "$(printf '%s' "$out" | grep -c 'measured, never gated')"
+out="$(bash "$REPORT" "$TMP/pi.txt" "$TMP/oc-only.txt")"; rc=$?
+check "an OpenCode-only fixture is reported, not dropped" "1" "$(printf '%s' "$out" | grep -c 'MC-002.*MISSED.*not-run.*DIFF')"
+check "the union comparison still exits 0" "0" "$rc"
 
 : > "$TMP/empty.txt"
 out="$(bash "$REPORT" "$TMP/empty.txt" "$TMP/oc.txt")"; rc=$?
