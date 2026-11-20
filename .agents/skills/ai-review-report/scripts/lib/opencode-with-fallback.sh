@@ -170,12 +170,13 @@ _pi_once() { # <target> <cwd-or-empty> <prompt-file>
   local _prov="${_target%%/*}"
   _keyvar="$(. "$_libdir/prepare-pi-config.sh"; pi_key_var_for_provider "$_prov")" || return 1
   _ctx="$(_pi_native_context_file "$_cwd")"
+  local _role="${OPENCODE_AGENT:-review}"
   _allow="PATH HOME TMPDIR TMP TEMP LANG LC_ALL LC_CTYPE PI_CODING_AGENT_DIR PI_ROLE PI_WORKSPACE_ROOT PI_TELEMETRY PI_SKIP_VERSION_CHECK PI_OFFLINE $_keyvar"
   (
     for _v in $(compgen -e); do
       case " $_allow " in *" $_v "*) ;; *) unset "$_v" ;; esac
     done
-    PI_ROLE="${OPENCODE_AGENT:-review}"; export PI_ROLE
+    PI_ROLE="$_role"; export PI_ROLE
     # The workspace boundary is the repository root, never the chunk cwd: a
     # chunk directory would deny every legitimate read of the repo.
     PI_WORKSPACE_ROOT="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$_cwd")"

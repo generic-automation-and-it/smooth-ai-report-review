@@ -87,7 +87,10 @@ run_pi >/dev/null 2>&1; rc=$?
 # allow side of the edit matrix is pinned at L0 by test-pi-policy.sh.
 jq -n '{mode:"tool_calls", tool_calls:[{name:"edit", arguments:{path:".env", edits:[{oldText:"SECRET=leak", newText:"x"}]}}], then:{mode:"answer", answer:"done"}}' > "$SCENARIO"
 L2_ROLE=analyse run_pi >/dev/null 2>&1 || true
-grep -q 'SECRET=leak' "$WS/.env" && ok "an analyse edit of .env is blocked (file unchanged)" || bad "the analyse edit fence did not block .env"
+[ -s "$REQUESTS" ] && grep -qE '"name": *"edit"' "$REQUESTS" \
+  && grep -q 'SECRET=leak' "$WS/.env" \
+  && ok "an analyse edit of .env was attempted and blocked (file unchanged)" \
+  || bad "the analyse edit fence did not block .env (attempt missing or file changed)"
 
 echo ""
 echo "=========================================="
