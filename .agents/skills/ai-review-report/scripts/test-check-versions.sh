@@ -55,12 +55,20 @@ fixture="${STUB_REGISTRY_DIR}/${key}.json"
 cat "$fixture"
 STUB
 
-chmod +x "${stub_bin}/opencode" "${stub_bin}/curl"
+cat > "${stub_bin}/pi" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && echo "${STUB_PI_VERSION:-}"
+STUB
+
+chmod +x "${stub_bin}/opencode" "${stub_bin}/curl" "${stub_bin}/pi"
 
 registry_dir="${tmp_dir}/registry"
 mkdir -p "$registry_dir"
 # OpenCode v2 update API: .../update/api/latest/cli/npm.
 write_opencode_release() { printf '{"version":"%s","metadata":{"package":"@opencode/cli"}}\n' "$1" > "${registry_dir}/update_api_latest_cli_npm.json"; }
+# npm registry: https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest
+# → @earendil-works_pi-coding-agent_latest.json (LADR-125).
+write_pi_release() { printf '{"version":"%s"}\n' "$1" > "${registry_dir}/@earendil-works_pi-coding-agent_latest.json"; }
 # PyPI JSON API: .../pypi/<pkg>/json → pypi_<pkg>_json.json (registry base
 # already includes the /pypi segment, matching the real pypi.org/pypi shape).
 write_pypi_pkg() { printf '{"info":{"version":"%s"}}\n' "$2" > "${registry_dir}/pypi_${1}_json.json"; }
@@ -333,6 +341,31 @@ rtk_install_line=$(grep -n 'bash "\$LIB_DIR/install-rtk.sh"' "$RUN_REVIEW" | hea
 [ "$check_versions_line" -gt "$rtk_install_line" ] \
   || fail "check-versions.sh must be sourced AFTER install-rtk.sh runs, so 'rtk --version' reflects what was actually installed"
 ok "check-versions.sh runs after rtk install (step 5c-bis)"
+
+echo ""
+echo "=========================================="
+echo "Testing pi notice (LADR-125)"
+echo "=========================================="
+
+write_pi_release "1.5.2"
+run_check pi_current STUB_PI_VERSION=1.5.2 OPENCODE_REVIEW_REPORT_BACKEND=pi
+grep -q 'pi:' "${tmp_dir}/pi_current.info" || fail "pi notice missing on the pi backend"
+grep -q 'v1.5.2' "${tmp_dir}/pi_current.info" || fail "installed pi version missing"
+ok "pi notice renders the installed version"
+
+write_pi_release "1.5.3"
+run_check pi_update STUB_PI_VERSION=1.5.2 OPENCODE_REVIEW_REPORT_BACKEND=pi
+grep -q '⬆️' "${tmp_dir}/pi_update.info" || fail "no update marker for pi 1.5.2 → 1.5.3"
+ok "pi update marker renders"
+
+run_check pi_off STUB_PI_VERSION=1.5.2
+grep -q 'pi:' "${tmp_dir}/pi_off.info" && fail "pi notice leaked onto the opencode backend"
+ok "pi notice is silent unless the pi backend is selected"
+
+rm -f "${registry_dir}/@earendil-works_pi-coding-agent_latest.json"
+run_check pi_unreachable STUB_PI_VERSION=1.5.2 OPENCODE_REVIEW_REPORT_BACKEND=pi
+grep -q 'pi:' "${tmp_dir}/pi_unreachable.info" || fail "an unreachable registry dropped the pi notice"
+ok "an unreachable registry never blocks the pi notice"
 
 echo ""
 echo "=========================================="

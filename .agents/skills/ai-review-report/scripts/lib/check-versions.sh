@@ -227,6 +227,24 @@ if [ -n "$OPENCODE_CLI_CURRENT_VERSION" ] || [ -n "$GRAPH_CURRENT_VERSION" ] || 
   fi
 fi
 
+# LADR-125: the pi notice exists only on the pi backend (LADR-124 selector) and
+# is best-effort like the other checks — an unreachable registry prints nothing.
+if [ "${OPENCODE_REVIEW_REPORT_BACKEND:-opencode}" = "pi" ] && command -v pi >/dev/null 2>&1; then
+  _cv_pi_current="$(pi --version 2>/dev/null | grep -Eo 'v?[0-9]+(\.[0-9]+){1,3}' | head -1 | sed 's/^v//' || true)"
+  _cv_pi_latest="$(curl -sf --max-time 5 https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest 2>/dev/null \
+    | { if [ "${_cv_have_jq:-0}" = "1" ]; then jq -r '.version // empty'; else sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'; fi; } 2>/dev/null || true)"
+  if [ -n "$_cv_pi_current" ]; then
+    if [ -n "$_cv_pi_latest" ] && [ "$_cv_pi_current" != "$_cv_pi_latest" ]; then
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+- **pi:** \`v${_cv_pi_current}\` → \`v${_cv_pi_latest}\` available ⬆️"
+    else
+      OPENCODE_VERSION_INFO="${OPENCODE_VERSION_INFO}
+- **pi:** \`v${_cv_pi_current}\` ✅"
+    fi
+  fi
+  unset _cv_pi_current _cv_pi_latest
+fi
+
 # Log to stdout for workflow-run visibility.
 if [ -n "$OPENCODE_VERSION_INFO" ]; then
   echo ""

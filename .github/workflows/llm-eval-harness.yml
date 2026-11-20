@@ -168,6 +168,9 @@ jobs:
           set -euo pipefail
           tests=(
             .agents/skills/ai-review-report/scripts/test-install-opencode.sh
+            # LADR-125: the pi install source — pin/floor/Node/PATH and the
+            # no-raw-install scan. The real install runs in pi-backend-regressions.
+            .agents/skills/ai-review-report/scripts/test-install-pi.sh
             .agents/skills/ai-review-report/scripts/test-regression-runner.sh
             .agents/skills/ai-review-report/scripts/test-opencode-health.sh
             .agents/skills/ai-review-report/scripts/test-backend-selector.sh
@@ -322,6 +325,66 @@ jobs:
             bash "$test_script"
             echo "::endgroup::"
           done
+
+  pi-backend-regressions:
+    # LADR-125: a real install of the pinned pi through the single install
+    # source. No secret and no model call; the mock-backed L2 suite is added by
+    # the pi review adapter. Relevance is decided in-job so this required check
+    # reports on every PR.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Scope check
+        id: pi_scope
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref || 'main' }}"
+          if ! changed="$(git diff --name-only "${base}...HEAD" 2>/dev/null)"; then
+            echo "⚠️  Could not determine changed files — running the pi install check (fail-safe)."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if grep -qE '^(\.agents/skills/ai-review-report/|\.github/workflows/|AGENTS\.md$)' <<<"$changed"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Review-pipeline files changed — installing pi."
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️  No review-pipeline files changed — pi install not required."
+          fi
+
+      - name: Install pinned pi
+        if: steps.pi_scope.outputs.relevant == 'true'
+        env:
+          OPENCODE_TOOL_PI_VERSION: ${{ vars.OPENCODE_TOOL_PI_VERSION || '' }}
+        run: |
+          set -euo pipefail
+          bash .agents/skills/ai-review-report/scripts/lib/install-pi.sh
+          installed="$(pi --version | grep -Eo '[0-9]+(\.[0-9]+){1,3}' | head -1)"
+          echo "Installed pi: ${installed}"
+          if [ -n "${OPENCODE_TOOL_PI_VERSION:-}" ]; then
+            want="${OPENCODE_TOOL_PI_VERSION#v}"
+            [ "$installed" = "$want" ] || { echo "❌ expected pi ${want}, got ${installed}" >&2; exit 1; }
+          fi
+
+      - name: Reject an unsupported pin
+        if: steps.pi_scope.outputs.relevant == 'true'
+        run: |
+          set -euo pipefail
+          if OPENCODE_TOOL_PI_VERSION=1.4.0 bash .agents/skills/ai-review-report/scripts/lib/install-pi.sh; then
+            echo "❌ a below-floor pin was accepted" >&2
+            exit 1
+          fi
+          if OPENCODE_TOOL_PI_VERSION=not-a-version bash .agents/skills/ai-review-report/scripts/lib/install-pi.sh; then
+            echo "❌ a garbage pin was accepted" >&2
+            exit 1
+          fi
+          echo "✅ Below-floor and malformed pins are rejected."
 
   llm-evals:
     # Network-bound (chunked <100KB/call); the selected provider endpoint must be
