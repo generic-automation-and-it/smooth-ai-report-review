@@ -1448,11 +1448,21 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: One roster with no hand-maintained copy, no credential value on disk, and project configuration can never reach pi. `URL` values must be literal because WT-01 measured that `$NAME` interpolation does not work in `baseUrl`.
 - **See also**: LADR-034, LADR-047, LADR-107, LADR-124, LADR-125.
 
+### LADR-127: A pinned pi policy extension enforces the role contract on every call
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (`assets/pi/policy.js`; `node` prerequisite in `run-regressions.sh`; pinned by `test-pi-policy.sh`)
+- **Context**: pi has no declarative permission language; its only per-call control is an extension's `tool_call` handler returning `{ block: true }`. The role contract is the behavioural definition (LADR-123), so the runtime must implement it rather than restate it.
+- **Decision**: `policy.js` is a dependency-free ES module loaded with `-ne -e`. It reads the role contract relative to its own file, takes the role and workspace root only from the environment the adapter sets, and blocks: any tool class the role does not allow (including `bash`, `codemode`, `tool_search`, `mcp__*` and unknown names), content search outright, `read` on credential/VCS/`/proc` paths except `.env.example`, `analyse` edits on tooling/context/temp/VCS/credential paths, and every path that resolves outside the workspace root. Paths resolve with `realpath`; a not-yet-existing target resolves through its nearest existing parent; a missing role, root or contract blocks everything.
+- **Consequences**: A denied call is blocked by behaviour, not by a prompt. The module runs inside the model process, so it lives in the skill tree and is covered by the analyse workflow's pinned-tooling check; the in-repo/copy-install mode inherits the existing PR-head tooling gap. The L2 denial cases run with the real runtime in the pi adapter unit.
+- **See also**: LADR-025, LADR-029, LADR-094, LADR-123, LADR-126.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
 
 - **Credential and VCS reads are denied by path, and `grep` is denied outright (LADR-131).** OpenCode matches `grep` permission patterns on the query, not the file path, so a path-shaped deny leaves the hole open — never re-allow content search on a role that reads untrusted diffs. `.env.example` stays readable only because its allow entry follows the deny.
+- **`policy.js` is pi's lockdown (LADR-127).** It reads the role contract and fails closed; keep it consistent with the contract and never widen a role by editing the extension alone.
 - **pi's provider roster is derived, never hand-maintained (LADR-126).** `models.json` comes from the resolved `OPENCODE_CONFIG` each run; keys stay `$NAME` references and base URLs stay literal because pi does not interpolate `baseUrl`.
 - **pi installs only through `lib/install-pi.sh` (LADR-125).** The pi.dev installer cannot take an exact version, so the npm route behind a Node ≥ 22.19 check is the only path; never add an inline install to a workflow or example.
 - **One selector, three seams (LADR-124).** `OPENCODE_REVIEW_REPORT_BACKEND` is resolved before any install, probe or model call; probe through `backend_probe` and initialize through `initialize_backend`, never a direct `opencode run` or inline health block. An unknown value must fail, never fall back.
@@ -1662,6 +1672,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 | Date | Change | Ref |
 | 2026-11-20 | LADR-123 added and amended: content-filter refusals are named (opencode v2.3.2 reason suffix included), the refused prompt is kept redacted in the run artifact, and a refused multi-file chunk is retried one file per call; Key Behaviors gains the refusal rule. | LADR-123 |
 | 2026-11-17 | LADR-131: one role contract denies `read` on credential/VCS/`/proc` paths for review and analyse, `.env.example` stays readable, and content search is denied outright because OpenCode matches grep on the query; chunk prompt grep wording follows the resolved config. | #263 |
+| 2026-11-17 | LADR-127: `assets/pi/policy.js` enforces the role contract on every pi tool call — tool classes, content search denied, credential/VCS/`/proc` reads, analyse edit fence, outside-root paths, fail-closed inputs; `node` prerequisite added; suite registered. | #272 |
 | 2026-11-17 | LADR-126: `prepare_pi_config` derives `models.json` from the resolved OpenCode roster into a 0700 dir outside the checkout, keys as `$NAME`, literal URLs, unmappable selected provider fails; `assets/pi/settings.json` refuses project trust. | #270 |
 | 2026-11-17 | LADR-125: `lib/install-pi.sh` with `OPENCODE_TOOL_PI_VERSION`, floor 1.5.2, npm route behind a Node ≥ 22.19 check, cached-below-floor rejection; pi notice gated on the pi backend; blocking install job `pi-backend-regressions`. | #268 |
 | 2026-11-17 | LADR-124: `OPENCODE_REVIEW_REPORT_BACKEND` selects the runtime before any install/probe/model call; run, probe and initialize seams extracted to libs; footer runtime name keyed to the selector; declared in both packagings and `local-review.sh`. | #266 |
