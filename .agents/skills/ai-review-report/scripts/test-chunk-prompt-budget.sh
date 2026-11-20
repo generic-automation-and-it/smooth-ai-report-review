@@ -275,6 +275,7 @@ run_aggregation_case() {
   local expected_action="$2"
   local expect_banner="$3"
   local label="$4"
+  local with_blocked_flag="${5:-false}"
   local test_repo="${TMP_DIR}/repo"
   local output_file="${TMP_DIR}/${label}.out"
   local run_log="${TMP_DIR}/${label}.log"
@@ -286,6 +287,10 @@ run_aggregation_case() {
   printf '### 📄 File: `giant/big.txt`\n\n- 🔵 [VERIFIED] Low Priority: None found\n' > ci_temp/reviews/chunk_1.md
   if [ "${with_failed_flag}" = "true" ]; then
     echo "exit code 124" > ci_temp/reviews/chunk_1.failed
+  fi
+  if [ "${with_blocked_flag}" = "true" ]; then
+    printf 'openai/primary-model, openai/secondary-model\nreason: jailbreak\n' > ci_temp/reviews/chunk_1.content-blocked
+    printf 'redacted prompt\n' > ci_temp/reviews/chunk_1_refused_prompt.md
   fi
 
   GITHUB_OUTPUT="${output_file}" \
@@ -330,6 +335,39 @@ run_aggregation_case() {
       fail "${label}: coverage banner present despite zero failed chunks"
     else
       pass "${label}: no coverage banner"
+    fi
+  fi
+
+  # LADR-123: a content-filter refusal gets its own banner line, because the
+  # coverage banner's "re-run to retry" is the wrong advice for it.
+  if grep -q "Refused by the provider's content filter" ci_temp/final_review.md; then
+    _refused_banner=true
+  else
+    _refused_banner=false
+  fi
+  if [ "${_refused_banner}" = "${with_blocked_flag}" ]; then
+    pass "${label}: content-filter banner present=${_refused_banner}"
+  else
+    fail "${label}: content-filter banner present=${_refused_banner}, expected ${with_blocked_flag}"
+  fi
+  if [ "${with_blocked_flag}" = "true" ]; then
+    # opencode >= 2.3.2 names the filter's reason; the flag's `reason:` line
+    # carries it to the banner, and the advice leads with a human review.
+    if grep -q "content filter (reason: jailbreak):" ci_temp/final_review.md; then
+      pass "${label}: content-filter banner names the reason"
+    else
+      fail "${label}: content-filter banner does not name the reason from the flag"
+    fi
+    if grep -q "Review the refused files by hand, or reword what trips the filter" ci_temp/final_review.md \
+       && grep -q "a different provider helps only where one is configured" ci_temp/final_review.md; then
+      pass "${label}: content-filter banner leads with a human review"
+    else
+      fail "${label}: content-filter banner must lead with a human review, a different provider only where configured"
+    fi
+    if grep -q 'chunk_<n>_\*refused_prompt.md' ci_temp/final_review.md; then
+      pass "${label}: content-filter banner points at the kept prompt"
+    else
+      fail "${label}: content-filter banner does not point at the kept prompt"
     fi
   fi
 
@@ -917,6 +955,7 @@ run_author_fence_case
 run_deadline_case
 run_aggregation_case "true" "request_changes" "true" "failed-chunk-fail-closed"
 run_aggregation_case "false" "approve" "false" "clean-approve-passthrough"
+run_aggregation_case "true" "request_changes" "true" "content-blocked-fail-closed" "true"
 
 echo ""
 if [ "${FAILURES}" -gt 0 ]; then
