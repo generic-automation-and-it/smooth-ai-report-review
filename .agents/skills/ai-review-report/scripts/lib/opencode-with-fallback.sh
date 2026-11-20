@@ -164,26 +164,51 @@ _pi_native_context_file() { # <cwd> -> path
   printf '%s' "$_out"
 }
 
+# Directories whose AGENTS.md the start-set above already delivered, so the
+# on-read extension never attaches one twice (LADR-132).
+_pi_native_context_dirs() { # <cwd> -> colon-separated dirs
+  local _cwd="$1" _root _rel _out=""
+  _root="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$_root" ] && _root="$(cd "$_root" 2>/dev/null && pwd -P)"
+  if [ -n "$_root" ] && [ -f "$_root/AGENTS.md" ]; then _out="$_root"; fi
+  if [ -n "$_root" ]; then
+    _rel="$(cd "$_cwd" && pwd -P)"
+    while [ -n "$_rel" ] && [ "$_rel" != "$_root" ]; do
+      if [ -f "$_rel/AGENTS.md" ]; then _out="${_out:+$_out:}$_rel"; fi
+      _rel="$(dirname "$_rel")"
+      case "$_rel" in "$_root"*) ;; *) break ;; esac
+    done
+  elif [ -f "$_cwd/AGENTS.md" ]; then
+    _out="$_cwd"
+  fi
+  printf '%s' "$_out"
+}
+
 _pi_once() { # <target> <cwd-or-empty> <prompt-file>
   local _target="$1" _cwd="${2:-$PWD}" _in="$3" _libdir _policy _keyvar _ctx _allow _v _rc
   _libdir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
   _policy="$_libdir/../../assets/pi/policy.js"
+  local _ctxext="$_libdir/../../assets/pi/on-read-context.js" _dirs _role _wsroot
   local _prov="${_target%%/*}"
   _keyvar="$(. "$_libdir/prepare-pi-config.sh"; pi_key_var_for_provider "$_prov")" || return 1
   _ctx="$(_pi_native_context_file "$_cwd")"
-  _allow="PATH HOME TMPDIR TMP TEMP LANG LC_ALL LC_CTYPE PI_CODING_AGENT_DIR PI_ROLE PI_WORKSPACE_ROOT PI_TELEMETRY PI_SKIP_VERSION_CHECK PI_OFFLINE $_keyvar"
+  _dirs="$(_pi_native_context_dirs "$_cwd")"
+  _role="${OPENCODE_AGENT:-review}"
+  _allow="PATH HOME TMPDIR TMP TEMP LANG LC_ALL LC_CTYPE PI_CODING_AGENT_DIR PI_ROLE PI_WORKSPACE_ROOT PI_CONTEXT_DELIVERED_DIRS PI_TELEMETRY PI_SKIP_VERSION_CHECK PI_OFFLINE $_keyvar"
   (
     for _v in $(compgen -e); do
       case " $_allow " in *" $_v "*) ;; *) unset "$_v" ;; esac
     done
-    PI_ROLE="${OPENCODE_AGENT:-review}"; export PI_ROLE
+    PI_ROLE="$_role"; export PI_ROLE
     # The workspace boundary is the repository root, never the chunk cwd: a
     # chunk directory would deny every legitimate read of the repo.
-    PI_WORKSPACE_ROOT="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$_cwd")"
+    _wsroot="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$_cwd")"
+    PI_WORKSPACE_ROOT="$(cd "$_wsroot" 2>/dev/null && pwd -P)"
     export PI_WORKSPACE_ROOT
+    PI_CONTEXT_DELIVERED_DIRS="$_dirs"; export PI_CONTEXT_DELIVERED_DIRS
     cd "$_cwd" 2>/dev/null || true
     pi --print --no-session --no-approve -nc -ns -np --no-mcp -ne \
-      -e "$_policy" --append-system-prompt "$_ctx" --model "$_target" < "$_in"
+      -e "$_policy" -e "$_ctxext" --append-system-prompt "$_ctx" --model "$_target" < "$_in"
   ) || _rc=$?
   rm -f "$_ctx"
   return "${_rc:-0}"

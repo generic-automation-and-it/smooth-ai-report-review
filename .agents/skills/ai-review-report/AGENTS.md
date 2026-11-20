@@ -1484,10 +1484,20 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: N1 quality can be measured without changing either run's verdicts, and N2 parity is proven deterministically rather than inferred from a paid run. The paid eval stays report-only and no new blocking paid job exists.
 - **See also**: LADR-049, LADR-050, LADR-124, LADR-128, LADR-129.
 
+### LADR-132: pi attaches a nested AGENTS.md on read, like OpenCode
+
+- **Date**: 2026-11-20
+- **Status**: Accepted (`assets/pi/on-read-context.js`; adapter wiring; pinned by `test-pi-on-read-context.sh` and the L2 suite)
+- **Context**: WT-01 measured that OpenCode attaches a directory's `AGENTS.md` after the model reads a file there; pi has no native equivalent. Without it, a pi chunk sees less local rule context than the same chunk on OpenCode — an N2/G2.1 parity gap.
+- **Decision**: A second, single-purpose extension attaches exact nested `AGENTS.md` files to the `read` tool result: nearest directory first, once per directory per session, skipped for directories whose `AGENTS.md` the start-set already delivered, capped at 32 KB with a truncation marker, paths confined to the workspace root, and any failure fails open. It loads with its own `-e` beside `policy.js`. Scoped `*.instructions.scoped.md` rules and formatters are not attached on read — they are start-set artifacts, and attaching them would deliver more rules than OpenCode does.
+- **Consequences**: pi chunks receive the same on-read context set as OpenCode. The envelope is gate-authored (`<project-context path=…>`), so parity is "same files, same content, once", not byte-identical framing.
+- **See also**: LADR-002, LADR-090, LADR-125, LADR-128, LADR-131.
+
 ## Key Behaviors
 
 Editing-time "I would have gotten this wrong" warnings — the counterpart to SKILL.md's runtime Key Behaviors; the LADRs above carry the reasoning.
 
+- **pi's on-read context is a second extension (LADR-132).** `on-read-context.js` attaches nested `AGENTS.md` once and fails open; scoped instruction files stay start-set only.
 - **Credential and VCS reads are denied by path, and `grep` is denied outright (LADR-131).** OpenCode matches `grep` permission patterns on the query, not the file path, so a path-shaped deny leaves the hole open — never re-allow content search on a role that reads untrusted diffs. `.env.example` stays readable only because its allow entry follows the deny.
 - **pi shares the contract, not the flags (LADR-128).** The prompt, post-processing and failure taxonomy stay shared; the runtime differs in flags, per-attempt credentials, native-context delivery and no RTK. Never fork prompt text for a backend.
 - **`policy.js` is pi's lockdown (LADR-127).** It reads the role contract and fails closed; keep it consistent with the contract and never widen a role by editing the extension alone.
@@ -1698,6 +1708,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-20 | LADR-132: `assets/pi/on-read-context.js` attaches a nested `AGENTS.md` on read once per directory, skips start-set directories, caps at 32 KB, confines paths to the workspace root and fails open; wired with its own `-e`; L0 and L2 coverage. | #279 |
 | 2026-11-20 | LADR-123 added and amended: content-filter refusals are named (opencode v2.3.2 reason suffix included), the refused prompt is kept redacted in the run artifact, and a refused multi-file chunk is retried one file per call; Key Behaviors gains the refusal rule. | LADR-123 |
 | 2026-11-17 | LADR-131: one role contract denies `read` on credential/VCS/`/proc` paths for review and analyse, `.env.example` stays readable, and content search is denied outright because OpenCode matches grep on the query; chunk prompt grep wording follows the resolved config. | #263 |
 | 2026-11-17 | LADR-130: the eval harness resolves the backend selector, requires/prepares the selected runtime, initializes through the seam and labels RESULTS by backend; `parity-report.sh` is report-only; offline prompt/instruction-set parity suite added. | #278 |

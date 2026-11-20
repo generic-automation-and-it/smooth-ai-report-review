@@ -177,6 +177,9 @@ jobs:
             # LADR-127: the pi policy extension blocks every call the role
             # contract denies; the harness loads policy.js with a fake pi API.
             .agents/skills/ai-review-report/scripts/test-pi-policy.sh
+            # LADR-132: the on-read nested AGENTS.md attachment; the harness
+            # drives the extension with a fake pi API.
+            .agents/skills/ai-review-report/scripts/test-pi-on-read-context.sh
             # LADR-128: the pi adapter — argv, per-attempt environment, stdin,
             # exit mapping and the initialize checks with a fake pi.
             .agents/skills/ai-review-report/scripts/test-pi-adapter.sh
