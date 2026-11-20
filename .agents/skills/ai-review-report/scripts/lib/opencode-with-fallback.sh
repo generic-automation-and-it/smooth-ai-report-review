@@ -105,6 +105,13 @@ SHAPE_REJECT_RC=3
 # failure-reason block, which parses this line back out of the chunk's stderr
 # log. test-opencode-with-fallback-targets.sh asserts the two literals are equal.
 SHAPE_REJECT_MARKER="opencode-with-fallback.sh: output-shape check rejected the response from"
+# One line per opencode call, `<marker> <provider/model>`, at column 0, written
+# BEFORE the call so a call the stage timeout kills is still counted.
+# review-in-chunks.sh counts these against opencode's
+# `Error: Provider blocked the response` lines to tell "the content filter
+# refused every call" from any other failure (LADR-123). Keep in lockstep with
+# `MODEL_ASKED_MARKER` there; test-opencode-with-fallback-targets.sh pins both.
+MODEL_ASKED_MARKER="opencode-with-fallback.sh: asking"
 # The predicate's one-line reason for the LAST shape rejection, kept for the
 # re-ask prompt; and the temp prompt that carries it. Empty = ask with the
 # caller's prompt as-is. Removed on exit; try_run clears it per model so a
@@ -353,6 +360,7 @@ try_run() {
   REASK_PROMPT=""
   while :; do
     _rc=0
+    printf '\n%s %s\n' "$MODEL_ASKED_MARKER" "$(model_target "$model")" >&2
     run_opencode "$model" || _rc=$?
     [ "$_rc" -eq 0 ] && return 0
     # A model that ANSWERED but in the wrong shape is re-asked before the chain

@@ -74,7 +74,7 @@ for wf in pipeline-code-review-report.yml pipeline-ai-analyse.yml; do
 done
 echo "✅ the gate and ai-analyse both forward OPENCODE_REVIEW_REPORT_CONFIG"
 
-# LADR-123: one role contract is the behavioural definition, and both agent
+# LADR-131: one role contract is the behavioural definition, and both agent
 # blocks in both config files implement it. WT-01 measured OpenCode matches
 # `grep` patterns on the query rather than the path, so content search is
 # denied rather than path-fenced, and `/proc/**` is a real read deny.
