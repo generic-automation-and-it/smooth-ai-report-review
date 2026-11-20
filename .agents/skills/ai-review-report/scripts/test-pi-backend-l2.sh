@@ -21,7 +21,8 @@ trap '[ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null; rm -rf "$TMP"' EXI
 WS="$TMP/ws"; mkdir -p "$WS/ci_temp"
 ( cd "$WS" && git init -q . )
 printf 'L2-AGENTS-MARKER\n' > "$WS/AGENTS.md"
-mkdir -p "$WS/.pi"; printf '{"defaultTools":["bash"]}\n' > "$WS/.pi/settings.json"
+mkdir -p "$WS/.pi" "$WS/sub"; printf '{"defaultTools":["bash"]}\n' > "$WS/.pi/settings.json"
+printf 'L2-SUB-CTX-MARKER\n' > "$WS/sub/AGENTS.md"; printf 'x\n' > "$WS/sub/file.txt"
 printf 'HOSTILE-SYSTEM-MARKER\n' > "$WS/.pi/SYSTEM.md"
 printf 'SECRET=leak\n' > "$WS/.env"; mkdir -p "$WS/.git"; printf 'x\n' > "$WS/.git/config"
 
@@ -88,6 +89,12 @@ run_pi >/dev/null 2>&1; rc=$?
 jq -n '{mode:"tool_calls", tool_calls:[{name:"edit", arguments:{path:".env", edits:[{oldText:"SECRET=leak", newText:"x"}]}}], then:{mode:"answer", answer:"done"}}' > "$SCENARIO"
 L2_ROLE=analyse run_pi >/dev/null 2>&1 || true
 grep -q 'SECRET=leak' "$WS/.env" && ok "an analyse edit of .env is blocked (file unchanged)" || bad "the analyse edit fence did not block .env"
+
+# On-read nested context (LADR-132): a read under sub/ attaches its AGENTS.md once.
+jq -n '{mode:"tool_calls", tool_calls:[{name:"read", arguments:{path:"sub/file.txt"}}], then:{mode:"answer", answer:"done"}}' > "$SCENARIO"
+run_pi >/dev/null 2>&1 || true
+n="$(grep -o 'L2-SUB-CTX-MARKER' "$REQUESTS" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$n" = "1" ] && ok "a nested AGENTS.md is attached on read exactly once" || bad "nested attachment count was ${n:-0}"
 
 echo ""
 echo "=========================================="
