@@ -735,6 +735,261 @@ _ct "LADR-094 runtime: an unreadable config keeps the web wording" "1" \
 _ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" "4" \
   "$(diff "${_rt}/rt94-web.prompt" "${_rt}/rt94-default.prompt" | grep -c '^<')"
 
+# --- Runtime proof: a content-filter refusal is named and not retried (LADR-123)
+# Consumer PR 546: every call to both models ended in opencode's
+# `Error: Provider blocked the response` within ten seconds, the retry sweep
+# re-sent the same prompt for the same refusal, and the marker blamed the
+# "model API". The stub writes the transport's asked-model line (literal read
+# from the real helper) and opencode's coloured error line, per model.
+_ama="$(sed -n 's/^MODEL_ASKED_MARKER="\(.*\)"$/\1/p' "$_real_helper")"
+_ct "LADR-123 runtime: the transport's asked-model marker can be read" "1" \
+  "$([ -n "$_ama" ] && echo 1 || echo 0)"
+# RT123_MODE: blocked = every model refused (opencode v2.2.4 line); jailbreak =
+# every model refused with v2.3.2's reason suffix; quoted / quotedreason = the
+# message only appears inside narration; timeout = the primary times out, the
+# secondary is refused.
+cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << RT123
+#!/usr/bin/env bash
+prompt_file="\${@: -1}"
+if [[ "\$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+for m in "\$1" "\$2"; do
+  [ -n "\$m" ] || continue
+  echo "\$m" >> "\$RT123_CALLS"
+  printf '\n%s openai/%s\n' "${_ama}" "\$m" >&2
+  case "\$RT123_MODE:\$m" in
+    timeout:primary-model) exit 124 ;;
+    quoted:*) printf 'The doc quotes Error: Provider blocked the response as an example\n' >&2 ;;
+    quotedreason:*) printf 'The doc quotes Error: Provider blocked the response (jailbreak) as an example\n' >&2 ;;
+    jailbreak:*) printf '\033[91m\033[1mError: \033[0mProvider blocked the response (jailbreak)\n' >&2 ;;
+    *) printf '\033[91m\033[1mError: \033[0mProvider blocked the response\n' >&2 ;;
+  esac
+done
+exit 1
+RT123
+chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+_rt123() { # _rt123 <mode> [chunk-timeout]
+  rm -rf "${_rt}/ci_temp/reviews"
+  : > "${_rt}/rt123-$1.calls"
+  (
+    cd "${_rt}"
+    RT123_MODE="$1" \
+    RT123_CALLS="${_rt}/rt123-$1.calls" \
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${2:-450}" \
+    OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+    OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+    GITHUB_OUTPUT="${_rt}/rt123-$1.gh" \
+    PATH="${_rt}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "${RT123_EXPERTISE:-test expertise}" \
+      > "${_rt}/rt123-$1.log" 2>&1
+  ) || true
+}
+_rt123 blocked
+_ct "LADR-123 runtime: a refused chain names the content filter" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" "Reason:\*\* The provider's content filter refused")"
+_ct "LADR-123 runtime: the refusal names every refused model" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" '(openai/primary-model, openai/secondary-model)')"
+_ct "LADR-123 runtime: a refused chain is not blamed on the model API" "0" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
+_ct "LADR-123 runtime: a refused chunk still fail-closes (LADR-031)" "1" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.failed' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: a refused chunk carries the content-blocked flag" "1" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: the sweep says why it skipped the refused chunk" "1" \
+  "$(_rt_has "${_rt}/rt123-blocked.log" 'Retry sweep skips chunk #0')"
+_ct "LADR-123 runtime: a refused chunk is not retried" "1" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-blocked.calls")"
+_ct "LADR-123 runtime: v2.2.4 gives no reason, and the marker invents none" "0" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" '(reason:')"
+_ct "LADR-123 runtime: no prompt copy is kept when the redaction helper is missing" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0_refused_prompt.md' 2>/dev/null | wc -l | tr -d ' ')"
+_rt123 quoted
+_ct "LADR-123 runtime: the message quoted in narration is not a refusal" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: a quoted message keeps the generic reason" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
+_ct "LADR-123 runtime: a chunk that was not refused is still retried" "2" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-quoted.calls")"
+# 900 s splits the budget (LADR-081): the primary's timeout leaves no failure of
+# its own in the log, so counting failures would call this chunk refused.
+_rt123 timeout 900
+_ct "LADR-123 runtime: a timed-out primary before a refused secondary is not a refusal" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: that chunk is still retried" "2" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-timeout.calls")"
+
+# opencode v2.3.2 appends the filter's reason (consumer PR 546 run 44729967774).
+# The fixture had no lib/redact-secrets.sh for the blocked run above (no copy
+# kept); it is copied in for these runs.
+cp "$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/redact-secrets.sh" \
+  "${_rt}/.agents/skills/ai-review-report/scripts/lib/redact-secrets.sh"
+_rt123 quotedreason
+_ct "LADR-123 runtime: a quoted v2.3.2 line is not a refusal" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: an ordinary failure keeps no prompt copy" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0_refused_prompt.md' 2>/dev/null | wc -l | tr -d ' ')"
+RT123_FAKE_API_KEY="rt123-planted-value-9f8e7d" \
+RT123_EXPERTISE="test expertise rt123-planted-value-9f8e7d" \
+  _rt123 jailbreak
+_ct "LADR-123 runtime: a v2.3.2 refusal (reason suffix) is a refusal" "1" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: the marker names the filter's reason" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'Provider blocked the response` (reason: jailbreak)')"
+_ct "LADR-123 runtime: the flag carries the reason for aggregation" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.content-blocked" '^reason: jailbreak$')"
+_ct "LADR-123 runtime: a v2.3.2 refusal is not retried" "1" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-jailbreak.calls")"
+_ct "LADR-123 runtime: a one-file refused chunk is not split" "1" \
+  "$(_rt_has "${_rt}/rt123-jailbreak.gh" '^total_chunks=1$')"
+_ct "LADR-123 runtime: the refused prompt is kept" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0_refused_prompt.md" 'CHUNK #0')"
+_ct "LADR-123 runtime: the kept prompt is redacted" "0" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0_refused_prompt.md" 'rt123-planted-value-9f8e7d')"
+_ct "LADR-123 runtime: the marker points at the kept prompt" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'reviews/chunk_0_refused_prompt.md')"
+_ct "LADR-123 runtime: the advice leads with a human review, not another provider" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'review these files by hand, or reword what trips it. A different provider')"
+
+# --- Runtime proof: a refused multi-file chunk is reviewed file by file (LADR-123)
+# The filter judges the whole request, so one file usually trips it. The stub
+# refuses any prompt whose "Files in this chunk" list names a path matching
+# RS_REFUSE (ERE) and reviews every other one; `date` is stubbed so a test can
+# pass the LADR-121 deadline at a chosen call (RS_DEADLINE_AT_FILE).
+_rs="${TMP_DIR}/refusal-split"
+mkdir -p "${_rs}/.agents/skills/ai-review-report/scripts/lib" "${_rs}/bin"
+cp "$SOURCE_SCRIPT" "${_rs}/.agents/skills/ai-review-report/scripts/review-in-chunks.sh"
+for _lib in count-changed-files extract-findings-json validate-chunk-timeout split-chunk-budget \
+            review-has-shape build-runtime-agents redact-secrets; do
+  cp "$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/${_lib}.sh" \
+    "${_rs}/.agents/skills/ai-review-report/scripts/lib/${_lib}.sh"
+done
+cat > "${_rs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << RSSTUB
+#!/usr/bin/env bash
+prompt_file="\${@: -1}"
+if [[ "\$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+files="\$(sed -n '/^\*\*Files in this chunk:\*\*/,/^\$/p' "\$prompt_file" | sed -n 's/^- \`\(.*\)\`\$/\1/p')"
+n_files="\$(printf '%s\n' "\$files" | grep -c .)"
+if [ -n "\${RS_DEADLINE_AT_FILE:-}" ] && { [ "\$RS_DEADLINE_AT_FILE" = "any" ] || { [ "\$n_files" = "1" ] && [ "\$files" = "\$RS_DEADLINE_AT_FILE" ]; }; }; then
+  : > "\$RS_DEADLINE_MARK"
+fi
+for m in "\$1" "\$2"; do
+  [ -n "\$m" ] || continue
+  echo "\$m \$(printf '%s' "\$files" | paste -sd+ -)" >> "\$RS_CALLS"
+  printf '\n%s openai/%s\n' "${_ama}" "\$m" >&2
+  if [ "\${RS_TIMEOUT_FIRST:-}" = "1" ] && [ ! -f "\$RS_CALLS.first" ]; then
+    : > "\$RS_CALLS.first"; exit 124
+  fi
+  if printf '%s\n' "\$files" | grep -qE "\$RS_REFUSE"; then
+    printf '\033[91m\033[1mError: \033[0mProvider blocked the response (jailbreak)\n' >&2
+    continue
+  fi
+  printf '**Issues Found:**\n\n'
+  while IFS= read -r f; do
+    printf -- '- 🔵 [VERIFIED] Low Priority: reviewed alone after the split — \`%s:1\`.\n' "\$f"
+  done <<< "\$files"
+  printf '%.0s\n' {1..20}
+  exit 0
+done
+exit 1
+RSSTUB
+chmod +x "${_rs}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+cat > "${_rs}/bin/timeout" << 'RSTIMEOUT'
+#!/usr/bin/env bash
+shift
+exec "$@"
+RSTIMEOUT
+cat > "${_rs}/bin/date" << 'RSDATE'
+#!/usr/bin/env bash
+if [ "${1:-}" = "+%s" ] && [ -n "${RS_DEADLINE_MARK:-}" ] && [ -f "$RS_DEADLINE_MARK" ]; then
+  echo 99999999999; exit 0
+fi
+exec /bin/date "$@"
+RSDATE
+chmod +x "${_rs}/bin/timeout" "${_rs}/bin/date"
+_rs_case() { # _rs_case <label> <files...>; env: RS_REFUSE, RS_MIN, RS_TIMEOUT_FIRST, RS_DEADLINE_AT_FILE, RS_MAX_PARALLEL
+  local _label="$1"; shift
+  local _d="${_rs}/${_label}"
+  rm -rf "$_d"; mkdir -p "$_d"
+  cp -R "${_rs}/.agents" "$_d/.agents"
+  (
+    cd "$_d"
+    git init -q; git config user.email t@e.com; git config user.name T
+    for f in "$@"; do mkdir -p "$(dirname "$f")"; echo one > "$f"; done
+    git add -A; git commit -q -m base
+    for f in "$@"; do echo two >> "$f"; done
+    git add -A; git commit -q -m head
+    mkdir -p ci_temp; printf '%s\0' "$@" > ci_temp/changed_files.txt
+    RS_CALLS="$_d/calls" \
+    RS_DEADLINE_MARK="$_d/deadline.mark" \
+    OPENCODE_REVIEW_REPORT_ENABLE_STALL_DETECTOR=0 \
+    OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+    OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING="${RS_MIN:-10}" \
+    OPENCODE_REVIEW_REPORT_MAX_PARALLEL="${RS_MAX_PARALLEL:-7}" \
+    OPENCODE_REVIEW_REPORT_MAX_DURATION_SECONDS="${RS_DEADLINE_AT_FILE:+100000}" \
+    GITHUB_OUTPUT="$_d/gh.out" \
+    PATH="${_rs}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+      > "$_d/run.log" 2>&1
+  ) || true
+}
+_rs_n() { # _rs_n <label> <find -name pattern> — how many review files match
+  find "${_rs}/$1/ci_temp/reviews" -name "$2" 2>/dev/null | wc -l | tr -d ' '
+}
+_rs_total() { grep '^total_chunks=' "${_rs}/$1/gh.out" 2>/dev/null | tail -1 | cut -d= -f2; }
+
+RS_REFUSE='^a/two\.txt$' _rs_case one-refused a/one.txt a/two.txt
+_ct "LADR-123 split: a refused two-file chunk becomes two chunks" "2" "$(_rs_total one-refused)"
+_ct "LADR-123 split: the file that does not trip the filter is reviewed" "1" \
+  "$(_rt_has "${_rs}/one-refused/ci_temp/reviews/chunk_0.md" 'reviewed alone after the split')"
+_ct "LADR-123 split: the reviewed file's index no longer fail-closes" "0" "$(_rs_n one-refused 'chunk_0.failed')"
+_ct "LADR-123 split: the file that trips the filter still fail-closes" "1" "$(_rs_n one-refused 'chunk_1.failed')"
+_ct "LADR-123 split: and is named as refused" "1" "$(_rs_n one-refused 'chunk_1.content-blocked')"
+_ct "LADR-123 split: the refused file's own prompt is kept" "1" "$(_rs_n one-refused 'chunk_1_refused_prompt.md')"
+_ct "LADR-123 split: the whole-chunk refused prompt survives the split" "1" "$(_rs_n one-refused 'chunk_0_split_refused_prompt.md')"
+_ct "LADR-123 split: a refused child's marker says it was the file's own review" "1" \
+  "$(_rt_has "${_rs}/one-refused/ci_temp/reviews/chunk_1.md" "this file's own review after the whole chunk was refused")"
+_ct "LADR-123 split: each child label names its file position" "1" \
+  "$(_rt_has "${_rs}/one-refused/run.log" 'all-changes · file 2/2')"
+_ct "LADR-123 split: each file gets exactly one per-file call to the primary" "1" \
+  "$(grep -c '^primary-model a/two.txt$' "${_rs}/one-refused/calls")"
+
+RS_REFUSE='^a/' _rs_case both-refused a/one.txt a/two.txt
+_ct "LADR-123 split: both files refused → both fail-closed" "2" "$(_rs_n both-refused 'chunk_*.failed')"
+
+RS_REFUSE='^(a/one|b/three)\.txt$' RS_MIN=1 _rs_case two-chunks a/one.txt a/two.txt b/three.txt b/four.txt
+_ct "LADR-123 split: two chunks both refused are still split (not a dead endpoint)" "4" "$(_rs_total two-chunks)"
+_ct "LADR-123 split: only the two trigger files fail-close" "2" "$(_rs_n two-chunks 'chunk_*.failed')"
+_ct "LADR-123 split: the all-chunks-failed skip still fires for the sweep" "1" \
+  "$(_rt_has "${_rs}/two-chunks/run.log" 'Retry sweep skips chunk #1')"
+
+_rs_eleven=(); for _k in $(seq 1 11); do _rs_eleven+=("a/f${_k}.txt"); done
+RS_REFUSE='^a/' _rs_case over-cap "${_rs_eleven[@]}"
+_ct "LADR-123 split: a chunk over the per-run cap is not split" "1" "$(_rs_total over-cap)"
+_ct "LADR-123 split: its marker says the cap" "1" \
+  "$(_rt_has "${_rs}/over-cap/ci_temp/reviews/chunk_0.md" 'Not split:\*\* 11 files exceed')"
+_ct "LADR-123 split: no per-file call was made over the cap" "1" "$(grep -c '^primary-model' "${_rs}/over-cap/calls")"
+
+RS_REFUSE='^a/' RS_TIMEOUT_FIRST=1 _rs_case retry-refused a/one.txt a/two.txt
+_ct "LADR-123 split: a chunk refused on its LADR-082 retry is not split" "1" "$(_rs_total retry-refused)"
+_ct "LADR-123 split: it still fail-closes as refused" "1" "$(_rs_n retry-refused 'chunk_0.content-blocked')"
+
+RS_REFUSE='^a/two\.txt$' RS_DEADLINE_AT_FILE='a/one.txt' RS_MAX_PARALLEL=1 _rs_case deadline-mid a/one.txt a/two.txt
+_ct "LADR-123 split: a child the deadline stops is recorded as not reviewed" "1" "$(_rs_n deadline-mid 'chunk_1.not_reviewed')"
+_ct "LADR-123 split: and reaches the unreviewed output, which fails closed" "1" \
+  "$(_rt_has "${_rs}/deadline-mid/gh.out" '^unreviewed_chunks=1$')"
+_ct "LADR-123 split: it was never sent" "0" "$(grep -c '^primary-model a/two.txt$' "${_rs}/deadline-mid/calls")"
+
+RS_REFUSE='^a/' RS_DEADLINE_AT_FILE='any' _rs_case deadline-before a/one.txt a/two.txt
+_ct "LADR-123 split: no split once the deadline has passed" "1" "$(_rs_total deadline-before)"
+_ct "LADR-123 split: the refused chunk keeps its fail-closed flag" "1" "$(_rs_n deadline-before 'chunk_0.failed')"
+_ct "LADR-123 split: and the log says why" "1" \
+  "$(_rt_has "${_rs}/deadline-before/run.log" 'Per-file split skipped: run deadline reached')"
+
 [ "$_ct_fail" -eq 0 ] || exit 1
 
 # --- No-review detection: narration is not a review (LADR-077) ---------------
