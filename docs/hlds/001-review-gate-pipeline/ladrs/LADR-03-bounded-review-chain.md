@@ -22,8 +22,10 @@ because a retry that cannot differ is not a retry. A chunk that fails twice stay
 chunk of a multi-chunk PR fails, the sweep is skipped: that is a dead endpoint. The sweep is also
 skipped once the opt-in total-run deadline has been reached, including for chunks that failed
 before it (canonical LADR-121). A chunk the provider's content filter refused on every call is not
-retried either: the retry would send the same prompt for the same refusal. It still fails closed,
-and its failure reason names the refusal (canonical LADR-123).
+retried with the same prompt: that would be refused again. When it has two or more files, its one
+retry is a review of each file on its own, capped at ten per run and stopped by the deadline, so only
+the file that trips the filter stays failed. Every refusal still fails closed, its failure reason names
+the refusal and the filter's reason, and the refused prompt is kept redacted (canonical LADR-123).
 
 ## Consequences
 

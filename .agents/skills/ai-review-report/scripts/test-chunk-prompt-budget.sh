@@ -289,7 +289,8 @@ run_aggregation_case() {
     echo "exit code 124" > ci_temp/reviews/chunk_1.failed
   fi
   if [ "${with_blocked_flag}" = "true" ]; then
-    echo "openai/primary-model, openai/secondary-model" > ci_temp/reviews/chunk_1.content-blocked
+    printf 'openai/primary-model, openai/secondary-model\nreason: jailbreak\n' > ci_temp/reviews/chunk_1.content-blocked
+    printf 'redacted prompt\n' > ci_temp/reviews/chunk_1_refused_prompt.md
   fi
 
   GITHUB_OUTPUT="${output_file}" \
@@ -348,6 +349,26 @@ run_aggregation_case() {
     pass "${label}: content-filter banner present=${_refused_banner}"
   else
     fail "${label}: content-filter banner present=${_refused_banner}, expected ${with_blocked_flag}"
+  fi
+  if [ "${with_blocked_flag}" = "true" ]; then
+    # opencode >= 2.3.2 names the filter's reason; the flag's `reason:` line
+    # carries it to the banner, and the advice leads with a human review.
+    if grep -q "content filter (reason: jailbreak):" ci_temp/final_review.md; then
+      pass "${label}: content-filter banner names the reason"
+    else
+      fail "${label}: content-filter banner does not name the reason from the flag"
+    fi
+    if grep -q "Review the refused files by hand, or reword what trips the filter" ci_temp/final_review.md \
+       && grep -q "a different provider helps only where one is configured" ci_temp/final_review.md; then
+      pass "${label}: content-filter banner leads with a human review"
+    else
+      fail "${label}: content-filter banner must lead with a human review, a different provider only where configured"
+    fi
+    if grep -q 'chunk_<n>_\*refused_prompt.md' ci_temp/final_review.md; then
+      pass "${label}: content-filter banner points at the kept prompt"
+    else
+      fail "${label}: content-filter banner does not point at the kept prompt"
+    fi
   fi
 
   # LADR-036 prompt rules must be in the aggregation prompt (full review).

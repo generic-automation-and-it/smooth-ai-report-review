@@ -644,6 +644,11 @@ FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr 
 # LADR-123: the failed chunks the provider's content filter refused on every
 # call. Banner text only — the verdict still comes from FAILED_CHUNK_COUNT.
 BLOCKED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.content-blocked 2>/dev/null | wc -l | tr -d ' ')
+BLOCKED_PROMPTS_KEPT="$(ls ci_temp/reviews/chunk_*refused_prompt.md 2>/dev/null | head -1)"
+# The filter's reasons, from each flag's `reason:` line (opencode >= 2.3.2
+# reports one, e.g. `jailbreak`); empty when none was given.
+BLOCKED_REASONS="$(sed -n 's/^reason: //p' ci_temp/reviews/chunk_*.content-blocked 2>/dev/null \
+  | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sort -u | paste -sd, - | sed 's/,/, /g' || true)"
 
 # LADR-121: chunks the opt-in run deadline never launched. They carry no
 # `chunk_<n>.failed` flag — that channel belongs to LADR-031 alone — and they
@@ -986,7 +991,7 @@ EOF
   if [ "${BLOCKED_CHUNK_COUNT:-0}" -gt 0 ]; then
     cat >> ci_temp/final_review.md << EOF
 
-> 🚫 **Refused by the provider's content filter:** every model in the chain answered \`Provider blocked the response\` for ${BLOCKED_CHUNK_COUNT} of ${FAILED_CHUNK_COUNT} failed chunk$([ "$FAILED_CHUNK_COUNT" -ne 1 ] && echo "s" || echo ""). That is a refusal of the review prompt for this PR, not an outage, so a re-run will most likely be refused again. Reword what trips the filter in the diff or PR description, review with a different provider, or review the PR by hand.
+> 🚫 **Refused by the provider's content filter${BLOCKED_REASONS:+ (reason: ${BLOCKED_REASONS})}:** every model in the chain answered \`Provider blocked the response\` for ${BLOCKED_CHUNK_COUNT} of ${FAILED_CHUNK_COUNT} failed chunk$([ "$FAILED_CHUNK_COUNT" -ne 1 ] && echo "s" || echo ""). That is a refusal of the review prompt for this PR, not an outage, so a re-run will most likely be refused again. Review the refused files by hand, or reword what trips the filter in the diff or PR description; a different provider helps only where one is configured.${BLOCKED_PROMPTS_KEPT:+ The refused prompts are kept, redacted, as \`ci_temp/reviews/chunk_<n>_*refused_prompt.md\` (shipped in the run artifact).}
 EOF
   fi
 fi
