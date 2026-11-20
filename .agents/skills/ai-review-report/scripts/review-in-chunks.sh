@@ -269,7 +269,7 @@ if [ -n "${OPENCODE_CONFIG:-}" ] && [ -r "${OPENCODE_CONFIG}" ] && command -v jq
    && jq -e '(.agent.review // {}) | (.permission.webfetch == "deny") or (.tools.webfetch == false)' "${OPENCODE_CONFIG}" >/dev/null 2>&1; then
   CHUNK_WEB_TOOLS=0
 fi
-# LADR-123: content search follows the resolved review agent's permission the
+# LADR-131: content search follows the resolved review agent's permission the
 # same way (LADR-094 pattern). WT-01 measured OpenCode matches `grep` patterns
 # on the query, not the file path, so grep cannot be path-fenced and the
 # shipped config denies it; the prompt must not name a tool the agent lacks.
@@ -296,7 +296,7 @@ else
   CHUNK_PROMPT_PLATFORM_STEP='4. **If the issue rests on platform behavior** (e.g. "this expression is empty in context X", "this trigger never fires"), verify that behavior from the repository (a context file, the repo'\''s docs, or code that demonstrates it) before flagging Critical/High — or downgrade to [SPECULATIVE]. There is no web access in this review. Known traps that are NOT issues:'
   echo "🌐 Web access for chunk reviews: off (LADR-094)"
 fi
-# LADR-123: rewrite the instruction text only, before any reviewed data is
+# LADR-131: rewrite the instruction text only, before any reviewed data is
 # appended. Substituting over the assembled prompt would corrupt the diff and
 # the author notes.
 if [ "$CHUNK_CONTENT_SEARCH" = "0" ]; then
@@ -316,6 +316,75 @@ fi
 chunk_shape_notes() { # chunk_shape_notes <chunk_num>
   grep -h -e '^review-has-shape.sh: rejected' -e '^opencode-with-fallback.sh: re-asking' \
     "ci_temp/reviews/chunk_${1}_stderr.log" 2>/dev/null | sed 's/^/     ↳ /' || true
+}
+
+# LADR-123: was this chunk refused by the provider's content filter on EVERY
+# call the chain made? opencode prints `Error: Provider blocked the response`
+# when a response finishes with the `content-filter` reason; the transport
+# prints one MODEL_ASKED_MARKER line before each call. Every call blocked means
+# a retry sends the same prompt to the same models for the same refusal
+# (consumer PR 546: six attempts over three runs, all blocked within ten
+# seconds), so the chunk is not retried and its marker says why.
+#
+# Calls are counted, not failures: a call the stage timeout kills never reports
+# its own failure, so a timed-out primary followed by a blocked secondary must
+# still read as "not every call was blocked" — that chunk deserves its retry.
+#
+# The opencode line is matched as a whole line after stripping colour codes,
+# not as a substring: v2 routes model narration to stderr, and a review of a
+# file that quotes the message must not turn into a block. opencode v2.3.2
+# appends the filter's reason — `Error: Provider blocked the response
+# (jailbreak)` on consumer PR 546 run 44729967774 — so one optional
+# parenthesised suffix is part of the whole line; v2.2.4 printed none.
+#
+# Prints the asked models, comma-separated, and returns 0 when every call was
+# blocked; returns 1 with no output otherwise. MODEL_ASKED_MARKER must equal
+# the transport's byte-for-byte; test-opencode-with-fallback-targets.sh pins
+# the two literals.
+MODEL_ASKED_MARKER='opencode-with-fallback.sh: asking'
+PROVIDER_BLOCKED_LINE='Error: Provider blocked the response'
+chunk_blocked_lines() { # chunk_blocked_lines <chunk_num>
+  local _esc
+  _esc="$(printf '\033')"
+  sed "s/${_esc}\[[0-9;]*m//g" "ci_temp/reviews/chunk_${1}_stderr.log" 2>/dev/null \
+    | grep -E "^[[:space:]]*${PROVIDER_BLOCKED_LINE}( \([^()]*\))?[[:space:]]*\$" || true
+}
+chunk_blocked_models() { # chunk_blocked_models <chunk_num>
+  local _log="ci_temp/reviews/chunk_${1}_stderr.log" _asked _blocked
+  [ -f "$_log" ] || return 1
+  _asked="$(grep -c "^${MODEL_ASKED_MARKER} " "$_log" 2>/dev/null || true)"
+  _blocked="$(chunk_blocked_lines "$1" | grep -c . || true)"
+  [ "${_asked:-0}" -gt 0 ] && [ "${_blocked:-0}" -ge "$_asked" ] || return 1
+  awk -v m="$MODEL_ASKED_MARKER" \
+    'index($0, m) == 1 { s = substr($0, length(m) + 2); out = out (out == "" ? "" : ", ") s } END { print out }' \
+    "$_log"
+}
+# The distinct reasons opencode gave for the refusals, comma-separated; empty
+# when it gave none (v2.2.4).
+chunk_blocked_reasons() { # chunk_blocked_reasons <chunk_num>
+  chunk_blocked_lines "$1" | sed -nE 's/.*\(([^()]*)\)[[:space:]]*$/\1/p' | sort -u | paste -sd, - | sed 's/,/, /g'
+}
+
+# Keeps the prompt a refused chunk sent, redacted, in ci_temp/reviews/ — which
+# run-review.sh ships in the run artifact — because a refusal can only be
+# reproduced against the provider, and the prompt is otherwise deleted with
+# ci_temp. lib/redact-secrets.sh runs over a directory holding only the copy;
+# when it is missing or fails, nothing is kept (skill-secret-handling: an
+# unredacted artifact is the outcome to prevent). Returns 0 only when kept.
+keep_refused_prompt() { # keep_refused_prompt <chunk_num>
+  local _stage="ci_temp/refused_prompt_${1}"
+  local _redact
+  _redact="$(dirname "${BASH_SOURCE[0]}")/lib/redact-secrets.sh"
+  rm -rf "$_stage"
+  mkdir -p "$_stage" && cp "ci_temp/chunk_${1}_prompt.txt" "$_stage/prompt.md" 2>/dev/null || { rm -rf "$_stage"; return 1; }
+  if [ -f "$_redact" ] && bash "$_redact" "$_stage" > /dev/null 2>&1; then
+    mv "$_stage/prompt.md" "ci_temp/reviews/chunk_${1}_refused_prompt.md"
+    rm -rf "$_stage"
+    return 0
+  fi
+  echo "  ⚠️ Chunk ${1}: refused prompt not kept — lib/redact-secrets.sh missing or failed" >&2
+  rm -rf "$_stage"
+  return 1
 }
 
 chunk_review_has_shape() {
@@ -1634,7 +1703,7 @@ EOF
   # `timeout` calls setpgid(0,0) before forking, so $! is also the PGID and the
   # watchdog's `kill -TERM -PID` reaches opencode and the model transport, not
   # just the wrapper.
-  rm -f "ci_temp/reviews/chunk_${chunk_num}.stalled"
+  rm -f "ci_temp/reviews/chunk_${chunk_num}.stalled" "ci_temp/reviews/chunk_${chunk_num}.content-blocked" "ci_temp/reviews/chunk_${chunk_num}_refused_prompt.md"
   OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_SHAPE_REJECT_RETRIES="$CHUNK_SHAPE_REJECT_RETRIES" OPENCODE_REJECTED_OUTPUT_FILE="ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log &
   _stage1_pid=$!
   _stage1_wd="$(_stall_arm "$_stage1_pid" "$chunk_num" "Chunk ${chunk_num} (primary)" "$_primary_budget")"
@@ -1810,6 +1879,12 @@ EOF
     fi
   else
     local exit_code=$_chunk_rc
+    local _blocked_models _blocked_reasons="" _prompt_kept=false
+    _blocked_models="$(chunk_blocked_models "$chunk_num" || true)"
+    if [ -n "$_blocked_models" ]; then
+      _blocked_reasons="$(chunk_blocked_reasons "$chunk_num")"
+      keep_refused_prompt "$chunk_num" && _prompt_kept=true
+    fi
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
     chunk_shape_notes "$chunk_num"
     # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
@@ -1879,6 +1954,22 @@ EOF
         # Not "every model": a chain can mix a shape rejection with a provider
         # error, and the list below names only the models that answered.
         echo "**Reason:** Output format, not (only) the provider: the model(s) listed below answered, but the answer failed the completeness check (\`lib/review-has-shape.sh\`) — a changed file never named, a missing Low severity line, or a finding without a \`file:line\` anchor. Any model in the chain not listed failed at the provider. The rejected text is kept in \`ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt\` (shipped in the run artifact), each entry headed by the check's reason."
+      elif [ -n "$_blocked_models" ]; then
+        # LADR-123. After the shape branch, which never co-occurs: a
+        # shape-rejected call was asked and answered, not refused, so
+        # chunk_blocked_models already returned nothing. Attempt 1 is not
+        # retried with the same prompt (a multi-file chunk is split instead);
+        # a refusal on a retry or a split child has had its one retry.
+        local _blocked_retry_note="so this chunk was not retried with the same prompt (LADR-123)"
+        [ "${CHUNK_RETRY_ATTEMPT:-0}" != "1" ] || _blocked_retry_note="and this was already the chunk's one retry (LADR-082)"
+        [ "${CHUNK_SPLIT_RETRY:-0}" != "1" ] || _blocked_retry_note="and this was already this file's own review after the whole chunk was refused (LADR-123)"
+        echo "**Reason:** The provider's content filter refused this chunk's review prompt — every model in the chain answered \`Provider blocked the response\`${_blocked_reasons:+ (reason: ${_blocked_reasons})} (${_blocked_models}). This is a refusal of the prompt, not an outage or a timeout: a retry sends the same prompt to the same models, ${_blocked_retry_note}, and re-running \`/ai-review\` will most likely be refused again. Something in the diff, the PR description or the loaded context trips the filter: review these files by hand, or reword what trips it. A different provider (\`OPENCODE_REVIEW_REPORT_PROVIDER\`) helps only where one is configured."
+        if [ "$_prompt_kept" = true ]; then
+          echo ""
+          local _rules_note=""
+          [ ! -f "ci_temp/chunk_${chunk_num}/AGENTS.md" ] || _rules_note=" \`rules/chunk_${chunk_num}/AGENTS.md\` is the runtime instructions it ran with;"
+          echo "**Refused request (run artifact):** \`reviews/chunk_${chunk_num}_refused_prompt.md\` is the prompt this chunk sent, redacted;${_rules_note} opencode also loaded the repository's own \`AGENTS.md\` files at the reviewed commit."
+        fi
       else
         echo "**Reason:** opencode / model API error (all fallbacks exhausted)"
       fi
@@ -1899,6 +1990,14 @@ EOF
       echo "${_stall_reason} (exit code ${exit_code})" > "ci_temp/reviews/chunk_${chunk_num}.failed"
     else
       echo "exit code ${exit_code}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+    fi
+    # LADR-123: a second, narrower flag beside `.failed`, never instead of it —
+    # the chunk still fail-closes. The retry sweep skips a chunk that carries it,
+    # and aggregation counts it for the coverage banner.
+    # Line 1 names the models, line 2 the filter's reasons (aggregation reads it).
+    if [ -n "$_blocked_models" ]; then
+      printf '%s\nreason: %s\n' "${_blocked_models}" "${_blocked_reasons}" > "ci_temp/reviews/chunk_${chunk_num}.content-blocked"
+      echo "  🚫 Chunk ${chunk_num}: the provider's content filter refused every model (${_blocked_models})${_blocked_reasons:+ — reason: ${_blocked_reasons}} (LADR-123)"
     fi
     # LADR-055: a failed chunk contributes no findings — clear any stale sidecar.
     rm -f "ci_temp/reviews/chunk_${chunk_num}.findings.json"
@@ -2085,10 +2184,24 @@ fi
 # makes the coverage block read `0 failed`. This covers every failure mode:
 # exit 124 timeouts, non-124 API errors, and the LADR-031/077 no-review
 # rejections that exit 0 and are otherwise denied even the LADR-081 secondary.
+#
+# LADR-123: a chunk the content filter refused on every call is NOT retried
+# here — the retry would send the same prompt to the same models. It keeps its
+# `.failed` flag, so it still fail-closes, and it still counts toward the
+# all-chunks-failed test below, which is about the run, not about retries. Its
+# one retry is the per-file split after this sweep, which sends new prompts.
 declare -a RETRY_CHUNKS=()
+declare -a REFUSED_FIRST_ATTEMPT=()
+_failed_before_retry=0
 for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
   if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
-    RETRY_CHUNKS+=("$i")
+    _failed_before_retry=$((_failed_before_retry + 1))
+    if [ -f "ci_temp/reviews/chunk_${i}.content-blocked" ]; then
+      echo "🚫 Retry sweep skips chunk #${i} (${CHUNK_DIRS[$i]}): the provider's content filter refused every call, so a retry with the same prompt would be refused too (LADR-123)"
+      REFUSED_FIRST_ATTEMPT+=("$i")
+    else
+      RETRY_CHUNKS+=("$i")
+    fi
   fi
 done
 
@@ -2101,7 +2214,7 @@ if [ "$_deadline_expired" = true ]; then
 fi
 
 if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
-  if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
+  if [ "$_failed_before_retry" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
     # Every chunk failed: that is a dead endpoint, not bad luck. Retrying
     # doubles a doomed run, so the sweep is skipped — and says so, or
     # "we skipped the sweep" is indistinguishable from "nothing to sweep".
@@ -2182,6 +2295,146 @@ if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
       fi
     done
   fi
+fi
+
+# --- Per-file split of a refused chunk (LADR-123) -----------------------------
+# A refused prompt is refused again, but a smaller one may not be: the filter
+# judges the whole request, and one file usually trips it. So a chunk refused on
+# its FIRST attempt (the ones the sweep above skipped) with two or more files is
+# reviewed once more, one file per call — that is its one LADR-082 retry. A
+# chunk refused on its retry has had it and is not split. A one-file chunk is
+# not split either: its only child is the prompt that was just refused.
+#
+# Runs outside the sweep's all-chunks-failed skip on purpose: that skip infers
+# a dead endpoint, and a refusal proves the endpoint answered.
+#
+# The first file reuses the refused chunk's index; the others are appended.
+# Reusing the index keeps the parent's `.failed` flag in force until that index
+# is reviewed again, so no file leaves the failed set without a successor — the
+# LADR-082 stale-artifact clean runs only at that child's launch. Aggregation,
+# metadata and the posted chunk count therefore need no split-specific case.
+#
+# Bounded: at most SPLIT_CHILD_CAP children per run, hardcoded (no Variable,
+# like the sweep's concurrency), allotted in ascending chunk index; the same
+# min(2, MAX_PARALLEL) concurrency as the sweep; and the LADR-121 deadline
+# checked before every launch — a child it stops goes on the unreviewed
+# channel, which fails closed.
+SPLIT_CHILD_CAP=10
+_split_children_left=$SPLIT_CHILD_CAP
+declare -a SPLIT_JOBS=()
+declare -a SPLIT_IS_PARENT=()
+_deadline_before_split="$_deadline_expired"
+if [ "$_deadline_expired" = false ] && [ "$_DEADLINE_AT" -gt 0 ] \
+   && [ "$(date +%s)" -ge "$_DEADLINE_AT" ]; then
+  _deadline_expired=true
+fi
+if [ "$_deadline_expired" = true ] && [ "${#REFUSED_FIRST_ATTEMPT[@]}" -gt 0 ]; then
+  echo "⏱️  Per-file split skipped: run deadline reached — refused chunks keep their fail-closed flag (LADR-121)"
+  REFUSED_FIRST_ATTEMPT=()
+fi
+for i in "${REFUSED_FIRST_ATTEMPT[@]}"; do
+  mapfile -t _split_files <<< "${CHUNK_FILE_LISTS[$i]}"
+  _split_n=${#_split_files[@]}
+  [ "$_split_n" -ge 2 ] || continue
+  if [ "$_split_n" -gt "$_split_children_left" ]; then
+    echo "🚫 Chunk #${i} (${CHUNK_DIRS[$i]}) not split: ${_split_n} files exceed the ${_split_children_left} per-file retries left of ${SPLIT_CHILD_CAP} per run (LADR-123)"
+    {
+      echo ""
+      echo "**Not split:** ${_split_n} files exceed the ${_split_children_left} per-file retries left of the ${SPLIT_CHILD_CAP} a run allows (LADR-123), so no file in this chunk was reviewed."
+    } >> "ci_temp/reviews/chunk_${i}.md"
+    continue
+  fi
+  _split_children_left=$((_split_children_left - _split_n))
+  _split_parent_dir="${CHUNK_DIRS[$i]}"
+  echo "✂️  Chunk #${i} (${_split_parent_dir}) refused — splitting into ${_split_n} per-file reviews (LADR-123)"
+  for _k in $(seq 1 "$_split_n"); do
+    _split_label="${_split_parent_dir} · file ${_k}/${_split_n}"
+    if [ "$_k" -eq 1 ]; then
+      _split_idx=$i
+      CHUNK_DIRS[$i]="$_split_label"
+      CHUNK_FILE_LISTS[$i]="${_split_files[0]}"
+      SPLIT_IS_PARENT[$i]=1
+    else
+      _split_idx=$TOTAL_CHUNKS
+      CHUNK_DIRS+=("$_split_label")
+      CHUNK_FILE_LISTS+=("${_split_files[$((_k - 1))]}")
+      TOTAL_CHUNKS=$((TOTAL_CHUNKS + 1))
+    fi
+    SPLIT_JOBS+=("$_split_idx")
+  done
+done
+
+if [ "${#SPLIT_JOBS[@]}" -gt 0 ]; then
+  _split_parallel=2
+  [ "$MAX_PARALLEL" -ge "$_split_parallel" ] || _split_parallel="$MAX_PARALLEL"
+  export CHUNK_RETRY_ATTEMPT=1  # the split is the chunk's one retry (LADR-082/084)
+  export CHUNK_SPLIT_RETRY=1    # names it in a child's refusal marker
+  _split_running=0
+  _split_unreviewed=false
+  declare -a SPLIT_PIDS=()
+  for i in "${SPLIT_JOBS[@]}"; do
+    if [ "$_deadline_expired" = false ] && [ "$_DEADLINE_AT" -gt 0 ] \
+       && [ "$(date +%s)" -ge "$_DEADLINE_AT" ]; then
+      _deadline_expired=true
+      echo "⏱️  Run deadline reached (${RUN_DEADLINE_SECONDS}s) — no further per-file reviews will be launched"
+    fi
+    if [ "$_deadline_expired" = true ]; then
+      # The parent's index keeps its `.failed` flag and marker untouched; an
+      # appended child has nothing yet, so it is recorded as not reviewed.
+      if [ -z "${SPLIT_IS_PARENT[$i]:-}" ]; then
+        : > "ci_temp/reviews/chunk_${i}.not_reviewed"
+        UNREVIEWED_CHUNKS+=("$i")
+        _split_unreviewed=true
+        echo "  ⏭️  Chunk #${i} (${CHUNK_DIRS[$i]}) not reviewed — run deadline reached"
+      fi
+      continue
+    fi
+    if [ -n "${SPLIT_IS_PARENT[$i]:-}" ]; then
+      # LADR-082's trap: the success path never removes a stale `.failed`. The
+      # whole-chunk refused prompt is renamed, not deleted, so the evidence
+      # survives this index's next attempt.
+      [ ! -f "ci_temp/reviews/chunk_${i}_refused_prompt.md" ] \
+        || mv "ci_temp/reviews/chunk_${i}_refused_prompt.md" "ci_temp/reviews/chunk_${i}_split_refused_prompt.md"
+      rm -f "ci_temp/reviews/chunk_${i}.failed" \
+            "ci_temp/reviews/chunk_${i}.md" \
+            "ci_temp/reviews/chunk_${i}.findings.json" \
+            "ci_temp/reviews/chunk_${i}.findings.rejected.txt"
+    fi
+    echo "  ✂️  Reviewing chunk #${i} (${CHUNK_DIRS[$i]})"
+    CHUNK_NUM=$i
+    mapfile -t chunk_files <<< "${CHUNK_FILE_LISTS[$i]}"
+    (
+      review_chunk "${CHUNK_DIRS[$i]}" "${chunk_files[@]}"
+    ) &
+    SPLIT_PIDS+=($!)
+    _split_running=$((_split_running + 1))
+    if [ "$_split_running" -ge "$_split_parallel" ]; then
+      wait -n 2>/dev/null || true
+      _split_running=$((_split_running - 1))
+    fi
+  done
+  for _pid in "${SPLIT_PIDS[@]}"; do
+    wait "$_pid" 2>/dev/null || true
+  done
+  unset CHUNK_RETRY_ATTEMPT CHUNK_SPLIT_RETRY
+  for i in "${SPLIT_JOBS[@]}"; do
+    if [ -f "ci_temp/reviews/chunk_${i}.not_reviewed" ]; then
+      continue
+    elif [ -f "ci_temp/reviews/chunk_${i}.content-blocked" ]; then
+      echo "  🚫 Chunk #${i} (${CHUNK_DIRS[$i]}) refused again — this file keeps the fail-closed flag"
+    elif [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
+      echo "  ❌ Chunk #${i} (${CHUNK_DIRS[$i]}) failed — keeping fail-closed flag"
+    else
+      echo "  ✅ Chunk #${i} (${CHUNK_DIRS[$i]}) reviewed on the per-file split"
+    fi
+  done
+  if [ "$_split_unreviewed" = true ] || [ "$_deadline_expired" != "$_deadline_before_split" ]; then
+    # Re-emitted: the outputs above were written before the split; readers
+    # take the last line.
+    echo "deadline_expired=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "unreviewed_chunks=$(IFS=,; echo "${UNREVIEWED_CHUNKS[*]}")" >> "${GITHUB_OUTPUT:-/dev/null}"
+  fi
+  CHUNK_NUM=$TOTAL_CHUNKS  # the appended children are part of the total now
 fi
 
 # Recompute the failure count from the flags so the summary block and anything
