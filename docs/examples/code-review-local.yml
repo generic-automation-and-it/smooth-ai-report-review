@@ -481,6 +481,8 @@ jobs:
           # Structured findings (LADR-055) — mirrors the reusable workflow's env var.
           OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_STRUCTURED_FINDINGS || '1' }}
           # Finding permalinks (LADR-122) — mirrors the reusable workflow's env var.
+          # LADR-124: backend selector — one runtime per run; OpenCode is the default.
+          OPENCODE_REVIEW_REPORT_BACKEND: ${{ vars.OPENCODE_REVIEW_REPORT_BACKEND || 'opencode' }}
           OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS || '1' }}
           # Trivial-PR skip (LADR-059) — mirrors the reusable workflow.
           OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_TRIVIAL_SKIP || '1' }}

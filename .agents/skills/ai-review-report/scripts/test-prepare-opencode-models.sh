@@ -173,7 +173,7 @@ exec "{jq}" "$@"
         assets.mkdir()
         shutil.copyfile(scripts.parent / "assets/opencode.json", assets / "opencode.json")
         original_builtin = (assets / "opencode.json").read_bytes()
-        for filename in ("prepare-opencode-config.sh", "resolve-provider.sh", "quarantine-project-config.sh", "gh-retry.sh", "post-review.sh"):
+        for filename in ("prepare-opencode-config.sh", "resolve-provider.sh", "quarantine-project-config.sh", "gh-retry.sh", "post-review.sh", "backend-initialize.sh"):
             shutil.copyfile(scripts / "lib" / filename, lib / filename)
         shutil.copyfile(helper, lib / "ensure-opencode-models.real.sh")
         if not older:
@@ -283,7 +283,7 @@ echo OK
             expected_batches.append("register:anthropic" if analyse_provider == "ANTHROPIC" else "register:openai")
         check(name + ": exact registration batches", [line for line in lines if line.startswith("register:")] == expected_batches)
         service = [line for line in lines if not line.startswith("register:")]
-        expected_service = [] if selftest else (["run"] if kind in ("local", "npm") else (["stop", "run"] if kind == "eval" else ["stop", "stats", "run"]))
+        expected_service = [] if selftest else (["stop", "run"] if kind == "eval" else ["stop", "stats", "run"])
         check(name + ": registered before single service/model phase", service == expected_service and (not expected_batches or lines[:len(expected_batches)] == expected_batches))
         check(name + ": custom source untouched", custom.read_bytes() == original_source)
         check(name + ": built-in source untouched", (assets / "opencode.json").read_bytes() == original_builtin)
