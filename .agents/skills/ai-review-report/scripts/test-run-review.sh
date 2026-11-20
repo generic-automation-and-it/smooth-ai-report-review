@@ -1221,6 +1221,7 @@ echo "Testing LADR-122 finding-link Variable in both packagings and local-review
 _adoption_vars=(
   "OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS=1"
   "OPENCODE_REVIEW_REPORT_BACKEND=opencode"
+  "OPENCODE_TOOL_PI_VERSION="
 )
 for _entry in "${_adoption_vars[@]}"; do
   _var="${_entry%%=*}"; _def="${_entry#*=}"

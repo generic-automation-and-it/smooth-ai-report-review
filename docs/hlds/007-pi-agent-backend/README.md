@@ -6,7 +6,7 @@
 | **Owner** | `ai-review-report` + `ai-analyse` |
 | **Tracker** | [Repository issues](https://github.com/generic-automation-and-it/smooth-ai-report-review/issues) |
 | **Evidence** | Not yet delivered — this record specifies the intent and the contract |
-| **Last updated** | 2026-11-17 |
+| **Last updated** | 2026-11-19 |
 
 > Discovery HLD. This document delivers **intent + spec** — what we are building and why, the
 > decisions behind it, and the quality bar it must meet. It does **not** contain an implementation

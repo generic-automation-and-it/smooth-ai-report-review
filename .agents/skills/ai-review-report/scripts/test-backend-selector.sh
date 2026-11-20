@@ -20,13 +20,16 @@ echo "=========================================="
 check "unset selector resolves to opencode" "opencode" "$(unset OPENCODE_REVIEW_REPORT_BACKEND; resolve_backend)"
 check "blank selector resolves to opencode" "opencode" "$(OPENCODE_REVIEW_REPORT_BACKEND='' resolve_backend)"
 check "explicit opencode resolves to opencode" "opencode" "$(OPENCODE_REVIEW_REPORT_BACKEND=opencode resolve_backend)"
+check "explicit pi resolves to pi" "pi" "$(OPENCODE_REVIEW_REPORT_BACKEND=pi resolve_backend)"
 check "display name for opencode" "OpenCode" "$(backend_display_name opencode)"
+check "display name for pi" "Pi" "$(backend_display_name pi)"
+check "home URL for pi" "https://github.com/earendil-works/pi" "$(backend_home_url pi)"
 check "home URL for opencode" "https://opencode.ai" "$(backend_home_url opencode)"
 
-for bad in OpenCode PI pi x opencode2; do
+for bad in OpenCode PI x opencode2; do
   out="$(OPENCODE_REVIEW_REPORT_BACKEND="$bad" resolve_backend 2>&1)"; rc=$?
   check "selector '$bad' is rejected" "1" "$rc"
-  check "selector '$bad' names the accepted values" "1" "$(printf '%s' "$out" | grep -c 'accepted values: opencode')"
+  check "selector '$bad' names the accepted values" "1" "$(printf '%s' "$out" | grep -c 'accepted values: opencode, pi')"
 done
 
 # Sourcing must not clobber the caller's file-scope variables.

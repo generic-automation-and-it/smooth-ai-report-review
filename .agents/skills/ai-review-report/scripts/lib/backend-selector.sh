@@ -6,9 +6,9 @@ resolve_backend() {
   local _v="${OPENCODE_REVIEW_REPORT_BACKEND:-opencode}"
   [ -n "$_v" ] || _v=opencode
   case "$_v" in
-    opencode) printf '%s' "$_v" ;;
+    opencode|pi) printf '%s' "$_v" ;;
     *)
-      printf '❌ Unsupported backend "%s" — accepted values: opencode\n' "$_v" >&2
+      printf '❌ Unsupported backend "%s" — accepted values: opencode, pi\n' "$_v" >&2
       return 1
       ;;
   esac
@@ -17,6 +17,7 @@ resolve_backend() {
 backend_display_name() {
   case "$1" in
     opencode) printf 'OpenCode' ;;
+    pi) printf 'Pi' ;;
     *) return 1 ;;
   esac
 }
@@ -24,6 +25,7 @@ backend_display_name() {
 backend_home_url() {
   case "$1" in
     opencode) printf 'https://opencode.ai' ;;
+    pi) printf 'https://github.com/earendil-works/pi' ;;
     *) return 1 ;;
   esac
 }

@@ -506,6 +506,7 @@ jobs:
       # Summary. Presentation only; set falsy (0/false/no/off) to omit it.
       # LADR-124: backend selector — one runtime per run; OpenCode is the default.
       OPENCODE_REVIEW_REPORT_BACKEND: ${{ vars.OPENCODE_REVIEW_REPORT_BACKEND || 'opencode' }}
+      OPENCODE_TOOL_PI_VERSION: ${{ vars.OPENCODE_TOOL_PI_VERSION || '' }}
       OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS: ${{ vars.OPENCODE_REVIEW_REPORT_ENABLE_FINDING_LINKS || '1' }}
       # Trivial-PR skip (LADR-059) — on by default. A deterministic
       # lockfile/manifest-only precondition plus an orchestrator-model veto may

@@ -135,6 +135,8 @@ API keys are GitHub **Secrets**; everything else is a GitHub **Variable**. Only 
 | `OPENCODE_*_API_KEY` | Selected provider's key (`OPENAI`, `GEMINI`, `ANTHROPIC`, `GO_OPENAI`, `GO_ANTHROPIC`, `OPENROUTER`). Decision scoring reuses the Go or OpenRouter key, so it adds no Secret. |
 | `OPENCODE_REVIEW_REPORT_MODEL_PRIMARY` / `_SECONDARY` / `_ORCHESTRATOR` | `gpt-5.6-sol` / `gpt-5.5` / `gpt-5.6-terra`. Non-OpenAI providers must set all three. `model_preset` overrides all three. |
 | `OPENCODE_CLI_VERSION` | Pin `2.x`. Blank means reuse any v2, otherwise install the latest. |
+| `OPENCODE_REVIEW_REPORT_BACKEND` | `opencode` (default) or `pi`. `pi` runs the same gate and prompts on the pi runtime; `ai-analyse` still runs on OpenCode until its own unit. |
+| `OPENCODE_TOOL_PI_VERSION` | Pin an exact pi release at or above `1.5.2`. Blank reuses an installed pi at or above the floor and installs the latest only when none is present. |
 
 The review transport is provider-agnostic: `opencode` sends chunks to the base URL you configure for `OPENAI` / `GEMINI` / `COPILOT`, which must be compatible with the selected provider's SDK/API surface: the native API, a compatible LiteLLM proxy, or a self-hosted gateway. An OpenAI-only API surface does not satisfy the `GEMINI` provider's Google SDK contract. The runner must be able to reach that URL, so a private-network endpoint needs a self-hosted runner. `ANTHROPIC`, Go, and OpenRouter use fixed public bases. The optional decision model is the exception — it calls two fixed Jev endpoints (OpenRouter or OpenCode Console) over HTTPS and has no URL Variable.
 

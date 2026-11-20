@@ -204,14 +204,20 @@ done
 # LADR-124: backend selector — OpenCode is the default, and an unknown value
 # fails here before anything is installed or called.
 export OPENCODE_REVIEW_REPORT_BACKEND="${OPENCODE_REVIEW_REPORT_BACKEND:-opencode}"
+export OPENCODE_TOOL_PI_VERSION="${OPENCODE_TOOL_PI_VERSION:-}"
 . "$SCRIPT_DIR/lib/backend-selector.sh"
 BACKEND="$(resolve_backend)" || exit 1
 
 # Validate the CLI through the same installer as CI, even when it is cached.
 # PATH must also be set in this parent shell: the installer's export cannot
 # reach later local-review calls, and v1/v2 share the same command name.
-export PATH="$HOME/.opencode/bin:$PATH"
-bash "$SCRIPT_DIR/lib/install-opencode.sh"
+if [ "${BACKEND:-opencode}" = "pi" ]; then
+  bash "$SCRIPT_DIR/lib/install-pi.sh" || exit 1
+  export PATH="$(npm prefix -g 2>/dev/null)/bin:$PATH"
+else
+  export PATH="$HOME/.opencode/bin:$PATH"
+  bash "$SCRIPT_DIR/lib/install-opencode.sh"
+fi
 
 # LADR-121: gate start for the opt-in total-run deadline, taken before provider
 # resolution so the deadline is anchored to the run. Kept OUTSIDE the
@@ -262,6 +268,10 @@ source "$SCRIPT_DIR/lib/post-review.sh"
 # (Config must be in place before the v2 API diagnostic runs.)
 # Must be sourced so OPENCODE_CONFIG is exported into this shell.
 . "$SCRIPT_DIR/lib/prepare-opencode-config.sh"
+if [ "${BACKEND:-opencode}" = "pi" ]; then
+  . "$SCRIPT_DIR/lib/prepare-pi-config.sh"
+  prepare_pi_config "$SCRIPT_DIR/../assets/pi/settings.json" || exit 1
+fi
 bash "$SCRIPT_DIR/lib/ensure-opencode-models.sh" "$OPENCODE_CONFIG" \
   "$OPENCODE_REVIEW_REPORT_PROVIDER_ID" "$OPENCODE_REVIEW_REPORT_MODEL_PRIMARY" \
   "$OPENCODE_REVIEW_REPORT_MODEL_SECONDARY" "$OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR" \

@@ -177,6 +177,9 @@ jobs:
             # LADR-127: the pi policy extension blocks every call the role
             # contract denies; the harness loads policy.js with a fake pi API.
             .agents/skills/ai-review-report/scripts/test-pi-policy.sh
+            # LADR-128: the pi adapter — argv, per-attempt environment, stdin,
+            # exit mapping and the initialize checks with a fake pi.
+            .agents/skills/ai-review-report/scripts/test-pi-adapter.sh
             .agents/skills/ai-review-report/scripts/test-regression-runner.sh
             .agents/skills/ai-review-report/scripts/test-opencode-health.sh
             .agents/skills/ai-review-report/scripts/test-backend-selector.sh
@@ -377,6 +380,14 @@ jobs:
             want="${OPENCODE_TOOL_PI_VERSION#v}"
             [ "$installed" = "$want" ] || { echo "❌ expected pi ${want}, got ${installed}" >&2; exit 1; }
           fi
+
+      - name: Run pi L2 suite against the localhost mock
+        if: steps.pi_scope.outputs.relevant == 'true'
+        env:
+          OPENCODE_TOOL_PI_VERSION: ${{ vars.OPENCODE_TOOL_PI_VERSION || '' }}
+        run: |
+          set -euo pipefail
+          bash .agents/skills/ai-review-report/scripts/test-pi-backend-l2.sh
 
       - name: Reject an unsupported pin
         if: steps.pi_scope.outputs.relevant == 'true'
