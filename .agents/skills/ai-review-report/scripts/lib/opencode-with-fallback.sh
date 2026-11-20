@@ -145,11 +145,12 @@ _pi_native_context_file() { # <cwd> -> path
   local _cwd="$1" _out _root _dir _rel
   _out="$(mktemp)"
   _root="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$_root" ] && _root="$(cd "$_root" 2>/dev/null && pwd -P)"
   if [ -n "$_root" ] && [ -f "$_root/AGENTS.md" ]; then
     cat "$_root/AGENTS.md" >> "$_out"; printf '\n\n' >> "$_out"
   fi
   if [ -n "$_root" ]; then
-    _rel="$(cd "$_cwd" && pwd)"
+    _rel="$(cd "$_cwd" && pwd -P)"
     while [ -n "$_rel" ] && [ "$_rel" != "$_root" ]; do
       if [ -f "$_rel/AGENTS.md" ] && [ "$_rel" != "$_root" ]; then
         cat "$_rel/AGENTS.md" >> "$_out"; printf '\n\n' >> "$_out"
