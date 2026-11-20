@@ -28,3 +28,4 @@ validation run; `scaffold-hld.sh` does not create the row.
 | [005 Autonomous Low and Medium Fixer](./005-autonomous-fixer/README.md) | `ai-analyse` | Scope, oracle fences, test gate, bounded push loop, joinable skips |
 | [006 Distribution and Evaluation](./006-distribution-and-evals/README.md) | Repository platform | Consumption channels, installer contract, workflow input surface, layered evals and report-only measurement, release flow and versioning |
 | [007 Pi Agent Backend](./007-pi-agent-backend/README.md) *(Draft)* | `ai-review-report` + `ai-analyse` | Second CLI backend behind one selector: instruction delivery, tool lockdown, configuration isolation, fixer parity |
+| [008 Split Runtime](./008-split-runtime-orchestration/README.md) *(Draft)* | `ai-review-report` + `ai-analyse` | Role-scoped runtime selection: pi chunk review, incumbent orchestration, per-runtime RTK, evidence parity and coverage bars |
