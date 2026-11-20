@@ -99,6 +99,11 @@ cat > "$TMP/credurl.json" <<'JSON'
 JSON
 ( export OPENCODE_CONFIG="$TMP/credurl.json" OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OPENAI_API_KEY=x; . "$LIB"; prepare_pi_config "$SETTINGS" >/dev/null 2>&1 ); rc=$?
 check "a credential-bearing base URL is rejected" "1" "$rc"
+cat > "$TMP/credurl2.json" <<'JSON'
+{"provider":{"openai":{"npm":"@ai-sdk/openai","options":{"baseURL":"https://gw.example.test/v1?api_key=abc","apiKey":"{env:OPENCODE_OPENAI_API_KEY}"},"models":{"m":{}}}}}
+JSON
+( export OPENCODE_CONFIG="$TMP/credurl2.json" OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OPENAI_API_KEY=x; . "$LIB"; prepare_pi_config "$SETTINGS" >/dev/null 2>&1 ); rc=$?
+check "a query-string credential in the base URL is rejected" "1" "$rc"
 
 ( export OPENCODE_CONFIG="$TMP/builtin.json" OPENCODE_REVIEW_REPORT_PROVIDER_ID=openai OPENCODE_OPENAI_API_KEY=x RUNNER_TEMP="$TMP/ws" GITHUB_WORKSPACE="$TMP/ws"; . "$LIB"; prepare_pi_config "$SETTINGS" >/dev/null 2>&1 ); rc=$?
 check "an agent directory inside the checkout is rejected" "1" "$rc"

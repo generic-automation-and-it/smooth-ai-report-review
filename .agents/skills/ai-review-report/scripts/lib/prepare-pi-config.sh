@@ -49,6 +49,13 @@ _pi_api_for() { # _pi_api_for <provider-id> <npm-sdk>
     go-responses) printf 'openai-responses'; return 0 ;;
   esac
   case "$_sdk" in
+    '') case "$_id" in
+          gemini) printf 'google-generative-ai' ;;
+          github-copilot|openai|go-openai|openrouter) printf 'openai-completions' ;;
+          anthropic|go-anthropic) printf 'anthropic-messages' ;;
+          go-responses) printf 'openai-responses' ;;
+          *) return 1 ;;
+        esac ;;
     '@ai-sdk/google') printf 'google-generative-ai' ;;
     '@ai-sdk/github-copilot') printf 'openai-completions' ;;
     '@ai-sdk/openai') printf 'openai-completions' ;;
@@ -71,7 +78,7 @@ prepare_pi_config() { # prepare_pi_config <settings-asset>
   _dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pi-agent.XXXXXX")" || return 1
   chmod 700 "$_dir" || return 1
   local _ws _real_dir
-  _ws="$(cd "${GITHUB_WORKSPACE:-$PWD}" 2>/dev/null && pwd)" || _ws="$PWD"
+  _ws="$(git -C "${GITHUB_WORKSPACE:-$PWD}" rev-parse --show-toplevel 2>/dev/null || printf '%s' "${GITHUB_WORKSPACE:-$PWD}")"
   _ws="$(cd "$_ws" 2>/dev/null && pwd -P)" || true
   _real_dir="$(cd "$_dir" && pwd -P)"
   case "$_real_dir" in
@@ -100,6 +107,12 @@ prepare_pi_config() { # prepare_pi_config <settings-asset>
       _url="$(jq -r --arg p "$_id" '((.provider // .providers)[$p].options.baseURL // "")' "$_cfg" 2>/dev/null || true)"
       case "$_url" in
         *://*@*) printf '❌ Provider "%s" base URL embeds credentials; a credential-free URL is required\n' "$_id" >&2; rm -rf "$_dir"; return 1 ;;
+      esac
+      case "$_url" in
+        *[?\&]*=*) case "$_url" in
+          *[?\&]api[_-]?key=*|*[?\&]key=*|*[?\&]token=*|*[?\&]access_token=*|*[?\&]sig=*|*[?\&]secret=*)
+            printf '❌ Provider "%s" base URL carries a credential in its query string\n' "$_id" >&2; rm -rf "$_dir"; return 1 ;;
+        esac ;;
       esac
       _key="$(pi_key_var_for_provider "$_id")" || { rm -rf "$_dir"; return 1; }
       _models="$(jq -r --arg p "$_id" '((.provider // .providers)[$p].models // {}) | keys[]' "$_cfg")"
