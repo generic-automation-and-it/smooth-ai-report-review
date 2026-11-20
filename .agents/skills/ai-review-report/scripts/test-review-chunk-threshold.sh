@@ -555,7 +555,9 @@ chmod +x "${_rt}/bin/timeout"
   git init -q; git config user.email t@e.com; git config user.name T
   mkdir -p alpha; echo one > alpha/a.txt
   git add alpha/a.txt; git commit -q -m base
-  echo two >> alpha/a.txt; git add alpha/a.txt; git commit -q -m head
+  echo two >> alpha/a.txt
+  echo 'resolve call sites with `grep`' >> alpha/a.txt   # LADR-123 data needle: never rewritten
+  git add alpha/a.txt; git commit -q -m head
   mkdir -p ci_temp; printf 'alpha/a.txt\0' > ci_temp/changed_files.txt
   SPLIT_CALLS_LOG="${_rt}/calls.log" \
   SPLIT_BUDGETS_LOG="${_rt}/budgets.log" \
@@ -691,7 +693,8 @@ fi
 printf '### Secondary Review\n\n- 🔵 [VERIFIED] Low Priority: rescued — `alpha/a.txt:1`.\n\n%.0s' {1..20}
 RT94
 chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
-printf '{"agent":{"review":{"tools":{"webfetch":true},"permission":{"webfetch":"allow"}}}}\n' > "${_rt}/web-allowed.json"
+printf '{"agent":{"review":{"tools":{"webfetch":true},"permission":{"webfetch":"allow","grep":"deny"}}}}\n' > "${_rt}/web-allowed.json"
+printf '{"agent":{"review":{"permission":{"webfetch":"deny","grep":"allow"}}}}\n' > "${_rt}/grep-allowed.json"
 _rt94() { # _rt94 <label> <config>
   rm -rf "${_rt}/ci_temp/reviews"
   (
@@ -735,6 +738,20 @@ _ct "LADR-094 runtime: an unreadable config keeps the web wording" "1" \
 _ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" "4" \
   "$(diff "${_rt}/rt94-web.prompt" "${_rt}/rt94-default.prompt" | grep -c '^<')"
 
+# LADR-123: the grep wording follows the resolved review agent's permission.
+_ct "LADR-131 runtime: the shipped config denies grep and no instruction names it" "0" \
+  "$(grep -cE 'glob/grep|read/grep/glob/list|A failed `grep`|grep-only|local `grep`/`read_file`' "${_rt}/rt94-default.prompt")"
+_ct "LADR-131 runtime: grep off — the prompt names read_file instead" "1" \
+  "$(_rt_has "${_rt}/rt94-default.prompt" 'read/glob/list')"
+_ct "LADR-131 runtime: grep off — the reviewed diff keeps its own grep text" "1" \
+  "$(grep -c 'resolve call sites with `grep`' "${_rt}/rt94-default.prompt")"
+_rt94 rt94-grep "${_rt}/grep-allowed.json"
+_ct "LADR-131 runtime: a config that allows grep keeps the grep wording" "1" \
+  "$(_rt_has "${_rt}/rt94-grep.prompt" 'read/grep/glob/list')"
+_ct "LADR-131 runtime: a config that allows grep keeps the callsite hint" "1" \
+  "$(_rt_has "${_rt}/rt94-grep.prompt" 'resolve call sites with `grep`')"
+_ct "LADR-131 runtime: an unreadable config keeps the grep wording" "1" \
+  "$(_rt_has "${_rt}/rt94-noconfig.prompt" 'read/grep/glob/list')"
 # --- Runtime proof: a content-filter refusal is named and not retried (LADR-123)
 # Consumer PR 546: every call to both models ended in opencode's
 # `Error: Provider blocked the response` within ten seconds, the retry sweep
@@ -742,7 +759,7 @@ _ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" 
 # "model API". The stub writes the transport's asked-model line (literal read
 # from the real helper) and opencode's coloured error line, per model.
 _ama="$(sed -n 's/^MODEL_ASKED_MARKER="\(.*\)"$/\1/p' "$_real_helper")"
-_ct "LADR-123 runtime: the transport's asked-model marker can be read" "1" \
+_ct "LADR-131 runtime: the transport's asked-model marker can be read" "1" \
   "$([ -n "$_ama" ] && echo 1 || echo 0)"
 # RT123_MODE: blocked = every model refused (opencode v2.2.4 line); jailbreak =
 # every model refused with v2.3.2's reason suffix; quoted / quotedreason = the
@@ -787,37 +804,37 @@ _rt123() { # _rt123 <mode> [chunk-timeout]
   ) || true
 }
 _rt123 blocked
-_ct "LADR-123 runtime: a refused chain names the content filter" "1" \
+_ct "LADR-131 runtime: a refused chain names the content filter" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" "Reason:\*\* The provider's content filter refused")"
-_ct "LADR-123 runtime: the refusal names every refused model" "1" \
+_ct "LADR-131 runtime: the refusal names every refused model" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" '(openai/primary-model, openai/secondary-model)')"
-_ct "LADR-123 runtime: a refused chain is not blamed on the model API" "0" \
+_ct "LADR-131 runtime: a refused chain is not blamed on the model API" "0" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
-_ct "LADR-123 runtime: a refused chunk still fail-closes (LADR-031)" "1" \
+_ct "LADR-131 runtime: a refused chunk still fail-closes (LADR-031)" "1" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.failed' 2>/dev/null | wc -l | tr -d ' ')"
-_ct "LADR-123 runtime: a refused chunk carries the content-blocked flag" "1" \
+_ct "LADR-131 runtime: a refused chunk carries the content-blocked flag" "1" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
-_ct "LADR-123 runtime: the sweep says why it skipped the refused chunk" "1" \
+_ct "LADR-131 runtime: the sweep says why it skipped the refused chunk" "1" \
   "$(_rt_has "${_rt}/rt123-blocked.log" 'Retry sweep skips chunk #0')"
-_ct "LADR-123 runtime: a refused chunk is not retried" "1" \
+_ct "LADR-131 runtime: a refused chunk is not retried" "1" \
   "$(grep -c '^primary-model$' "${_rt}/rt123-blocked.calls")"
-_ct "LADR-123 runtime: v2.2.4 gives no reason, and the marker invents none" "0" \
+_ct "LADR-131 runtime: v2.2.4 gives no reason, and the marker invents none" "0" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" '(reason:')"
-_ct "LADR-123 runtime: no prompt copy is kept when the redaction helper is missing" "0" \
+_ct "LADR-131 runtime: no prompt copy is kept when the redaction helper is missing" "0" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0_refused_prompt.md' 2>/dev/null | wc -l | tr -d ' ')"
 _rt123 quoted
-_ct "LADR-123 runtime: the message quoted in narration is not a refusal" "0" \
+_ct "LADR-131 runtime: the message quoted in narration is not a refusal" "0" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
-_ct "LADR-123 runtime: a quoted message keeps the generic reason" "1" \
+_ct "LADR-131 runtime: a quoted message keeps the generic reason" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
-_ct "LADR-123 runtime: a chunk that was not refused is still retried" "2" \
+_ct "LADR-131 runtime: a chunk that was not refused is still retried" "2" \
   "$(grep -c '^primary-model$' "${_rt}/rt123-quoted.calls")"
 # 900 s splits the budget (LADR-081): the primary's timeout leaves no failure of
 # its own in the log, so counting failures would call this chunk refused.
 _rt123 timeout 900
-_ct "LADR-123 runtime: a timed-out primary before a refused secondary is not a refusal" "0" \
+_ct "LADR-131 runtime: a timed-out primary before a refused secondary is not a refusal" "0" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
-_ct "LADR-123 runtime: that chunk is still retried" "2" \
+_ct "LADR-131 runtime: that chunk is still retried" "2" \
   "$(grep -c '^primary-model$' "${_rt}/rt123-timeout.calls")"
 
 # opencode v2.3.2 appends the filter's reason (consumer PR 546 run 44729967774).
@@ -826,30 +843,30 @@ _ct "LADR-123 runtime: that chunk is still retried" "2" \
 cp "$REPO_ROOT/.agents/skills/ai-review-report/scripts/lib/redact-secrets.sh" \
   "${_rt}/.agents/skills/ai-review-report/scripts/lib/redact-secrets.sh"
 _rt123 quotedreason
-_ct "LADR-123 runtime: a quoted v2.3.2 line is not a refusal" "0" \
+_ct "LADR-131 runtime: a quoted v2.3.2 line is not a refusal" "0" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
-_ct "LADR-123 runtime: an ordinary failure keeps no prompt copy" "0" \
+_ct "LADR-131 runtime: an ordinary failure keeps no prompt copy" "0" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0_refused_prompt.md' 2>/dev/null | wc -l | tr -d ' ')"
 RT123_FAKE_API_KEY="rt123-planted-value-9f8e7d" \
 RT123_EXPERTISE="test expertise rt123-planted-value-9f8e7d" \
   _rt123 jailbreak
-_ct "LADR-123 runtime: a v2.3.2 refusal (reason suffix) is a refusal" "1" \
+_ct "LADR-131 runtime: a v2.3.2 refusal (reason suffix) is a refusal" "1" \
   "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
-_ct "LADR-123 runtime: the marker names the filter's reason" "1" \
+_ct "LADR-131 runtime: the marker names the filter's reason" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'Provider blocked the response` (reason: jailbreak)')"
-_ct "LADR-123 runtime: the flag carries the reason for aggregation" "1" \
+_ct "LADR-131 runtime: the flag carries the reason for aggregation" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.content-blocked" '^reason: jailbreak$')"
-_ct "LADR-123 runtime: a v2.3.2 refusal is not retried" "1" \
+_ct "LADR-131 runtime: a v2.3.2 refusal is not retried" "1" \
   "$(grep -c '^primary-model$' "${_rt}/rt123-jailbreak.calls")"
-_ct "LADR-123 runtime: a one-file refused chunk is not split" "1" \
+_ct "LADR-131 runtime: a one-file refused chunk is not split" "1" \
   "$(_rt_has "${_rt}/rt123-jailbreak.gh" '^total_chunks=1$')"
-_ct "LADR-123 runtime: the refused prompt is kept" "1" \
+_ct "LADR-131 runtime: the refused prompt is kept" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0_refused_prompt.md" 'CHUNK #0')"
-_ct "LADR-123 runtime: the kept prompt is redacted" "0" \
+_ct "LADR-131 runtime: the kept prompt is redacted" "0" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0_refused_prompt.md" 'rt123-planted-value-9f8e7d')"
-_ct "LADR-123 runtime: the marker points at the kept prompt" "1" \
+_ct "LADR-131 runtime: the marker points at the kept prompt" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'reviews/chunk_0_refused_prompt.md')"
-_ct "LADR-123 runtime: the advice leads with a human review, not another provider" "1" \
+_ct "LADR-131 runtime: the advice leads with a human review, not another provider" "1" \
   "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'review these files by hand, or reword what trips it. A different provider')"
 
 # --- Runtime proof: a refused multi-file chunk is reviewed file by file (LADR-123)

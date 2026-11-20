@@ -69,7 +69,7 @@ Run this when **authoring or reviewing** a skill that touches a secret or launch
 The checklist's **model-process** and **CI wiring** items are only partly met. The 2026-09-27 security scan recorded these open gaps:
 
 - The opencode child inherits the full step environment: all seven provider keys, set at job level, plus `GITHUB_TOKEN`.
-- The `review` and `analyse` agents allow `external_directory` and do not deny `.git/**` or `.env*`.
+- ~~The `review` and `analyse` agents allow `external_directory` and do not deny `.git/**` or `.env*`.~~ **Closed 2026-11-17 (LADR-123):** both agents deny `read` on `.env`, `.env.*`, `.git`, `.git/**`, `/proc/*` and `/proc/**` (`.env.example` stays readable), and `grep` is denied outright for both roles because OpenCode matches its permission patterns on the query, not the file path. `external_directory` stays `allow` (LADR-025); reads outside the repository other than `/proc` are still permitted on OpenCode.
 - The gate's and the analyse tooling's `actions/checkout` steps keep the default `persist-credentials: true`, so the token sits in a `.git/config` the model can read.
 - Model output is posted without redaction.
 - `ai-analyse`'s git commands are not hook-proof, and its push puts the token in the URL.
