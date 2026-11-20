@@ -1233,6 +1233,13 @@ for _entry in "${_adoption_vars[@]}"; do
     "$(grep -cF "export $_var=\"\${$_var:-$_def}\"" "$SCRIPT_DIR/local-review.sh" || true)"
 done
 unset _adoption_vars _entry _var _def _file
+# LADR-129: the analyse workflow declares the same selector and pin expressions.
+for _pair in "OPENCODE_REVIEW_REPORT_BACKEND=opencode" "OPENCODE_TOOL_PI_VERSION="; do
+  _v="${_pair%%=*}"; _d="${_pair#*=}"
+  check "$_v defaults to '$_d' in pipeline-ai-analyse.yml" "1" \
+    "$(grep -cF "$_v: \${{ vars.$_v || '$_d' }}" "$REPO_ROOT/.github/workflows/pipeline-ai-analyse.yml" || true)"
+done
+unset _pair _v _d
 
 # LADR-124: both probe sites go through the backend-aware helper, the initialize
 # seam is the one lib, and the footer names the runtime from the selector.

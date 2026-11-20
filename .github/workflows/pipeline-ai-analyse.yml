@@ -270,6 +270,9 @@ jobs:
     if: needs.guard.outputs.act == 'true'
     env:
       OPENCODE_REVIEW_REPORT_PROVIDER: ${{ vars.OPENCODE_REVIEW_REPORT_PROVIDER || 'OPENAI' }}
+      # LADR-128: the same backend selector as the gate; there is no separate analyse selector.
+      OPENCODE_REVIEW_REPORT_BACKEND: ${{ vars.OPENCODE_REVIEW_REPORT_BACKEND || 'opencode' }}
+      OPENCODE_TOOL_PI_VERSION: ${{ vars.OPENCODE_TOOL_PI_VERSION || '' }}
       OPENCODE_REVIEW_REPORT_MODEL_PRIMARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_PRIMARY || 'gpt-5.6-sol' }}
       OPENCODE_REVIEW_REPORT_MODEL_SECONDARY: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_SECONDARY || 'gpt-5.5' }}
       OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR: ${{ vars.OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR || 'gpt-5.6-terra' }}
@@ -415,9 +418,28 @@ jobs:
           # honours OPENCODE_CLI_VERSION the same way the review
           # gate does. Post-install orchestration below stays inline because
           # it is analyse-specific.
-          export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          bash "${REVIEW_SKILL_DIR}/scripts/lib/install-opencode.sh"
+          _backend=opencode
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/backend-selector.sh" ]; then
+            . "${REVIEW_SKILL_DIR}/scripts/lib/backend-selector.sh"
+            _backend="$(resolve_backend)" || exit 1
+          elif [ "${OPENCODE_REVIEW_REPORT_BACKEND:-opencode}" != "opencode" ]; then
+            echo "❌ Selected backend requires newer PR tooling (backend-selector.sh missing)." >&2
+            exit 1
+          fi
+          if [ "$_backend" = "pi" ]; then
+            # LADR-128: pi-only install; OpenCode is never installed or initialized.
+            if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/install-pi.sh" ]; then
+              bash "${REVIEW_SKILL_DIR}/scripts/lib/install-pi.sh" || exit 1
+              export PATH="$(npm prefix -g 2>/dev/null)/bin:$PATH"
+            else
+              echo "❌ This PR's tooling predates the pi backend (install-pi.sh missing)." >&2
+              exit 1
+            fi
+          else
+            export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/install-opencode.sh"
+          fi
           # Two-name dispatch: this workflow is workflow_run-triggered, so its
           # YAML always executes from the DEFAULT branch while the scripts come
           # from the analysed PR's checkout. Across the LADR-071 rename
@@ -439,6 +461,12 @@ jobs:
               "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-}" "${OPENCODE_REVIEW_REPORT_MODEL_PRIMARY}" \
               "${OPENCODE_REVIEW_REPORT_MODEL_SECONDARY}" \
               || echo "⚠️  Review fallback model registration failed — keeping the prepared config." >&2
+            if [ "$_backend" = "pi" ]; then
+              # The shared pi initializer also checks the review orchestrator.
+              bash "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" "${OPENCODE_CONFIG:-}" \
+                "${OPENCODE_REVIEW_REPORT_PROVIDER_ID:-}" "${OPENCODE_REVIEW_REPORT_MODEL_ORCHESTRATOR:-}" \
+                || echo "⚠️  Review orchestrator model registration failed — keeping the prepared config." >&2
+            fi
             if [ -n "${OPENCODE_ANALYSE_MODEL:-}" ]; then
               bash "${REVIEW_SKILL_DIR}/scripts/lib/ensure-opencode-models.sh" "${OPENCODE_CONFIG:-}" \
                 "${OPENCODE_ANALYSE_PROVIDER_ID:-}" "${OPENCODE_ANALYSE_MODEL}" \
@@ -459,23 +487,40 @@ jobs:
             . "${REVIEW_SKILL_DIR}/scripts/lib/quarantine-project-config.sh"
             quarantine_project_config "${GITHUB_WORKSPACE}"
           fi
-          # opencode v2 binds one shared background service's config when that
-          # service STARTS; an already-running one silently ignores this step's
-          # OPENCODE_CONFIG (LADR-071/087). Stop it first so `stats` starts a
-          # fresh service bound to our config — a reused self-hosted runner
-          # would otherwise analyse with the previous job's provider and
-          # permissions, with nothing in the log to say so.
-          opencode service stop >/dev/null 2>&1 || true
-          opencode stats >/dev/null || true
-          # Exit 3 = the managed config is not confirmed (foreign binding, or
-          # unreadable). Fatal: an autonomous fixer running under someone
-          # else's provider and permission policy is strictly worse than the
-          # gate doing so. Any other non-zero is a liveness blip and stays
-          # advisory, per LADR-028.
+          # LADR-128: under pi, prepare the gate-owned agent directory from the
+          # resolved OpenCode roster before initialization checks it.
+          if [ "$_backend" = "pi" ]; then
+            if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/prepare-pi-config.sh" ]; then
+              . "${REVIEW_SKILL_DIR}/scripts/lib/prepare-pi-config.sh"
+              prepare_pi_config "${REVIEW_SKILL_DIR}/assets/pi/settings.json" || exit 1
+              printf 'PI_CODING_AGENT_DIR=%s\n' "$PI_CODING_AGENT_DIR" >> "$GITHUB_ENV"
+            else
+              echo "❌ This PR's tooling predates the pi backend (prepare-pi-config.sh missing)." >&2
+              exit 1
+            fi
+          fi
+          # LADR-124: the initialize seam. Guarded like the other libs, because
+          # this YAML runs from the default branch against older PR tooling.
           _health_rc=0
-          bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || _health_rc=$?
-          if [ "$_health_rc" -eq 3 ]; then
-            echo "❌ Aborting: opencode is not confirmed to be using this run's managed config (see above)." >&2
+          if [ -f "${REVIEW_SKILL_DIR}/scripts/lib/backend-initialize.sh" ]; then
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/backend-initialize.sh" "$_backend"               "${REVIEW_SKILL_DIR}/scripts/lib" || _health_rc=$?
+          elif [ "$_backend" = "pi" ]; then
+            echo "❌ This PR's tooling predates the pi backend (backend-initialize.sh missing)." >&2
+            exit 1
+          else
+            # opencode v2 binds one shared background service's config when that
+            # service STARTS; an already-running one silently ignores this step's
+            # OPENCODE_CONFIG (LADR-071/087). Stop it first so `stats` starts a
+            # fresh service bound to our config.
+            opencode service stop >/dev/null 2>&1 || true
+            opencode stats >/dev/null || true
+            bash "${REVIEW_SKILL_DIR}/scripts/lib/opencode-health.sh" || _health_rc=$?
+          fi
+          # Exit 3 = the managed config is not confirmed (foreign binding, or
+          # unreadable). Fatal on both backends; any other non-zero stays
+          # advisory on OpenCode and is fatal on pi (a configuration failure).
+          if [ "$_health_rc" -eq 3 ] || { [ "$_backend" = "pi" ] && [ "$_health_rc" -ne 0 ]; }; then
+            echo "❌ Aborting: the selected backend is not confirmed to be using this run's managed config (see above)." >&2
             exit 1
           fi
 

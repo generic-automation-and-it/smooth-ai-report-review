@@ -37,7 +37,7 @@ cat > "$TMP/oc.json" <<JSON
 JSON
 export OPENCODE_CONFIG="$TMP/oc.json" RUNNER_TEMP="$TMP"
 . "$SCRIPT_DIR/lib/prepare-pi-config.sh"
-export OPENCODE_REVIEW_REPORT_PROVIDER_ID=mock OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=mock-model
+export OPENCODE_REVIEW_REPORT_PROVIDER=mock OPENCODE_REVIEW_REPORT_PROVIDER_ID=mock OPENCODE_REVIEW_REPORT_MODEL_PRIMARY=mock-model
 prepare_pi_config "$REPO_ROOT/.agents/skills/ai-review-report/assets/pi/settings.json" >/dev/null
 export PI_CODING_AGENT_DIR
 [ -f "$PI_CODING_AGENT_DIR/models.json" ] || { echo "❌ pi agent directory was not prepared"; exit 1; }
@@ -49,10 +49,10 @@ bad() { echo "  ❌ $1"; fail=$((fail+1)); }
 
 run_pi() {
   curl -s -X POST "http://127.0.0.1:${PORT}/reset" >/dev/null 2>&1 || true
-  ( cd "$WS" && PATH="$PATH" OPENCODE_REVIEW_REPORT_BACKEND=pi OPENCODE_AGENT=review \
+  ( cd "$WS" && PATH="$PATH" OPENCODE_REVIEW_REPORT_BACKEND=pi OPENCODE_REVIEW_REPORT_PROVIDER=mock OPENCODE_AGENT="${L2_ROLE:-review}" \
     PI_CODING_AGENT_DIR="$PI_CODING_AGENT_DIR" MOCK_KEY=local-dummy PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1 \
     OPENCODE_OUTPUT_SHAPE_CHECK="$SHAPE" OPENCODE_RUN_CWD="$WS" \
-    bash "$HELPER" mock/mock-model "" "" -- "$TMP/prompt.md" 2>"$TMP/err.txt" )
+    bash "$HELPER" mock-model "" "" -- "$TMP/prompt.md" 2>"$TMP/err.txt" )
 }
 
 echo "=========================================="
@@ -82,6 +82,15 @@ run_pi >/dev/null 2>&1; rc=$?
 printf '{"mode":"empty"}\n' > "$SCENARIO"
 run_pi >/dev/null 2>&1; rc=$?
 [ "$rc" -ne 0 ] && ok "an empty answer is rejected" || bad "an empty answer was accepted"
+
+# Analyse role (LADR-129): the protected edit is refused by the runtime. The
+# allow side of the edit matrix is pinned at L0 by test-pi-policy.sh.
+jq -n '{mode:"tool_calls", tool_calls:[{name:"edit", arguments:{path:".env", edits:[{oldText:"SECRET=leak", newText:"x"}]}}], then:{mode:"answer", answer:"done"}}' > "$SCENARIO"
+L2_ROLE=analyse run_pi >/dev/null 2>&1 || true
+[ -s "$REQUESTS" ] && grep -qE '"name": *"edit"' "$REQUESTS" \
+  && grep -q 'SECRET=leak' "$WS/.env" \
+  && ok "an analyse edit of .env was attempted and blocked (file unchanged)" \
+  || bad "the analyse edit fence did not block .env (attempt missing or file changed)"
 
 echo ""
 echo "=========================================="

@@ -38,7 +38,7 @@ Modes:
 
 ## CI Contract
 
-The GitHub Actions workflow invokes this skill headlessly by inlining this `SKILL.md` into an `opencode run --agent analyse` prompt. In CI:
+The GitHub Actions workflow invokes this skill headlessly by inlining this `SKILL.md` into a model prompt executed by the selected backend under the `analyse` role (OpenCode by default; the pi runtime when `OPENCODE_REVIEW_REPORT_BACKEND=pi`). In CI:
 
 1. Edit files only for gate-authored low/medium findings supplied in the prompt.
 2. Do not run `git`, do not commit, and do not push.
