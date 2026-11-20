@@ -108,12 +108,9 @@ prepare_pi_config() { # prepare_pi_config <settings-asset>
       case "$_url" in
         *://*@*) printf '❌ Provider "%s" base URL embeds credentials; a credential-free URL is required\n' "$_id" >&2; rm -rf "$_dir"; return 1 ;;
       esac
-      case "$_url" in
-        *[?\&]*=*) case "$_url" in
-          *[?\&]api[_-]?key=*|*[?\&]key=*|*[?\&]token=*|*[?\&]access_token=*|*[?\&]sig=*|*[?\&]secret=*)
-            printf '❌ Provider "%s" base URL carries a credential in its query string\n' "$_id" >&2; rm -rf "$_dir"; return 1 ;;
-        esac ;;
-      esac
+      if printf '%s' "$_url" | grep -qE '[?&](api[_-]?key|key|token|access_token|sig|secret)='; then
+        printf '❌ Provider "%s" base URL carries a credential in its query string\n' "$_id" >&2; rm -rf "$_dir"; return 1
+      fi
       _key="$(pi_key_var_for_provider "$_id")" || { rm -rf "$_dir"; return 1; }
       _models="$(jq -r --arg p "$_id" '((.provider // .providers)[$p].models // {}) | keys[]' "$_cfg")"
       [ "$_first" -eq 1 ] || printf ',\n'
