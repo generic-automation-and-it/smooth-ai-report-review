@@ -782,6 +782,25 @@ _want_bytes="$(printf '%s' "$(OPENCODE_STUB_CALLS=/dev/null "${marker_dir}/bin/o
   exit 1
 }
 echo "✓ transport names each shape-rejected model; the chunk gate parses the same marker literal"
+# LADR-123: one "asking" line per call, at column 0, before the call — the
+# chunk gate counts them against opencode's content-filter error to decide
+# that EVERY call was refused. Same two-file literal as the shape marker.
+_asked_val="$(sed -n "s/^MODEL_ASKED_MARKER=\"\(.*\)\"$/\1/p" "$HELPER")"
+[ -n "$_asked_val" ] || {
+  echo "FAIL: could not read MODEL_ASKED_MARKER from $HELPER" >&2
+  exit 1
+}
+for _m in openai/m1 openai/m2; do
+  [ "$(printf '%s\n' "$shape_err" | grep -cxF "${_asked_val} ${_m}")" = "1" ] || {
+    echo "FAIL: the transport must write exactly one '${_asked_val} ${_m}' line at column 0" >&2
+    exit 1
+  }
+done
+[ "$(grep -cF "MODEL_ASKED_MARKER='${_asked_val}'" "${SCRIPT_DIR}/review-in-chunks.sh")" = "1" ] || {
+  echo "FAIL: review-in-chunks.sh's MODEL_ASKED_MARKER must equal the transport's ('${_asked_val}')" >&2
+  exit 1
+}
+echo "✓ transport writes one asked-model line per call; the chunk gate parses the same literal (LADR-123)"
 echo "✓ shape predicate: narration rejected, real findings accepted"
 
 # --- LADR-094: a shape rejection is named, kept, and re-asked once ----------
