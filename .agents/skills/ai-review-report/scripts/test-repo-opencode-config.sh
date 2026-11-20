@@ -121,6 +121,29 @@ for cfg in "$BUILTIN" "$REPO_CONFIG"; do
 done
 echo "✅ both config files implement the role contract's read and content-search denials"
 
+# LADR-131: conformance is derived from the contract, so a contract change that
+# the config does not follow fails here instead of passing on static values.
+for cfg in "$BUILTIN" "$REPO_CONFIG"; do
+  for role in review analyse; do
+    while IFS= read -r tool; do
+      [ -n "$tool" ] || continue
+      jq -e --arg r "$role" --arg t "$tool"         '.agent[$r].tools[$t] != false and (.agent[$r].permission[$t] // "allow") != "deny"' "$cfg" >/dev/null \
+        || fail "$(basename "$cfg") $role does not implement allowed tool $tool"
+    done < <(jq -r --arg r "$role" '.roles[$r].allowedTools[]' "$CONTRACT")
+    while IFS= read -r tool; do
+      [ -n "$tool" ] || continue
+      jq -e --arg r "$role" --arg t "$tool"         '.agent[$r].tools[$t] == false or (.agent[$r].permission[$t] // "") == "deny"' "$cfg" >/dev/null \
+        || fail "$(basename "$cfg") $role does not implement denied tool $tool"
+    done < <(jq -r --arg r "$role" '.roles[$r].deniedTools[]' "$CONTRACT")
+    while IFS= read -r pathspec; do
+      [ -n "$pathspec" ] || continue
+      jq -e --arg r "$role" --arg p "$pathspec" '.agent[$r].permission.read[$p] == "deny"' "$cfg" >/dev/null \
+        || fail "$(basename "$cfg") $role does not deny contract read path $pathspec"
+    done < <(jq -r --arg r "$role" '.roles[$r].read.denyPaths[]' "$CONTRACT")
+  done
+done
+echo "✅ conformance is derived from the role contract, not a static value list"
+
 # LADR-123: OpenCode evaluates permission patterns in order, last match wins
 # (WT-01 M5). A deny entry that exists but sits before a wildcard allow is
 # ineffective, so assert the EFFECTIVE value for representative paths.

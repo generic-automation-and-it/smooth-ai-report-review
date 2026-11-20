@@ -207,6 +207,7 @@
         "skill": false,
         "task": false,
         "edit": false,
+        "write": false,
         "bash": false,
         "webfetch": false,
         "websearch": false
