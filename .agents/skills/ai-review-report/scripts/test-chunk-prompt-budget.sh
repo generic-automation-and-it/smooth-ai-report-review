@@ -275,6 +275,7 @@ run_aggregation_case() {
   local expected_action="$2"
   local expect_banner="$3"
   local label="$4"
+  local with_blocked_flag="${5:-false}"
   local test_repo="${TMP_DIR}/repo"
   local output_file="${TMP_DIR}/${label}.out"
   local run_log="${TMP_DIR}/${label}.log"
@@ -286,6 +287,9 @@ run_aggregation_case() {
   printf '### 📄 File: `giant/big.txt`\n\n- 🔵 [VERIFIED] Low Priority: None found\n' > ci_temp/reviews/chunk_1.md
   if [ "${with_failed_flag}" = "true" ]; then
     echo "exit code 124" > ci_temp/reviews/chunk_1.failed
+  fi
+  if [ "${with_blocked_flag}" = "true" ]; then
+    echo "openai/primary-model, openai/secondary-model" > ci_temp/reviews/chunk_1.content-blocked
   fi
 
   GITHUB_OUTPUT="${output_file}" \
@@ -331,6 +335,19 @@ run_aggregation_case() {
     else
       pass "${label}: no coverage banner"
     fi
+  fi
+
+  # LADR-123: a content-filter refusal gets its own banner line, because the
+  # coverage banner's "re-run to retry" is the wrong advice for it.
+  if grep -q "Refused by the provider's content filter" ci_temp/final_review.md; then
+    _refused_banner=true
+  else
+    _refused_banner=false
+  fi
+  if [ "${_refused_banner}" = "${with_blocked_flag}" ]; then
+    pass "${label}: content-filter banner present=${_refused_banner}"
+  else
+    fail "${label}: content-filter banner present=${_refused_banner}, expected ${with_blocked_flag}"
   fi
 
   # LADR-036 prompt rules must be in the aggregation prompt (full review).
@@ -917,6 +934,7 @@ run_author_fence_case
 run_deadline_case
 run_aggregation_case "true" "request_changes" "true" "failed-chunk-fail-closed"
 run_aggregation_case "false" "approve" "false" "clean-approve-passthrough"
+run_aggregation_case "true" "request_changes" "true" "content-blocked-fail-closed" "true"
 
 echo ""
 if [ "${FAILURES}" -gt 0 ]; then

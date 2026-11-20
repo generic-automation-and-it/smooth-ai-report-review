@@ -735,6 +735,83 @@ _ct "LADR-094 runtime: an unreadable config keeps the web wording" "1" \
 _ct "LADR-094 runtime: web on and web off prompts differ in exactly four lines" "4" \
   "$(diff "${_rt}/rt94-web.prompt" "${_rt}/rt94-default.prompt" | grep -c '^<')"
 
+# --- Runtime proof: a content-filter refusal is named and not retried (LADR-123)
+# Consumer PR 546: every call to both models ended in opencode's
+# `Error: Provider blocked the response` within ten seconds, the retry sweep
+# re-sent the same prompt for the same refusal, and the marker blamed the
+# "model API". The stub writes the transport's asked-model line (literal read
+# from the real helper) and opencode's coloured error line, per model.
+_ama="$(sed -n 's/^MODEL_ASKED_MARKER="\(.*\)"$/\1/p' "$_real_helper")"
+_ct "LADR-123 runtime: the transport's asked-model marker can be read" "1" \
+  "$([ -n "$_ama" ] && echo 1 || echo 0)"
+# RT123_MODE: blocked = every model refused; quoted = the message only appears
+# inside narration; timeout = the primary times out, the secondary is refused.
+cat > "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh" << RT123
+#!/usr/bin/env bash
+prompt_file="\${@: -1}"
+if [[ "\$prompt_file" == *"semantic_grouping_prompt.txt" ]]; then
+  echo "semantic grouping unavailable in test"; exit 0
+fi
+for m in "\$1" "\$2"; do
+  [ -n "\$m" ] || continue
+  echo "\$m" >> "\$RT123_CALLS"
+  printf '\n%s openai/%s\n' "${_ama}" "\$m" >&2
+  case "\$RT123_MODE:\$m" in
+    timeout:primary-model) exit 124 ;;
+    quoted:*) printf 'The doc quotes Error: Provider blocked the response as an example\n' >&2 ;;
+    *) printf '\033[91m\033[1mError: \033[0mProvider blocked the response\n' >&2 ;;
+  esac
+done
+exit 1
+RT123
+chmod +x "${_rt}/.agents/skills/ai-review-report/scripts/lib/opencode-with-fallback.sh"
+_rt123() { # _rt123 <mode> [chunk-timeout]
+  rm -rf "${_rt}/ci_temp/reviews"
+  : > "${_rt}/rt123-$1.calls"
+  (
+    cd "${_rt}"
+    RT123_MODE="$1" \
+    RT123_CALLS="${_rt}/rt123-$1.calls" \
+    OPENCODE_REVIEW_REPORT_CHUNK_TIMEOUT="${2:-450}" \
+    OPENCODE_REVIEW_REPORT_MODEL_SECONDARY=secondary-model \
+    OPENCODE_REVIEW_REPORT_MIN_FILE_COUNT_BEFORE_CHUNCKING=1 \
+    GITHUB_OUTPUT="${_rt}/rt123-$1.gh" \
+    PATH="${_rt}/bin:${PATH}" \
+    bash .agents/skills/ai-review-report/scripts/review-in-chunks.sh \
+      "$(git rev-parse HEAD~1)" "$(git rev-parse HEAD)" "primary-model" "test expertise" \
+      > "${_rt}/rt123-$1.log" 2>&1
+  ) || true
+}
+_rt123 blocked
+_ct "LADR-123 runtime: a refused chain names the content filter" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" "Reason:\*\* The provider's content filter refused")"
+_ct "LADR-123 runtime: the refusal names every refused model" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" '(openai/primary-model, openai/secondary-model)')"
+_ct "LADR-123 runtime: a refused chain is not blamed on the model API" "0" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
+_ct "LADR-123 runtime: a refused chunk still fail-closes (LADR-031)" "1" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.failed' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: a refused chunk carries the content-blocked flag" "1" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: the sweep says why it skipped the refused chunk" "1" \
+  "$(_rt_has "${_rt}/rt123-blocked.log" 'Retry sweep skips chunk #0')"
+_ct "LADR-123 runtime: a refused chunk is not retried" "1" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-blocked.calls")"
+_rt123 quoted
+_ct "LADR-123 runtime: the message quoted in narration is not a refusal" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: a quoted message keeps the generic reason" "1" \
+  "$(_rt_has "${_rt}/ci_temp/reviews/chunk_0.md" 'model API error')"
+_ct "LADR-123 runtime: a chunk that was not refused is still retried" "2" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-quoted.calls")"
+# 900 s splits the budget (LADR-081): the primary's timeout leaves no failure of
+# its own in the log, so counting failures would call this chunk refused.
+_rt123 timeout 900
+_ct "LADR-123 runtime: a timed-out primary before a refused secondary is not a refusal" "0" \
+  "$(find "${_rt}/ci_temp/reviews" -name 'chunk_0.content-blocked' 2>/dev/null | wc -l | tr -d ' ')"
+_ct "LADR-123 runtime: that chunk is still retried" "2" \
+  "$(grep -c '^primary-model$' "${_rt}/rt123-timeout.calls")"
+
 [ "$_ct_fail" -eq 0 ] || exit 1
 
 # --- No-review detection: narration is not a review (LADR-077) ---------------

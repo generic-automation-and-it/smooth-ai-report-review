@@ -1334,6 +1334,19 @@ Decisions an AI coder would plausibly re-litigate without them. Numbering is app
 - **Consequences**: About 110 bytes per linked finding. `#L<n>` appears only inside a URL, never as prose (LADR-067). If a consumer ever trips on the suffix, change the renderer, never the frozen parser. Local reviews stay link-free until stage 8 resolves the repo slug for pushed commits.
 - **See also**: LADR-055, LADR-067, LADR-068, LADR-093, LADR-101, LADR-109, LADR-111.
 
+### LADR-123: A content-filter refusal is named, and the chunk is not retried
+
+- **Date**: 2026-11-20
+- **Status**: Accepted (`review-in-chunks.sh` `chunk_blocked_models`; amends LADR-082's selection by one exclusion and LADR-091's failure marker by one branch)
+- **Context**: Consumer PR 546 failed closed on three runs. Every call, to both `gpt-6.1-sol` and `gpt-5.5`, ended within ten seconds in opencode's `Error: Provider blocked the response`, which opencode raises when a response finishes with the `content-filter` reason. Other PRs reviewed cleanly on the same models at the same time, so the prompt was refused, not the endpoint. The LADR-082 sweep re-sent the same prompt for the same refusal, the marker said "opencode / model API error (all fallbacks exhausted)", and the banner told the author to re-run `/ai-review`, which reproduced it.
+- **Decision**:
+  - `lib/opencode-with-fallback.sh` writes `MODEL_ASKED_MARKER <provider/model>` at column 0 on stderr **before** every call. `review-in-chunks.sh` holds the same literal; `test-opencode-with-fallback-targets.sh` pins them equal.
+  - `chunk_blocked_models` reads the chunk's stderr log and reports a refusal only when the `Error: Provider blocked the response` lines (matched as whole lines after stripping colour codes) are at least the asked-marker lines. **Calls are counted, not failures**: a call the stage timeout kills never reports its own failure, so a timed-out primary followed by a refused secondary is not a refusal and keeps its retry.
+  - A refused chunk keeps its LADR-031 `.failed` flag and gains `chunk_<n>.content-blocked` (the model list). The marker gets its own reason after the shape branch. The sweep skips the chunk and logs why. A skipped chunk still counts toward the all-chunks-failed test, so that test's outcome is unchanged.
+  - `aggregate-reviews.sh` counts `chunk_*.content-blocked` and adds a 🚫 banner line under the coverage banner: a re-run will most likely be refused again; reword, switch provider or review by hand. The verdict still comes from `.failed` alone.
+- **Consequences**: Saves one doomed attempt per refused chunk (seconds, since refusals are fast); the gain is the correct diagnosis. The refusal text and its `Error: ` prefix are opencode's, not ours: if opencode rewords them, refusals fall back to the generic reason and get retried, as before, so nothing fails closed that did not before. A partial refusal (one model refused, another errored) stays generic. No cross-provider fallback was added: the chain stays on the one provider `OPENCODE_REVIEW_REPORT_PROVIDER` selects (LADR-026).
+- **See also**: LADR-002, LADR-026, LADR-031, LADR-036, LADR-082, LADR-091.
+
 ### LADR-050: Default-on per-chunk risk and inferred test-coverage hints
 
 - **Date**: 2026-10-18

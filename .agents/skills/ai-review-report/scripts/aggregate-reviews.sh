@@ -641,6 +641,9 @@ SHORT_CURRENT_SHA="${CURRENT_SHA:0:7}"
 # of this script. LADR-031: the signal is flag-file existence ONLY — NEVER grep
 # review text for the failure marker (a quoted marker false-matched on PR #15).
 FAILED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.failed 2>/dev/null | wc -l | tr -d ' ')
+# LADR-123: the failed chunks the provider's content filter refused on every
+# call. Banner text only — the verdict still comes from FAILED_CHUNK_COUNT.
+BLOCKED_CHUNK_COUNT=$(ls ci_temp/reviews/chunk_*.content-blocked 2>/dev/null | wc -l | tr -d ' ')
 
 # LADR-121: chunks the opt-in run deadline never launched. They carry no
 # `chunk_<n>.failed` flag — that channel belongs to LADR-031 alone — and they
@@ -978,6 +981,14 @@ if [ "${FAILED_CHUNK_COUNT:-0}" -gt 0 ]; then
 
 > ⚠️ **Review coverage incomplete:** ${FAILED_CHUNK_COUNT} of ${TOTAL_CHUNKS} chunk$([ "$TOTAL_CHUNKS" -ne 1 ] && echo "s" || echo "") failed to review (see the failed-chunk details below). Because part of the PR was not reviewed, this review is posted as **REQUEST CHANGES (fail-closed)** regardless of the Recommendation section. Re-run \`/ai-review\` to retry once the failure is addressed.
 EOF
+  # LADR-123: "re-run to retry" is the wrong advice for a content-filter
+  # refusal, which a re-run reproduces. Say so where the reader looks first.
+  if [ "${BLOCKED_CHUNK_COUNT:-0}" -gt 0 ]; then
+    cat >> ci_temp/final_review.md << EOF
+
+> 🚫 **Refused by the provider's content filter:** every model in the chain answered \`Provider blocked the response\` for ${BLOCKED_CHUNK_COUNT} of ${FAILED_CHUNK_COUNT} failed chunk$([ "$FAILED_CHUNK_COUNT" -ne 1 ] && echo "s" || echo ""). That is a refusal of the review prompt for this PR, not an outage, so a re-run will most likely be refused again. Reword what trips the filter in the diff or PR description, review with a different provider, or review the PR by hand.
+EOF
+  fi
 fi
 
 # LADR-121: a run that hit its opt-in deadline says which chunks it never

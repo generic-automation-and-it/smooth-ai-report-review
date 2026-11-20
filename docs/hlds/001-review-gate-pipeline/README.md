@@ -56,6 +56,8 @@ Each chunk runs through a primary and a secondary model; when the total budget i
 split, the split leaves the fallback a real turn. A stalled chunk is killed early, and a failed
 chunk gets at most one retry before the report is assembled. The retry sweep is skipped when every
 chunk of a multi-chunk PR fails or the opt-in total-run deadline has been reached (canonical LADR-121).
+A chunk the provider's content filter refused on every call is not retried, and its failure says so
+(canonical LADR-123).
 
 **Acceptance criteria / DoD**
 

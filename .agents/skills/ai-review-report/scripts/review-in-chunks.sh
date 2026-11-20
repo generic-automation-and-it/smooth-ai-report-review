@@ -293,6 +293,41 @@ chunk_shape_notes() { # chunk_shape_notes <chunk_num>
     "ci_temp/reviews/chunk_${1}_stderr.log" 2>/dev/null | sed 's/^/     ↳ /' || true
 }
 
+# LADR-123: was this chunk refused by the provider's content filter on EVERY
+# call the chain made? opencode prints `Error: Provider blocked the response`
+# when a response finishes with the `content-filter` reason; the transport
+# prints one MODEL_ASKED_MARKER line before each call. Every call blocked means
+# a retry sends the same prompt to the same models for the same refusal
+# (consumer PR 546: six attempts over three runs, all blocked within ten
+# seconds), so the chunk is not retried and its marker says why.
+#
+# Calls are counted, not failures: a call the stage timeout kills never reports
+# its own failure, so a timed-out primary followed by a blocked secondary must
+# still read as "not every call was blocked" — that chunk deserves its retry.
+#
+# The opencode line is matched as a whole line after stripping colour codes,
+# not as a substring: v2 routes model narration to stderr, and a review of a
+# file that quotes the message must not turn into a block.
+#
+# Prints the asked models, comma-separated, and returns 0 when every call was
+# blocked; returns 1 with no output otherwise. MODEL_ASKED_MARKER must equal
+# the transport's byte-for-byte; test-opencode-with-fallback-targets.sh pins
+# the two literals.
+MODEL_ASKED_MARKER='opencode-with-fallback.sh: asking'
+PROVIDER_BLOCKED_LINE='Error: Provider blocked the response'
+chunk_blocked_models() { # chunk_blocked_models <chunk_num>
+  local _log="ci_temp/reviews/chunk_${1}_stderr.log" _asked _blocked _esc
+  [ -f "$_log" ] || return 1
+  _esc="$(printf '\033')"
+  _asked="$(grep -c "^${MODEL_ASKED_MARKER} " "$_log" 2>/dev/null || true)"
+  _blocked="$(sed "s/${_esc}\[[0-9;]*m//g" "$_log" 2>/dev/null \
+    | grep -c "^[[:space:]]*${PROVIDER_BLOCKED_LINE}[[:space:]]*\$" || true)"
+  [ "${_asked:-0}" -gt 0 ] && [ "${_blocked:-0}" -ge "$_asked" ] || return 1
+  awk -v m="$MODEL_ASKED_MARKER" \
+    'index($0, m) == 1 { s = substr($0, length(m) + 2); out = out (out == "" ? "" : ", ") s } END { print out }' \
+    "$_log"
+}
+
 chunk_review_has_shape() {
   # Delegates to lib/review-has-shape.sh so the transport gate in
   # lib/opencode-with-fallback.sh and this authoritative gate cannot disagree
@@ -1605,7 +1640,7 @@ EOF
   # `timeout` calls setpgid(0,0) before forking, so $! is also the PGID and the
   # watchdog's `kill -TERM -PID` reaches opencode and the model transport, not
   # just the wrapper.
-  rm -f "ci_temp/reviews/chunk_${chunk_num}.stalled"
+  rm -f "ci_temp/reviews/chunk_${chunk_num}.stalled" "ci_temp/reviews/chunk_${chunk_num}.content-blocked"
   OPENCODE_EXPECTED_CHUNK_FILES="$_expected_files" OPENCODE_OUTPUT_SHAPE_CHECK="$CHUNK_SHAPE_CHECK" OPENCODE_SHAPE_REJECT_RETRIES="$CHUNK_SHAPE_REJECT_RETRIES" OPENCODE_REJECTED_OUTPUT_FILE="ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt" OPENCODE_RUN_CWD="$_run_cwd" timeout "${_primary_budget}s" bash "$(dirname "${BASH_SOURCE[0]}")/lib/opencode-with-fallback.sh" "$OPENCODE_MODEL_ID" "$_stage1_fb" "" -- ci_temp/chunk_${chunk_num}_prompt.txt > ci_temp/reviews/chunk_${chunk_num}.md 2>ci_temp/reviews/chunk_${chunk_num}_stderr.log &
   _stage1_pid=$!
   _stage1_wd="$(_stall_arm "$_stage1_pid" "$chunk_num" "Chunk ${chunk_num} (primary)" "$_primary_budget")"
@@ -1781,6 +1816,8 @@ EOF
     fi
   else
     local exit_code=$_chunk_rc
+    local _blocked_models
+    _blocked_models="$(chunk_blocked_models "$chunk_num" || true)"
     echo "  ❌ Chunk ${chunk_num} review failed (exit code: ${exit_code})"
     chunk_shape_notes "$chunk_num"
     # Preserve and PRINT the stderr. Naming the path was useless: the cleanup
@@ -1850,6 +1887,14 @@ EOF
         # Not "every model": a chain can mix a shape rejection with a provider
         # error, and the list below names only the models that answered.
         echo "**Reason:** Output format, not (only) the provider: the model(s) listed below answered, but the answer failed the completeness check (\`lib/review-has-shape.sh\`) — a changed file never named, a missing Low severity line, or a finding without a \`file:line\` anchor. Any model in the chain not listed failed at the provider. The rejected text is kept in \`ci_temp/reviews/chunk_${chunk_num}.shape-rejected.txt\` (shipped in the run artifact), each entry headed by the check's reason."
+      elif [ -n "$_blocked_models" ]; then
+        # LADR-123. After the shape branch, which never co-occurs: a
+        # shape-rejected call was asked and answered, not refused, so
+        # chunk_blocked_models already returned nothing. Attempt 1 is not
+        # retried; a refusal on the retry follows a different first failure.
+        local _blocked_retry_note="so this chunk was not retried (LADR-123)"
+        [ "${CHUNK_RETRY_ATTEMPT:-0}" != "1" ] || _blocked_retry_note="and this was already the chunk's one retry (LADR-082)"
+        echo "**Reason:** The provider's content filter refused this chunk's review prompt — every model in the chain answered \`Provider blocked the response\` (${_blocked_models}). This is a refusal of the prompt, not an outage or a timeout: a retry sends the same prompt to the same models, ${_blocked_retry_note}, and re-running \`/ai-review\` will most likely be refused again. Something in the diff, the PR description or the loaded context trips the filter; rewording it, reviewing with a different provider (\`OPENCODE_REVIEW_REPORT_PROVIDER\`), or a human review is the way through."
       else
         echo "**Reason:** opencode / model API error (all fallbacks exhausted)"
       fi
@@ -1870,6 +1915,13 @@ EOF
       echo "${_stall_reason} (exit code ${exit_code})" > "ci_temp/reviews/chunk_${chunk_num}.failed"
     else
       echo "exit code ${exit_code}" > "ci_temp/reviews/chunk_${chunk_num}.failed"
+    fi
+    # LADR-123: a second, narrower flag beside `.failed`, never instead of it —
+    # the chunk still fail-closes. The retry sweep skips a chunk that carries it,
+    # and aggregation counts it for the coverage banner.
+    if [ -n "$_blocked_models" ]; then
+      echo "${_blocked_models}" > "ci_temp/reviews/chunk_${chunk_num}.content-blocked"
+      echo "  🚫 Chunk ${chunk_num}: the provider's content filter refused every model (${_blocked_models}) (LADR-123)"
     fi
     # LADR-055: a failed chunk contributes no findings — clear any stale sidecar.
     rm -f "ci_temp/reviews/chunk_${chunk_num}.findings.json"
@@ -2056,10 +2108,21 @@ fi
 # makes the coverage block read `0 failed`. This covers every failure mode:
 # exit 124 timeouts, non-124 API errors, and the LADR-031/077 no-review
 # rejections that exit 0 and are otherwise denied even the LADR-081 secondary.
+#
+# LADR-123: a chunk the content filter refused on every call is NOT retried —
+# the retry would send the same prompt to the same models. It keeps its
+# `.failed` flag, so it still fail-closes, and it still counts toward the
+# all-chunks-failed test below, which is about the run, not about retries.
 declare -a RETRY_CHUNKS=()
+_failed_before_retry=0
 for i in $(seq 0 $((TOTAL_CHUNKS - 1))); do
   if [ -f "ci_temp/reviews/chunk_${i}.failed" ]; then
-    RETRY_CHUNKS+=("$i")
+    _failed_before_retry=$((_failed_before_retry + 1))
+    if [ -f "ci_temp/reviews/chunk_${i}.content-blocked" ]; then
+      echo "🚫 Retry sweep skips chunk #${i} (${CHUNK_DIRS[$i]}): the provider's content filter refused every call, so a retry would be refused too (LADR-123)"
+    else
+      RETRY_CHUNKS+=("$i")
+    fi
   fi
 done
 
@@ -2072,7 +2135,7 @@ if [ "$_deadline_expired" = true ]; then
 fi
 
 if [ "${#RETRY_CHUNKS[@]}" -gt 0 ]; then
-  if [ "${#RETRY_CHUNKS[@]}" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
+  if [ "$_failed_before_retry" -eq "$TOTAL_CHUNKS" ] && [ "$TOTAL_CHUNKS" -gt 1 ]; then
     # Every chunk failed: that is a dead endpoint, not bad luck. Retrying
     # doubles a doomed run, so the sweep is skipped — and says so, or
     # "we skipped the sweep" is indistinguishable from "nothing to sweep".
