@@ -171,6 +171,9 @@ jobs:
             # LADR-125: the pi install source — pin/floor/Node/PATH and the
             # no-raw-install scan. The real install runs in pi-backend-regressions.
             .agents/skills/ai-review-report/scripts/test-install-pi.sh
+            # LADR-126: the pi agent directory is derived from the resolved
+            # OpenCode roster; keys stay $NAME references.
+            .agents/skills/ai-review-report/scripts/test-prepare-pi-config.sh
             .agents/skills/ai-review-report/scripts/test-regression-runner.sh
             .agents/skills/ai-review-report/scripts/test-opencode-health.sh
             .agents/skills/ai-review-report/scripts/test-backend-selector.sh
