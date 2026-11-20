@@ -14,8 +14,8 @@ ROOT="$TMP/ws"
 mkdir -p "$ROOT/sub/.git" "$ROOT/.git" "$ROOT/.context" "$ROOT/.smooth-ai-review-tools" "$ROOT/.smooth-ai-review-tools" "$ROOT/.context" "$ROOT/ci_temp"
 printf 'x\n' > "$ROOT/src.js"; printf 'x\n' > "$ROOT/.env"; printf 'x\n' > "$ROOT/.env.production"
 printf 'SAFE=1\n' > "$ROOT/.env.example"; printf 'x\n' > "$ROOT/.git/config"
+rm -f "$ROOT/.env.example"; ln -s .env "$ROOT/.env.example"
 printf 'x\n' > "$ROOT/sub/.git/config"; printf 'safe\n' > "$ROOT/safe.txt"; printf 'SAFE=1\n' > "$ROOT/sub/.env.example"; ln -s ../safe.txt "$ROOT/sub/.env"
-ln -s ../.env "$ROOT/.env.example"
 printf 'x\n' > "$ROOT/.context/.env.example"
 printf 'x\n' > "$ROOT/.smooth-ai-review-tools/.env.example"
 ln -s "$ROOT/src.js" "$ROOT/link-in.js"; ln -s /etc/hosts "$ROOT/link-out.js"
@@ -73,6 +73,8 @@ CASES_REVIEW='[
 ]'
 
 out="$(run_cases review "$ROOT" "$CASES_REVIEW")"
+check "the protected-name symlink fixture exists" "yes" "$([ -L "$ROOT/.env.example" ] && [ -L "$ROOT/sub/.env" ] && echo yes || echo no)"
+
 echo "=========================================="
 echo "Testing pi policy extension (LADR-127)"
 echo "=========================================="
@@ -92,7 +94,7 @@ CASES_ANALYSE='[
  {"id":"temp-blocked","tool":"edit","input":{"path":"ci_temp/x.txt"}},
  {"id":"git-blocked","tool":"edit","input":{"path":".git/config"}},
  {"id":"env-blocked","tool":"edit","input":{"path":".env"}},
- {"id":"env-example-allowed","tool":"edit","input":{"path":".env.example"}},
+ {"id":"env-example-allowed","tool":"edit","input":{"path":"sub/.env.example"}},
  {"id":"context-env-example-blocked","tool":"edit","input":{"path":".context/.env.example"}},
  {"id":"tooling-env-example-blocked","tool":"edit","input":{"path":".smooth-ai-review-tools/.env.example"}},
  {"id":"read-env-blocked","tool":"read","input":{"path":".env"}},
