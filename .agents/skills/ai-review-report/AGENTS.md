@@ -1602,6 +1602,7 @@ Beyond the project-wide baseline (`.agents/rules/non-functional-requirements.ins
 ## Changelog
 
 | Date | Change | Ref |
+| 2026-11-17 | `references/pi-runtime.md` records measured pi facts and resolves D2 (floor 1.5.2), D3 (npm route), D6 (native-context set), D7 (content search denied) and D15 (`/proc/**` read deny). | #261 |
 | 2026-11-17 | Review fixes: LADR-121 deadline re-checked after the parallel wait and a value below 1 unset everywhere; deadline-skipped summary names the deadline; LADR-119 relativizes absolute evidence paths; LADR-120 caller sites repo-relative, File-kind rows dropped; RTK floor pads two-component versions. | #257 |
 | 2026-11-17 | Test References points at `scripts/run-regressions.sh` for local runs. | #256 |
 | 2026-11-17 | LADR-050 amended: opt-in removed-symbol hint class (separate TSV), indirect-coverage wording, churn flag, graph state in metadata, one Coverage line only for an enabled feature's degradation; presentation-only Structural Risk block (HLD-003 LADR-06); report-only skip-recurrence and hint-attribution metrics. | #256 |
