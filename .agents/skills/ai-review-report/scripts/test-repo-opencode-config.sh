@@ -183,3 +183,45 @@ for cfg in "$BUILTIN" "$REPO_CONFIG"; do
   done
 done
 echo "✅ conformance is derived from the role contract, not a static value list"
+
+# The edit fence is checked the same way: effective permission for a sample
+# path, with the ordered wildcard-last case as a negative control.
+_edit_perm() { # _edit_perm <cfg> <role> <path>
+  local cfg="$1" role="$2" p="$3" pat val out=""
+  if jq -e --arg r "$role" '.agent[$r].permission.edit | type == "string"' "$cfg" >/dev/null 2>&1; then
+    jq -r --arg r "$role" '.agent[$r].permission.edit' "$cfg"
+    return
+  fi
+  while IFS=$'\t' read -r pat val; do
+    case "$p" in $pat) out="$val" ;; esac
+  done < <(jq -r --arg r "$role" \
+    '.agent[$r].permission.edit | to_entries[] | "\(.key)\t\(.value)"' "$cfg" 2>/dev/null)
+  printf '%s' "$out"
+}
+while IFS= read -r pathspec; do
+  [ -n "$pathspec" ] || continue
+  case "$pathspec" in
+    '.smooth-ai-review-tools/**'|'.smooth-ai-review-tools/*') sample='.smooth-ai-review-tools/x.sh' ;;
+    '.context/**'|'.context/*') sample='.context/x.json' ;;
+    'ci_temp/**'|'ci_temp/*'|'*ci_temp/*') sample='ci_temp/x.txt' ;;
+    '.git/**'|'.git/*') sample='.git/config' ;;
+    '.env') sample='.env' ;;
+    '.env.*') sample='.env.production' ;;
+    *) sample="${pathspec//\*\*/x}" ;;
+  esac
+  [ "$(_edit_perm "$BUILTIN" analyse "$sample")" = "deny" ] \
+    || fail "built-in analyse does not effectively deny edit on $pathspec (sample $sample)"
+  [ "$(_edit_perm "$REPO_CONFIG" analyse "$sample")" = "deny" ] \
+    || fail "$REPO_CONFIG_REL analyse does not effectively deny edit on $pathspec (sample $sample)"
+done < <(jq -r '.roles.analyse.edit.denyPaths[]' "$CONTRACT")
+check_edit_allow='.env.example'
+[ "$(_edit_perm "$BUILTIN" analyse "$check_edit_allow")" = "allow" ] \
+  || fail "built-in analyse does not keep $check_edit_allow editable"
+[ "$(_edit_perm "$BUILTIN" review '.context/x.json')" = "deny" ] \
+  || fail "built-in review edit is not denied outright"
+bad_edit="$(mktemp)"
+jq '.agent.analyse.permission.edit |= (del(."*") + {"*": "allow"})' "$BUILTIN" > "$bad_edit"
+[ "$(_edit_perm "$bad_edit" analyse '.context/x.json')" = "allow" ] \
+  || fail "effective edit check is not order-sensitive (wildcard-last fixture still reports deny)"
+rm -f "$bad_edit"
+echo "✅ effective edit permissions deny protected paths and keep .env.example editable"
